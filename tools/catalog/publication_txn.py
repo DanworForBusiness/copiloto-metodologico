@@ -536,6 +536,9 @@ def recover_pending(catalog_root: str | Path, *, timeout: float | None = None) -
             shutil.rmtree(od, ignore_errors=True)
             results.append({"operation_id": op, "from": state, "action": "ROLLED_BACK"})
         _prune_journals(root)
+        if results and not has_pending(root):                      # nada sin resolver: la compuerta de lectores que dejó cerrada la operación recuperada se abre
+            from core import publication_gate
+            publication_gate.clear(root)
     return results
 
 

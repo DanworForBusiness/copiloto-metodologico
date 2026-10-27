@@ -37,7 +37,9 @@ def svc(ctx, monkeypatch):                                                      
     registered: list = []
     monkeypatch.setattr(asd, "cli_available", lambda: True)
     monkeypatch.setattr(main, "_invalidate_catalog_cache", lambda: None)
-    monkeypatch.setattr(pub, "register_assessment", lambda v: (registered.append(v.root_object), [("entry-1", "CURRENT")])[1])
+    monkeypatch.setattr(pub, "register_assessment", lambda v: (registered.append(v.root_object), [("entry-1", "CURRENT")])[1])    # P1: la unidad segura YA NO registra el assessment después del commit
+    monkeypatch.setenv("DANWOR_GOVERNED_ASSESSMENTS_DIR", str(ctx.tmp / "governed"))
+    assess.reset_memory_cache()
     ctx.registered = registered
     return ctx
 
@@ -65,14 +67,15 @@ CASES = [
 
 
 @pytest.mark.parametrize("status, ok, code, state, registers", CASES)
-def test_every_status_maps_to_the_ui_contract_and_only_committed_states_register_the_assessment(svc, monkeypatch, status, ok, code, state, registers):
+def test_every_status_maps_to_the_ui_contract_and_the_safe_path_never_registers_the_assessment_after_the_commit(svc, monkeypatch, status, ok, code, state, registers):
     flag(monkeypatch, True)
     seen: dict = {}
     monkeypatch.setattr(dsp, "run_export", lambda req: (seen.setdefault("req", req), _result(status, ok, code))[1])
     out = pub.run(values(), "supersecret", user_email="c@danwor.com")
     assert out.state == state and out.status == status and (out.error_code or None) == code
-    assert (svc.registered == ["AM_Lista_Precios"]) is registers                                              # el Assessment se registra SOLO tras un commit local
+    assert svc.registered == []                                                                                # el assessment es parte de la UNIDAD (preparado antes de activar), no un registro posterior
     assert seen["req"].safe is True and seen["req"].mirror_up is True and seen["req"].mode == "publish"        # seguro: la confirmación remota es obligatoria
+    assert seen["req"].stage_hooks is not None and type(seen["req"].stage_hooks).__name__ == "AssessmentStage"
     if state == "PARTIAL":
         assert out.title == "Publicación parcial" and out.message
         assert out.state != "SUCCESS"
@@ -106,12 +109,13 @@ def test_the_switch_is_read_once_per_operation_and_defaults_to_off(svc, monkeypa
 def test_end_to_end_success_and_incomplete_extraction_through_the_service(svc, monkeypatch):
     flag(monkeypatch, True)
     ok = pub.run(values(), "supersecret")
-    assert ok.state == "SUCCESS" and ok.status == txn.COMPLETED and svc.registered == ["AM_Lista_Precios"]
+    assert ok.state == "SUCCESS" and ok.status == txn.COMPLETED and ok.change == "CHANGED" and ok.assessment["regenerated"] == ["AM_Lista_Precios"]
+    assert assess.governed_path(CLIENT, "AM_Lista_Precios").is_file()                                          # el assessment se escribió DENTRO de la unidad
     before = svc.digest()
     svc.tenant.fail_reads.add(("views", "3VF_LP"))
     bad = pub.run(values(), "supersecret")
     assert bad.state == "FAILED" and bad.error_code == "EXTRACTION_INCOMPLETE" and svc.digest() == before
-    assert svc.registered == ["AM_Lista_Precios"]                                                              # NO se reutiliza evidencia incompleta: no se registró de nuevo
+    assert svc.registered == []                                                                                # y nunca se registró nada posterior
 
 
 # ═══════════════ interruptor: activar y desactivar sin estados mixtos ═══════════════
@@ -160,7 +164,8 @@ FORM = {"pack": "datasphere_core", "host": "https://t.eu10.hcs.cloud.sap", "toke
 
 
 @pytest.mark.parametrize("outcome, expect_url", [
-    (pub.PublicationOutcome("SUCCESS", status=txn.COMPLETED, durability=txn.DURABILITY_REMOTE, stages={"remote": "OK"}, operation_id="o1"), True),
+    (pub.PublicationOutcome("SUCCESS", status=txn.COMPLETED, durability=txn.DURABILITY_REMOTE, stages={"remote": "OK"}, operation_id="o1", change="CHANGED",
+                            assessment={"regenerated": ["AM_X"], "kept": ["AM_Y", "AM_Z"], "uncertain": [], "removed": []}), True),
     (pub.PublicationOutcome(pub.STATE_PARTIAL, "PERSISTENCE_UNCONFIRMED", "msg", title=pub.TITLE_PARTIAL, status=txn.COMMITTED_UNCONFIRMED, durability=txn.DURABILITY_UNCONFIRMED), False),
 ])
 def test_the_done_event_carries_status_durability_and_stages_and_only_success_opens_the_catalog(monkeypatch, outcome, expect_url):
@@ -169,6 +174,7 @@ def test_the_done_event_carries_status_durability_and_stages_and_only_success_op
     r = _client("owner@danwor.com").post(RUN_URL, data=FORM, headers={"Origin": "http://testserver"})
     done = next(json.loads(ln) for ln in r.text.splitlines() if '"t": "done"' in ln or '"t":"done"' in ln)
     assert done["state"] == outcome.state and done["status"] == outcome.status and done["durability"] == outcome.durability and "stages" in done
+    assert done["change"] == outcome.change and done["assessment"] == {k: len(v) for k, v in outcome.assessment.items()}                        # P1: trazabilidad hacia la interfaz
     assert bool(done["result_url"]) is expect_url
 
 

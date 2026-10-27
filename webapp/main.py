@@ -12,7 +12,7 @@ import unicodedata
 import zlib
 
 from fastapi import FastAPI, Form, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from core.content_registry import (
@@ -22,7 +22,7 @@ from core.content_registry import (
     content_pack_short_label,
     resolve_pack,
 )
-from core import remote_store
+from core import publication_gate, remote_store
 from core.utils import slugify
 from webapp.services import auth_service
 from webapp.services import catalog_reads
@@ -210,6 +210,15 @@ async def lifespan(app: FastAPI):
                 log.info("restore en background completo: %d archivos, cache de catálogo invalidado", restored)
         except Exception as exc:
             log.warning("restore en background falló: %s", exc)
+        await _publication_boot_recovery()
+
+    async def _publication_boot_recovery():
+        """P1: una publicación que la caída del proceso dejó a medias se completa o se deshace VERIFICANDO Spaces, recién con el restore terminado (nunca antes)."""
+        try:
+            from webapp.services import datasphere_publication_service
+            await asyncio.to_thread(datasphere_publication_service.boot_recover)
+        except Exception as exc:
+            log.warning("recuperación de publicaciones al arranque falló: %s", exc)
 
     log.info("persistencia: %s", remote_store.describe_mode())
     warning = remote_store.mode_warning()
@@ -219,6 +228,8 @@ async def lifespan(app: FastAPI):
     if remote_store.enabled():
         tasks.append(asyncio.create_task(_restore_bg()))
         tasks.append(asyncio.create_task(remote_store.sync_loop()))
+    else:
+        await _publication_boot_recovery()
     try:
         yield
     finally:
@@ -247,6 +258,17 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Copiloto Metodológico Danwor Beta", version="0.2.0", lifespan=lifespan)
+
+
+# P1 — compuerta de lectores de la publicación del Catálogo: mientras una versión nueva se activa (o queda sin confirmar) los lectores reciben un 503 reintentable, nunca una vista a medias.
+@app.exception_handler(publication_gate.PublicationInProgress)
+async def _publication_in_progress(request, exc):
+    return PlainTextResponse("Se está publicando una versión nueva del Catálogo. Reintentá en unos segundos.", status_code=503, headers={"Retry-After": str(exc.retry_after)})
+
+
+@app.exception_handler(publication_gate.PublicationBlocked)
+async def _publication_blocked(request, exc):
+    return PlainTextResponse("La última publicación del Catálogo está en verificación. La lectura se reanuda sola al resolverse.", status_code=503, headers={"Retry-After": "30"})
 app.mount("/static", StaticFiles(directory=WEB_DIR / "static"), name="static")
 app.include_router(system_router.router)
 app.include_router(telemetry_router.router)
