@@ -23,7 +23,7 @@ Estados funcionales: `COMPLETED` · `FAILED_NO_CHANGE` · `ROLLED_BACK` · `COMM
 
 Precondiciones (todas):
 1. **Réplica única** de App Platform (`instance_count = 1`) — ver §5. El candado de SO **no** protege entre instancias.
-2. `DANWOR_PERSISTENCE=remote` ya vigente en producción (gate de despliegue existente).
+2. `DANWOR_PERSISTENCE=remote` ya vigente en producción (gate de despliegue existente), **`DANWOR_PUBLICATION_MIRROR_UP=1`** y **`governed-assessments` dentro de `SPACES_PERSIST_PATHS`** (si el entorno define esa variable explícita, hay que sumarlo). Sin eso la publicación **aborta antes de tocar nada** (`PERSISTENCE_*` / `ASSESSMENT_NOT_PERSISTED`, ver `docs/REPUBLICATION_P1.md` §3.2).
 3. Ninguna publicación ni «Generar catálogo» en curso (el panel de Catálogo no muestra operación activa) y **sin journals pendientes** (§4).
 
 Pasos:
@@ -50,12 +50,14 @@ Pasos:
 * `PERSISTENCE_FAILED` (`ROLLED_BACK`): Spaces no aceptó la versión nueva; local y Spaces quedaron en la última versión confirmada. Reintentar cuando Spaces responda.
 * `PERSISTENCE_UNCERTAIN` (`RECOVERY_REQUIRED`): no se pudo verificar Spaces; los lectores del pool/Catálogo en frío reciben **503** hasta que la recuperación confirme o deshaga. Compuerta: `<dirname(DANWOR_CATALOG_DIR)>/.publication_runtime/gate.json`. No borrar el archivo a mano.
 * `PERSISTENCE_DIVERGED`: el local volvió a la versión previa (lectores liberados) pero Spaces todavía no; no se publica hasta que la compensación se complete (se reintenta sola).
+* **Registro de intención (B1)**: `catalog_local/.publication_state/<cliente>.intent/` (local **y** en Spaces) existe solo mientras una confirmación no se resolvió. Si persiste, la publicación nueva responde `RECOVERY_REQUIRED`. Se resuelve solo (arranque, lector bloqueado, siguiente publicación); a mano: el mismo `recover_pending` de arriba. **No borrar sus archivos ni los de Spaces a mano.**
+* **Lectura bloqueada tras un arranque** (503 con `código X`; el log del arranque lo registra con severidad de error): `BOOT_VERIFICATION_PENDING` (restore o verificación en curso, esperar) · `RESTORE_INCOMPLETE` (el restore falló o quedó incompleto: se reintenta solo; si persiste, revisar credenciales/Spaces) · `REMOTE_UNREADABLE` (Spaces no se puede leer: se reintenta cada 30 s) · `PRE_IMAGE_MISSING` / `REMOTE_UNEXPECTED_STATE` / `INTENT_UNREADABLE` (**no se resuelven solos**: falta evidencia o un tercero modificó Spaces; el estado de Spaces y del disco no se tocó; escalar al equipo técnico con el `operation_id` del log).
 * Lock: archivo `danwor-catalog-locks/catalog-writer.lock` en el directorio temporal del SO (`DANWOR_CATALOG_LOCK_DIR` lo redefine). Lo libera el SO si el proceso muere.
 
 ## 5. Limitaciones de DigitalOcean y de esta fase
 
 * **Réplica única obligatoria (temporal).** `flock` protege procesos que comparten el disco; **no** instancias con discos distintos. Riesgos residuales: (i) solapamiento instancia vieja/nueva durante un deploy; (ii) un futuro escalado horizontal. Mitigación parcial: `hostId`/`operationId` quedan en el manifiesto y el journal.
-* **FS efímero:** un redeploy pierde journal y undo **y** el estado local; el estado se reconstruye con `restore()` desde Spaces. Por eso la consistencia remota depende del **orden de subida** (marcador `.catalog_manifest.json` al final) y no del journal.
+* **FS efímero:** un redeploy pierde journal y undo **y** el estado local; el estado se reconstruye con `restore()` desde Spaces. La consistencia remota depende del **orden de subida** (registro de intención antes del cuerpo, marcadores al final) y, **si el redeploy ocurrió a mitad de la confirmación, del registro de intención** (B1): con él se completa la versión nueva o se vuelve a la previa de forma verificada, y la lectura queda cerrada mientras tanto.
 * **H2 (P1):** la publicación segura borra en Spaces lo que retira y los huérfanos del propio cliente (tope 500) antes de subir lo nuevo. `mirror_up`/`persist_changed` siguen sin propagar borrados por sí solos: los otros productores (APIS_ONLY, «Generar catálogo») no cambian.
 * **Identidad:** el pool sigue siendo `(cliente, tipo, nombre)`. La guardia `POOL_IDENTITY_CONFLICT` evita pisar un objeto de otro Space/tenant con contenido distinto; **no** es el aislamiento físico (fase posterior).
 * Los manifiestos corruptos de otras raíces **no** se copian a cuarentena en esta fase: se dejan intactos y se informan.
