@@ -107,6 +107,14 @@ class ProfileDocumentIdConflictError(Exception):
     `profile_repository.ProfileIdConflictError`."""
 
 
+class ProfileDocumentLockedError(ProfileDocumentStorageError):
+    """El candidato dueño del documento está en una consolidación en curso: no se agregan ni se borran documentos hasta que termine."""
+
+
+class ProfileDocumentReassignError(Exception):
+    """``reassign_for_consolidation`` rechazó el movimiento (documento inexistente, de otro candidato o fuera de lo autorizado por la consolidación): zero write."""
+
+
 class ProfileDocumentDeleteOutcomeUnknownError(Exception):
     """`delete()` confirmó el borrado remoto ni en el intento inicial ni en
     un único reintento — MISMO significado semántico que
@@ -150,6 +158,15 @@ def _document_delete_orphan_cleanup(path: Path) -> None:
         remote_store.delete_path(path)
     except Exception as exc:  # noqa: BLE001 — best-effort, nunca bloquea el no-op
         _logger.warning("human_capital.profile_document_delete_orphan_cleanup_failed reason=%s", type(exc).__name__)
+
+
+def _assert_owner_operable(profile_id: str | None) -> None:
+    """Un documento nuevo (o un borrado) sobre un candidato bloqueado por una consolidación se rechaza ANTES de tocar el disco. Import diferido: profile_repository no depende de este módulo."""
+    if not profile_id:
+        return
+    from webapp.services import profile_repository
+    if profile_repository.is_locked(profile_repository.get(profile_id)):
+        raise ProfileDocumentLockedError("Este candidato está en proceso de consolidación: no se pueden agregar ni borrar documentos hasta que termine.")
 
 
 def _canonical_fields_match(existing: dict, candidate: dict) -> bool:
@@ -319,6 +336,7 @@ def _create_locked(document_id: str, document: dict) -> dict:
     }
     path = _document_path(document_id)
     _require_writable_mode()
+    _assert_owner_operable(payload.get("profile_id"))
     _write_atomic(path, payload)
     if _local_only():
         return payload                                   # `local`: escritura física local atómica; sin sincronización con Spaces
@@ -393,6 +411,8 @@ def delete(document_id: str) -> bool:
                 _document_delete_orphan_cleanup(path)
             return False
         _require_writable_mode()                         # `read-only`: ni borrado local ni remoto (sin efectos parciales)
+        existing = get(document_id)
+        _assert_owner_operable((existing or {}).get("profile_id"))
         if not _local_only() and remote_store.enabled():
             if not remote_store.delete_path(path):
                 if not remote_store.delete_path(path):
@@ -404,3 +424,61 @@ def delete(document_id: str) -> bool:
         except OSError as exc:
             raise ProfileDocumentStorageError(f"No se pudo borrar el documento: {exc}") from exc
         return True
+
+
+# ───────────────────────── reasignación EXCEPCIONAL por consolidación de perfiles ─────────────────────────
+# Un ProfileDocument es inmutable (arriba: sin update). La consolidación de dos perfiles duplicados necesita UNA excepción acotada: cambiar a qué candidato pertenece un documento, sin tocar
+# NADA más (ni `site_id`/`drive_id`/`item_id`/`web_url`/`folder_item_id`: el archivo de SharePoint no se mueve ni se modifica). No es un `update` genérico: solo la invoca
+# ``profile_consolidation_service`` con la AUTORIZACIÓN de una operación de consolidación (``authorized``: el mapa ``document_id -> {from, to}`` de su intención auditada) y deja la procedencia
+# en el propio documento (``consolidation``).
+_CONSOLIDATION_KEY = "consolidation"
+
+
+def _write_with_compensation(path: Path, candidate: dict, previous: dict) -> None:
+    """Escritura atómica + push; ante un push no confirmado se vuelve a escribir (local y remoto) la versión anterior: MISMO contrato de compensación que ``profile_repository.update``."""
+    _write_atomic(path, candidate)
+    if _local_only():
+        return
+    if remote_store.push_path(path):
+        return
+    _write_atomic(path, previous)
+    if not remote_store.enabled():
+        raise ProfileDocumentConfigIncompleteError("El almacenamiento de documentos todavía no está configurado para este entorno.")
+    if remote_store.push_path(path):
+        raise ProfileDocumentStorageError("No pudimos confirmar el respaldo del cambio; el documento quedó como estaba.")
+    raise ProfileDocumentRemoteOutcomeUnknownError("No pudimos confirmar el estado remoto de este documento tras un fallo de guardado. La versión local quedó como estaba.")
+
+
+def reassign_for_consolidation(document_id: str, *, operation_id: str, authorized: dict, restore: dict | None = None) -> tuple[dict, bool]:
+    """Mueve UN documento al candidato principal de una consolidación, o lo devuelve a su estado original (``restore`` = su imagen previa registrada en la intención). Devuelve ``(documento, cambió)``.
+
+    Acotado y verificado, bajo ``_write_lock``: ``authorized`` debe nombrar ``document_id`` con ``{"from": <perfil actual>, "to": <perfil principal>}``; solo cambian ``profile_id`` y la marca
+    ``consolidation`` (operación, origen, destino); todo lo demás se conserva byte a byte. IDEMPOTENTE: si ya está en el destino con la marca de ESTA operación (o, en ``restore``, ya está
+    en su imagen previa) es un no-op. Cualquier otro caso (documento inexistente, de otro candidato, no autorizado) → ``ProfileDocumentReassignError`` sin escribir."""
+    grant = (authorized or {}).get(document_id)
+    if not operation_id or not isinstance(grant, dict) or not grant.get("from") or not grant.get("to"):
+        raise ProfileDocumentReassignError("El documento no está autorizado por esta consolidación.")
+    with _write_lock:
+        current = get(document_id)
+        if current is None:
+            raise ProfileDocumentReassignError(f"El documento {document_id} no existe.")
+        mark = current.get(_CONSOLIDATION_KEY) if isinstance(current.get(_CONSOLIDATION_KEY), dict) else {}
+        path = _document_path(document_id)
+        if restore is not None:
+            if current == restore:
+                return current, False
+            if current.get("profile_id") != grant["to"] or mark.get("operation_id") != operation_id:
+                raise ProfileDocumentReassignError("El documento no está en el estado que dejó esta consolidación: no se revierte.")
+            if restore.get("document_id") != document_id or restore.get("profile_id") != grant["from"]:
+                raise ProfileDocumentReassignError("La imagen previa no corresponde a este documento.")
+            _require_writable_mode()
+            _write_with_compensation(path, restore, current)
+            return restore, True
+        if current.get("profile_id") == grant["to"] and mark.get("operation_id") == operation_id:
+            return current, False
+        if current.get("profile_id") != grant["from"]:
+            raise ProfileDocumentReassignError("El documento no pertenece al candidato que la consolidación espera: no se mueve.")
+        _require_writable_mode()
+        candidate = {**current, "profile_id": grant["to"], _CONSOLIDATION_KEY: {"operation_id": operation_id, "from_profile_id": grant["from"], "to_profile_id": grant["to"]}}
+        _write_with_compensation(path, candidate, current)
+        return candidate, True

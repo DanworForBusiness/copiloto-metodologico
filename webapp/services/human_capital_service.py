@@ -302,7 +302,7 @@ def list_profiles() -> list[dict]:
     # NO aparece en listados/búsquedas normales). El dedup de create/update
     # sigue mirando `profile_repository.list()` crudo a propósito (un borrado
     # no debería habilitar re-crear un duplicado silenciosamente).
-    return [p for p in profile_repository.list() if not p.get("deleted_at")]
+    return [p for p in profile_repository.list() if not p.get("deleted_at") and not profile_repository.is_locked(p)]
 
 
 def soft_delete_profile(profile_id: str, actor: str | None = None) -> dict:
@@ -317,8 +317,9 @@ def get_profile(profile_id: str) -> dict | None:
     """Delegación directa a `profile_repository.get` (Phase 3.5 §14) —
     usada por el router para poblar el form de edición y para el chequeo
     de existencia (404) ANTES de intentar `update_profile`. `None` si no
-    existe, MISMO criterio fail-soft del repository."""
-    return profile_repository.get(profile_id)
+    existe, MISMO criterio fail-soft del repository. Un perfil BLOQUEADO por una consolidación en curso no es visible desde acá (``None``): ninguna pantalla lo abre ni lo edita mientras tanto."""
+    profile = profile_repository.get(profile_id)
+    return None if profile_repository.is_locked(profile) else profile
 
 
 def validate_and_shape_fields(fields: dict) -> dict:
@@ -1039,7 +1040,7 @@ def register_candidate_contact(busqueda_id: str, application_id: str, accion: st
     if busqueda.get("estado") != "activo":
         raise ValueError("El proceso no está activo.")
     profile = profile_repository.get(app.get("profile_id")) if app.get("profile_id") else None
-    if profile is None or profile.get("deleted_at"):
+    if profile is None or profile.get("deleted_at") or profile_repository.is_locked(profile):
         raise LookupError("El candidato ya no está disponible.")
     if accion != "mensaje_copiado" and not (contact.whatsapp_digits(profile.get("phone")) if canal == "whatsapp" else contact.valid_email(profile.get("email"))):
         raise ValueError("El candidato no tiene cargado el dato de contacto de ese canal.")
@@ -1256,7 +1257,7 @@ class CandidateNotEligibleError(ValueError):
 
 def add_candidate_to_busqueda(busqueda_id: str, profile_id: str, *, actor: str | None = None) -> dict:
     profile = profile_repository.get(profile_id)
-    if profile is None or profile.get("deleted_at"):
+    if profile is None or profile.get("deleted_at") or profile_repository.is_locked(profile):
         raise ValueError("El candidato no existe o fue eliminado del Banco de CVs.")
     reason = candidate_eligibility.blocked_reason(profile)         # misma regla que filtra el selector: se exige TAMBIÉN en el servidor (nunca solo en la vista)
     if reason:
@@ -1512,7 +1513,7 @@ def create_entrevista_manual(profile_id: str, fields: dict, *, allow_compensatio
     caso que `crearEntrevistaManual` en la referencia (banco_cv_id, sin
     proceso_id/candidato_id)."""
     profile = profile_repository.get(profile_id)
-    if profile is None or profile.get("deleted_at"):
+    if profile is None or profile.get("deleted_at") or profile_repository.is_locked(profile):
         raise ValueError("Elegí un candidato del Banco de CVs.")
     return entrevista_repository.create(
         _shape_entrevista_fields(fields, allow_compensation=allow_compensation), profile_id=profile_id, busqueda_id=None, application_id=None)
@@ -1523,7 +1524,7 @@ def create_entrevista_for_application(profile_id: str, busqueda_id: str, fields:
     automática) y respeta el contrato de UNA entrevista por (candidato, proceso): si ya existe devuelve la existente (`creada=False`) en vez de duplicar. El vínculo se VERIFICA en servidor: el candidato
     debe existir y participar de esa Búsqueda; la `application_id` se resuelve acá, nunca viene del navegador. Devuelve `(entrevista, creada)`."""
     profile = profile_repository.get(profile_id)
-    if profile is None or profile.get("deleted_at"):
+    if profile is None or profile.get("deleted_at") or profile_repository.is_locked(profile):
         raise ValueError("Elegí un candidato del Banco de CVs.")
     try:
         busqueda = busqueda_repository.get(busqueda_id)

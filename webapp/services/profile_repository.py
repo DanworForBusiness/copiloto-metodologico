@@ -262,6 +262,12 @@ class ProfileConcurrentModificationError(Exception):
     (Phase 3.5 §16)."""
 
 
+class ProfileLockedError(ProfileConcurrentModificationError):
+    """El Profile está BLOQUEADO por una consolidación de perfiles en curso (``consolidation.state == "IN_PROGRESS"``, ver
+    ``profile_consolidation_service``): ninguna escritura ordinaria lo toca hasta que la consolidación se complete o se revierta.
+    Subclase de ``ProfileConcurrentModificationError`` a propósito: los routers ya lo traducen a «cambió, recargá» sin un camino nuevo."""
+
+
 class ProfileRemoteOutcomeUnknownError(Exception):
     """El estado remoto final no puede establecerse — MISMO significado
     semántico en sus DOS orígenes distintos:
@@ -307,6 +313,15 @@ _BUSINESS_FIELDS = (
     "first_name", "last_name", "email", "phone", "linkedin_url", "location",
     "profile_skills", "seniority", "source", "tags", "notes", "potential_rating", "potential_mark",
 )
+
+
+CONSOLIDATION_IN_PROGRESS = "IN_PROGRESS"
+
+
+def is_locked(profile: dict | None) -> bool:
+    """¿El Profile está dentro de una consolidación en curso? Mientras lo esté NO es operable: no se lista, no se abre, no se edita, no recibe documentos ni candidaturas."""
+    consolidation = (profile or {}).get("consolidation")
+    return isinstance(consolidation, dict) and consolidation.get("state") == CONSOLIDATION_IN_PROGRESS
 
 
 def _business_fields_match(existing: dict, candidate: dict) -> bool:
@@ -594,7 +609,7 @@ def list() -> list[dict]:  # noqa: A001 — nombre del contrato pedido (§8), no
     return profiles
 
 
-def update(profile_id: str, expected_revision: int, fields: dict) -> dict:
+def update(profile_id: str, expected_revision: int, fields: dict, *, consolidation_op: str | None = None) -> dict:
     """Sobrescribe un Profile EXISTENTE con COMPENSATING OVERWRITE (Phase
     3.5 §2/§3, ver docstring del módulo) — nunca un remote-read-back de
     verificación (rechazado en Phase 3.5 §1: la consistencia de overwrite
@@ -647,6 +662,9 @@ def update(profile_id: str, expected_revision: int, fields: dict) -> dict:
             raise ProfileConcurrentModificationError(
                 "Este candidato cambió desde que abriste el formulario de edición."
             )
+        if is_locked(current) and (consolidation_op is None or current["consolidation"].get("operation_id") != consolidation_op):
+            # Consolidación en curso: SOLO esa operación (``consolidation_op``) puede escribir; cualquier otra edición/baja se rechaza antes de tocar el disco.
+            raise ProfileLockedError("Este candidato está en proceso de consolidación: no se puede modificar hasta que termine.")
         path = _profile_path(profile_id)
         candidate = {
             **current,
