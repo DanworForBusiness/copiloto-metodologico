@@ -6,6 +6,8 @@ cualquier otro caso: sin ícono y el endpoint responde 403. Datos sintéticos ba
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 import types
 from pathlib import Path
 
@@ -239,10 +241,118 @@ def test_the_icon_follows_the_hub_pattern_and_has_no_text_label(world):
     assert ".catalog-card__head .catalog-card__action { margin-left: auto" in css
 
 
+# ═══════════════ casilla OPCIONAL: eliminar también sus archivos ═══════════════
+def _dir_of(world, cliente):
+    e = next(e for e in main._catalog_entries()[1] if e.cliente == cliente)
+    return world.root / cliente / Path(e.path).parent.name
+
+
+def _with_views(world, cliente):
+    d = _dir_of(world, cliente)
+    (d / "vistas").mkdir(exist_ok=True)
+    (d / "vistas" / "V1.md").write_text("vista", encoding="utf-8")
+    return d
+
+
+def _snapshot(root, skip=()):
+    return {p.relative_to(root).as_posix(): p.read_bytes() for p in root.rglob("*") if p.is_file() and p.relative_to(root).parts[0] not in skip}
+
+
+def test_without_the_checkbox_no_file_is_deleted_even_if_the_param_is_empty_or_false(world):
+    bio = entry_id(world, "Biogenesis")
+    d = _with_views(world, "Biogenesis")
+    out = _client(OWNER).post(RETIRE, data={"flow": bio, "delete_files": ""}, headers=ORIGIN)
+    assert 'data-catalog-files="kept"' in out.text and d.is_dir() and (d / "vistas" / "V1.md").is_file()
+
+
+def test_with_the_checkbox_the_tiles_own_folder_is_deleted_and_nothing_else(world):
+    bio, kens = entry_id(world, "Biogenesis"), entry_id(world, "Kensing")
+    d = _with_views(world, "Biogenesis")
+    pool = world.root / ".csn_cache" / "Biogenesis" / "views" / "V.json"
+    pool.parent.mkdir(parents=True)
+    pool.write_text("{}", encoding="utf-8")
+    other_before = _snapshot(world.root, skip=("Biogenesis", gov.RETIRED_DIR))
+    out = _client(OWNER).post(RETIRE, data={"flow": bio, "delete_files": "true"}, headers=ORIGIN)
+    assert out.status_code == 200 and 'data-catalog-files="deleted"' in out.text and "archivos fueron eliminados" in out.text
+    assert not d.exists()                                                                                       # flujo + vistas, fuera
+    assert _snapshot(world.root, skip=("Biogenesis", gov.RETIRED_DIR)) == other_before                          # pool, manifiestos y los demás tiles: byte a byte iguales
+    assert kens not in gov.retired_ids(world.root) and (world.root / "Kensing").is_dir()
+    record = json.loads((world.root / gov.RETIRED_DIR / f"{bio}.json").read_text(encoding="utf-8"))
+    assert record["files_deleted"]["count"] == 2 and record["files_deleted"]["dir"].startswith("Biogenesis/")  # constancia durable; el tombstone se conserva (una regeneración no resucita el tile)
+    assert bio not in {e.entry_id for e in main._catalog_entries()[1]}
+
+
+def test_the_checkbox_does_not_widen_authorization(world):
+    bio, kens = entry_id(world, "Biogenesis"), entry_id(world, "Kensing")
+    publish_as(world, "Biogenesis", ANA)
+    d_kens = _with_views(world, "Kensing")
+    before = _snapshot(world.root)
+    for who, flow in ((BEA, bio), (ANA, kens), (READER, bio), (None, bio)):
+        out = _client(who).post(RETIRE, data={"flow": flow, "delete_files": "true"}, headers=ORIGIN)
+        assert out.status_code in (401, 403)
+    assert _snapshot(world.root) == before and d_kens.is_dir()                                                  # nada cambió
+    ok = _client(ANA).post(RETIRE, data={"flow": bio, "delete_files": "true"}, headers=ORIGIN)                  # el último publicador sí puede, con la misma política
+    assert 'data-catalog-files="deleted"' in ok.text and not _dir_of_missing(world, "Biogenesis")
+
+
+def _dir_of_missing(world, cliente):
+    return (world.root / cliente).exists() and any((world.root / cliente).iterdir())
+
+
+def test_remote_failure_keeps_every_file_and_reports_it(world, monkeypatch):
+    bio = entry_id(world, "Biogenesis")
+    d = _with_views(world, "Biogenesis")
+    monkeypatch.setattr(gov.remote_store, "write_enabled", lambda: True)
+    monkeypatch.setattr(gov.remote_store, "delete_path", lambda p: False)                                       # Spaces no confirma el borrado
+    before = _snapshot(world.root, skip=(gov.RETIRED_DIR,))
+    out = _client(OWNER).post(RETIRE, data={"flow": bio, "delete_files": "true"}, headers=ORIGIN)
+    assert 'data-catalog-retired="ok"' in out.text and 'data-catalog-files="failed"' in out.text and "se conservan" in out.text
+    assert _snapshot(world.root, skip=(gov.RETIRED_DIR,)) == before and d.is_dir()                              # fallo cerrado: el disco queda intacto (retirado, con sus archivos)
+
+
+def test_remote_objects_are_deleted_before_the_disk(world, monkeypatch):
+    bio = entry_id(world, "Biogenesis")
+    d = _with_views(world, "Biogenesis")
+    seen = []
+    monkeypatch.setattr(gov.remote_store, "write_enabled", lambda: True)
+    monkeypatch.setattr(gov.remote_store, "delete_path", lambda p: seen.append((Path(p).name, Path(p).exists())) or True)
+    _client(OWNER).post(RETIRE, data={"flow": bio, "delete_files": "true"}, headers=ORIGIN)
+    assert sorted(n for n, _ in seen) == ["V1.md", f"flujo_{d.name}.md"] and all(existed for _, existed in seen)  # primero Spaces (el archivo aún existe), después el disco
+    assert not d.exists()
+
+
+def test_an_unsafe_folder_is_never_deleted(world):
+    bio = entry_id(world, "Biogenesis")
+    d = _dir_of(world, "Biogenesis")
+    (d / "flujo_otro.md").write_text(FLOW.format(dom="X", art="4AM_X", cli="Biogenesis"), encoding="utf-8")    # otro flujo dentro de la misma carpeta: no es «propia» del tile
+    main._invalidate_catalog_cache()
+    out = _client(OWNER).post(RETIRE, data={"flow": bio, "delete_files": "true"}, headers=ORIGIN)
+    assert 'data-catalog-files="failed"' in out.text and d.is_dir() and (d / "flujo_otro.md").is_file()
+    entry = types.SimpleNamespace(entry_id="x", path=str(world.root / "Biogenesis" / "flujo_fuera.md"))
+    assert gov.entry_directory(entry) is None                                                                  # inexistente / fuera de profundidad
+    assert gov.entry_directory(types.SimpleNamespace(entry_id="x", path=str(world.root.parent))) is None
+
+
+def test_the_dialog_offers_an_unchecked_optional_checkbox_and_posts_delete_files_only_when_checked():
+    tpl = (REPO / "webapp" / "templates" / "partials" / "catalog_flows.html").read_text(encoding="utf-8")
+    assert "data-dw-confirm-check-label=\"Eliminar también sus archivos\"" in tpl and "data-dw-confirm-check-hint=" in tpl
+    base = (REPO / "webapp" / "templates" / "base.html").read_text(encoding="utf-8")
+    assert "data-dw-confirm-check-wrap hidden" in base and 'type="checkbox" data-dw-confirm-check>' in base and 'data-dw-confirm-check name' not in base      # sin `name`, oculta por defecto
+    js = (REPO / "webapp" / "static" / "app.js").read_text(encoding="utf-8")
+    assert "box.checked = false" in js and 'vals.delete_files = "true"' in js and "else delete vals.delete_files" in js
+    assert "function dwConfirm(opts) {\n  return dwConfirmChoice(opts).then(r => r.ok);" in js      # el diálogo compartido sigue devolviendo un booleano
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node no disponible en este entorno")
+def test_app_js_still_parses():
+    out = subprocess.run(["node", "--check", str(REPO / "webapp" / "static" / "app.js")], capture_output=True, text=True)
+    assert out.returncode == 0, out.stderr
+
+
 def test_the_confirmation_uses_the_shared_dialog_and_never_fires_the_tile_detail():
     js = (REPO / "webapp" / "static" / "app.js").read_text(encoding="utf-8")
     block = js[js.index("data-catalog-retire"): js.index("function _dwConfirmOptsFrom")]
-    assert "dwConfirm(" in block and "}, true);" in block and "stopPropagation" in block                                # confirmación compartida + captura (la tarjeta no abre el detalle)
+    assert "dwConfirmChoice(" in block and "}, true);" in block and "stopPropagation" in block                                # confirmación compartida + captura (la tarjeta no abre el detalle)
     assert "keyup" in block
     tpl = (REPO / "webapp" / "templates" / "partials" / "catalog_flows.html").read_text(encoding="utf-8")
     assert 'hx-trigger="confirmed"' in tpl and 'hx-target="closest li"' in tpl and "data-dw-confirm-title" in tpl

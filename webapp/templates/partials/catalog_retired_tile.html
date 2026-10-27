@@ -1,6 +1,9 @@
-{# Resultado de «Retirar del catálogo» (reemplaza la tarjeta en su lugar): feedback visible del resultado. Reusa la tarjeta neutra del Catálogo; sin estilo nuevo. #}
-<li class="catalog-card catalog-card--neutra" role="status" data-catalog-retired="{{ 'ok' if ok else 'error' }}">
+{# Resultado de «Retirar del catálogo» (reemplaza la tarjeta en su lugar): feedback visible del resultado. Reusa la tarjeta neutra del Catálogo; sin estilo nuevo.
+   `files`: "kept" (retiro lógico simple) | "deleted" (además se eliminaron sus archivos) | "failed" (se pidió borrarlos y no se pudo confirmar: el tile quedó retirado, sus archivos se conservan). #}
+<li class="catalog-card catalog-card--neutra" role="status" data-catalog-retired="{{ 'ok' if ok else 'error' }}" data-catalog-files="{{ files }}">
   <p class="catalog-card__head"><strong>{{ entry.cliente }}</strong>{% if entry.consumo %}<span class="catalog-card__consumo"> · {{ entry.consumo|join(", ") }}</span>{% endif %}</p>
-  {% if ok %}<p class="catalog-card__meta">Retirado del Catálogo. Deja de listarse; para restaurarlo, volvé a publicar el modelo.</p>
+  {% if ok and files == "deleted" %}<p class="catalog-card__meta">Retirado del Catálogo y sus archivos fueron eliminados. Para recuperarlo, volvé a generar el catálogo o a publicar el modelo.</p>
+  {% elif ok and files == "failed" %}<p class="catalog-card__meta">Retirado del Catálogo, pero no se pudieron eliminar sus archivos (se conservan intactos). Avisá al administrador del Hub si necesitás eliminarlos.</p>
+  {% elif ok %}<p class="catalog-card__meta">Retirado del Catálogo. Deja de listarse; para restaurarlo, volvé a publicar el modelo.</p>
   {% else %}<p class="catalog-card__meta">No se pudo retirar: el registro no se confirmó. El tile sigue publicado; reintentá en unos minutos.</p>{% endif %}
 </li>

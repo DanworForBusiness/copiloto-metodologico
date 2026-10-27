@@ -15,6 +15,11 @@ sistema registra de forma fiable); cualquier otro caso: no ve el ícono y el end
 RETIRO LÓGICO (no borrado físico): un tombstone ``<catalog_local>/.retired/<entry_id>.json`` hace que ``visible_entries`` (Catálogo y asistente) deje de devolver el tile; el cargador ``catalog_service`` NO se toca.
 No se borra el flujo, el pool, los manifiestos, el assessment ni nada en Spaces: hoy el borrado físico NO es seguro (el generador regenera el flujo desde el pool, los objetos del pool pueden ser compartidos entre
 raíces, los borrados no se propagan a Spaces —H2— y un restore los resucitaría). Volver a publicar el modelo levanta el retiro (la publicación es la intención contraria). Reversible por diseño.
+
+ELIMINAR TAMBIÉN SUS ARCHIVOS (opcional, casilla DESMARCADA por defecto; mismo patrón que «eliminar también los documentos» en la baja de un candidato de CCHH): además del retiro, ``purge_files`` borra la CARPETA PROPIA del
+tile (``<cliente>/<carpeta>/``: su ``flujo_*.md`` y sus ``vistas/``) en disco y en Spaces. Es irreversible (incluye el bloque ``manual:`` curado), por eso: solo se borra una carpeta que contiene ESE único flujo y cuelga
+exactamente dos niveles bajo la raíz del catálogo (jamás un enlace simbólico ni nada fuera de ella); el tombstone se escribe ANTES y se conserva (evita que una regeneración desde el pool resucite el tile); los objetos
+remotos se borran primero y, si alguno falla, NO se toca el disco (falla cerrado: el tile queda retirado con sus archivos). El pool, los manifiestos, el assessment y los objetos compartidos NO se tocan.
 """
 from __future__ import annotations
 
@@ -22,6 +27,7 @@ import json
 import logging
 import os
 import re
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -114,6 +120,51 @@ def retire(entry, actor: str) -> dict:
               "provenance_at_retirement": provenance(entry_id)}
     _write(path, record)
     return record
+
+
+def entry_directory(entry) -> Path | None:
+    """La carpeta PROPIA del tile (``<cliente>/<carpeta>/``) si es seguro borrarla entera; ``None`` ante cualquier duda (ruta fuera de la raíz o de profundidad inesperada, enlaces simbólicos, otro flujo en la carpeta)."""
+    root = catalog_root()
+    flow = Path(str(getattr(entry, "path", "") or ""))
+    try:
+        flow = flow.resolve(strict=True)
+        rel = flow.relative_to(root)
+    except (OSError, ValueError):
+        return None
+    folder = flow.parent
+    if len(rel.parts) != 3 or not (flow.name.startswith("flujo_") and flow.name.endswith(".md")):
+        return None
+    if folder.is_symlink() or any(p.is_symlink() for p in folder.rglob("*")):
+        return None
+    if [p for p in folder.glob("flujo_*.md") if p != flow]:
+        return None
+    return folder
+
+
+def purge_files(entry) -> dict:
+    """Borra la carpeta propia del tile (disco + Spaces). Devuelve ``{"deleted": n, "dir": "<cliente>/<carpeta>"}``; ``GovernanceStorageError`` si no es seguro o no se pudo confirmar (disco intacto en ese caso)."""
+    folder = entry_directory(entry)
+    if folder is None:
+        raise GovernanceStorageError("la carpeta del tile no se puede borrar de forma segura")
+    files = sorted(p for p in folder.rglob("*") if p.is_file())
+    if remote_store.write_enabled():
+        failed = [p for p in files if not remote_store.delete_path(p)]
+        if failed:
+            raise GovernanceStorageError("no se pudieron borrar los objetos remotos")                  # el disco queda intacto: el tile está retirado, sus archivos se conservan
+    try:
+        shutil.rmtree(folder)
+    except OSError as exc:
+        raise GovernanceStorageError("no se pudo borrar la carpeta") from exc
+    rel = folder.relative_to(catalog_root()).as_posix()
+    path = catalog_root() / RETIRED_DIR / f"{entry.entry_id}.json"
+    record = _read(path)
+    if record is not None:
+        record["files_deleted"] = {"dir": rel, "count": len(files), "at": _now()}
+        try:
+            _write(path, record)
+        except GovernanceStorageError:
+            log.warning("catalog_governance: archivos borrados pero no se pudo anotar en el tombstone")
+    return {"deleted": len(files), "dir": rel}
 
 
 def retired_ids(root: str | Path | None = None) -> set[str]:

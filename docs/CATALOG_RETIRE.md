@@ -11,6 +11,17 @@ La tarjeta (`partials/catalog_flows.html`, usada por Modelos, Líneas de negocio
 * el assessment gobernado y el manifiesto quedan huérfanos si se borra solo el flujo.
 Con el retiro lógico no se toca ningún archivo, manifiesto, pool, assessment ni objeto remoto (verificado byte a byte en las pruebas); es **reversible** (quitar el tombstone) y **volver a publicar el modelo levanta el retiro** (la publicación es la intención contraria).
 
+## Casilla opcional «Eliminar también sus archivos»
+
+El diálogo de confirmación (compartido, `dwConfirm`) admite una **casilla opcional**, siempre **desmarcada** al abrir (mismo patrón que «Eliminar también los documentos de SharePoint» en la baja de un candidato de CCHH). La nota aclaratoria y la casilla usan clases propias del diálogo en `tools.css` (`.dw-confirm__check`/`__hint`; `.field-hint` vive solo en la hoja de CCHH).
+
+* **Sin marcar**: retiro lógico de siempre (nada se borra).
+* **Marcada**: además del retiro, borra la **carpeta propia del tile** (`<cliente>/<carpeta>/`: `flujo_*.md` + `vistas/`, incluida la curaduría `manual:`) en disco y en Spaces. **Irreversible**; se recupera regenerando el catálogo o republicando el modelo.
+* **Misma autorización** que el retiro (dueño, o último publicador); el endpoint recibe `delete_files` y no amplía permisos.
+* **Salvaguardas** (`catalog_governance.purge_files`): solo borra una carpeta que contiene ESE único flujo, a exactamente dos niveles bajo la raíz del catálogo, sin enlaces simbólicos; el tombstone se escribe **antes** y se **conserva** (evita que una regeneración resucite el tile) con constancia `files_deleted`; los objetos de Spaces se borran **primero** y, si alguno falla, el disco queda intacto (el tile queda retirado con sus archivos y se informa).
+* **No se tocan**: pool (`.csn_cache`), manifiestos, assessment gobernado, objetos compartidos ni la procedencia.
+* Feedback del tile: «Retirado y sus archivos fueron eliminados» / «Retirado, pero no se pudieron eliminar sus archivos (se conservan)».
+
 ## Procedencia: qué existía y qué se agregó
 
 | Dato | Antes | Ahora |
@@ -31,6 +42,6 @@ Hoy los consultores no publican (la capacidad para consultores está apagada), a
 
 * Un tile sin procedencia (todo lo existente) solo lo retira el dueño.
 * El retiro está atado a `entry_id` (derivado de la ruta del flujo): si el dominio/consumo se renombra, el tile reaparecería con otro id.
-* El flujo, el pool, el assessment y los objetos de Spaces permanecen (residuo intencional y reversible); una limpieza física futura requiere propagar borrados a Spaces y definir propiedad de objetos compartidos.
+* Sin la casilla, el flujo, el pool, el assessment y los objetos de Spaces permanecen (residuo intencional y reversible); con ella solo se elimina la carpeta propia del tile (el pool y el assessment siguen); una limpieza física futura requiere propagar borrados a Spaces y definir propiedad de objetos compartidos.
 * El retiro no oculta el tile en caminos que lean `catalog_service` directamente (herramientas offline, CLI) ni en la regeneración de assessments de P1 (que se verá cuando P1 se integre).
 * Dos consultores publicando el mismo tile: gana el último; el anterior pierde el derecho a retirarlo.

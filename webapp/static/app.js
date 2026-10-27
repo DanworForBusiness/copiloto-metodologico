@@ -1441,13 +1441,14 @@ function dwSearchFold(value) {
   return String(value == null ? "" : value).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().split(/\s+/).filter(Boolean).join(" ");
 }
 // </dw-search-fold>
-function dwConfirm(opts) {
+// `opts.checkbox = {label, hint}` agrega una casilla OPCIONAL (desmarcada al abrir); `dwConfirmChoice` resuelve `{ok, checked}` y `dwConfirm` sigue resolviendo un booleano (sin casilla, comportamiento idéntico).
+function dwConfirmChoice(opts) {
   opts = opts || {};
   const dlg = document.getElementById("dwConfirm");
   if (!dlg || typeof dlg.showModal !== "function") {
-    // Fallback (navegador sin <dialog>): confirm nativo, nunca omitir el paso.
+    // Fallback (navegador sin <dialog>): confirm nativo, nunca omitir el paso. Sin diálogo no hay casilla: nunca se asume una acción destructiva extra.
     const txt = (opts.title ? opts.title + "\n\n" : "") + (opts.message || "¿Confirmar?");
-    return Promise.resolve(window.confirm(txt));
+    return Promise.resolve({ ok: window.confirm(txt), checked: false });
   }
   dlg.querySelector(".dw-confirm__title").textContent = opts.title || "Confirmar";
   dlg.querySelector("[data-dw-confirm-msg]").textContent = opts.message || "";
@@ -1455,13 +1456,32 @@ function dwConfirm(opts) {
   const okBtn = dlg.querySelector("[data-dw-confirm-ok]");
   cancelBtn.textContent = opts.cancelLabel || "Cancelar";
   okBtn.textContent = opts.confirmLabel || "Eliminar";
+  const wrap = dlg.querySelector("[data-dw-confirm-check-wrap]");
+  const box = dlg.querySelector("[data-dw-confirm-check]");
+  if (wrap && box) {
+    wrap.hidden = !opts.checkbox;
+    box.checked = false;                                                                  // SIEMPRE desmarcada al abrir
+    const lab = wrap.querySelector("[data-dw-confirm-check-label]");                       // el texto va como nodo de texto directo del <label> (igual que la baja de CCHH): `.feedback-field label span` lo estilaría distinto
+    Array.prototype.slice.call(lab.childNodes).forEach(function (n) { if (n.nodeType === 3) lab.removeChild(n); });
+    lab.appendChild(document.createTextNode(opts.checkbox ? (opts.checkbox.label || "") : ""));
+    wrap.querySelector("[data-dw-confirm-check-hint]").textContent = opts.checkbox ? (opts.checkbox.hint || "") : "";
+  }
   return new Promise(resolve => {
-    function onClose() { dlg.removeEventListener("close", onClose); resolve(dlg.returnValue === "confirm"); }
+    function onClose() {
+      if (dlg.open) return;                                                                 // un `close` tardío de un diálogo anterior no puede cerrar el nuevo
+      dlg.removeEventListener("close", onClose);
+      const ok = dlg.returnValue === "confirm";
+      resolve({ ok: ok, checked: !!(ok && opts.checkbox && box && box.checked) });
+      if (wrap) wrap.hidden = true;
+    }
     dlg.addEventListener("close", onClose);
     dlg.returnValue = "";
     dlg.showModal();
     cancelBtn.focus();
   });
+}
+function dwConfirm(opts) {
+  return dwConfirmChoice(opts).then(r => r.ok);
 }
 // Abridor de <dialog> COMPARTIDO: `[data-dialog-open="<id>"]` abre por
 // showModal() el <dialog> con ese id. Reusable por cualquier modal no-confirm
@@ -1481,8 +1501,17 @@ document.addEventListener("click", function (ev) {
   if (!el) return;
   ev.preventDefault();
   ev.stopPropagation();
-  dwConfirm(_dwConfirmOptsFrom(el)).then(function (ok) {
-    if (!ok) return;
+  const opts = _dwConfirmOptsFrom(el);
+  const hint = el.getAttribute("data-dw-confirm-check-hint");
+  if (hint !== null) opts.checkbox = { label: el.getAttribute("data-dw-confirm-check-label") || "", hint: hint };
+  dwConfirmChoice(opts).then(function (r) {
+    if (!r.ok) return;
+    if (opts.checkbox) {                                                                    // casilla marcada ⇒ `delete_files=true` en el POST (hx-vals se lee al emitir el request)
+      let vals = {};
+      try { vals = JSON.parse(el.getAttribute("hx-vals") || "{}"); } catch (e) { vals = {}; }
+      if (r.checked) vals.delete_files = "true"; else delete vals.delete_files;
+      el.setAttribute("hx-vals", JSON.stringify(vals));
+    }
     if (window.htmx && window.htmx.trigger) window.htmx.trigger(el, "confirmed");
     else el.dispatchEvent(new CustomEvent("confirmed"));
   });

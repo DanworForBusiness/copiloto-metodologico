@@ -26,7 +26,9 @@
       <button type="button" class="table-action-btn table-action-btn--danger chart-tooltip-anchor catalog-card__action" data-catalog-retire
               hx-post="/catalog/flow/retire" hx-vals='{"flow": "{{ e.entry_id }}", "pack": "{{ pack|default('datasphere_core') }}"}' hx-trigger="confirmed" hx-target="closest li" hx-swap="outerHTML"
               data-dw-confirm-title="Retirar del catálogo" data-dw-confirm-ok="Retirar"
-              data-dw-confirm-message="¿Retirar «{{ e.cliente }}{% if e.consumo %} · {{ e.consumo|join(', ') }}{% endif %}» del Catálogo?&#10;Deja de listarse y de consultarse. No se borran archivos ni su assessment, y se restaura volviendo a publicar el modelo."
+              data-dw-confirm-message="¿Retirar «{{ e.cliente }}{% if e.consumo %} · {{ e.consumo|join(', ') }}{% endif %}» del Catálogo?&#10;Deja de listarse y de consultarse. Su assessment no se borra y se restaura volviendo a publicar el modelo."
+              data-dw-confirm-check-label="Eliminar también sus archivos"
+              data-dw-confirm-check-hint="Sin marcar, los archivos del modelo se conservan.&#10;Marcada, se elimina su carpeta del catálogo (flujo y vistas, incluida la curaduría manual), también del almacenamiento persistente. No se puede deshacer.&#10;No se tocan el assessment, los manifiestos ni los objetos compartidos."
               aria-label="Retirar del catálogo">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
         <span class="chart-tooltip" aria-hidden="true"><p>Retirar del catálogo</p></span>

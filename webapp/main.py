@@ -1764,9 +1764,10 @@ _LOB_EMPTY = {
 
 
 @app.post("/catalog/flow/retire", response_class=HTMLResponse, include_in_schema=False)
-def catalog_flow_retire(request: Request, flow: str = Form(""), pack: str = Form(DEFAULT_PACK)):
+def catalog_flow_retire(request: Request, flow: str = Form(""), pack: str = Form(DEFAULT_PACK), delete_files: str = Form("")):
     """Retira (LÓGICAMENTE) un tile del Catálogo. Política del owner: APP_OWNER cualquiera; los demás solo el tile cuyo ÚLTIMO publicador son ellos (``catalog_governance.can_retire``: el MISMO predicado que decide
-    si el ícono se dibuja). Sin sesión 401; mismo origen obligatorio; sin permiso 403 aunque el tile no exista (no revela nada). No borra archivos, manifiestos ni assessment: ver ``catalog_governance``."""
+    si el ícono se dibuja). Sin sesión 401; mismo origen obligatorio; sin permiso 403 aunque el tile no exista (no revela nada). Por defecto no borra archivos, manifiestos ni assessment; con ``delete_files`` (casilla
+    opcional del diálogo, MISMA autorización) además borra la carpeta propia del tile: ver ``catalog_governance``."""
     user = auth_service.session_user(request)
     if not user:
         raise HTTPException(401, "Sin sesión")
@@ -1780,14 +1781,23 @@ def catalog_flow_retire(request: Request, flow: str = Form(""), pack: str = Form
     if entry is None:
         raise HTTPException(404, "El tile ya no está en el Catálogo")
     actor = str(user.get("sub") or user.get("email") or "")
+    want_files = (delete_files or "").strip().lower() in ("1", "true", "on", "yes")
+    ctx = {"entry": entry, "pack": _pack(pack), "files": "kept"}
     try:
         catalog_governance.retire(entry, actor)
     except catalog_governance.GovernanceStorageError:
-        return templates.TemplateResponse(request=request, name="partials/catalog_retired_tile.html",
-                                          context={"ok": False, "entry": entry, "pack": _pack(pack)})
+        return templates.TemplateResponse(request=request, name="partials/catalog_retired_tile.html", context={**ctx, "ok": False})
+    purged = None
+    if want_files:
+        try:
+            purged = catalog_governance.purge_files(entry)
+            ctx["files"] = "deleted"
+        except catalog_governance.GovernanceStorageError:
+            ctx["files"] = "failed"                                    # retirado, pero sus archivos se conservan: se informa y se puede reintentar desde el dueño / republicando
     _invalidate_catalog_cache()
-    log_activity("catalog_entry_retired", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG, entry_id=entry_id, cliente=entry.cliente, dominio=entry.dominio)
-    return templates.TemplateResponse(request=request, name="partials/catalog_retired_tile.html", context={"ok": True, "entry": entry, "pack": _pack(pack)})
+    log_activity("catalog_entry_retired", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG, entry_id=entry_id, cliente=entry.cliente, dominio=entry.dominio,
+                 files_requested=want_files, files_deleted=(purged or {}).get("deleted", 0))
+    return templates.TemplateResponse(request=request, name="partials/catalog_retired_tile.html", context={**ctx, "ok": True})
 
 
 @app.get("/catalog/lob", response_class=HTMLResponse, include_in_schema=False)
