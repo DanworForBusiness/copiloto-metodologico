@@ -145,6 +145,7 @@ TITLE_PARTIAL = "Publicación parcial"
 PUBLICATION_MESSAGES = {
     "EXTRACTION_INCOMPLETE": "La extracción desde Datasphere quedó incompleta (falló la lectura o el listado de algún objeto). No se modificó el Catálogo. Reintentá; si persiste, revisá la conexión y los permisos.",
     "POOL_IDENTITY_CONFLICT": "Un objeto ya está publicado desde otro Space o tenant con contenido distinto. No se modificó nada. Revisá el cliente, el Space y el tenant.",
+    "CLIENT_KEY_CONFLICT": "El Catálogo ya tiene más de una variante del nombre de este cliente que solo difiere en mayúsculas o minúsculas. No se modificó nada; pedí a un administrador que unifique los directorios del cliente.",
     "CATALOG_BUSY": "Hay otra operación sobre el Catálogo en curso. No se modificó nada; reintentá en unos minutos.",
     "RECOVERY_REQUIRED": "Hay una operación anterior a medias que no pudo recuperarse. No se publica hasta resolverla; avisá al equipo técnico.",
     "CATALOG_GENERATION_FAILED": "La extracción terminó, pero falló la regeneración del catálogo. Se restauró el estado anterior del Catálogo.",
