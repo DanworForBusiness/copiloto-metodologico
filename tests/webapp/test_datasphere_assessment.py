@@ -3,7 +3,7 @@ test_datasphere_assessment.py — "Assessment de tu modelo": assessment AD-HOC d
 
 Contratos que fija:
   * el panel "Herramientas de diagnóstico" del módulo 04 ofrece "Assessment de tu modelo" y "Diagnóstico conceptual";
-  * ejecutar es SOLO POST (fetch), mismo origen, sesión y dueño; GET jamás ejecuta; el stdout viaja en vivo a un panel LOCAL;
+  * ejecutar es SOLO POST (fetch), mismo origen y sesión de un consultor con perfil completo del Hub (o el dueño); GET jamás ejecuta; el stdout viaja en vivo a un panel LOCAL;
   * la web es un adaptador: `run_export` (misma función que el CLI) → `assess_evidence_root` (MISMO motor) → resultado ad-hoc;
   * NADA canónico se toca: ni `.csn_cache`, ni `.lineage_runs`, ni Spaces, ni el Catálogo, ni la caché de assessment del Catálogo;
   * workspace por operación fuera de todo directorio persistido (fail-closed), borrado en éxito y en falla;
@@ -78,6 +78,15 @@ def owner(monkeypatch):
     monkeypatch.setattr(access, "APP_OWNER", "owner@danwor.com")
     svc._RUNNING.clear()
     return _client("owner@danwor.com")
+
+
+@pytest.fixture()
+def restricted(monkeypatch):
+    """Allowlists configuradas: `trusted` tiene perfil completo, `reader` solo lectura (academy) y `outsider` ningún acceso. APP_OWNER es otro."""
+    monkeypatch.setattr(access, "APP_OWNER", "owner@danwor.com")
+    monkeypatch.setattr(auth_service, "ALLOWED_USERS", "trusted@danwor.com")
+    monkeypatch.setattr(auth_service, "ACADEMY_USERS", "reader@danwor.com")
+    svc._RUNNING.clear()
 
 
 @pytest.fixture()
@@ -197,10 +206,16 @@ def test_form_fields_labels_placeholders_and_margins(owner):
     assert form.count('class="tree-picker catalog-picker--secondary"') == 2
 
 
-def test_non_owner_sees_the_tool_but_no_execution_form(monkeypatch):
+def test_a_consultant_who_is_not_the_owner_sees_the_full_form_and_the_howto_without_the_restricted_notice(monkeypatch):
     monkeypatch.setattr(access, "APP_OWNER", "owner@danwor.com")
     html = _client("someone@danwor.com").get(f"/modules/{STEM}?pack=datasphere_core").text
-    assert "Acceso restringido" in html and 'id="dsa-form"' not in html
+    assert "Acceso restringido" not in html and 'id="dsa-form"' in html and "como-assessment-modelado" in html and "Ejecutar assessment" in html
+
+
+def test_a_user_without_the_full_hub_profile_sees_the_restricted_notice_and_no_form(restricted):
+    for email in ("outsider@danwor.com", "reader@danwor.com"):
+        html = _client(email).get(f"/modules/{STEM}?pack=datasphere_core&tool=assessment").text
+        assert 'id="dsa-form"' not in html and "datasphere-assessment/run" not in html, email
 
 
 def test_validation_rejects_bad_input_and_never_echoes_the_secret(owner, fake_export):
@@ -213,14 +228,15 @@ def test_validation_rejects_bad_input_and_never_echoes_the_secret(owner, fake_ex
 
 
 # ── C. seguridad ────────────────────────────────────────────────────────────
-def test_get_never_executes_and_post_requires_session_origin_and_owner(owner, fake_export, monkeypatch):
+def test_get_never_executes_and_post_requires_session_origin_and_a_full_hub_profile(owner, fake_export, monkeypatch):
     assert owner.get(RUN).status_code == 405 and owner.get(REFRESH).status_code == 405
     assert TestClient(main.app).post(RUN, data=VALID, headers=ORIGIN).status_code == 401
     assert owner.post(RUN, data=VALID).status_code == 403
     assert owner.post(RUN, data=VALID, headers={"Origin": "https://evil.example"}).status_code == 403
+    assert owner.post("/modules/01_Arquitectura_y_Conectividad/datasphere-assessment/run", data=VALID, headers=ORIGIN).status_code == 404
+    monkeypatch.setattr(auth_service, "ALLOWED_USERS", "trusted@danwor.com")                                # allowlist configurada: ya no está en ella
     monkeypatch.setattr(access, "APP_OWNER", "other@danwor.com")
     assert _post(owner).status_code == 403
-    assert owner.post("/modules/01_Arquitectura_y_Conectividad/datasphere-assessment/run", data=VALID, headers=ORIGIN).status_code == 404
     assert fake_export["exports"] == 0
 
 
@@ -525,6 +541,7 @@ def test_result_ids_are_validated_and_are_not_authorization(owner, fake_export, 
     base = f"/modules/{STEM}/datasphere-assessment/result/"
     assert owner.get(base + "../../etc/passwd").status_code in (404, 422) and owner.get(base + "zzz").status_code == 404
     assert TestClient(main.app).get(base + rid).status_code == 401
+    monkeypatch.setattr(auth_service, "ALLOWED_USERS", "trusted@danwor.com")                                # perdió el acceso (ya no está en la allowlist)
     monkeypatch.setattr(access, "APP_OWNER", "other@danwor.com")
     assert owner.get(base + rid).status_code == 403 and owner.get(base + rid + "/export.json").status_code == 403
     assert owner.get(f"/modules/01_Arquitectura_y_Conectividad/datasphere-assessment/result/{rid}").status_code == 404
@@ -1132,6 +1149,7 @@ def test_delete_is_post_only_same_origin_session_and_owner_protected_and_unknown
     assert owner.get(_results_url(rid)).status_code == 200                                                   # nada se borró en los intentos rechazados
     for bad in ("0" * 32, "zzz", "../x"):
         assert _delete(owner, bad).status_code in (404, 422)
+    monkeypatch.setattr(auth_service, "ALLOWED_USERS", "trusted@danwor.com")                                # perdió el acceso (ya no está en la allowlist)
     monkeypatch.setattr(access, "APP_OWNER", "other@danwor.com")
     assert _delete(owner, rid).status_code == 403
 
@@ -1186,12 +1204,11 @@ def test_cta_lands_on_the_diagnostic_panel_with_the_assessment_tool_selected_and
     assert r.status_code == 200 and "x-data=\"{ tool: 'assessment'," in r.text and 'id="dsa-form"' in r.text
 
 
-def test_cta_does_not_bypass_authentication_or_owner_authorization(monkeypatch):
+def test_cta_does_not_bypass_authentication_or_the_hub_profile_authorization(restricted):
     anon = TestClient(main.app).get(f"/modules/{STEM}?pack=datasphere_core&tool=assessment", follow_redirects=False)
     assert anon.status_code in (302, 303, 307) and "tool=assessment" not in anon.headers.get("location", "").replace("%3D", "=") or anon.status_code in (302, 303, 307)
-    monkeypatch.setattr(access, "APP_OWNER", "owner@danwor.com")
-    html = _client("someone@danwor.com").get(f"/modules/{STEM}?pack=datasphere_core&tool=assessment").text
-    assert "Acceso restringido" in html and 'id="dsa-form"' not in html                                       # el CTA no da acceso a ejecutar
+    html = _client("outsider@danwor.com").get(f"/modules/{STEM}?pack=datasphere_core&tool=assessment").text
+    assert 'id="dsa-form"' not in html                                                                         # el CTA no da acceso a ejecutar
 
 
 # ── evidencia NO adquirida visible en el informe HTML ──────────────────────────
@@ -1381,10 +1398,9 @@ def test_invalid_or_missing_tool_param_keeps_the_default_navigation(owner):
     assert 'const toolGroup = TOOL_GROUP[initialTool] || "";' in js                                         # sin grupo => panelOpen=true (default)
 
 
-def test_unauthorized_user_with_the_tool_link_still_gets_restricted_access(monkeypatch):
-    monkeypatch.setattr(access, "APP_OWNER", "owner@danwor.com")
-    html = _client("someone@danwor.com").get(f"/modules/{STEM}?pack=datasphere_core&tool=assessment").text
-    assert "Acceso restringido" in html and 'id="dsa-form"' not in html
+def test_unauthorized_user_with_the_tool_link_still_gets_restricted_access(restricted):
+    html = _client("outsider@danwor.com").get(f"/modules/{STEM}?pack=datasphere_core&tool=assessment").text
+    assert 'id="dsa-form"' not in html
 
 
 # ── casillas del alcance de evidencia: espaciado ──────────────────────────────

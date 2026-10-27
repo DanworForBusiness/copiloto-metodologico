@@ -166,8 +166,29 @@ def tool_enabled(stem: str) -> bool:
 
 
 def can_execute(request) -> bool:
-    """Ejecutar una extracción externa es más poderoso que ver un diagnóstico: solo el dueño de la app (APP_OWNER), el MISMO
-    predicado que ya gobierna las herramientas operativas (`access.is_owner`). No se crea un RBAC nuevo."""
+    """Ejecutar el assessment ad-hoc (y ver/exportar/eliminar SUS resultados): cualquier consultor con sesión válida y perfil COMPLETO del
+    Hub (``auth_service.user_tier == "full"``, el mismo que ve el panel "Herramientas de diagnóstico"; el perfil de solo lectura queda
+    afuera, y un usuario retirado de la allowlist pierde el acceso en el acto porque se deriva del email en cada request) o el dueño de
+    la app. La herramienta NO es pública: sin sesión no hay acceso. Esta política es SOLO de esta herramienta: ``access.is_owner`` no se
+    toca y las capacidades administrativas (``can_administer``, ``can_use_client_profiles``) siguen siendo del dueño. La autorización
+    sobre los DATOS del resultado sigue siendo por dueño del resultado (``_record_or_404``), no por esta compuerta."""
+    from webapp import access
+    from webapp.services import auth_service
+    user = auth_service.session_user(request)
+    if not user:
+        return False
+    return access.is_owner_user(user) or auth_service.user_tier(str(user.get("sub") or "")) == "full"
+
+
+def can_administer(request) -> bool:
+    """Capacidades ADMINISTRATIVAS ligadas a esta herramienta (regenerar el Catálogo desde el pool): solo el dueño (APP_OWNER)."""
+    from webapp import access
+    return access.is_owner(request)
+
+
+def can_use_client_profiles(request) -> bool:
+    """Perfiles de clientes (libro de SharePoint con las credenciales OAuth de TODOS los clientes): solo el dueño. Un consultor usa sus
+    propias credenciales en el formulario; abrir el libro compartido a todos exige un modelo de autorización por cliente que no existe."""
     from webapp import access
     return access.is_owner(request)
 
@@ -177,6 +198,7 @@ def tool_context(request, stem: str) -> dict:
     sesión (el Client Secret no existe en ningún almacén) y ``recent`` los assessments ad-hoc vivos del propio usuario."""
     enabled = tool_enabled(stem)
     can = bool(enabled and can_execute(request))
+    can_profiles = bool(can and can_use_client_profiles(request))
     values: dict[str, str] = {}
     recent: list[dict] = []
     if can:
@@ -187,7 +209,7 @@ def tool_context(request, stem: str) -> dict:
     options = [{"value": f, "label": FEATURE_LABELS[f], "checked": f in checked} for f in OPTIONAL_FEATURES]
     from webapp.services import datasphere_profiles
     return {"enabled": enabled, "can_execute": can, "stem": stem, "form": values, "recent": recent, "feature_options": options,
-            "owner_profiles_url": datasphere_profiles.selector_url(stem, can)}
+            "owner_profiles_url": datasphere_profiles.selector_url(stem, can_profiles)}
 
 
 def cli_available() -> bool:

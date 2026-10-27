@@ -13,14 +13,16 @@ Rutas (SOLO el POST ejecuta; los GET son de lectura):
   POST /modules/{stem}/datasphere-assessment/result/{result_id}/delete       elimina ESE resultado temporal (y su log); solo su dueño
   GET  /modules/{stem}/datasphere-assessment/result/{result_id}/export.json   perfil canónico guardado
   GET  /modules/{stem}/datasphere-assessment/result/{result_id}/export.md     render_markdown del mismo perfil
-  POST /modules/{stem}/datasphere-profiles                             (dueño) lista SEGURA de perfiles de clientes desde SharePoint, para el
+  POST /modules/{stem}/datasphere-profiles                             (SOLO dueño) lista SEGURA de perfiles de clientes desde SharePoint, para el
                                                                        selector "Cliente" de Assessment Y Publicar (sin secretos; ver
                                                                        ``datasphere_profiles``); cualquier otro usuario recibe 403 sin tocar SharePoint
   POST /modules/{stem}/datasphere-assessment/refresh-catalog           capacidad existente (futuro "Catálogo → Agregar"); ya no se
                                                                        expone desde esta herramienta
 
-Seguridad: sesión obligatoria (401); el POST exige mismo origen (`same_origin_guard`; las cookies son SameSite=None); ejecutar y
-ver resultados exige ser el dueño de la app (`access.is_owner`). Un ``result_id`` opaco NO es autorización. El Client Secret llega
+Seguridad: sesión obligatoria (401); el POST exige mismo origen (`same_origin_guard`; las cookies son SameSite=None); ejecutar exige
+un consultor con perfil completo del Hub (o el dueño) y ver/exportar/eliminar solo es posible sobre los resultados PROPIOS (el de otro
+usuario es indistinguible de uno inexistente: 404). Las capacidades administrativas (perfiles de clientes de SharePoint, regenerar el
+Catálogo) siguen siendo del dueño (`access.is_owner`). Un ``result_id`` opaco NO es autorización. El Client Secret llega
 solo por el cuerpo del POST, se pasa al servicio y NO se devuelve, no se guarda y no se registra.
 """
 from __future__ import annotations
@@ -68,6 +70,21 @@ def _authorize(request: Request, stem: str) -> dict:
     return _authorize_read(request, stem)
 
 
+def _authorize_owner(request: Request, stem: str) -> dict:
+    """Capacidades ADMINISTRATIVAS de la herramienta (perfiles de clientes con secretos compartidos, regenerar el Catálogo): sesión +
+    mismo origen + herramienta habilitada + APP_OWNER. Un consultor que ejecuta assessments NO las hereda."""
+    user = auth_service.session_user(request)
+    if not user:
+        raise HTTPException(401, "Sin sesión")
+    if not same_origin_guard.is_same_origin_write(request):
+        raise HTTPException(403, "Origen no permitido")
+    if not svc.tool_enabled(stem):
+        raise HTTPException(404, "Herramienta no disponible en este módulo")
+    if not svc.can_administer(request):
+        raise HTTPException(403, "No autorizado")
+    return user
+
+
 def _result_urls(stem: str, result_id: str, pack: str) -> tuple[str, str, str, str]:
     base = f"/modules/{stem}/datasphere-assessment/result/{result_id}"
     # "Volver" regresa a SU herramienta: el contrato canónico `?tool=assessment` abre solo "Herramientas de diagnóstico" con Assessment seleccionado.
@@ -92,6 +109,8 @@ def run_assessment(
         {"t":"done","state":…,"error_code":…,"message":…,"title":…,"errors":{…},"result_url":…}   resultado final
     Todo texto del extractor viaja saneado (sin secretos/tokens/rutas internas). La UI lo inserta con textContent."""
     user = _authorize(request, stem)
+    if profile_id.strip() and not svc.can_use_client_profiles(request):      # el secreto de un perfil de cliente es del dueño: jamás se resuelve para otro usuario
+        raise HTTPException(403, "No autorizado")
     selected = resolve_pack(pack)
     values = svc.FormValues.from_mapping({"host": host, "token_url": token_url, "client_id": client_id, "space": space,
                                           "root_object": root_object, "client": client,
@@ -143,10 +162,10 @@ def run_assessment(
 
 @router.post("/modules/{stem}/datasphere-profiles", include_in_schema=False)
 def datasphere_client_profiles(request: Request, stem: str, graph_token: str = Form("")):
-    """Perfiles de clientes (SOLO metadatos seguros) para el selector del dueño. ``_authorize`` exige sesión + mismo origen + herramienta
-    habilitada + ser APP_OWNER ANTES de cualquier lectura de SharePoint. Estado no disponible → ``{"ok": false, "reason", "message"}``
-    (200): el formulario manual sigue funcionando."""
-    _authorize(request, stem)
+    """Perfiles de clientes (SOLO metadatos seguros) para el selector del dueño. ``_authorize_owner`` exige sesión + mismo origen +
+    herramienta habilitada + ser APP_OWNER ANTES de cualquier lectura de SharePoint. Estado no disponible → ``{"ok": false, "reason",
+    "message"}`` (200): el formulario manual sigue funcionando."""
+    _authorize_owner(request, stem)
     return JSONResponse(profiles.list_public(graph_token), headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
 
 
@@ -232,8 +251,9 @@ def adhoc_export_markdown(request: Request, stem: str, result_id: str):
 
 @router.post("/modules/{stem}/datasphere-assessment/refresh-catalog", response_class=HTMLResponse, include_in_schema=False)
 def refresh_catalog(request: Request, stem: str, pack: str = Form(DEFAULT_PACK)):
-    """Capacidad existente de regenerar el catálogo desde el pool CSN (futuro "Catálogo → Agregar"). NO se expone desde esta herramienta."""
-    user = _authorize(request, stem)
+    """Capacidad existente de regenerar el catálogo desde el pool CSN (futuro "Catálogo → Agregar"). NO se expone desde esta herramienta y
+    es ADMINISTRATIVA: solo el dueño, aunque el Assessment ad-hoc esté abierto a los consultores."""
+    user = _authorize_owner(request, stem)
     outcome = svc.refresh_catalog(user_email=svc.owner_email(request))
     log_activity("datasphere_assessment_refresh_catalog", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG,
                  state=outcome.state, error_code=outcome.error_code, duration_s=outcome.duration_s, operation_id=outcome.operation_id)
