@@ -2160,6 +2160,7 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 .catalog-card--buena { border-left-color: #e7b008; }
 .catalog-card--parcial { border-left-color: #d98b2b; }
 .catalog-card__head { display: flex; align-items: center; gap: 6px; margin: 0 0 4px; font-size: .9rem; color: var(--ink); }
+.catalog-card__head .catalog-card__action { margin-left: auto; flex: none; }   /* acción icónica de la tarjeta (retirar): al borde derecho, nunca pegada al texto */
 .catalog-card__icon { margin-right: 4px; }
 .catalog-card__verdict { display: inline-flex; align-items: center; color: var(--soft); font: 650 .58rem var(--mono); text-transform: uppercase; letter-spacing: .04em; border: 1px solid var(--line); border-radius: 3px; padding: 1px 4px; line-height: 1.25; }
 /* Tonos de estado del Hub (UNA fuente): `status_tone()` emite plena/buena/parcial/neutra; badge, punto y callout consumen estos tokens. */

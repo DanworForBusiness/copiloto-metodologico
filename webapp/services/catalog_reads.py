@@ -76,7 +76,8 @@ def _catalog_entries_cached():
             _sys.path.insert(0, svc_dir)
         import catalog_service as mod
         cat_dir = os.getenv("DANWOR_CATALOG_DIR", "").strip() or str(BASE_DIR / "catalog_local")
-        return mod, mod.load_catalog(cat_dir)
+        from webapp.services import catalog_governance
+        return mod, catalog_governance.visible_entries(mod.load_catalog(cat_dir), cat_dir)      # sin los tiles retirados lógicamente
     except Exception:
         return None, []
 

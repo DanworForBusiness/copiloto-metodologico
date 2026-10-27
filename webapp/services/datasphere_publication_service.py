@@ -414,6 +414,29 @@ def _safe_outcome(values: asd.FormValues, result, trace: list, secrets: tuple, r
     return PublicationOutcome("FAILED", code or "EXTRACTION_FAILED", message, stage="publish", title=TITLE_PUBLISH, **common)
 
 
+def record_provenance(values: asd.FormValues, actor: str, operation_id: str) -> list[str]:
+    """Registra QUIÉN publicó/actualizó cada tile resultante (procedencia: ver ``catalog_governance``) y levanta el retiro de los tiles que se vuelven a publicar. NUNCA lanza ni hace fallar la
+    publicación: el modelo ya quedó publicado; sin procedencia, el tile solo lo puede retirar el dueño (falla cerrado)."""
+    try:
+        from webapp.services import catalog_governance
+        from tools.catalog import catalog_service as _cs
+        client, root = values.client.strip().lower(), values.root_object.strip()
+        # catálogo COMPLETO tal como está en disco (incluye retirados): un tile retirado que se vuelve a publicar debe reconocerse para levantar el retiro
+        mine = [e for e in _cs.load_catalog(str(catalog_governance.catalog_root()))
+                if str(e.cliente).strip().lower() == client and root in {str(a) for a in (e.artefactos or [])}]
+        ids = catalog_governance.record_publication(mine, actor, operation_id)
+        if catalog_governance.lift_retirement(ids):
+            try:
+                from webapp import main as hub_main
+                hub_main._invalidate_catalog_cache()
+            except Exception:                                           # noqa: BLE001
+                pass
+        return ids
+    except Exception:                                                   # noqa: BLE001 — registrar la procedencia jamás rompe la publicación
+        log.exception("datasphere_publication: no se pudo registrar la procedencia del tile publicado")
+        return []
+
+
 # ───────────────────────────── ejecución (PUBLICAR) ─────────────────────────────
 def run(values: asd.FormValues, client_secret: str, *, user_email: str = "", on_line=None, on_phase=None) -> asd.Outcome:
     """Valida y ejecuta la PUBLICACIÓN: extracción + regeneración del Catálogo (MISMA función que el CLI, ``mode="publish"``,
@@ -471,7 +494,10 @@ def run(values: asd.FormValues, client_secret: str, *, user_email: str = "", on_
             result = dsp.run_export(request)
         trace = asd._trace(cap.lines, secrets, roots)
         if safe:
-            return _safe_outcome(values, result, trace, secrets, roots, started, user_email, on_line, on_phase)
+            outcome = _safe_outcome(values, result, trace, secrets, roots, started, user_email, on_line, on_phase)
+            if outcome.state in ("SUCCESS", STATE_PARTIAL):                 # el modelo quedó publicado (aunque con advertencias): se registra quién lo publicó, igual que en la ruta no segura
+                record_provenance(values, user_email, outcome.operation_id or op_id)
+            return outcome
         if not result.ok:
             code = result.error_code or "EXTRACTION_FAILED"
             log.warning("datasphere_publication op=%s user=%s client=%s space=%s model=%s status=FAILED code=%s duration=%.1fs",
@@ -495,6 +521,7 @@ def run(values: asd.FormValues, client_secret: str, *, user_email: str = "", on_
         if on_line is not None:
             for _eid, state in registered:
                 on_line(f"Assessment del modelo registrado: {state}")
+        record_provenance(values, user_email, op_id)                    # quién publicó/actualizó cada tile (habilita la regla de retiro «quien lo subió o actualizó»)
         if on_phase is not None:
             on_phase(PHASE_PUBLISHED)
         duration = round((datetime.now(timezone.utc) - started).total_seconds(), 1)

@@ -44,6 +44,7 @@ from webapp.routers import auth as auth_router
 from webapp.routers import whats_new as whats_new_router
 from webapp.templating import templates  # env Jinja compartida (Fase 2C); misma identidad
 from webapp import access  # access policy de la web (owner/readonly/diagnostic)
+from webapp import same_origin_guard  # anti-CSRF mínimo de escrituras (mismo origen)
 from webapp import nav     # navegación de la web (login redirect)
 from webapp import workspaces  # PLATFORM: identidad/switcher entre workspaces
 from webapp import operations_access  # access policy del workspace Operations
@@ -72,6 +73,7 @@ from webapp.services import asset_evaluation
 from webapp.services import assessment_service
 from webapp.services import domain_classification_service as dcs
 from webapp.services import catalog_navigation
+from webapp.services import catalog_governance
 from webapp.presentation import artifact_icons
 from webapp.services import catalog_ingestion_orchestration
 from webapp.services import catalog_cds_docs
@@ -1726,6 +1728,7 @@ def catalog_domain(request: Request, dominio: str = "", modulo: str = "", pack: 
     return templates.TemplateResponse(
         request=request, name="partials/catalog_flows.html",
         context={"flows": flows, "dominio": dominio, "foco": foco, "pack": _pack(pack),
+                 "deletable": catalog_governance.deletable_ids(auth_service.session_user(request), flows),
                  "grades": assessment_presenter.tile_grades(flows),
                  "logical_counts": {f.entry_id: _catalog_logical_artifact_count(f) for f in flows}},   # cantidad LÓGICA (mismo conjunto normalizado del linaje)   # grado PRIMARIO de la tile = Adopción metodológica persistida
     )
@@ -1760,6 +1763,33 @@ _LOB_EMPTY = {
 }
 
 
+@app.post("/catalog/flow/retire", response_class=HTMLResponse, include_in_schema=False)
+def catalog_flow_retire(request: Request, flow: str = Form(""), pack: str = Form(DEFAULT_PACK)):
+    """Retira (LÓGICAMENTE) un tile del Catálogo. Política del owner: APP_OWNER cualquiera; los demás solo el tile cuyo ÚLTIMO publicador son ellos (``catalog_governance.can_retire``: el MISMO predicado que decide
+    si el ícono se dibuja). Sin sesión 401; mismo origen obligatorio; sin permiso 403 aunque el tile no exista (no revela nada). No borra archivos, manifiestos ni assessment: ver ``catalog_governance``."""
+    user = auth_service.session_user(request)
+    if not user:
+        raise HTTPException(401, "Sin sesión")
+    if not same_origin_guard.is_same_origin_write(request):
+        raise HTTPException(403, "Origen no permitido")
+    entry_id = (flow or "").strip()
+    if not catalog_governance.can_retire(user, entry_id):
+        raise HTTPException(403, "No autorizado")
+    _mod, entries = _catalog_entries()
+    entry = next((e for e in entries if e.entry_id == entry_id), None)
+    if entry is None:
+        raise HTTPException(404, "El tile ya no está en el Catálogo")
+    actor = str(user.get("sub") or user.get("email") or "")
+    try:
+        catalog_governance.retire(entry, actor)
+    except catalog_governance.GovernanceStorageError:
+        return templates.TemplateResponse(request=request, name="partials/catalog_retired_tile.html",
+                                          context={"ok": False, "entry": entry, "pack": _pack(pack)})
+    _invalidate_catalog_cache()
+    log_activity("catalog_entry_retired", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG, entry_id=entry_id, cliente=entry.cliente, dominio=entry.dominio)
+    return templates.TemplateResponse(request=request, name="partials/catalog_retired_tile.html", context={"ok": True, "entry": entry, "pack": _pack(pack)})
+
+
 @app.get("/catalog/lob", response_class=HTMLResponse, include_in_schema=False)
 def catalog_lob(request: Request, lob: str = "", pack: str = Query(DEFAULT_PACK)):
     """Flujos de una LÍNEA DE NEGOCIO (tercera modalidad del Catálogo, junto a Dominios y Data Products). Solo LEE la clasificación v2 PERSISTIDA
@@ -1789,7 +1819,7 @@ def catalog_lob(request: Request, lob: str = "", pack: str = Query(DEFAULT_PACK)
         return templates.TemplateResponse(request=request, name="partials/catalog_flows.html", context=ctx)
     flows = catalog_navigation.sort_flows_by_verdict(dcs.partition_by_lob(universe, eff)[wanted])
     n_unavailable = sum(1 for v in eff.values() if not v["available"])
-    ctx.update({"flows": flows, "grades": assessment_presenter.tile_grades(flows, statuses),
+    ctx.update({"flows": flows, "grades": assessment_presenter.tile_grades(flows, statuses), "deletable": catalog_governance.deletable_ids(auth_service.session_user(request), flows),
                 "logical_counts": {f.entry_id: _catalog_logical_artifact_count(f) for f in flows},
                 "lob_info": {f.entry_id: {"note": _lob_note(eff[f.entry_id])} for f in flows},
                 "empty_kind": "empty", "empty_title": "Sin modelos disponibles", "empty_message": _LOB_EMPTY.get(wanted, "Todavía no hay modelos asociados a esta línea de negocio."),
@@ -1811,6 +1841,7 @@ def catalog_client(request: Request, cliente: str = "", pack: str = Query(DEFAUL
     return templates.TemplateResponse(
         request=request, name="partials/catalog_flows.html",
         context={"flows": flows, "dominio": "", "foco": None, "pack": selected,
+                 "deletable": catalog_governance.deletable_ids(auth_service.session_user(request), flows),
                  "empty_kind": "empty" if name else "prompt",
                  "empty_title": "Sin modelos disponibles" if name else "Elegí un cliente.",
                  "empty_message": f"Todavía no hay modelos asociados al cliente «{name}»." if name else None,

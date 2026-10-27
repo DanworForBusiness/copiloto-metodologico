@@ -57,7 +57,8 @@ def _catalog_grounding(query: str) -> str:
             token = os.getenv("DANWOR_CATALOG_GRAPH_TOKEN", "").strip()
             entries = mod.fetch_catalog_from_sharepoint(token)
         else:
-            entries = mod.load_catalog(cat_dir)
+            from webapp.services import catalog_governance
+            entries = catalog_governance.visible_entries(mod.load_catalog(cat_dir), cat_dir)      # sin los tiles retirados lógicamente
         return _grounding_text(mod.search_catalog(query, entries))
     except Exception:
         return ""

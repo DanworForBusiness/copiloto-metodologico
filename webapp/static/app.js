@@ -1474,6 +1474,23 @@ document.body.addEventListener("click", function (ev) {
   if (dlg && typeof dlg.showModal === "function") { ev.preventDefault(); dlg.showModal(); }
 }, false);
 
+// Catálogo → «Retirar del catálogo» vive DENTRO de una tarjeta que abre el detalle por click/Enter: el ícono pide confirmación con el diálogo compartido y NO dispara la tarjeta (se intercepta en la fase de
+// captura, antes de la tarjeta y del delegado `[data-dw-confirm]`). Solo al confirmar se dispara el request HTMX del propio botón (`hx-trigger="confirmed"`).
+document.addEventListener("click", function (ev) {
+  const el = ev.target.closest && ev.target.closest("[data-catalog-retire]");
+  if (!el) return;
+  ev.preventDefault();
+  ev.stopPropagation();
+  dwConfirm(_dwConfirmOptsFrom(el)).then(function (ok) {
+    if (!ok) return;
+    if (window.htmx && window.htmx.trigger) window.htmx.trigger(el, "confirmed");
+    else el.dispatchEvent(new CustomEvent("confirmed"));
+  });
+}, true);
+document.addEventListener("keyup", function (ev) {
+  if (ev.target.closest && ev.target.closest("[data-catalog-retire]")) ev.stopPropagation();    // Enter/Espacio sobre el ícono no abre el detalle de la tarjeta
+}, true);
+
 function _dwConfirmOptsFrom(el) {
   return {
     title: el.getAttribute("data-dw-confirm-title") || "Confirmar",
