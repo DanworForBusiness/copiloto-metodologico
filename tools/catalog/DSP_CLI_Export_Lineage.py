@@ -2070,7 +2070,7 @@ def _apply_unit(req, exporter, *, base, txn, op_id, stages, planned, planned_sha
         txn.call_hook(hooks, "after_rollback", ctx)
         if residue:
             keep_closed["on"] = True
-            publication_gate.mark_uncertain(op_id, client_dir_name, catalog_root)
+            publication_gate.mark_uncertain(op_id, client_dir_name, catalog_root, "LOCAL_RESTORE_UNVERIFIED")
             return _safe_failure(req, base, finish, txn.RECOVERY_REQUIRED, "RECOVERY_REQUIRED",
                                  "La publicación falló y la restauración no pudo verificarse por completo: no se publica hasta resolverlo.", operation_id=op_id, stages=stages)
         journal.update(txn.J_ROLLED_BACK, error_code=code)
@@ -2090,18 +2090,18 @@ def _apply_unit(req, exporter, *, base, txn, op_id, stages, planned, planned_sha
             k = _key_of(dirs, gone)
             if k:
                 removed_keys[k] = gone
-        for k in pr.orphans(listing, prefix_keys, unit):
+        ledger_key = _key_of(dirs, ledger_file)
+        for k in pr.orphans(listing, prefix_keys, {*unit, *([ledger_key] if ledger_key else [])}):          # el marcador de activación es de la unidad: jamás es un «huérfano» a borrar
             p = _path_of(dirs, k)
             if p is not None and k not in removed_keys and len(removed_keys) < _MAX_REMOTE_DELETES:
                 removed_keys[k] = p
         unit_keyed = {k: p for k, p in unit.items() if k.split("/", 1)[0] in persisted}
-        ledger_key = _key_of(dirs, ledger_file)
         if ledger_key:
             unit_keyed[ledger_key] = ledger_file                                    # el marcador de activación: se confirma el ÚLTIMO
     else:
         unit_keyed = {}
     journal.update(txn.J_COMMIT_UNCERTAIN if want_remote else txn.J_LOCAL_COMMITTED, changed=changed,
-                   unit={"keyed": {k: str(p) for k, p in {**unit_keyed, **removed_keys}.items()}, "markers": list(markers), "persisted": list(persisted)})
+                   unit={"keyed": {k: str(p) for k, p in {**unit_keyed, **removed_keys}.items()}, "removed": sorted(removed_keys), "markers": list(markers), "persisted": list(persisted)})
     txn.fault("after_local_commit")
     durability = txn.DURABILITY_NOT_REQUESTED
     remote_note = ""
@@ -2111,12 +2111,31 @@ def _apply_unit(req, exporter, *, base, txn, op_id, stages, planned, planned_sha
         _say("PERSISTENCIA EN DIGITALOCEAN SPACES (confirmación durable)")
         _say("==========================================")
         base.storage_enabled = True
-        outcome = pr.confirm(remote_store, persisted, markers, unit_keyed, removed_keys, ledger_file)
+        from tools.catalog import publication_intent as pi
+        outcome = None
+        intent_failed = False
+        try:                                                                        # B1: ANTES de escribir un solo objeto del cuerpo, la evidencia para recuperar desde Spaces (aunque se pierda el disco)
+            pi.write(remote_store, catalog_root, client_dir_name, operation_id=op_id, previous_operation_id=(ledger.get("active") or {}).get("operation_id"),
+                     created_at=txn.now_iso(), keyed=unit_keyed, removed=removed_keys, listing=listing, markers=markers)
+        except Exception as exc:                                                    # noqa: BLE001 — el cuerpo remoto sigue intacto: se vuelve a la última versión confirmada
+            _say(f"ERROR: no se pudo registrar la intención de la publicación en Spaces ({type(exc).__name__}): {exc}", file=sys.stderr)
+            outcome = pr.RemoteOutcome(pr.FAILED, detail="intent")
+            intent_failed = True
+        txn.fault("after_intent")
+        if outcome is None:
+            try:
+                outcome = pr.confirm(remote_store, persisted, markers, unit_keyed, removed_keys, ledger_file)
+            except Exception:                                                       # noqa: BLE001 — una falla inesperada no decide nada: se resuelve verificando el remoto
+                outcome = pr.RemoteOutcome(pr.UNCERTAIN, detail="confirmación interrumpida")
         txn.fault("after_remote")
         if outcome.status == pr.CONFIRMED:
             durability = txn.DURABILITY_REMOTE
             stages["remote"] = "OK"
             journal.update(txn.J_REMOTE_CONFIRMED, durability=durability, reconciled=outcome.reconciled)
+            txn.fault("after_confirm_journal")
+            txn.fault("before_intent_close")
+            pi.close_if(remote_store, catalog_root, client_dir_name, op_id)         # confirmada: la evidencia ya no hace falta (si no se pudo retirar, la recuperación lo hace: idempotente)
+            txn.fault("after_intent_close")
         elif outcome.status == pr.FAILED:
             # Se leyó el remoto y se verificó que NO refleja la versión: se mantiene la última versión confirmada (local y remoto vuelven a la previa).
             stages["remote"] = "FAILED"
@@ -2127,14 +2146,18 @@ def _apply_unit(req, exporter, *, base, txn, op_id, stages, planned, planned_sha
             if residue:
                 keep_closed["on"] = True
                 journal.update(txn.J_COMMIT_UNCERTAIN)
-                publication_gate.mark_uncertain(op_id, client_dir_name, catalog_root)
+                publication_gate.mark_uncertain(op_id, client_dir_name, catalog_root, "LOCAL_RESTORE_UNVERIFIED")
                 return _safe_failure(req, base, finish, txn.RECOVERY_REQUIRED, "RECOVERY_REQUIRED", "No se pudo restaurar la versión previa: no se publica hasta resolverlo.",
                                      operation_id=op_id, stages=stages)
             journal.update(txn.J_REMOTE_DIVERGED, local_restored=True)
-            back = pr.converge(remote_store, {**unit_keyed, **removed_keys}, last=[k for k, p in unit_keyed.items() if p.name in markers])
+            if intent_failed:                                                       # el cuerpo remoto no se tocó (la intención se registra antes): no hay nada que compensar
+                back = pr.RemoteOutcome(pr.CONFIRMED)
+            else:
+                back = pr.converge(remote_store, {**unit_keyed, **removed_keys}, last=[k for k, p in unit_keyed.items() if p.name in markers])
             if back.status == pr.CONFIRMED:
                 journal.update(txn.J_ROLLED_BACK, error_code="PERSISTENCE_FAILED")
                 shutil.rmtree(txn.undo_dir(catalog_root, op_id), ignore_errors=True)
+                pi.close_if(remote_store, catalog_root, client_dir_name, op_id)
                 return _safe_failure(req, base, finish, txn.ROLLED_BACK, "PERSISTENCE_FAILED",
                                      "No se pudo confirmar la publicación en Spaces: se mantuvo la última versión confirmada.", operation_id=op_id, stages=stages)
             return _safe_failure(req, base, finish, txn.RECOVERY_REQUIRED, "PERSISTENCE_DIVERGED",
@@ -2146,7 +2169,7 @@ def _apply_unit(req, exporter, *, base, txn, op_id, stages, planned, planned_sha
             if hold is not None:
                 hold.fail()
             journal.update(txn.J_COMMIT_UNCERTAIN, durability=txn.DURABILITY_UNCONFIRMED)
-            publication_gate.mark_uncertain(op_id, client_dir_name, catalog_root)
+            publication_gate.mark_uncertain(op_id, client_dir_name, catalog_root, "PERSISTENCE_UNCERTAIN")
             return _safe_failure(req, base, finish, txn.RECOVERY_REQUIRED, "PERSISTENCE_UNCERTAIN",
                                  "No se pudo verificar en Spaces si la publicación quedó guardada: la lectura queda bloqueada hasta resolverlo.", operation_id=op_id, stages=stages)
     else:
@@ -2348,7 +2371,6 @@ def run_export(req: ExportRequest) -> ExportResult:
             base.failures = [{"kind": "client_key", "object_type": "", "technical_name": v, "code": "CASE_VARIANT"} for v in exc.variants]
             return finish(base)
     base.client_dir = client_dir_name
-
     if safe:                                          # B2: sin persistencia efectiva para lo que se va a escribir, ni se empieza (antes de conectar con Datasphere)
         from core import publication_gate as _gate, remote_store as _rs
         try:

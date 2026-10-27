@@ -6,7 +6,9 @@ disco es transitorio: un lector que lo viera mostraría una versión que todaví
 
   * ``ACTIVATING``  la publicación está en curso: los lectores ESPERAN (acotado) y, vencida la espera, reciben ``PublicationInProgress`` (la web responde 503 con ``Retry-After``).
   * ``UNCERTAIN``   la publicación quedó aplicada pero NO se pudo confirmar ni deshacer de forma verificable en Spaces: los lectores reciben ``PublicationBlocked`` al instante hasta que
-                    la recuperación lo resuelva (``set_resolver``). No se muestra como vigente una versión sin confirmación durable.
+                    la recuperación lo resuelva (``set_resolver``). No se muestra como vigente una versión sin confirmación durable. ``reason`` es el código explícito del bloqueo.
+  * ``BOOT``        (``UNCERTAIN`` con la operación ``boot``) el proceso arrancó con la publicación segura encendida: hasta que el restore termine y la recuperación verifique que lo restaurado
+                    es UNA versión publicada (y no una mezcla de una caída), los lectores no ven el Catálogo.
 
 El hilo que ejecuta la publicación (``owner``) no se bloquea a sí mismo. Sin archivo de estado no cuesta nada (un ``stat``). El archivo lo escribe/retira SOLO el módulo de publicación.
 """
@@ -25,6 +27,7 @@ from core import atomic_io
 
 GATE_FILE = "gate.json"
 ACTIVATING, UNCERTAIN = "ACTIVATING", "UNCERTAIN"
+BOOT_OP = "boot"                              # operación sintética de la compuerta de arranque
 DEFAULT_WAIT_S = 15.0                         # un lector bloqueado ocupa un hilo del servidor: la espera es corta y, vencida, el cliente reintenta (503 + Retry-After)
 _POLL_S = 0.05
 _STALE_AFTER_S = 3600.0                       # un ACTIVATING más viejo que esto sin proceso vivo se considera huérfano (lo limpia la recuperación)
@@ -42,9 +45,9 @@ class PublicationInProgress(RuntimeError):
 class PublicationBlocked(RuntimeError):
     """La última publicación no está confirmada ni deshecha: la lectura queda bloqueada hasta resolverlo."""
 
-    def __init__(self, operation_id: str = "", client_dir: str = ""):
+    def __init__(self, operation_id: str = "", client_dir: str = "", reason: str = ""):
         super().__init__("PUBLICATION_BLOCKED")
-        self.operation_id, self.client_dir = operation_id, client_dir
+        self.operation_id, self.client_dir, self.reason = operation_id, client_dir, reason
 
 
 _owner = threading.local()
@@ -78,8 +81,8 @@ def read_state(root: str | Path | None = None) -> dict | None:
         return {"state": UNCERTAIN, "operation_id": "", "client_dir": ""}
 
 
-def _write(root: str | Path | None, state: str, operation_id: str, client_dir: str) -> None:
-    atomic_io.write_text(gate_path(root), json.dumps({"state": state, "operation_id": operation_id, "client_dir": client_dir, "pid": os.getpid(), "since": time.time()}))
+def _write(root: str | Path | None, state: str, operation_id: str, client_dir: str, reason: str = "") -> None:
+    atomic_io.write_text(gate_path(root), json.dumps({"state": state, "operation_id": operation_id, "client_dir": client_dir, "reason": reason, "pid": os.getpid(), "since": time.time()}))
 
 
 def begin(operation_id: str, client_dir: str, root: str | Path | None = None) -> None:
@@ -88,9 +91,19 @@ def begin(operation_id: str, client_dir: str, root: str | Path | None = None) ->
     _owner.op = operation_id
 
 
-def mark_uncertain(operation_id: str, client_dir: str, root: str | Path | None = None) -> None:
-    """La publicación quedó sin confirmar ni deshacer: la compuerta pasa a UNCERTAIN y NO se abre sola."""
-    _write(root, UNCERTAIN, operation_id, client_dir)
+def mark_uncertain(operation_id: str, client_dir: str, root: str | Path | None = None, reason: str = "") -> None:
+    """La publicación quedó sin confirmar ni deshacer: la compuerta pasa a UNCERTAIN y NO se abre sola. ``reason``: código explícito para el operador y el lector."""
+    _write(root, UNCERTAIN, operation_id, client_dir, reason)
+
+
+def begin_boot(root: str | Path | None = None) -> None:
+    """Arranque con la publicación segura encendida: cierra la compuerta (UNCERTAIN/``boot``) hasta que el restore termine y la recuperación verifique lo restaurado."""
+    _write(root, UNCERTAIN, BOOT_OP, "", "BOOT_VERIFICATION_PENDING")
+
+
+def is_boot_closed(root: str | Path | None = None) -> bool:
+    st = read_state(root)
+    return bool(st) and st.get("operation_id") == BOOT_OP
 
 
 def end(operation_id: str, root: str | Path | None = None) -> None:
@@ -171,4 +184,4 @@ def check(root: str | Path | None = None, *, wait: float | None = None) -> None:
             return
         if st.get("state") == ACTIVATING:
             raise PublicationInProgress()
-        raise PublicationBlocked(str(st.get("operation_id") or ""), str(st.get("client_dir") or ""))
+        raise PublicationBlocked(str(st.get("operation_id") or ""), str(st.get("client_dir") or ""), str(st.get("reason") or ""))

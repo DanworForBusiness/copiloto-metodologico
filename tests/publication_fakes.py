@@ -108,6 +108,7 @@ class FakeS3:
       ``fail_list``                        el listado completo falla.
       ``down``                             caída total de Spaces: toda operación lanza.
       ``fail_delete_keys``                 borrados que fallan sin efecto.
+      ``crash_before_keys`` / ``crash_after_keys``   el PROCESO muere (``SimulatedCrash``, no una ``Exception``) justo antes / justo después de guardar una clave que contiene el texto.
     ``log`` registra (operación, clave) en orden: permite verificar que el marcador de activación se sube AL FINAL y los borrados antes."""
 
     def __init__(self, *, fail_after: int | None = None, fail_keys: tuple[str, ...] = (), lose_response_keys: tuple[str, ...] = (), fail_get_keys: tuple[str, ...] = (),
@@ -118,6 +119,8 @@ class FakeS3:
         self.fail_delete_keys, self.fail_list, self.down = fail_delete_keys, fail_list, False
         self.order: list[str] = []
         self.log: list[tuple[str, str]] = []
+        self.crash_before_keys: tuple[str, ...] = ()
+        self.crash_after_keys: tuple[str, ...] = ()
 
     def _check_down(self) -> None:
         if self.down:
@@ -127,10 +130,14 @@ class FakeS3:
         self._check_down()
         if (self.fail_after is not None and self.uploads >= self.fail_after) or any(s in key for s in self.fail_keys):
             raise RuntimeError("Spaces caído (inyectado)")
+        if any(s in key for s in self.crash_before_keys):
+            raise SimulatedCrash(f"el proceso murió antes de guardar {key}")
         self.objects[key] = Path(filename).read_bytes()
         self.order.append(key)
         self.log.append(("put", key))
         self.uploads += 1
+        if any(s in key for s in self.crash_after_keys):
+            raise SimulatedCrash(f"el proceso murió después de guardar {key}")
         if any(s in key for s in self.lose_response_keys):
             raise RuntimeError("respuesta perdida (inyectada): la escritura SÍ ocurrió")
 

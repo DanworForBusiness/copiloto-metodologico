@@ -488,26 +488,30 @@ def _prune_journals(catalog_root: Path) -> None:
 
 
 def has_pending(catalog_root: str | Path) -> bool:
-    """¿Hay un journal sin cerrar (PLANNED/APPLYING, o con la confirmación remota por resolver)? Barato y sin candado: lo usan los caminos que no toman el candado para negarse a trabajar sobre un estado a medias."""
+    """¿Hay algo sin cerrar: un journal (PLANNED/APPLYING, o con la confirmación remota por resolver) o un registro de intención (``publication_intent``) cuya confirmación en Spaces no se resolvió?
+    Barato y sin candado: lo usan los caminos que no toman el candado para negarse a trabajar sobre un estado a medias."""
     for jf in journal_dir(catalog_root).glob("*.json"):
         try:
             if json.loads(jf.read_text(encoding="utf-8")).get("state") in _PENDING_STATES:
                 return True
         except (OSError, ValueError):
             return True                                              # un journal ilegible cuenta como pendiente: no se trabaja encima
-    return False
+    from tools.catalog import publication_intent
+    return bool(publication_intent.open_intents(catalog_root))
 
 
 def recover_pending(catalog_root: str | Path, *, timeout: float | None = None) -> list[dict]:
     """Recupera las operaciones que quedaron a medias (caída del proceso). Bajo el candado de escritor. ``PLANNED`` ⇒ se descarta (no se aplicó nada); ``APPLYING`` ⇒ se
     restaura el estado previo desde el undo. Idempotente; sin journal pendiente no hace nada. ``RecoveryError`` si una restauración no pudo verificarse (el journal queda
     ``APPLYING`` y no se publica hasta resolverlo)."""
+    from core import publication_gate
     root = Path(catalog_root)
-    if not journal_dir(root).is_dir() or not has_pending(root):
+    closed = publication_gate.read_state(root) is not None             # compuerta cerrada (arranque, o un proceso que murió dentro de la activación): se resuelve o se confirma que nada quedó a medias
+    if not closed and not has_pending(root):
         return []
     results: list[dict] = []
     with writer_lock(timeout):
-        for jf in sorted(journal_dir(root).glob("*.json")):
+        for jf in sorted(journal_dir(root).glob("*.json")) if journal_dir(root).is_dir() else []:
             try:
                 data = json.loads(jf.read_text(encoding="utf-8"))
             except (OSError, ValueError) as exc:
@@ -536,11 +540,52 @@ def recover_pending(catalog_root: str | Path, *, timeout: float | None = None) -
             journal.update(J_ROLLED_BACK, recovered=True)
             shutil.rmtree(od, ignore_errors=True)
             results.append({"operation_id": op, "from": state, "action": "ROLLED_BACK"})
-        _prune_journals(root)
-        if results and not has_pending(root):                      # nada sin resolver: la compuerta de lectores que dejó cerrada la operación recuperada se abre
-            from core import publication_gate
+        results += _recover_intents(root, {str(r.get("operation_id")) for r in results})   # lo que quedó a medias en Spaces (aunque el disco local se haya perdido): se completa o se deshace verificando
+        if journal_dir(root).is_dir():
+            _prune_journals(root)
+        blocked = any(r.get("action") in ("UNCERTAIN", "BLOCKED") for r in results)
+        if not blocked and _restore_ready():                        # bajo el candado de escritor ninguna publicación está activando: una compuerta cerrada sin nada que resolver es huérfana
             publication_gate.clear(root)
+        elif not blocked and closed:                                # el restore no terminó completo: no se puede verificar lo restaurado, y se dice por qué
+            publication_gate.mark_uncertain(str((publication_gate.read_state(root) or {}).get("operation_id") or publication_gate.BOOT_OP),
+                                            str((publication_gate.read_state(root) or {}).get("client_dir") or ""), root, "RESTORE_INCOMPLETE")
     return results
+
+
+def _restore_ready() -> bool:
+    """El restore de arranque terminó completo (o no aplica): lo que hay en disco es una copia fiel de Spaces y se puede verificar."""
+    from core import remote_store
+    return remote_store.sync_blocked_reason() is None
+
+
+def _recover_intents(root: Path, handled: "set[str]") -> list[dict]:
+    """Resuelve los registros de intención sin cerrar (``publication_intent.resolve``). Un resultado incierto o bloqueado cierra la compuerta con el código explícito. ``handled``: operaciones
+    que el journal ya resolvió en esta misma pasada (con el disco local intacto el journal es la fuente; el registro solo cubre lo que el journal no puede: el disco perdido)."""
+    from core import publication_gate, remote_store
+    from tools.catalog import publication_intent as pi
+    out: list[dict] = []
+    for folder in pi.intent_dirs(root):
+        client = pi.client_of(folder)
+        if pi.operation_of(folder) in handled:
+            continue
+        res = pi.resolve(remote_store, root, client)
+        if res.status == pi.NONE:
+            continue
+        action = {pi.COMMITTED: "CONFIRMED"}.get(res.status, res.status)
+        out.append({"operation_id": res.operation_id, "from": "INTENT", "client_dir": client, "action": action, "code": res.code, "detail": res.detail, "problems": res.problems})
+        if res.status in (pi.UNCERTAIN, pi.BLOCKED):
+            publication_gate.mark_uncertain(res.operation_id or "intent", client, root, res.code)
+    return out
+
+
+def _close_intent(root: Path, data: dict, operation_id: str) -> None:
+    """La operación quedó confirmada o deshecha: su registro de intención ya no hace falta (solo si es el de ESTA operación)."""
+    try:
+        from core import remote_store
+        from tools.catalog import publication_intent as pi
+        pi.close_if(remote_store, root, str(data.get("client_dir") or ""), operation_id)
+    except Exception:                                                # noqa: BLE001 — un registro sin cerrar es inocuo: se resuelve (idempotente) en la próxima recuperación
+        pass
 
 
 def _resolve_remote_state(root: Path, data: dict, journal: Journal) -> str:
@@ -556,13 +601,18 @@ def _resolve_remote_state(root: Path, data: dict, journal: Journal) -> str:
     last = [k for k, p in keyed.items() if p.name in markers]
     od = undo_dir(root, op)
     if state == J_COMMIT_UNCERTAIN:
+        for k in unit.get("removed") or []:                           # lo que la versión nueva retira no puede reaparecer (un restore previo pudo bajarlo de Spaces): el objetivo es AUSENTE
+            if k in keyed:
+                _drop_path(keyed[k])
         out = pr.converge(remote_store, keyed, last=last)             # hacia adelante: el local ES la versión nueva
         if out.status == pr.CONFIRMED:
             journal.update(J_REMOTE_CONFIRMED, durability=DURABILITY_REMOTE, resolved="forward")
             shutil.rmtree(od, ignore_errors=True)
+            _close_intent(root, data, op)
             publication_gate.clear(root)
             return "CONFIRMED"
         if out.status == pr.UNCERTAIN:
+            publication_gate.mark_uncertain(op, str(data.get("client_dir") or ""), root, "REMOTE_UNREADABLE")
             return "UNCERTAIN"
         try:                                                         # el remoto se leyó y NO refleja la versión: se deshace
             problems = UndoLog.load(od).restore()
@@ -577,8 +627,19 @@ def _resolve_remote_state(root: Path, data: dict, journal: Journal) -> str:
     out = pr.converge(remote_store, keyed, last=last)                # hacia atrás: el local ES la versión previa
     if out.status == pr.CONFIRMED:
         journal.update(J_ROLLED_BACK, resolved="backward", error_code="PERSISTENCE_FAILED")
+        _close_intent(root, data, op)
         return "ROLLED_BACK"
     return "DIVERGED"                                                # el local es la versión previa; la compensación remota se reintenta en la próxima recuperación
+
+
+def _drop_path(path: Path) -> None:
+    try:
+        if path.is_dir():
+            shutil.rmtree(path, ignore_errors=True)
+        else:
+            path.unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 def _clean_temporaries(journal_data: dict) -> None:

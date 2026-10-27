@@ -226,6 +226,11 @@ async def lifespan(app: FastAPI):
         log.warning(warning)
     tasks = []
     if remote_store.enabled():
+        try:                                                              # P1·B1: antes de servir, la compuerta de lectores queda cerrada hasta verificar lo restaurado (solo con la publicación segura encendida)
+            from webapp.services import datasphere_publication_service
+            datasphere_publication_service.begin_boot_gate()
+        except Exception as exc:
+            log.warning("no se pudo cerrar la compuerta de arranque de la publicación: %s", exc)
         tasks.append(asyncio.create_task(_restore_bg()))
         tasks.append(asyncio.create_task(remote_store.sync_loop()))
     else:
@@ -268,7 +273,8 @@ async def _publication_in_progress(request, exc):
 
 @app.exception_handler(publication_gate.PublicationBlocked)
 async def _publication_blocked(request, exc):
-    return PlainTextResponse("La última publicación del Catálogo está en verificación. La lectura se reanuda sola al resolverse.", status_code=503, headers={"Retry-After": "30"})
+    code = f" (código {exc.reason})" if getattr(exc, "reason", "") else ""
+    return PlainTextResponse(f"La última publicación del Catálogo está en verificación{code}. La lectura se reanuda sola al resolverse.", status_code=503, headers={"Retry-After": "30"})
 app.mount("/static", StaticFiles(directory=WEB_DIR / "static"), name="static")
 app.include_router(system_router.router)
 app.include_router(telemetry_router.router)
