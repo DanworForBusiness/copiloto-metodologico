@@ -1,9 +1,10 @@
-"""«Publicar modelo» para consultores del Hub — autorización UI/backend por capacidad, apagada por defecto.
+"""«Publicar modelo» para consultores del Hub — la autorización es el PERFIL (dueño o ``user_tier == "full"``), no la configuración.
 
 Contrato que fijan estas pruebas:
   * UN solo predicado (``datasphere_publication_service.can_execute``) gobierna la UI (botón «+», panel, deep link) y el backend (POST /run): lo que la UI oculta, el POST manual lo rechaza;
-  * dueño (APP_OWNER): conserva sus permisos; consultor full: solo con la capacidad DISPONIBLE (interruptor + garantías de la publicación segura + clientes autorizados) y solo sobre sus clientes; solo lectura,
-    fuera de la allowlist y anónimo: denegados SIEMPRE; con todo apagado (el default) el comportamiento es el de siempre;
+  * dueño (APP_OWNER) y consultor ``full`` (el mismo criterio del Assessment): publican, con ``DANWOR_PUBLICATION_SAFE`` encendida o apagada —la publicación segura mejora la integridad de la operación, no decide
+    QUIÉN la ejecuta—; solo lectura, fuera de la allowlist y anónimo: denegados SIEMPRE;
+  * ``DANWOR_PUBLICATION_CONSULTANT_CLIENTS`` es una restricción OPCIONAL: ausente o vacía no restringe; si está definida, limita los clientes de un consultor (el dueño, no);
   * lo administrativo (perfiles de clientes compartidos con secretos de TODOS los clientes, regenerar el Catálogo) sigue siendo SOLO del dueño; ``access.is_owner`` no se amplió;
   * se conservan el mismo origen, la validación de hosts/token URL y las credenciales PROPIAS del consultor (nunca un perfil compartido).
 La publicación real (extractor, pool, Catálogo) se simula en la frontera: aquí se prueba la AUTORIZACIÓN, no la integridad de la escritura (que es de la publicación segura, fase 0 / P1).
@@ -22,6 +23,7 @@ from webapp import access
 from webapp.services import auth_service, datasphere_assessment_service as asd, datasphere_profiles as dprofiles, datasphere_publication_service as pub
 
 OWNER, CONSULTANT, OTHER, READER = "owner@danwor.com", "consultor@danwor.com", "otro.consultor@danwor.com", "lector@danwor.com"
+STRANGER = "ajeno@otro.com"
 SECRET = "s3cr3t-SINTETICO-NO-REAL"
 ORIGIN = {"Origin": "http://testserver"}
 FORM = {"pack": "datasphere_core", "host": "https://t.eu10.hcs.cloud.sap", "token_url": "https://t.authentication.eu10.hana.ondemand.com/oauth/token", "datasphere_client_id": "sb-propio",
@@ -29,27 +31,23 @@ FORM = {"pack": "datasphere_core", "host": "https://t.eu10.hcs.cloud.sap", "toke
 PLUS = 'aria-label="Publicar en el catálogo"'
 
 
-@pytest.fixture()
-def hub(monkeypatch, tmp_path):
+@pytest.fixture(params=["safe_off", "safe_on"])
+def hub(request, monkeypatch, tmp_path):
+    """Perfiles del Hub y catálogo de demostración. Se corre CON y SIN ``DANWOR_PUBLICATION_SAFE``: la autorización no puede cambiar."""
     monkeypatch.setattr(access, "APP_OWNER", OWNER)
     monkeypatch.setattr(auth_service, "ALLOWED_USERS", f"{OWNER},{CONSULTANT},{OTHER}")           # perfil completo
     monkeypatch.setattr(auth_service, "ACADEMY_USERS", READER)                                   # solo lectura
-    for name in (pub.CONSULTANTS_ENV, pub.CONSULTANT_CLIENTS_ENV):
-        monkeypatch.delenv(name, raising=False)
-    monkeypatch.delitem(sys.modules, "tools.catalog.publication_txn", raising=False)
+    monkeypatch.delenv(pub.CONSULTANT_CLIENTS_ENV, raising=False)
+    monkeypatch.setenv("DANWOR_PUBLICATION_SAFE", "1" if request.param == "safe_on" else "0")
     pub._RUNNING.clear()
     _demo_catalog(monkeypatch, tmp_path)
-    yield
+    yield request.param
     main._invalidate_catalog_cache()
 
 
-def capability(monkeypatch, *, flag=True, guarantees=True, clients="Pampa, Acme Corp"):
-    """Apaga/enciende cada una de las tres condiciones por separado. Las garantías de la publicación segura (fase 0 / P1) se simulan con un módulo mínimo."""
-    if flag:
-        monkeypatch.setenv(pub.CONSULTANTS_ENV, "1")
-    if clients:
-        monkeypatch.setenv(pub.CONSULTANT_CLIENTS_ENV, clients)
-    monkeypatch.setitem(sys.modules, "tools.catalog.publication_txn", types.SimpleNamespace(safe_mode_enabled=lambda: guarantees))
+def restrict_clients(monkeypatch, clients="Pampa, Acme Corp"):
+    """Restricción OPCIONAL de clientes para consultores (no es una condición de acceso)."""
+    monkeypatch.setenv(pub.CONSULTANT_CLIENTS_ENV, clients)
 
 
 @pytest.fixture()
@@ -77,109 +75,107 @@ def ui(client, url=MODULE_URL) -> str:
     return client.get(url).text
 
 
-# ═══════════════ por defecto (todo apagado): sin cambios ═══════════════
-def test_with_everything_off_only_the_owner_publishes_exactly_as_before(hub, runs):
+# ═══════════════ el perfil decide: dueño y consultor full, sin configuración ═══════════════
+def test_owner_and_full_consultant_publish_with_no_configuration_at_all(hub, runs):
     owner, consultant = _client(OWNER), _client(CONSULTANT)
-    assert PLUS in ui(owner) and 'id="dsp-form"' in ui(owner) and done(post(owner))["state"] == "SUCCESS"
-    html = ui(consultant)
-    assert PLUS not in html and 'id="dsp-form"' not in html and 'id="catalog-publish-state"' not in html
-    assert post(consultant).status_code == 403                                                    # el POST manual tampoco pasa
-    assert len(runs) == 1 and runs[0]["user"] == OWNER
+    for c in (owner, consultant):
+        html = ui(c)
+        assert PLUS in html and 'id="dsp-form"' in html and "Acceso restringido" not in html           # visibilidad = la de la captura del dueño
+        assert "data-dsp-allowed-clients" not in html                                                  # sin restricción opcional no hay lista que mostrar
+    assert done(post(owner))["state"] == "SUCCESS" and done(post(consultant))["state"] == "SUCCESS"
+    assert [r["user"] for r in runs] == [OWNER, CONSULTANT]
 
 
-def test_access_is_owner_was_not_widened(hub, monkeypatch):
-    capability(monkeypatch)
+@pytest.mark.parametrize("email,allowed", [(OWNER, True), (CONSULTANT, True), (OTHER, True), (READER, False), (STRANGER, False)])
+def test_the_publish_profile_is_the_assessment_profile(hub, email, allowed):
+    """Dueño o perfil completo: la UI lo refleja por perfil."""
+    html = ui(_client(email))
+    assert (PLUS in html) is allowed and ('id="dsp-form"' in html) is allowed
+
+
+def test_the_publish_predicate_is_the_assessment_predicate_not_a_copy(hub, monkeypatch, runs):
+    """Si el criterio del Assessment cambia, el de publicar cambia con él (no hay una segunda definición de «consultor autorizado»)."""
+    monkeypatch.setattr(asd, "can_execute", lambda request: False)
+    consultant = _client(CONSULTANT)
+    assert PLUS not in ui(consultant) and post(consultant).status_code == 403 and not runs
+
+
+def test_access_is_owner_was_not_widened(hub):
     assert access.is_owner_user({"sub": OWNER}) and not access.is_owner_user({"sub": CONSULTANT}) and not access.is_owner_user({"sub": READER})
 
 
-# ═══════════════ cada condición, por separado, es necesaria ═══════════════
-@pytest.mark.parametrize("kwargs,why", [({"flag": False}, "interruptor apagado"), ({"guarantees": False}, "garantías de la publicación segura inactivas"), ({"clients": ""}, "ningún cliente autorizado")])
-def test_each_of_the_three_conditions_is_required_in_ui_and_backend(hub, monkeypatch, runs, kwargs, why):
-    capability(monkeypatch, **kwargs)
+def test_authorization_does_not_consult_the_safe_publication_code(hub, monkeypatch, runs):
+    """La publicación segura no decide quién publica: aunque su módulo ni siquiera pueda importarse o su sonda falle, el predicado no cambia."""
+    monkeypatch.setitem(sys.modules, "tools.catalog.publication_txn", None)
     consultant = _client(CONSULTANT)
-    assert PLUS not in ui(consultant) and 'id="dsp-form"' not in ui(consultant), why
-    assert post(consultant).status_code == 403 and not runs, why
-    assert PLUS in ui(_client(OWNER)) and done(post(_client(OWNER)))["state"] == "SUCCESS"        # el dueño no depende de la capacidad de consultores
-
-
-def test_without_the_safe_publication_code_in_the_deployment_the_guarantee_cannot_be_active(hub, monkeypatch):
-    monkeypatch.setenv(pub.CONSULTANTS_ENV, "1")
-    monkeypatch.setenv(pub.CONSULTANT_CLIENTS_ENV, "Pampa")
-    monkeypatch.setitem(sys.modules, "tools.catalog.publication_txn", None)                       # el import falla: este despliegue no trae la publicación segura
-    assert pub.publication_guarantees_active() is False and pub.consultants_enabled() is False
-
-
-def test_a_failing_guarantee_probe_fails_closed(hub, monkeypatch):
-    monkeypatch.setenv(pub.CONSULTANTS_ENV, "1")
-    monkeypatch.setenv(pub.CONSULTANT_CLIENTS_ENV, "Pampa")
+    assert PLUS in ui(consultant) and done(post(consultant))["state"] == "SUCCESS"
     monkeypatch.setitem(sys.modules, "tools.catalog.publication_txn", types.SimpleNamespace(safe_mode_enabled=lambda: 1 / 0))
-    assert pub.consultants_enabled() is False
+    assert PLUS in ui(consultant) and done(post(consultant))["state"] == "SUCCESS"
+    assert not hasattr(pub, "publication_guarantees_active") and not hasattr(pub, "consultants_enabled") and not hasattr(pub, "CONSULTANTS_ENV")
 
 
-# ═══════════════ capacidad disponible: consultor full ═══════════════
-def test_a_full_consultant_sees_the_plus_and_publishes_on_an_authorized_client_with_their_own_credentials(hub, monkeypatch, runs):
-    capability(monkeypatch)
+# ═══════════════ consultor full ═══════════════
+def test_a_full_consultant_publishes_with_their_own_credentials_attributed_to_them(hub, runs):
     consultant = _client(CONSULTANT)
-    html = ui(consultant)
-    assert PLUS in html and 'id="dsp-form"' in html and "data-dsp-allowed-clients" in html and "Pampa, Acme Corp" in html     # visibilidad = la de la captura del dueño
     r = post(consultant)
     assert done(r)["state"] == "SUCCESS" and SECRET not in r.text
     assert runs == [{"client": "Pampa", "model": "AM_Compras", "secret": SECRET, "user": CONSULTANT, "client_id": "sb-propio"}]    # SUS credenciales, atribuidas a SU usuario
-    assert "Acceso restringido" not in html
 
 
-def test_first_publication_and_republication_follow_the_same_gates(hub, monkeypatch, runs):
-    capability(monkeypatch)
+def test_first_publication_and_republication_follow_the_same_gates(hub, runs):
     consultant = _client(CONSULTANT)
     assert done(post(consultant))["state"] == "SUCCESS"                                            # «primera»
     assert done(post(consultant))["state"] == "SUCCESS"                                            # «republicación» del mismo modelo
     assert len(runs) == 2                                                                          # no hay una distinción CREATE/UPDATE que se pueda demostrar: ambas pasan por las mismas compuertas
-    capability(monkeypatch, guarantees=False)
-    assert post(consultant).status_code == 403 and len(runs) == 2                                  # y las dos se cierran juntas si se caen las garantías
+    assert done(post(_client(OWNER)))["state"] == "SUCCESS" and len(runs) == 3                     # y el dueño puede republicar lo del consultor
 
 
 def test_the_form_shows_no_owner_only_profile_selector_to_a_consultant(hub, monkeypatch):
-    capability(monkeypatch)
     monkeypatch.setattr(dprofiles, "source_configured", lambda: True)
     assert "datasphere-profiles" not in ui(_client(CONSULTANT))
     assert "datasphere-profiles" in ui(_client(OWNER))
 
 
-def test_a_deep_link_does_not_open_the_publish_state_for_someone_without_the_capability(hub, monkeypatch):
-    html = _client(CONSULTANT).get(CATALOG_PUBLISH_URL).text
-    assert 'id="catalog-publish-state"' not in html and "catalogView = 'publish'" not in html
-    capability(monkeypatch)
+def test_a_deep_link_opens_the_publish_state_for_the_consultant_but_not_for_a_reader(hub):
     assert 'id="catalog-publish-state"' in _client(CONSULTANT).get(CATALOG_PUBLISH_URL).text
+    html = _client(READER).get(CATALOG_PUBLISH_URL).text
+    assert 'id="catalog-publish-state"' not in html and "catalogView = 'publish'" not in html
 
 
-# ═══════════════ clientes ajenos ═══════════════
+# ═══════════════ restricción OPCIONAL de clientes ═══════════════
+def test_without_the_optional_restriction_a_consultant_may_publish_on_any_client(hub, runs):
+    assert done(post(_client(CONSULTANT), client="CualquierOtro"))["state"] == "SUCCESS" and len(runs) == 1
+
+
+@pytest.mark.parametrize("value", ["", "   ", ",,", "*"])
+def test_an_empty_or_wildcard_only_value_adds_no_restriction(hub, monkeypatch, runs, value):
+    monkeypatch.setenv(pub.CONSULTANT_CLIENTS_ENV, value)
+    assert pub.consultant_clients() == () and done(post(_client(CONSULTANT), client="Otro"))["state"] == "SUCCESS"
+
+
 @pytest.mark.parametrize("client_name", ["OtroCliente", "pampa2", "", "*"])
-def test_a_consultant_cannot_publish_on_a_client_that_is_not_explicitly_authorized(hub, monkeypatch, runs, client_name):
-    capability(monkeypatch)
+def test_when_configured_a_consultant_is_limited_to_the_listed_clients(hub, monkeypatch, runs, client_name):
+    restrict_clients(monkeypatch)
     d = done(post(_client(CONSULTANT), client=client_name))
     assert d["state"] == "FAILED" and d["error_code"] == "CLIENT_NOT_AUTHORIZED" and not runs
 
 
-def test_client_names_match_without_regard_to_case_or_repeated_spaces(hub, monkeypatch, runs):
-    capability(monkeypatch)
-    assert done(post(_client(CONSULTANT), client="  acme   CORP "))["state"] == "SUCCESS" and len(runs) == 1
+def test_when_configured_the_form_lists_the_allowed_clients_and_matching_ignores_case_and_spaces(hub, monkeypatch, runs):
+    restrict_clients(monkeypatch)
+    consultant = _client(CONSULTANT)
+    html = ui(consultant)
+    assert "data-dsp-allowed-clients" in html and "Pampa, Acme Corp" in html
+    assert done(post(consultant, client="  acme   CORP "))["state"] == "SUCCESS" and len(runs) == 1
 
 
-def test_the_owner_may_publish_on_any_client(hub, monkeypatch, runs):
-    capability(monkeypatch)
+def test_the_owner_may_publish_on_any_client_even_when_the_restriction_is_configured(hub, monkeypatch, runs):
+    restrict_clients(monkeypatch)
     assert done(post(_client(OWNER), client="CualquierOtro"))["state"] == "SUCCESS"
 
 
-def test_a_wildcard_in_the_allowed_clients_grants_nothing(hub, monkeypatch, runs):
-    capability(monkeypatch, clients="*")
-    assert pub.consultant_clients() == () and post(_client(CONSULTANT)).status_code == 403
-
-
 # ═══════════════ denegados siempre ═══════════════
-def test_read_only_profile_outside_the_allowlist_and_anonymous_are_denied_in_ui_and_backend(hub, monkeypatch, runs):
-    capability(monkeypatch)
-    stranger = "ajeno@otro.com"
-    for email in (READER, stranger):
+def test_read_only_profile_outside_the_allowlist_and_anonymous_are_denied_in_ui_and_backend(hub, runs):
+    for email in (READER, STRANGER):
         c = _client(email)
         assert PLUS not in ui(c) and 'id="dsp-form"' not in ui(c), email
         assert post(c).status_code == 403, email
@@ -189,7 +185,6 @@ def test_read_only_profile_outside_the_allowlist_and_anonymous_are_denied_in_ui_
 
 
 def test_losing_the_allowlist_takes_effect_on_the_next_request(hub, monkeypatch, runs):
-    capability(monkeypatch)
     c = _client(CONSULTANT)
     assert done(post(c))["state"] == "SUCCESS"
     monkeypatch.setattr(auth_service, "ALLOWED_USERS", f"{OWNER},{OTHER}")                         # se lo retira con la sesión viva
@@ -197,22 +192,19 @@ def test_losing_the_allowlist_takes_effect_on_the_next_request(hub, monkeypatch,
 
 
 def test_a_manual_post_cannot_bypass_what_the_ui_hides(hub, monkeypatch, runs):
-    """El control no está en el botón: todas las variantes de POST directo a la ruta protegida con la capacidad apagada o sin permiso."""
+    """El control no está en el botón: variantes de POST directo a la ruta protegida sin permiso."""
     consultant = _client(CONSULTANT)
-    assert post(consultant).status_code == 403                                                     # capacidad apagada
-    capability(monkeypatch, flag=False)
-    assert post(consultant, client="Pampa").status_code == 403
-    capability(monkeypatch)
     assert post(_client(READER)).status_code == 403
     assert post(_client(None)).status_code == 401
+    restrict_clients(monkeypatch, "Acme Corp")
+    assert done(post(consultant, client="Pampa"))["error_code"] == "CLIENT_NOT_AUTHORIZED"
     other_module = "/modules/01_Arquitectura_y_Conectividad/datasphere-publication/run"
     assert consultant.post(other_module, data=FORM, headers=ORIGIN).status_code == 404            # fuera del módulo que ofrece la herramienta
     assert not runs
 
 
 # ═══════════════ lo administrativo sigue siendo solo del dueño ═══════════════
-def test_shared_client_profiles_stay_owner_only_even_with_the_capability_on(hub, monkeypatch, runs):
-    capability(monkeypatch)
+def test_shared_client_profiles_stay_owner_only(hub, monkeypatch, runs):
     consultant = _client(CONSULTANT)
     r = post(consultant, profile_id="abc123", graph_token="tok")
     assert r.status_code == 403 and not runs                                                       # el secreto de un perfil compartido jamás se resuelve para un consultor
@@ -224,15 +216,13 @@ def test_shared_client_profiles_stay_owner_only_even_with_the_capability_on(hub,
     assert done(owner_run)["error_code"] == "PROFILE_UNAVAILABLE" and resolved == ["abc123"]       # el dueño sí lo usa
 
 
-def test_refresh_catalog_stays_owner_only(hub, monkeypatch):
-    capability(monkeypatch)
+def test_refresh_catalog_stays_owner_only(hub):
     refresh = f"/modules/{STEM}/datasphere-assessment/refresh-catalog"
     assert _client(CONSULTANT).post(refresh, data={"pack": "datasphere_core"}, headers=ORIGIN).status_code == 403
 
 
 # ═══════════════ origen, hosts y credenciales ═══════════════
-def test_same_origin_is_still_required(hub, monkeypatch, runs):
-    capability(monkeypatch)
+def test_same_origin_is_still_required(hub, runs):
     c = _client(CONSULTANT)
     assert c.post(RUN_URL, data=FORM, headers={"Origin": "https://evil.example"}).status_code == 403
     assert c.post(RUN_URL, data=FORM).status_code == 403
@@ -240,15 +230,13 @@ def test_same_origin_is_still_required(hub, monkeypatch, runs):
 
 
 def test_host_and_token_url_validation_still_runs_for_a_consultant_before_any_extraction(hub, monkeypatch):
-    capability(monkeypatch)
     from tools.catalog import DSP_CLI_Export_Lineage as dsp
     monkeypatch.setattr(dsp, "run_export", lambda *a, **k: (_ for _ in ()).throw(AssertionError("el extractor no debe correr con un host inválido")))
     d = done(post(_client(CONSULTANT), host="http://evil.example"))
     assert d["state"] == "INVALID" and d["error_code"] == "INVALID_PARAMETER"
 
 
-def test_the_client_secret_never_reaches_the_response_or_the_form_context(hub, monkeypatch, runs):
-    capability(monkeypatch)
+def test_the_client_secret_never_reaches_the_response_or_the_form_context(hub, runs):
     c = _client(CONSULTANT)
     assert SECRET not in post(c).text and SECRET not in ui(c)
     assert "client_secret" not in asd.FormValues.__dataclass_fields__

@@ -171,14 +171,16 @@ def test_administrative_functions_stay_owner_only_even_though_consultants_can_ru
     assert asd.can_administer(_request_for(OWNER)) and asd.can_use_client_profiles(_request_for(OWNER))
 
 
-def test_publishing_to_the_catalog_is_not_opened_by_the_assessment_change(hub, fake_export, monkeypatch):
+def test_publishing_to_the_catalog_follows_the_same_profile_criterion_as_the_assessment(hub, fake_export, monkeypatch):
+    """Publicar usa el MISMO criterio de perfil que el Assessment (dueño o ``full``); su autorización ya no depende de la configuración (ver test_datasphere_publication_consultant_access)."""
     ran = []
     monkeypatch.setattr(pub, "run", lambda *a, **k: (ran.append(1), asd.Outcome("FAILED", "SENTINEL", "x"))[1])      # centinela (un fail dentro del hilo colgaría el stream)
     consultant = _client(A)
-    assert consultant.post(RUN_P, data=_form(datasphere_client_secret="s"), headers=ORIGIN).status_code == 403 and ran == []
-    assert not pub.can_execute(_request_for(A)) and pub.can_execute(_request_for(OWNER))
+    assert consultant.post(RUN_P, data=_form(datasphere_client_secret="s"), headers=ORIGIN).status_code == 200 and ran == [1]
+    assert pub.can_execute(_request_for(A)) and pub.can_execute(_request_for(OWNER)) and asd.can_execute(_request_for(A))
+    assert not access.is_owner_user({"sub": A})                                                          # y el predicado global del dueño sigue sin ampliarse
     html = consultant.get(f"{MODULE_URL}&tab=catalogo&catalog_action=publish").text
-    assert 'id="dsp-client_secret"' not in html and "datasphere-publication/run" not in html
+    assert "datasphere-publication/run" in html
 
 
 def _request_for(email):
