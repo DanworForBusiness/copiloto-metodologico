@@ -120,7 +120,7 @@ from webapp.services import (
     profile_document_validation, profile_import_service, sharepoint_graph_diagnostics,
 )
 from webapp.services import cv_history_acceptance, cv_history_drafts, cv_history_import, cv_history_import_exec, cv_history_inventory, cv_history_manifest, cv_history_pilot, cv_history_review
-from webapp.services import human_capital_contact, human_capital_export, human_capital_share
+from webapp.services import human_capital_contact, human_capital_export, human_capital_share, profile_consolidation_service
 from webapp.services import scoring_engine, scoring_evaluation_repository, scoring_grid_repository, scoring_service
 from webapp.services.human_capital_service import (
     ProfileConcurrentModificationError,
@@ -178,7 +178,7 @@ def _profile_sort_state(query: dict, sort, direction, page_size) -> dict:
     return {"key": sort, "dir": direction, "urls": urls, "arrow": {c: ("▲" if direction == "asc" else "▼") if c == sort else "" for c in _PROFILE_SORT_COLUMNS}}
 
 
-def _profiles_panel_context(*, query: dict | None = None, page=1, page_size=None, sort="", direction="") -> dict:
+def _profiles_panel_context(*, query: dict | None = None, page=1, page_size=None, sort="", direction="", owner: bool = False) -> dict:
     """Contexto del fragmento `human_capital_profiles_panel.html` —
     listado + filtros ÚNICAMENTE (Fase de paridad funcional: el alta se
     mudó a su propia página/ruta, `GET/POST /cchh/candidatos/nuevo`,
@@ -238,6 +238,9 @@ def _profiles_panel_context(*, query: dict | None = None, page=1, page_size=None
         # texto libre que tenía antes.
         "valid_potencial": human_capital_catalog_repository.catalog_values("potencial"),
         "query": query or {},
+        # «Consolidar perfiles»: acción EXCLUSIVA del dueño (APP_OWNER). El botón solo se dibuja para él; el servidor lo exige igual en cada ruta (`_require_consolidation_owner`).
+        "can_consolidate": owner,
+        "consolidation_pending": profile_consolidation_service.pending_count() if owner else 0,
     }
 
 
@@ -262,7 +265,7 @@ def human_capital_profiles_page(
         "pack": DEFAULT_PACK,
         "user": user,
         "active_page": "perfiles",
-        **_profiles_panel_context(query=query, page=page, page_size=page_size, sort=sort, direction=dir),
+        **_profiles_panel_context(query=query, page=page, page_size=page_size, sort=sort, direction=dir, owner=app_access.is_owner(request)),
     }
     # BUG real encontrado con el Visual QA Harness (owner post-#107 audit):
     # este GET nunca distinguía HTMX de navegación directa -- el filtro
@@ -751,7 +754,7 @@ def human_capital_profile_delete(
         # Éxito PARCIAL: baja lógica + documentos eliminados, pero la carpeta se conservó. Se muestra el listado con el aviso (en vez de la redirección silenciosa).
         context = {
             "current_workspace": workspaces.HUMAN_CAPITAL, "available_workspaces": workspaces.available_workspaces(user), "pack": DEFAULT_PACK, "user": user, "active_page": "perfiles",
-            **_profiles_panel_context(query={}, page="", page_size=""),
+            **_profiles_panel_context(query={}, page="", page_size="", owner=app_access.is_owner(request)),
             "delete_notice": f"El candidato fue dado de baja y sus {docs_deleted} documento(s) se eliminaron de SharePoint. {folder_notice}",
             "delete_notice_neutral": folder_notice_policy_only,     # carpeta conservada solo por la política de seguridad: aviso informativo, no advertencia
         }
@@ -763,7 +766,7 @@ def human_capital_profile_delete(
         # Si falló, el candidato SIGUE presente (no hay remoción parcial) y se
         # muestra el error.
         query = {"q": q, "seniority": seniority, "source": source, "location": location, "potential_mark": potential_mark}
-        context = {"request": request, **_profiles_panel_context(query=query, page=page, page_size=page_size)}
+        context = {"request": request, **_profiles_panel_context(query=query, page=page, page_size=page_size, owner=app_access.is_owner(request))}
         if delete_error:
             context["delete_error"] = delete_error
         return templates.TemplateResponse(
@@ -1010,6 +1013,97 @@ def human_capital_profiles_share_dialog(request: Request, profile_ids: list[str]
                  "max_profiles": human_capital_share.MAX_SHARE_PROFILES},
         headers=_NO_STORE,
     )
+
+
+# ───────────────────────── Consolidar perfiles (solo APP_OWNER) ─────────────────────────
+def _require_consolidation_owner(request: Request):
+    """Sesión de Capital Humano + dueño de la app (APP_OWNER): permiso EXCLUSIVO de la primera versión. Devuelve un redirect (sin sesión) o lanza 403; ``None`` si puede."""
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    if not app_access.is_owner(request):
+        raise HTTPException(403, "La consolidación de perfiles está reservada al dueño de la aplicación")
+    if not same_origin_guard.is_same_origin_write(request):
+        raise HTTPException(403, "Origen no permitido")
+    return None
+
+
+def _consolidation_page(request: Request, **context) -> HTMLResponse:
+    user = auth_service.session_user(request)
+    return templates.TemplateResponse(
+        request=request, name="human_capital/profile_consolidation.html",
+        context={"current_workspace": workspaces.HUMAN_CAPITAL, "available_workspaces": workspaces.available_workspaces(user), "pack": DEFAULT_PACK, "user": user,
+                 "active_page": "perfiles", "labels": profile_consolidation_service.FIELD_LABELS, "svc": profile_consolidation_service, **context},
+        headers=_NO_STORE)
+
+
+def _selected_pair(profile_ids: list[str], primary_id: str) -> tuple[str, str] | None:
+    ids = [i for i in dict.fromkeys(p.strip() for p in profile_ids if p and p.strip())]
+    if len(ids) != 2:
+        return None
+    primary = primary_id if primary_id in ids else ids[0]
+    return primary, next(i for i in ids if i != primary)
+
+
+@router.post("/cchh/candidatos/consolidar", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_profiles_consolidate_plan(request: Request, profile_ids: list[str] = Form([]), primary_id: str = Form("")):
+    """Paso 1: comparación, documentos de ambos perfiles, relaciones y bloqueos. Solo lectura. POST con SOLO ids (no viajan por la URL)."""
+    gate = _require_consolidation_owner(request)
+    if gate is not None:
+        return gate
+    pair = _selected_pair(profile_ids, primary_id)
+    if pair is None:
+        return _consolidation_page(request, state="invalid", message="Seleccioná exactamente dos perfiles para consolidar.")
+    primary, duplicate = pair
+    plan = profile_consolidation_service.build_plan(primary, duplicate)
+    return _consolidation_page(request, state="plan", plan=plan, primary_id=primary, duplicate_id=duplicate, swap_id=duplicate)
+
+
+@router.post("/cchh/candidatos/consolidar/confirmar", response_class=HTMLResponse, include_in_schema=False)
+async def human_capital_profiles_consolidate_confirm(request: Request):
+    """Paso 2: confirmación EXPLÍCITA. Ejecuta la consolidación (recuperable). Un resultado parcial nunca se presenta como éxito."""
+    gate = _require_consolidation_owner(request)
+    if gate is not None:
+        return gate
+    form = await request.form()
+    primary_id, duplicate_id = str(form.get("primary_id") or ""), str(form.get("duplicate_id") or "")
+    resolutions = {k[len("res_"):]: str(v) for k, v in form.multi_items() if k.startswith("res_")}
+    user = auth_service.session_user(request) or {}
+    actor = str(user.get("sub") or user.get("email") or "")
+    outcome = await run_in_threadpool(
+        profile_consolidation_service.execute, primary_id, duplicate_id, resolutions=resolutions, plan_digest=str(form.get("plan_digest") or ""), actor=actor,
+        confirmed=str(form.get("confirm") or "") == "1")
+    if outcome.status == profile_consolidation_service.STALE_PLAN or outcome.code in ("UNRESOLVED_CONFLICT", "CONFIRMATION_REQUIRED"):
+        plan = profile_consolidation_service.build_plan(primary_id, duplicate_id)
+        return _consolidation_page(request, state="plan", plan=plan, primary_id=primary_id, duplicate_id=duplicate_id, swap_id=duplicate_id,
+                                   message=outcome.message, resolutions=resolutions)
+    return _consolidation_page(request, state="result", outcome=outcome, primary_id=primary_id, duplicate_id=duplicate_id)
+
+
+@router.get("/cchh/consolidaciones", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_consolidations_page(request: Request):
+    """Operaciones de consolidación (pendientes primero) con sus acciones de recuperación."""
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    if not app_access.is_owner(request):
+        raise HTTPException(403, "La consolidación de perfiles está reservada al dueño de la aplicación")
+    return _consolidation_page(request, state="operations", operations=profile_consolidation_service.list_operations())
+
+
+@router.post("/cchh/consolidaciones/{operation_id}/{action}", response_class=HTMLResponse, include_in_schema=False)
+async def human_capital_consolidation_recover(request: Request, operation_id: str, action: str):
+    """Reanudar (completa lo que falta) o revertir (restaura las imágenes previas) una consolidación PENDIENTE."""
+    gate = _require_consolidation_owner(request)
+    if gate is not None:
+        return gate
+    if action not in ("reanudar", "revertir"):
+        raise HTTPException(404, "Acción desconocida")
+    user = auth_service.session_user(request) or {}
+    actor = str(user.get("sub") or user.get("email") or "")
+    run = profile_consolidation_service.resume if action == "reanudar" else profile_consolidation_service.abort
+    outcome = await run_in_threadpool(run, operation_id, actor=actor)
+    return _consolidation_page(request, state="result", outcome=outcome, primary_id="", duplicate_id="")
 
 
 _export_logger = logging.getLogger("danwor.human_capital")

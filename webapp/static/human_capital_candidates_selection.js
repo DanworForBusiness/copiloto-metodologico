@@ -197,6 +197,11 @@
         download.disabled = total === 0 || total > MAX_SHARE;
         download.setAttribute("title", total > MAX_SHARE ? "Se pueden descargar CVs de hasta " + MAX_SHARE + " candidatos por vez" : "");
       }
+      var consolidate = bar.querySelector("[data-hc-consolidate-open]");
+      if (consolidate) {
+        consolidate.disabled = total !== 2;                                                    // «Consolidar perfiles» (solo el dueño): exactamente dos
+        consolidate.setAttribute("title", total === 2 ? "" : "Seleccioná exactamente dos perfiles para consolidar");
+      }
       var share = bar.querySelector("[data-hc-share-open]");
       if (share) {
         share.disabled = total === 0 || total > MAX_SHARE;
@@ -389,6 +394,21 @@
       });
   }
 
+  // «Consolidar perfiles»: POST de SOLO los dos ids (no viajan por la URL) a la pantalla de comparación. El servidor valida permiso y cantidad.
+  function openConsolidation(doc, store) {
+    if (store.size() !== 2) return;
+    var form = doc.createElement("form");
+    form.method = "post";
+    form.action = "/cchh/candidatos/consolidar";
+    store.ids().forEach(function (id) {
+      var input = doc.createElement("input");
+      input.type = "hidden"; input.name = "profile_ids"; input.value = id;
+      form.appendChild(input);
+    });
+    doc.body.appendChild(form);
+    form.submit();
+  }
+
   // ───────────────────────── cableado (delegación en document) ─────────────────────────
   function wire(doc, win, store) {
     doc.addEventListener("change", function (event) {
@@ -412,8 +432,9 @@
       if (t && t.matches && t.matches("[data-share-subject], [data-share-intro], [data-share-outro]")) { if (!t.matches("[data-share-subject]")) autosize(t); refreshMailto(doc); }
     });
     doc.addEventListener("click", function (event) {
-      var t = event.target, el = t && t.closest ? t.closest("[data-hc-clear-selection], [data-hc-share-open], [data-share-copy], [data-share-open]") : null;
+      var t = event.target, el = t && t.closest ? t.closest("[data-hc-clear-selection], [data-hc-share-open], [data-hc-consolidate-open], [data-share-copy], [data-share-open]") : null;
       if (!el) return;
+      if (el.hasAttribute("data-hc-consolidate-open")) { openConsolidation(doc, store); return; }
       if (el.hasAttribute("data-hc-clear-selection")) { store.clear(); syncUI(doc, store); return; }
       if (el.hasAttribute("data-hc-share-open")) { openShare(doc, win, store); return; }
       if (el.hasAttribute("data-share-copy")) {

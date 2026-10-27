@@ -190,9 +190,23 @@
         <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 11 5 5 5-5"/><path d="M5 21h14"/></svg>
         Descargar CVs
       </button>
+      {% if can_consolidate %}
+      {# Solo el dueño (APP_OWNER). Se habilita con EXACTAMENTE dos perfiles seleccionados; abre la pantalla de comparación (POST con los ids). #}
+      <button type="button" class="btn-secondary" data-hc-consolidate-open disabled>
+        <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/></svg>
+        Consolidar perfiles
+      </button>
+      {% endif %}
       <button type="button" class="whatsnew-filter__clear" data-hc-clear-selection aria-label="Limpiar selección">✕ Limpiar</button>
     </div>
   </div>
+
+  {% if can_consolidate and consolidation_pending %}
+  <div class="dashboard-empty" data-consolidation-pending role="alert">
+    <span class="dashboard-empty__label">Consolidación pendiente</span>
+    <p>Hay {{ consolidation_pending }} consolidación(es) de perfiles sin terminar: los perfiles involucrados permanecen ocultos y bloqueados hasta que se reanude o se revierta. <a href="/cchh/consolidaciones">Ver operaciones</a></p>
+  </div>
+  {% endif %}
 
   {% if source_error %}
   <div class="dashboard-empty" data-error-kind="{{ 'config_incomplete' if config_incomplete else 'source_error' }}">
