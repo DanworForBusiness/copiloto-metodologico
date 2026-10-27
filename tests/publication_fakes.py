@@ -91,53 +91,110 @@ def seed_pricing(t: Tenant, space: str = SPACE) -> None:
     t.put(space, "replication-flows", "RF_PRECIOS", replication_flow("RF_PRECIOS", "RAW_PRECIOS"))
 
 
-class FakeS3:
-    """Bucket en memoria con la superficie boto3 que usa ``remote_store``. ``fail_after`` (cantidad de subidas exitosas antes de fallar) y ``fail_keys`` (substrings) permiten inyectar fallos."""
+class _NotFound(Exception):
+    """Lo que boto3 lanza ante un objeto inexistente (con el mismo shape de ``response`` que inspecciona ``remote_store``)."""
 
-    def __init__(self, *, fail_after: int | None = None, fail_keys: tuple[str, ...] = ()) -> None:
+    def __init__(self) -> None:
+        super().__init__("NoSuchKey")
+        self.response = {"Error": {"Code": "404"}, "ResponseMetadata": {"HTTPStatusCode": 404}}
+
+
+class FakeS3:
+    """Bucket en memoria con la superficie boto3 que usa ``remote_store`` y fallos INYECTABLES:
+
+      ``fail_after``/``fail_keys``        subidas que fallan (tras N subidas exitosas / si la clave contiene el texto): el efecto NO ocurre.
+      ``lose_response_keys``              la subida/borrado SÍ ocurre y aun así lanza (respuesta perdida): el cliente no puede distinguirlo de un fallo.
+      ``fail_get_keys`` / ``fail_head_keys``   lecturas que fallan de forma irresoluble (no es «no existe»).
+      ``fail_list``                        el listado completo falla.
+      ``down``                             caída total de Spaces: toda operación lanza.
+      ``fail_delete_keys``                 borrados que fallan sin efecto.
+    ``log`` registra (operación, clave) en orden: permite verificar que el marcador de activación se sube AL FINAL y los borrados antes."""
+
+    def __init__(self, *, fail_after: int | None = None, fail_keys: tuple[str, ...] = (), lose_response_keys: tuple[str, ...] = (), fail_get_keys: tuple[str, ...] = (),
+                 fail_head_keys: tuple[str, ...] = (), fail_delete_keys: tuple[str, ...] = (), fail_list: bool = False) -> None:
         self.objects: dict[str, bytes] = {}
         self.fail_after, self.fail_keys, self.uploads = fail_after, fail_keys, 0
+        self.lose_response_keys, self.fail_get_keys, self.fail_head_keys = lose_response_keys, fail_get_keys, fail_head_keys
+        self.fail_delete_keys, self.fail_list, self.down = fail_delete_keys, fail_list, False
         self.order: list[str] = []
+        self.log: list[tuple[str, str]] = []
+
+    def _check_down(self) -> None:
+        if self.down:
+            raise RuntimeError("Spaces caído (inyectado)")
 
     def upload_file(self, filename, bucket, key):
+        self._check_down()
         if (self.fail_after is not None and self.uploads >= self.fail_after) or any(s in key for s in self.fail_keys):
             raise RuntimeError("Spaces caído (inyectado)")
         self.objects[key] = Path(filename).read_bytes()
         self.order.append(key)
+        self.log.append(("put", key))
         self.uploads += 1
+        if any(s in key for s in self.lose_response_keys):
+            raise RuntimeError("respuesta perdida (inyectada): la escritura SÍ ocurrió")
 
     def download_file(self, bucket, key, filename):
+        self._check_down()
         Path(filename).parent.mkdir(parents=True, exist_ok=True)
         Path(filename).write_bytes(self.objects[key])
 
     def delete_object(self, Bucket, Key):
+        self._check_down()
+        if any(s in Key for s in self.fail_delete_keys):
+            raise RuntimeError("borrado rechazado (inyectado)")
         self.objects.pop(Key, None)
+        self.log.append(("delete", Key))
+        if any(s in Key for s in self.lose_response_keys):
+            raise RuntimeError("respuesta perdida (inyectada): el borrado SÍ ocurrió")
 
     def put_object(self, Bucket, Key, Body):
+        self._check_down()
         self.objects[Key] = bytes(Body)
 
     def get_object(self, Bucket, Key):
+        self._check_down()
+        if any(s in Key for s in self.fail_get_keys):
+            raise RuntimeError("lectura irresoluble (inyectada)")
+        if Key not in self.objects:
+            raise _NotFound()
         return {"Body": io.BytesIO(self.objects[Key])}
+
+    def head_object(self, Bucket, Key):
+        self._check_down()
+        if any(s in Key for s in self.fail_head_keys):
+            raise RuntimeError("HEAD irresoluble (inyectado)")
+        if Key not in self.objects:
+            raise _NotFound()
+        return {"ContentLength": len(self.objects[Key])}
 
     def get_paginator(self, name):
         outer = self
 
         class _P:
             def paginate(self, Bucket, Prefix=""):
+                outer._check_down()
+                if outer.fail_list:
+                    raise RuntimeError("listado fallido (inyectado)")
                 yield {"Contents": [{"Key": k, "Size": len(v), "ETag": '"' + hashlib.md5(v).hexdigest() + '"'} for k, v in sorted(outer.objects.items()) if k.startswith(Prefix)]}
         return _P()
 
 
-def enable_remote(monkeypatch, s3: FakeS3) -> None:
+def enable_remote(monkeypatch, s3: FakeS3, *, governed: Path | None = None) -> None:
     monkeypatch.setattr(config, "PERSIST_ENABLED", True)
     monkeypatch.setattr(config, "PERSIST_READ_ONLY", False)
     monkeypatch.setattr(config, "PERSISTENCE_MODE", "remote")
     monkeypatch.setattr(config, "SPACES_BUCKET", "audit-bucket")
     monkeypatch.setattr(config, "SPACES_PREFIX", "audit")
-    monkeypatch.setattr(config, "PERSIST_PATHS", ["catalog_local"])
+    monkeypatch.setattr(config, "PERSIST_PATHS", ["catalog_local"] + ([config.GOVERNED_ASSESSMENTS_NAME] if governed is not None else []))
+    if governed is not None:
+        monkeypatch.setenv("DANWOR_GOVERNED_ASSESSMENTS_DIR", str(governed))
     monkeypatch.setattr(remote_store, "_get_client", lambda: s3)
     monkeypatch.setattr(remote_store, "_signatures", {}, raising=False)
+    monkeypatch.setattr(remote_store, "_digests", {}, raising=False)
+    monkeypatch.setattr(remote_store, "_unreconciled", set(), raising=False)
     monkeypatch.setattr(remote_store, "_restore_state", "completed", raising=False)
+    monkeypatch.setattr(remote_store, "_restore_degraded", False, raising=False)
 
 
 class SimulatedCrash(BaseException):
@@ -174,6 +231,14 @@ class Ctx:
                     out[rel] = txn.semantic_signature(json.loads(data))[:16]
                     continue
                 except ValueError:
+                    pass
+            if p.name.endswith(".publication.json"):                 # bitácora: solo lo SEMÁNTICO de la versión activa (sin operación, instante ni historial ni digests de manifiestos volátiles)
+                try:
+                    active = json.loads(data)["active"]
+                    stable = {k: active.get(k) for k in ("objects", "assessment", "space", "root_object", "root_type")}
+                    out[rel] = hashlib.sha256(json.dumps(stable, sort_keys=True).encode()).hexdigest()[:16]
+                    continue
+                except (ValueError, KeyError):
                     pass
             out[rel] = hashlib.sha256(data.replace(b"\r\n", b"\n")).hexdigest()[:16]
         return out

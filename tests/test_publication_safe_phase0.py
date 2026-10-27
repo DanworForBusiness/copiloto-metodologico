@@ -287,29 +287,31 @@ def test_remote_confirmation_requires_persist_changed_to_confirm_and_uploads_the
     enable_remote(monkeypatch, s3)
     res, lines = ctx.publish(mirror=True)
     assert res.status == txn.COMPLETED and res.durability == txn.DURABILITY_REMOTE and res.stages["remote"] == "OK"
-    assert s3.order[-1].endswith(".catalog_manifest.json") and any("Persistencia canónica: OK" in ln for ln in lines)
+    assert {k.rsplit("/", 1)[-1] for k in s3.order[-2:]} == {".catalog_manifest.json", "Acme.publication.json"} and any("Persistencia canónica: OK" in ln for ln in lines)   # los marcadores van AL FINAL
     assert [j["state"] for j in ctx.journals()] == [txn.J_REMOTE_CONFIRMED]
 
 
-def test_a_failed_upload_is_partial_not_success_and_the_marker_is_withheld(ctx, monkeypatch):
+def test_a_failed_upload_never_leaves_a_new_version_active_and_restores_the_last_confirmed_one(ctx, monkeypatch):
+    """P1: si Spaces no confirma, la versión nueva NO queda vigente (antes quedaba «publicada, no confirmada»): local y remoto vuelven a la última versión confirmada."""
     s3 = FakeS3(fail_after=3)
     enable_remote(monkeypatch, s3)
     res, lines = ctx.publish(mirror=True)
-    assert (res.status, res.ok, res.error_code, res.durability, res.exit_code) == (txn.COMMITTED_UNCONFIRMED, False, "PERSISTENCE_UNCONFIRMED", txn.DURABILITY_UNCONFIRMED, 3)
-    assert not any(k.endswith(".catalog_manifest.json") for k in s3.objects)                                  # el marcador de completitud NO se publicó
-    assert not any("Persistencia canónica: OK" in ln for ln in lines) and any("NO CONFIRMADA" in ln for ln in lines)
-    assert res.catalog_generated and "views/3VF_LP" in ctx.pool_names()                                       # el estado LOCAL es válido y consistente
+    assert (res.status, res.ok, res.error_code) == (txn.ROLLED_BACK, False, "PERSISTENCE_FAILED")
+    assert not any("Persistencia canónica: OK" in ln for ln in lines)
+    assert ctx.pool_names() == [] and not s3.objects                                                          # no había versión previa: local y remoto quedaron VACÍOS (compensación verificada)
+    assert [j["state"] for j in ctx.journals()] == [txn.J_ROLLED_BACK] and not txn.has_pending(ctx.catalog)
     s3.fail_after = None                                                                                       # Spaces vuelve
     retry, _ = ctx.publish(mirror=True)
-    assert retry.status == txn.COMPLETED and retry.durability == txn.DURABILITY_REMOTE                        # el reintento es idempotente y completa la confirmación
+    assert retry.status == txn.COMPLETED and retry.durability == txn.DURABILITY_REMOTE
     assert sum(1 for k in s3.objects if k.startswith("audit/catalog_local/")) == sum(1 for p in ctx.catalog.rglob("*") if p.is_file())
 
 
-def test_a_blocked_sync_is_never_reported_as_confirmed(ctx, monkeypatch):
+def test_a_blocked_sync_refuses_the_publication_without_touching_anything(ctx, monkeypatch):
     enable_remote(monkeypatch, FakeS3())
     monkeypatch.setattr(remote_store, "_restore_degraded", True, raising=False)
     res, lines = ctx.publish(mirror=True)
-    assert res.status == txn.COMMITTED_UNCONFIRMED and res.durability == txn.DURABILITY_UNCONFIRMED and not any("Persistencia canónica: OK" in ln for ln in lines)
+    assert (res.status, res.error_code) == (txn.FAILED_NO_CHANGE, "REMOTE_NOT_READY") and not any("Persistencia canónica: OK" in ln for ln in lines)
+    assert ctx.pool_names() == [] and not txn.has_pending(ctx.catalog)
 
 
 def test_local_persistence_by_configuration_is_reported_as_such_not_as_remote(ctx):
@@ -439,14 +441,19 @@ def test_a_process_crash_at_any_point_is_recovered_to_the_previous_state_and_a_r
 @pytest.mark.parametrize("point", AFTER_COMMIT)
 def test_a_failure_after_the_local_commit_leaves_the_committed_state_and_a_retry_is_a_noop(ctx, monkeypatch, point):
     pre, post = _scenario(ctx)
+    s3 = FakeS3()
+    enable_remote(monkeypatch, s3)
     monkeypatch.setattr(txn, "FAULT_HOOK", _hook(point, "crash"))
     with pytest.raises(SimulatedCrash):
         ctx.publish(mirror=True)
     monkeypatch.setattr(txn, "FAULT_HOOK", None)
-    assert txn.recover_pending(ctx.catalog) == [] and ctx.digest() == post                                    # ya estaba confirmado localmente: la recuperación no lo deshace
-    again, _ = ctx.publish()
-    assert again.status == txn.COMPLETED and again.applied["changed"] is False and ctx.digest() == post
-    _record(kind="caída (kill)", point=point, result="el proceso muere", state_after="POST", recovery="sin pendientes (ya comprometido)", recovered_state="POST", retry=again.status + " (NO_CHANGE)", retry_state="POST")
+    assert [j["state"] for j in ctx.journals()][-1] == txn.J_COMMIT_UNCERTAIN and not any(k.endswith("Acme.publication.json") for k in s3.objects)   # P1: comprometido en local, SIN confirmar en Spaces
+    recovered = txn.recover_pending(ctx.catalog)
+    assert [r["action"] for r in recovered] == ["CONFIRMED"] and ctx.digest() == post                         # la recuperación VERIFICA el remoto y completa hacia adelante
+    assert any(k.endswith("Acme.publication.json") for k in s3.objects) and not txn.has_pending(ctx.catalog)
+    again, _ = ctx.publish(mirror=True)
+    assert again.status == txn.COMPLETED and again.applied["changed"] is False and again.outcome == "NO_CHANGE" and ctx.digest() == post
+    _record(kind="caída (kill)", point=point, result="el proceso muere", state_after="POST local, sin confirmar", recovery="CONFIRMED (verificó el remoto y completó)", recovered_state="POST", retry=again.status + " (NO_CHANGE)", retry_state="POST")
 
 
 def test_catalog_generator_failure_rolls_back_pool_manifest_and_catalog(ctx, monkeypatch):
