@@ -359,6 +359,7 @@ def test_a_non_current_or_missing_previous_record_is_never_replaced_by_the_safe_
     (path,) = files(world)
     env = json.loads(path.read_text(encoding="utf-8"))
     env["input_pool_signature"] = "stale"                                                                       # STALE
+    env.pop("input_closure_signature", None)                                                                    # sobre previo a la firma de dependencias: no se afirma independencia
     path.write_text(json.dumps(env, ensure_ascii=False), encoding="utf-8")
     restart()
     out = _run(world, apply=True)

@@ -84,7 +84,7 @@ def test_brief_drops_only_the_per_object_judgment_signatures(kworld, etag_remote
 
 def test_divergences_pool_difference_and_other_stale_causes_are_reported(kworld, etag_remote, capsys):
     _world(kworld, etag_remote)
-    _rewrite(_path(kworld, "Kensing2"), lambda e: e.update(input_pool_signature="0" * 64))
+    _rewrite(_path(kworld, "Kensing2"), lambda e: (e.update(input_pool_signature="0" * 64), e.pop("input_closure_signature", None)))
     restart()
     code, rep = _run(capsys)
     assert code == 0 and rep["counts"]["eligible"] == 1 and rep["per_client"]["Kensing2"]["pool_signature"] == {"DIFIERE": 1}

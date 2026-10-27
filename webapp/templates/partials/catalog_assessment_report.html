@@ -138,6 +138,7 @@
       <span class="catalog-meta-dot{% if v.state_tone %} catalog-meta-dot--{{ v.state_tone }}{% endif %}" aria-hidden="true"></span>
       <span class="catalog-card__verdict{% if v.state_tone %} catalog-card__verdict--{{ v.state_tone }}{% endif %}">{{ v.state_label }}</span>
       {% if v.generated_at %}<span>Generado {{ v.generated_at.replace("T", " ").replace("+00:00", " UTC") }}</span>{% endif %}
+      {% if v.drift_note %}<span>{{ v.drift_note }}</span>{% endif %}
       {% if v.has_profile %}<span>{{ v.scope_text }}</span>{% endif %}
     </span>
   </div>

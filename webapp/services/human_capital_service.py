@@ -302,7 +302,7 @@ def list_profiles() -> list[dict]:
     # NO aparece en listados/búsquedas normales). El dedup de create/update
     # sigue mirando `profile_repository.list()` crudo a propósito (un borrado
     # no debería habilitar re-crear un duplicado silenciosamente).
-    return [p for p in profile_repository.list() if not p.get("deleted_at")]
+    return [p for p in profile_repository.list() if not p.get("deleted_at") and not profile_repository.is_locked(p)]
 
 
 def soft_delete_profile(profile_id: str, actor: str | None = None) -> dict:
@@ -317,8 +317,9 @@ def get_profile(profile_id: str) -> dict | None:
     """Delegación directa a `profile_repository.get` (Phase 3.5 §14) —
     usada por el router para poblar el form de edición y para el chequeo
     de existencia (404) ANTES de intentar `update_profile`. `None` si no
-    existe, MISMO criterio fail-soft del repository."""
-    return profile_repository.get(profile_id)
+    existe, MISMO criterio fail-soft del repository. Un perfil BLOQUEADO por una consolidación en curso no es visible desde acá (``None``): ninguna pantalla lo abre ni lo edita mientras tanto."""
+    profile = profile_repository.get(profile_id)
+    return None if profile_repository.is_locked(profile) else profile
 
 
 def validate_and_shape_fields(fields: dict) -> dict:
@@ -661,10 +662,10 @@ def create_busqueda(fields: dict, *, actor: str | None = None) -> dict:
     return busqueda_repository.create(_shape_busqueda_fields(fields), actor=(actor or "").strip().lower() or None)
 
 
-def update_busqueda(busqueda_id: str, expected_revision: int, fields: dict) -> dict:
+def update_busqueda(busqueda_id: str, expected_revision: int, fields: dict, *, actor: str | None = None) -> dict:
     existing = busqueda_repository.get(busqueda_id)
     return busqueda_repository.update(
-        busqueda_id, expected_revision, _shape_busqueda_fields(fields, existing=existing))
+        busqueda_id, expected_revision, _shape_busqueda_fields(fields, existing=existing), actor=actor)
 
 
 def _candidate_display_name(profile_id) -> str | None:
@@ -1039,7 +1040,7 @@ def register_candidate_contact(busqueda_id: str, application_id: str, accion: st
     if busqueda.get("estado") != "activo":
         raise ValueError("El proceso no está activo.")
     profile = profile_repository.get(app.get("profile_id")) if app.get("profile_id") else None
-    if profile is None or profile.get("deleted_at"):
+    if profile is None or profile.get("deleted_at") or profile_repository.is_locked(profile):
         raise LookupError("El candidato ya no está disponible.")
     if accion != "mensaje_copiado" and not (contact.whatsapp_digits(profile.get("phone")) if canal == "whatsapp" else contact.valid_email(profile.get("email"))):
         raise ValueError("El candidato no tiene cargado el dato de contacto de ese canal.")
@@ -1124,11 +1125,13 @@ def solicitud_view(doc: dict, *, include_cchh_actors: bool = False) -> dict | No
         "reenviada": busqueda_repository.solicitud_reenviada(doc),
         "reenvios": busqueda_repository.solicitud_reenvios(doc),
         # Qué puede hacer Operaciones HOY (el router lo usa para habilitar acciones; la regla real vive en el repositorio).
-        "puede_editar": estado == busqueda_repository.SOLICITUD_ENVIADA and not busqueda_repository.solicitud_fue_tomada(doc),
+        # Editar: mientras la solicitud está VIGENTE (enviada, o tomada por CCHH con el proceso todavía activo); cerrada o cancelada es solo lectura. Cancelar/eliminar siguen siendo solo antes de la toma.
+        "puede_editar": busqueda_repository.solicitud_puede_editar(doc),
         "puede_corregir": estado == busqueda_repository.SOLICITUD_OBSERVADA and not busqueda_repository.solicitud_fue_tomada(doc),
         "puede_cancelar": estado in (busqueda_repository.SOLICITUD_ENVIADA, busqueda_repository.SOLICITUD_OBSERVADA) and not busqueda_repository.solicitud_fue_tomada(doc),
         "puede_eliminar": busqueda_repository.solicitud_puede_eliminar(doc),
-        "solo_lectura": estado in (busqueda_repository.SOLICITUD_EN_GESTION, busqueda_repository.SOLICITUD_CANCELADA),
+        "solo_lectura": estado == busqueda_repository.SOLICITUD_CANCELADA or doc.get("estado") == "cerrado",
+        "vigente": doc.get("estado") != "cerrado",
     }
     if include_cchh_actors:                                       # solo la vista de Capital Humano agrega esta clave (la proyección segura para Operaciones conserva su lista blanca exacta)
         view["ejecutores_cchh_visibles"] = True
@@ -1156,9 +1159,11 @@ def resumen_solicitudes() -> dict:
     return out
 
 
-def get_solicitud_view(busqueda_id: str) -> dict | None:
+def get_solicitud_view(busqueda_id: str, *, full_history: bool = False) -> dict | None:
+    """`full_history=True`: la MISMA proyección de historial que ve Capital Humano (movimientos de candidatos, ejecutores de CCHH y constancia de proceso eliminado): lo usa el DETALLE de Operaciones para que
+    pueda entender qué pasó con la búsqueda. Sin el flag, la proyección segura de siempre (lista blanca exacta, sin candidatos)."""
     doc = busqueda_repository.get(busqueda_id)
-    return solicitud_view(doc) if doc is not None else None
+    return solicitud_view(doc, include_cchh_actors=full_history) if doc is not None else None
 
 
 def list_solicitudes_view() -> list[dict]:
@@ -1256,7 +1261,7 @@ class CandidateNotEligibleError(ValueError):
 
 def add_candidate_to_busqueda(busqueda_id: str, profile_id: str, *, actor: str | None = None) -> dict:
     profile = profile_repository.get(profile_id)
-    if profile is None or profile.get("deleted_at"):
+    if profile is None or profile.get("deleted_at") or profile_repository.is_locked(profile):
         raise ValueError("El candidato no existe o fue eliminado del Banco de CVs.")
     reason = candidate_eligibility.blocked_reason(profile)         # misma regla que filtra el selector: se exige TAMBIÉN en el servidor (nunca solo en la vista)
     if reason:
@@ -1512,7 +1517,7 @@ def create_entrevista_manual(profile_id: str, fields: dict, *, allow_compensatio
     caso que `crearEntrevistaManual` en la referencia (banco_cv_id, sin
     proceso_id/candidato_id)."""
     profile = profile_repository.get(profile_id)
-    if profile is None or profile.get("deleted_at"):
+    if profile is None or profile.get("deleted_at") or profile_repository.is_locked(profile):
         raise ValueError("Elegí un candidato del Banco de CVs.")
     return entrevista_repository.create(
         _shape_entrevista_fields(fields, allow_compensation=allow_compensation), profile_id=profile_id, busqueda_id=None, application_id=None)
@@ -1523,7 +1528,7 @@ def create_entrevista_for_application(profile_id: str, busqueda_id: str, fields:
     automática) y respeta el contrato de UNA entrevista por (candidato, proceso): si ya existe devuelve la existente (`creada=False`) en vez de duplicar. El vínculo se VERIFICA en servidor: el candidato
     debe existir y participar de esa Búsqueda; la `application_id` se resuelve acá, nunca viene del navegador. Devuelve `(entrevista, creada)`."""
     profile = profile_repository.get(profile_id)
-    if profile is None or profile.get("deleted_at"):
+    if profile is None or profile.get("deleted_at") or profile_repository.is_locked(profile):
         raise ValueError("Elegí un candidato del Banco de CVs.")
     try:
         busqueda = busqueda_repository.get(busqueda_id)

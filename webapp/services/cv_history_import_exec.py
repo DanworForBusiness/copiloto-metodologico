@@ -274,7 +274,7 @@ def _create_planned_profile(run: dict, key: str, entry: dict, plan: dict, banco:
 
 def _revalidate_link(entry: dict, group: dict) -> str | None:
     target = profile_repository.get(entry["profile_id"])
-    if target is None or target.get("deleted_at"):
+    if target is None or target.get("deleted_at") or profile_repository.is_locked(target):
         return "LINK_TARGET_MISSING"
     if entry["source"] == "plan" and cv_reconcile.norm_email(target.get("email")) != cv_reconcile.norm_email(((group or {}).get("extraction") or {}).get("email")):
         return "LINK_TARGET_CHANGED"
@@ -725,7 +725,7 @@ def link_existing(run_id: str, key: str, token: str, *, actor: str, profile_id: 
     if blocked:
         return blocked
     target = profile_repository.get((profile_id or "").strip())
-    if target is None or target.get("deleted_at"):
+    if target is None or target.get("deleted_at") or profile_repository.is_locked(target):
         return {"ok": False, "error": "El perfil elegido no existe o está dado de baja."}
     if expected_target_revision is not None and int(target.get("revision") or 1) != int(expected_target_revision):
         return {"ok": False, "stale": True, "error": "El perfil elegido cambió desde la revisión: volvé a revisar antes de confirmar."}

@@ -109,7 +109,9 @@ def test_the_premise_that_cchh_users_already_create_profiles_and_upload_document
     for route in ('@router.post("/cchh/candidatos/nuevo"', '@router.post("/cchh/candidatos/{profile_id}/documentos"', '@router.post("/cchh/candidatos/{profile_id}/eliminar"'):
         start = ROUTER.index(route)
         body = ROUTER[start: ROUTER.find("\n@router.", start + 10)]
-        assert "_require_owner_for_diagnostics" not in body and "is_owner" not in body, route                                         # no son solo del owner
+        # No son solo del owner: ni el guard de diagnóstico ni una condición `not …is_owner…` que restrinja la operación. Un uso de `is_owner` solo para ARMAR el contexto de un panel (p. ej. `owner=app_access.is_owner(request)`
+        # que habilita el control de consolidación) no restringe nada; la autorización efectiva es la sesión de Capital Humano de la propia ruta.
+        assert "_require_owner_for_diagnostics" not in body and not re.search(r"not\s+(?:\w+\.)?is_owner\w*\(", body), route
     assert "def _require_human_capital_session" in ROUTER and "human_capital_access.is_human_capital_authorized(request)" in ROUTER
 
 

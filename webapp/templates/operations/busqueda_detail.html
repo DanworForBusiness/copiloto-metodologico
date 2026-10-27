@@ -6,6 +6,7 @@
 {% block body %}
 {% set req = view.requerimiento %}
 {% set pres = req.presencialidad %}
+{% set owner_full = owner_full | default(false) %}
 <div x-data="copilotLayout('operations-busquedas')" x-init="init()" class="app-shell no-copilot">
   {% set _identity_html %}<iframe src="/brand/dancing/{{ pack }}?title={{ config.OPERATIONS_APP_TITLE | urlencode }}&subtitle={{ config.OPERATIONS_APP_SUBTITLE | urlencode }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
   {% call platform_topbar(current_workspace, available_workspaces, current_workspace.home_url, _identity_html, "Menú") %}
@@ -18,32 +19,40 @@
   {{ sidebar_resize_handle() }}
 
   <main id="content" class="module-content">
-    {# Composición espejo del detalle de proceso de CCHH: `.catalog-back`, hero con `.hero-meta` + título + fila de estado (`.status-badge`) y acciones a la derecha, secciones `dashboard-section`. Sin CSS propio. #}
-    {# MISMA cabecera que el detalle de un informe del Catálogo: `.catalog-actionbar` (← Volver a la izquierda, acciones a la derecha, misma línea) + `.module-hero.asr-hero`
-       (eyebrow, título, `.hero-meta > .catalog-verdict-line` con el badge `.catalog-card__verdict` y los datos en mono). Sin CSS propio de aspecto. #}
-    <div class="catalog-actionbar">
-      <a class="catalog-back" href="/operaciones/busquedas">← Volver a Búsquedas</a>
-      <div class="support-links catalog-actionbar__actions">
-        {% if view.puede_editar %}<a href="/operaciones/busquedas/{{ view.busqueda_id }}/editar" class="btn-secondary">Editar</a>{% endif %}
+    {# MISMA composición que el detalle de un proceso de CCHH (`.catalog-back` → `.module-hero.hc-profiles-hero` con eyebrow, título, `.hero-meta`, fila de estado `.status-badge` y las acciones a la derecha en
+       `.hc-profiles-hero-actions`), MISMO orden de acciones (editar → acción de cierre en rojo → eliminar en rojo intenso con el mismo trash SVG). La botonera de vistas, el tablero del pipeline y la tabla de
+       historial son LOS MISMOS partials que usa CCHH (`human_capital_busqueda_views_bar`, `…_detail_body`, `…_historial_section`): una sola lógica para ambas verticales; Operaciones los ve en solo lectura. #}
+    <a class="catalog-back" href="/operaciones/busquedas">← Volver a Búsquedas</a>
+    <section class="module-hero hc-profiles-hero">
+      <div class="hc-profiles-hero-text">
+        <p class="eyebrow">Staffing · Solicitud de perfil</p>
+        <h1>{{ req.nombre_puesto }}</h1>
+        {% set _meta = [] %}
+        {% if req.area_consultora %}{% set _ = _meta.append(req.area_consultora) %}{% endif %}
+        {% if req.modalidad %}{% set _ = _meta.append(req.modalidad) %}{% endif %}
+        {% set _ = _meta.append('Abierta el ' ~ (view.fecha_apertura | ops_date)) %}
+        {% if view.indicador == 'reenviada' and view.reenvios %}{% set _ = _meta.append(view.reenvios ~ (' reenvío' if view.reenvios == 1 else ' reenvíos')) %}{% endif %}
+        {% if view.fecha_cierre %}{% set _ = _meta.append('Cerrada el ' ~ (view.fecha_cierre | ops_date)) %}{% endif %}
+        <div class="hero-meta">{% for m in _meta %}<span>{{ m }}</span>{% endfor %}</div>
+        <div class="busqueda-status-row">
+          <span class="status-badge status-badge--{{ badge_tonos[view.indicador] }}" data-indicador="{{ view.indicador }}">{{ indicadores[view.indicador] }}</span>
+          {% if not view.vigente %}<span class="status-badge status-badge--inactivo" data-cerrada>Solo lectura</span>{% endif %}
+        </div>
+      </div>
+      <div class="hc-profiles-hero-actions">
+        {% if view.puede_editar %}<a href="/operaciones/busquedas/{{ view.busqueda_id }}/editar" class="btn-secondary">{{ 'Editar solicitud' if owner_full else 'Editar' }}</a>{% endif %}
         {% if view.puede_corregir %}<a href="/operaciones/busquedas/{{ view.busqueda_id }}/editar" class="btn-primary">Corregir y reenviar</a>{% endif %}
         {% if view.puede_cancelar %}<button type="button" class="btn-danger" data-dialog-open="opsb-cancel-dialog">Cancelar solicitud</button>{% endif %}
-        {% if view.puede_eliminar %}<button type="button" class="btn-danger" data-dialog-open="opsb-delete-dialog">Eliminar solicitud</button>{% endif %}
-      </div>
-    </div>
-    <section class="module-hero asr-hero opsb-hero">
-      <p class="eyebrow">Staffing · Solicitud de perfil</p>
-      <h1 class="asr-title">{{ req.nombre_puesto }}</h1>
-      <div class="hero-meta">
-        <span class="catalog-verdict-line">
-          <span class="catalog-card__verdict catalog-card__verdict--{{ veredicto_tonos[view.indicador] }}" data-indicador="{{ view.indicador }}">{{ indicadores[view.indicador] }}</span>
-          {% set _meta = [] %}
-          {% if req.area_consultora %}{% set _ = _meta.append(req.area_consultora) %}{% endif %}
-          {% if req.modalidad %}{% set _ = _meta.append(req.modalidad) %}{% endif %}
-          {% set _ = _meta.append('Abierta el ' ~ (view.fecha_apertura | ops_date)) %}
-          {% if view.indicador == 'reenviada' and view.reenvios %}{% set _ = _meta.append(view.reenvios ~ (' reenvío' if view.reenvios == 1 else ' reenvíos')) %}{% endif %}
-          {% if view.fecha_cierre %}{% set _ = _meta.append('Cerrada el ' ~ (view.fecha_cierre | ops_date)) %}{% endif %}
-          <span>{{ _meta | join(' · ') }}</span>
-        </span>
+        {% if view.puede_eliminar %}
+        <button type="button" class="btn-danger btn-danger--strong" data-dialog-open="opsb-delete-dialog">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+          Eliminar solicitud
+        </button>
+        {% endif %}
+        {% if owner_full %}{# Modo total del dueño de la app: además, las acciones del proceso de Capital Humano (mismo partial que su detalle). #}
+        {% set cchh_edit_label = "Editar proceso" %}
+        {% include "partials/human_capital_busqueda_hero_actions.html" %}
+        {% endif %}
       </div>
     </section>
 
@@ -64,10 +73,20 @@
     </div>
     {% elif view.estado_solicitud == 'enviada' %}
     <p class="field-hint">Enviada a Capital Humano{% if view.reenviada %} (reenvío {{ view.reenvios }}){% endif %}. Podés editarla, cancelarla o eliminarla hasta que Capital Humano la tome.</p>
-    {% elif view.estado_solicitud == 'en_gestion' %}
-    <p class="field-hint" data-readonly>Capital Humano ya está gestionando esta búsqueda{% if view.estado == 'cerrado' %} y el proceso está cerrado{% endif %}. Esta solicitud es de solo lectura.</p>
     {% elif view.estado_solicitud == 'cancelada' %}
     <p class="field-hint" data-readonly>Solicitud cancelada{% if view.cancelada_en %} el {{ view.cancelada_en | ops_datetime }}{% endif %}{% if view.motivo_cancelacion %}. Motivo: {{ view.motivo_cancelacion }}{% endif %}. Es de solo lectura.</p>
+    {% elif view.estado_solicitud == 'en_gestion' and not view.vigente %}
+    <p class="field-hint" data-readonly>El proceso está cerrado. Esta solicitud es de solo lectura; el historial muestra todo lo que pasó con ella.</p>
+    {% elif view.estado_solicitud == 'en_gestion' %}
+    <p class="field-hint" data-vigente-en-gestion>Capital Humano ya está gestionando esta búsqueda. Mientras siga vigente podés editar sus datos: cada cambio queda registrado en el historial con quién lo hizo.</p>
+    {% endif %}
+
+    {% if pipeline %}
+    {% set views_pipeline_url = "/operaciones/busquedas/" ~ view.busqueda_id %}{% set views_evaluation_url = "/cchh/busquedas/" ~ view.busqueda_id ~ "?vista=evaluacion" %}
+    {% include "partials/human_capital_busqueda_views_bar.html" %}
+    <div id="busqueda-detail-body" data-pipeline-mode="{{ 'total' if owner_full else 'solo-lectura' }}">
+      {% include "partials/human_capital_busqueda_detail_body.html" %}
+    </div>
     {% endif %}
 
     {% include "partials/solicitud_requerimiento_sections.html" %}

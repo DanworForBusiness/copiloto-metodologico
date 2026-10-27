@@ -1227,6 +1227,16 @@ button.star-rating__star:focus-visible { outline: 2px solid var(--gold); outline
 .dw-confirm__title { margin: 0 0 10px; font-size: 1.05rem; font-weight: 700; }
 .dw-confirm__msg { margin: 0; font-size: .85rem; line-height: 1.55; color: #55555c; white-space: pre-line; }
 .content-theme-dark .dw-confirm__msg { color: #b2b2bc; }
+/* Casilla opcional del diálogo compartido (p. ej. «Eliminar también sus archivos»): separada del mensaje por un filete, casilla dorada del Hub con aire respecto del texto y nota aclaratoria en tamaño secundario,
+   alineada con el texto de la casilla. Definida acá (tools.css, cargada en todo el Hub): `.field-hint` vive solo en la hoja de Capital Humano. */
+.dw-confirm__check { margin-top: 16px; padding-top: 14px; border-top: 1px solid rgba(0,0,0,.09); }
+.content-theme-dark .dw-confirm__check { border-top-color: rgba(255,255,255,.12); }
+.dw-confirm__check[hidden] { display: none; }
+.dw-confirm__check label { display: flex; align-items: center; gap: 10px; cursor: pointer; font: 650 .82rem var(--sans); color: #1f1f24; }
+.content-theme-dark .dw-confirm__check label { color: #e4e4ec; }
+.dw-confirm__check input { accent-color: var(--gold); width: 15px; height: 15px; margin: 0; flex: none; cursor: pointer; }
+.dw-confirm__hint { margin: 8px 0 0 25px; font-size: .74rem; line-height: 1.55; color: #55555c; white-space: pre-line; }
+.content-theme-dark .dw-confirm__hint { color: #b2b2bc; }
 .dw-confirm__actions { display: flex; justify-content: flex-end; gap: 10px; padding: 18px 24px 22px; }
 /* Acciones de fila (Editar + Eliminar) lado a lado, centradas en su celda. */
 .dw-row-actions { display: inline-flex; align-items: center; gap: 4px; }
@@ -2160,6 +2170,7 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 .catalog-card--buena { border-left-color: #e7b008; }
 .catalog-card--parcial { border-left-color: #d98b2b; }
 .catalog-card__head { display: flex; align-items: center; gap: 6px; margin: 0 0 4px; font-size: .9rem; color: var(--ink); }
+.catalog-card__head .catalog-card__action { margin-left: auto; flex: none; }   /* acción icónica de la tarjeta (retirar): al borde derecho, nunca pegada al texto */
 .catalog-card__icon { margin-right: 4px; }
 .catalog-card__verdict { display: inline-flex; align-items: center; color: var(--soft); font: 650 .58rem var(--mono); text-transform: uppercase; letter-spacing: .04em; border: 1px solid var(--line); border-radius: 3px; padding: 1px 4px; line-height: 1.25; }
 /* Tonos de estado del Hub (UNA fuente): `status_tone()` emite plena/buena/parcial/neutra; badge, punto y callout consumen estos tokens. */

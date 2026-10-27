@@ -59,15 +59,33 @@ STALE_BODIES = {
 }
 
 
+# P1 — por qué un cambio de entrada deja STALE a ESTE modelo (``AssessmentStatus.stale_dependency``): cambió algo que usa, o no se puede asegurar que no cambió.
+STALE_DEPENDENCY_NOTES = {
+    svc.DEP_AFFECTED: "Cambió algo que este modelo usa desde la última evaluación.",
+    svc.DEP_UNCERTAIN: "No se puede asegurar que lo que usa este modelo siga igual: la evaluación es anterior a la verificación de dependencias.",
+}
+STALE_DEPENDENCY_BODIES = {
+    svc.DEP_AFFECTED: "Se muestra el informe anterior. Regenerarlo calcula el assessment contra el modelo actual.",
+    svc.DEP_UNCERTAIN: "Se muestra el informe anterior. Regenerarlo (o volver a publicar el modelo) lo calcula contra el estado actual y registra sus dependencias.",
+}
+DRIFT_NOTE = "Vigente: el catálogo del cliente cambió, pero no lo que este modelo usa."
+
+
 def stale_note(status: "svc.AssessmentStatus") -> str | None:
     """Nota de STALE según su causa (sin causa conocida, la nota histórica)."""
     if status.state != svc.STALE:
         return STATE_NOTES.get(status.state)
+    if status.stale_reason == svc.STALE_INPUT_CHANGED and status.stale_dependency in STALE_DEPENDENCY_NOTES:
+        return STALE_DEPENDENCY_NOTES[status.stale_dependency]
     return STALE_NOTES.get(status.stale_reason) or STATE_NOTES[svc.STALE]
 
 
 def stale_body(status: "svc.AssessmentStatus") -> str | None:
-    return (STALE_BODIES.get(status.stale_reason) or STALE_BODIES[svc.STALE_INPUT_CHANGED]) if status.state == svc.STALE else None
+    if status.state != svc.STALE:
+        return None
+    if status.stale_reason == svc.STALE_INPUT_CHANGED and status.stale_dependency in STALE_DEPENDENCY_BODIES:
+        return STALE_DEPENDENCY_BODIES[status.stale_dependency]
+    return STALE_BODIES.get(status.stale_reason) or STALE_BODIES[svc.STALE_INPUT_CHANGED]
 # Tono del badge de vigencia: reusa las variantes del badge del veredicto legacy (`catalog-card__verdict--*`) para no
 # inventar un segundo lenguaje visual. Sin tono = badge neutro (sin assessment / no aplica).
 STATE_TONES = {
@@ -938,6 +956,7 @@ def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: Adho
     link_entry = None if adhoc else entry
     view: dict[str, Any] = {
         "state": status.state, "state_label": STATE_LABELS[status.state], "state_tone": STATE_TONES.get(status.state, NEUTRAL), "state_note": stale_note(status), "state_body": stale_body(status), "stale_reason": status.stale_reason,
+        "drift_note": DRIFT_NOTE if status.state == svc.CURRENT and status.pool_drift else None, "stale_dependency": status.stale_dependency,
         "reason": status.reason, "error_code": status.error_code,
         "client": status.client, "entry_id": status.entry_id if adhoc else entry.entry_id, "dominio": "" if adhoc else entry.dominio,
         "terminal_am": status.terminal_am, "title_desc": None, "title_id": None, "generated_at": status.generated_at,

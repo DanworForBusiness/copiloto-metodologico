@@ -174,7 +174,7 @@ const sandbox = {
 sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
 vm.runInContext(src, sandbox, { filename: "app.js" });
-const { initDraggableColumns, initResizableColumns, readStoredColumnOrder, readStoredColumnWidths, restorePersistedColumnWidths } = sandbox;
+const { initDraggableColumns, initResizableColumns, readStoredColumnOrder, readStoredColumnWidths, restorePersistedColumnWidths, columnLayoutFor, columnLayoutOfContainer } = sandbox;
 
 // ── Helper: arma una tabla sintética SIN relación con Comercial ────────────
 // (Director §36/§27: "table-agnostic" — si esto funciona igual que el Perfil
@@ -190,6 +190,7 @@ function buildSyntheticTable(tableKey, opts = {}) {
   const container = makeNode("div", {
     ...(opts.draggable !== false ? { "data-draggable-columns-key": tableKey } : {}),
     ...(opts.resizable !== false ? { "data-resizable-columns-key": tableKey } : {}),
+    ...(opts.layoutVersion ? { "data-layout-version": String(opts.layoutVersion) } : {}),
   });
   root.appendChild(container);
   const table = makeNode("table"); container.appendChild(table);
@@ -198,12 +199,13 @@ function buildSyntheticTable(tableKey, opts = {}) {
   const row = makeNode("tr"); thead.appendChild(row);
   const cols = opts.columns || ["alpha", "beta", "gamma"];
   const ths = cols.map(key => {
-    const col = makeNode("col", { "data-column-key": key });
+    // `null` = columna SIN key (casilla de selección, Acciones): <col> y <th> sin data-column-key.
+    const col = makeNode("col", key ? { "data-column-key": key } : {});
     colgroup.appendChild(col);
     // `data-test-width` va en el <th> (no en el <col>): el código bajo
     // prueba mide `th.getBoundingClientRect().width` para el ancho de
     // arranque del resize, nunca el del <col>.
-    const th = makeNode("th", { "data-column-key": key, draggable: "true", "data-test-width": "120" });
+    const th = makeNode("th", { ...(key ? { "data-column-key": key } : {}), draggable: "true", "data-test-width": "120" });
     row.appendChild(th);
     return th;
   });
@@ -388,7 +390,8 @@ function buildSyntheticTable(tableKey, opts = {}) {
   // plano crudo -- `containerWidth` es lo que restorePersistedColumnWidths
   // necesita comparar contra el contenedor ACTUAL en un restore futuro.
   ok(typeof saved === "object" && !Array.isArray(saved), "E: se persiste como objeto (envelope), nunca un array");
-  eq(saved.schemaVersion, 1, "E: el envelope declara su schemaVersion");
+  eq(saved.schemaVersion, 2, "E: el envelope declara su schemaVersion (formato)");
+  eq(saved.layout, { version: 1, signature: "alpha|beta|gamma".split("|").slice().sort().join("|") }, "E: el envelope graba la estructura (versión + firma determinista) de la tabla");
   ok(typeof saved.containerWidth === "number", "E: el envelope graba el ancho de contenedor vigente al guardar");
   ok(typeof saved.widths === "object" && !Array.isArray(saved.widths), "E: los anchos en sí viven en widths, como mapa plano {key: width}");
 }
@@ -453,8 +456,8 @@ function buildSyntheticTable(tableKey, opts = {}) {
   eq(readStoredColumnWidths("ergon-i-array"), null, "I: un array (no un objeto plano) -> null");
   eq(readStoredColumnWidths("ergon-i-null"), null, "I: `null` guardado -> null");
   eq(readStoredColumnWidths("ergon-i-legacy-flat"), null, "I: shape plano pre-contrato -> null (incompatible, ver D8)");
-  eq(readStoredColumnWidths("ergon-i-wrong-version"), null, "I: schemaVersion distinto -> null (nunca migrado en caliente)");
-  eq(readStoredColumnWidths("ergon-i-ok"), { alpha: "140px" }, "I: envelope v1 válido -> devuelve el mapa plano de widths");
+  eq(readStoredColumnWidths("ergon-i-wrong-version"), null, "I: schemaVersion v2 SIN layout (o con otra versión de formato) -> null (nunca migrado en caliente)");
+  eq(readStoredColumnWidths("ergon-i-ok"), { alpha: "140px" }, "I: envelope legacy v1 válido -> devuelve el mapa plano de widths");
   eq(readStoredColumnWidths("ergon-i-missing"), null, "I: key nunca usada -> null");
 }
 
@@ -475,6 +478,186 @@ function buildSyntheticTable(tableKey, opts = {}) {
   dispatchOn(container, "pointermove", { clientX: 20 });
   dispatchOn(container, "pointerup", {});
   ok(!reordered, "J: un resize nunca dispara dw:columns-reordered");
+}
+
+
+// ═══════════════ K: COMPATIBILIDAD ESTRUCTURAL de los anchos guardados (hotfix Candidatos) ═══════════════
+// Un registro de anchos es válido solo para la ESTRUCTURA de la tabla que lo grabó: ids de columna, lugar de las columnas sin key
+// y -en tablas no reordenables- el orden; más un `data-layout-version` explícito. Incompatible => se elimina SOLO ese key.
+const WKEY = k => `dw-col-widths:${k}`;
+const record = (container, widths, extra = {}) => {
+  const l = columnLayoutOfContainer(container);
+  return JSON.stringify({ schemaVersion: 2, containerWidth: container.clientWidth, layout: { version: l.version, signature: l.signature }, widths, ...extra });
+};
+const colW = (colgroup, k) => colgroup.children.find(c => c.dataset.columnKey === k).style.width;
+
+// K1: primera visita (sin nada guardado) -> no aplica, no escribe nada, no crea claves.
+{
+  const { container, table } = buildSyntheticTable("k-first", { columns: ["a", "b"] });
+  const before = Object.keys(store).length;
+  ok(restorePersistedColumnWidths(container) === false, "K1: sin preferencias guardadas no aplica nada");
+  ok(!table.style.width && Object.keys(store).length === before, "K1: una carga sin preferencias no escribe en localStorage");
+}
+
+// K2: registro VÁLIDO para la estructura vigente -> se conserva (se aplica) y la carga NO lo reescribe.
+{
+  const { container, colgroup } = buildSyntheticTable("k-valid", { columns: ["a", "b", "c"] });
+  store[WKEY("k-valid")] = record(container, { b: "210px" });
+  const raw = store[WKEY("k-valid")];
+  ok(restorePersistedColumnWidths(container) === true, "K2: un registro válido se aplica");
+  eq(colW(colgroup, "b"), "210px", "K2: el ancho guardado se respeta");
+  ok(store[WKEY("k-valid")] === raw, "K2: la carga no sobrescribe un registro ya válido (cero escrituras)");
+}
+
+// K3: se AGREGA una columna (con o sin key) -> incompatible: se descarta SOLO esa clave; la tabla usa sus defaults.
+for (const [label, cols] of [["con key", ["a", "b", "z"]], ["sin key (casilla)", [null, "a", "b"]]]) {
+  const old = buildSyntheticTable("k-old", { columns: ["a", "b"] });
+  const stale = record(old.container, { a: "300px" });                    // grabado cuando la tabla tenía a,b
+  const { container, table } = buildSyntheticTable("k-add", { columns: cols });
+  store[WKEY("k-add")] = stale;
+  store[WKEY("k-other")] = "intacto";                                      // otra tabla
+  store["dw-col-order:k-add"] = JSON.stringify(["b", "a"]);                // preferencia INDEPENDIENTE de la misma tabla
+  store["hc-filtros"] = "q=ana";                                           // filtros / selección / indicadores: no son de esta capa
+  ok(restorePersistedColumnWidths(container) === false, `K3(${label}): estructura con una columna más -> no se aplican los anchos viejos`);
+  ok(!table.style.width, `K3(${label}): la tabla queda con su layout responsive por defecto`);
+  ok(!(WKEY("k-add") in store), `K3(${label}): se elimina el registro incompatible de ESA tabla`);
+  ok(store[WKEY("k-other")] === "intacto" && store["dw-col-order:k-add"] && store["hc-filtros"] === "q=ana", `K3(${label}): no toca otras tablas ni preferencias independientes`);
+  delete store["dw-col-order:k-add"]; delete store["hc-filtros"]; delete store[WKEY("k-other")];
+}
+
+// K4: se ELIMINA una columna -> incompatible. REORDENAMIENTO: tabla no reordenable => incompatible; tabla reordenable por el usuario => compatible.
+{
+  const full = buildSyntheticTable("k-del", { columns: ["a", "b", "c"], draggable: false });
+  const { container } = buildSyntheticTable("k-del", { columns: ["a", "c"], draggable: false });
+  store[WKEY("k-del")] = record(full.container, { a: "150px" });
+  ok(restorePersistedColumnWidths(container) === false && !(WKEY("k-del") in store), "K4: una columna menos -> incompatible y descartado");
+
+  const fixed = buildSyntheticTable("k-fixed", { columns: ["a", "b", "c"], draggable: false });
+  const swapped = buildSyntheticTable("k-fixed", { columns: ["c", "b", "a"], draggable: false });
+  store[WKEY("k-fixed")] = record(fixed.container, { a: "150px" });
+  ok(restorePersistedColumnWidths(swapped.container) === false, "K4: en una tabla NO reordenable, otro orden es otra estructura -> incompatible");
+
+  const drag = buildSyntheticTable("k-drag", { columns: ["a", "b", "c"] });
+  const dragSwapped = buildSyntheticTable("k-drag", { columns: ["c", "a", "b"] });
+  store[WKEY("k-drag")] = record(drag.container, { a: "150px" });
+  ok(restorePersistedColumnWidths(dragSwapped.container) === true, "K4: en una tabla REORDENABLE por el usuario, reordenar las columnas NO invalida los anchos (van por key)");
+  ok(columnLayoutFor(["x", "", "y"], { reorderable: true }).signature === columnLayoutFor(["y", "", "x"], { reorderable: true }).signature, "K4: la firma reordenable es invariante a permutar las columnas con key");
+  ok(columnLayoutFor(["x", "", "y"], { reorderable: true }).signature !== columnLayoutFor(["", "x", "y"], { reorderable: true }).signature, "K4: pero sí distingue DÓNDE están las columnas sin key");
+}
+
+// K5: cambio EXPLÍCITO de layout sin cambiar identificadores (data-layout-version).
+{
+  const v1 = buildSyntheticTable("k-ver", { columns: ["a", "b"] });
+  const v2 = buildSyntheticTable("k-ver", { columns: ["a", "b"], layoutVersion: 2 });
+  store[WKEY("k-ver")] = record(v1.container, { a: "150px" });
+  ok(restorePersistedColumnWidths(v2.container) === false && !(WKEY("k-ver") in store), "K5: mismas columnas pero layoutVersion 2 vs registro v1 -> incompatible");
+  store[WKEY("k-ver")] = record(v2.container, { a: "150px" });
+  ok(restorePersistedColumnWidths(v2.container) === true, "K5: el registro grabado bajo la versión vigente sí se aplica");
+}
+
+// K6: registros LEGACY (schemaVersion 1, sin firma).
+{
+  // (a) la tabla sigue en layout v1 y las columnas nombradas existen -> se conserva y se firma UNA vez, sin tocar widths/containerWidth.
+  const { container, colgroup } = buildSyntheticTable("k-legacy-ok", { columns: ["a", "b"] });
+  store[WKEY("k-legacy-ok")] = JSON.stringify({ schemaVersion: 1, containerWidth: container.clientWidth, widths: { a: "160px" } });
+  ok(restorePersistedColumnWidths(container) === true && colW(colgroup, "a") === "160px", "K6a: un registro legacy compatible con una tabla que no cambió se conserva");
+  const stamped = JSON.parse(store[WKEY("k-legacy-ok")]);
+  eq([stamped.schemaVersion, stamped.widths, stamped.containerWidth, stamped.layout.version], [2, { a: "160px" }, container.clientWidth, 1], "K6a: queda firmado con la estructura vigente (mismos widths)");
+  const again = store[WKEY("k-legacy-ok")];
+  restorePersistedColumnWidths(buildSyntheticTable("k-legacy-ok", { columns: ["a", "b"] }).container);
+  ok(store[WKEY("k-legacy-ok")] === again, "K6a: ya firmado, una nueva carga no vuelve a escribir");
+  // (b) la tabla declara layoutVersion 2 (p. ej. cchh-candidatos con la casilla): el legacy describe otra tabla -> se descarta.
+  const cand = buildSyntheticTable("cchh-candidatos-sim", { columns: [null, "nombre", "skills", "seniority", "ubicacion", "fuente", null], layoutVersion: 2 });
+  store[WKEY("cchh-candidatos-sim")] = JSON.stringify({ schemaVersion: 1, containerWidth: cand.container.clientWidth, widths: { seniority: "180px", skills: "340px", fuente: "199px" } });
+  ok(restorePersistedColumnWidths(cand.container) === false && !(WKEY("cchh-candidatos-sim") in store), "K6b: el registro legacy de Candidatos (estructura anterior) se descarta y no se vuelve a restaurar");
+  ok(restorePersistedColumnWidths(cand.container) === false, "K6b: una segunda carga tampoco lo revive");
+  // (c) legacy que nombra una columna que ya no existe -> incompatible aunque la versión coincida.
+  const gone = buildSyntheticTable("k-legacy-gone", { columns: ["a", "b"] });
+  store[WKEY("k-legacy-gone")] = JSON.stringify({ schemaVersion: 1, containerWidth: gone.container.clientWidth, widths: { zzz: "160px" } });
+  ok(restorePersistedColumnWidths(gone.container) === false && !(WKEY("k-legacy-gone") in store), "K6c: un legacy que nombra una columna inexistente se descarta");
+}
+
+// K7: valores inválidos o corruptos -> nunca se aplican ni lanzan; el resto del storage no se toca.
+{
+  const { container } = buildSyntheticTable("k-bad", { columns: ["a", "b"] });
+  const good = JSON.parse(record(container, { a: "150px" }));
+  const bad = {
+    "ancho no numérico": { ...good, widths: { a: "mucho" } },
+    "ancho sin unidad px": { ...good, widths: { a: "150" } },
+    "ancho cero": { ...good, widths: { a: "0px" } },
+    "ancho negativo": { ...good, widths: { a: "-20px" } },
+    "ancho absurdo": { ...good, widths: { a: "999999px" } },
+    "ancho no string": { ...good, widths: { a: 150 } },
+    "v2 sin layout": { schemaVersion: 2, containerWidth: good.containerWidth, widths: good.widths },
+    "layout.version inválida": { ...good, layout: { version: "uno", signature: good.layout.signature } },
+    "layout.signature vacía": { ...good, layout: { version: 1, signature: "" } },
+    "containerWidth inválido": { ...good, containerWidth: -3 },
+  };
+  store["hc-seleccion"] = "a,b,c";
+  Object.entries(bad).forEach(([label, value]) => {
+    store[WKEY("k-bad")] = JSON.stringify(value);
+    let threw = false, applied;
+    try { applied = restorePersistedColumnWidths(container); } catch (e) { threw = true; }
+    ok(!threw && applied === false, `K7: ${label} -> no aplica y no lanza`);
+  });
+  store[WKEY("k-bad")] = "{truncado";
+  ok(restorePersistedColumnWidths(container) === false, "K7: JSON corrupto -> no aplica");
+  ok(store["hc-seleccion"] === "a,b,c", "K7: las demás preferencias (selección, filtros) quedan intactas");
+}
+
+// K8: tamaño del contenedor -- más angosto o más ancho que el guardado: el registro compatible NO se aplica fuera de tolerancia y NO se elimina (otro tamaño puede volver a ser válido); dentro de tolerancia sí.
+{
+  const wide = buildSyntheticTable("k-size", { columns: ["a", "b"] });
+  wide.container.attrs["data-test-width"] = "1552";
+  const rec = record(wide.container, { a: "300px" });                      // grabado a 1552
+  const narrow = buildSyntheticTable("k-size", { columns: ["a", "b"] });
+  narrow.container.attrs["data-test-width"] = "1000";                       // iframe más angosto
+  store[WKEY("k-size")] = rec;
+  ok(restorePersistedColumnWidths(narrow.container) === false && !narrow.table.style.width, "K8: contenedor materialmente más angosto -> layout responsive (no se fuerza un total congelado)");
+  ok(store[WKEY("k-size")] === rec, "K8: el registro NO se elimina por el ancho del contenedor (solo por estructura)");
+  const wider = buildSyntheticTable("k-size", { columns: ["a", "b"] });
+  wider.container.attrs["data-test-width"] = "2000";
+  ok(restorePersistedColumnWidths(wider.container) === false, "K8: contenedor materialmente más ancho -> tampoco se aplica");
+  const near = buildSyntheticTable("k-size", { columns: ["a", "b"] });
+  near.container.attrs["data-test-width"] = "1500";                         // 3% de diferencia
+  ok(restorePersistedColumnWidths(near.container) === true, "K8: una diferencia de píxeles dentro de la tolerancia se conserva");
+}
+
+// K9: aislamiento -- descartar una tabla no toca el registro (válido) de otra con la misma estructura ni el de otra key.
+{
+  const t1 = buildSyntheticTable("k-iso-1", { columns: ["a", "b", "c"] });
+  const t2 = buildSyntheticTable("k-iso-2", { columns: ["a", "b", "c"] });
+  store[WKEY("k-iso-1")] = record(buildSyntheticTable("x", { columns: ["a", "b"] }).container, { a: "150px" });   // obsoleto
+  store[WKEY("k-iso-2")] = record(t2.container, { b: "170px" });                                                   // válido
+  restorePersistedColumnWidths(t1.container);
+  ok(!(WKEY("k-iso-1") in store), "K9: se descarta la tabla con estructura obsoleta");
+  ok(restorePersistedColumnWidths(t2.container) === true && colW(t2.colgroup, "b") === "170px", "K9: la otra tabla conserva y aplica sus anchos");
+}
+
+// K10: lectura declarativa (Comercial arma su <colgroup> desde un catálogo): misma regla con `{tokens, reorderable}`.
+{
+  const spec = { tokens: ["x", "y", ""], reorderable: true };
+  const current = columnLayoutFor(spec.tokens, spec);
+  store[WKEY("k-decl")] = JSON.stringify({ schemaVersion: 2, containerWidth: 900, layout: { version: current.version, signature: current.signature }, widths: { x: "150px" } });
+  eq(readStoredColumnWidths("k-decl", spec), { x: "150px" }, "K10: registro compatible con el catálogo declarativo -> devuelve los anchos");
+  eq(readStoredColumnWidths("k-decl", { tokens: ["x", "y", "w", ""], reorderable: true }), null, "K10: el catálogo ganó una columna -> null");
+  ok(!(WKEY("k-decl") in store), "K10: y el registro obsoleto se descartó");
+  eq(readStoredColumnWidths("k-decl-sin-spec"), null, "K10: sin registro -> null");
+}
+
+// K11: el resize NO mezcla un registro de otra estructura ni de otro ancho de contenedor con el override nuevo.
+{
+  const old = buildSyntheticTable("k-merge", { columns: ["a", "b"] });
+  const { root, container } = buildSyntheticTable("k-merge", { columns: ["a", "b", "c"] });
+  store[WKEY("k-merge")] = record(old.container, { a: "300px" });          // estructura anterior
+  initResizableColumns(root);
+  const handle = queryAll(container, "th[data-column-key]")[1].children[0];
+  dispatchOn(container, "pointerdown", { target: handle, clientX: 0, pointerId: 1, preventDefault(){}, stopPropagation(){} });
+  dispatchOn(container, "pointermove", { clientX: 30 });
+  dispatchOn(container, "pointerup", {});
+  const saved = JSON.parse(store[WKEY("k-merge")]);
+  eq(Object.keys(saved.widths), ["b"], "K11: el override nuevo no arrastra los anchos de la estructura anterior");
+  eq(saved.layout.signature, columnLayoutOfContainer(container).signature, "K11: lo grabado lleva la estructura vigente (registrada para futuras cargas)");
 }
 
 if (failures > 0) {

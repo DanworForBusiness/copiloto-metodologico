@@ -12,7 +12,7 @@ import unicodedata
 import zlib
 
 from fastapi import FastAPI, Form, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from core.content_registry import (
@@ -22,7 +22,7 @@ from core.content_registry import (
     content_pack_short_label,
     resolve_pack,
 )
-from core import remote_store
+from core import publication_gate, remote_store
 from core.utils import slugify
 from webapp.services import auth_service
 from webapp.services import catalog_reads
@@ -44,6 +44,7 @@ from webapp.routers import auth as auth_router
 from webapp.routers import whats_new as whats_new_router
 from webapp.templating import templates  # env Jinja compartida (Fase 2C); misma identidad
 from webapp import access  # access policy de la web (owner/readonly/diagnostic)
+from webapp import same_origin_guard  # anti-CSRF mínimo de escrituras (mismo origen)
 from webapp import nav     # navegación de la web (login redirect)
 from webapp import workspaces  # PLATFORM: identidad/switcher entre workspaces
 from webapp import operations_access  # access policy del workspace Operations
@@ -72,6 +73,7 @@ from webapp.services import asset_evaluation
 from webapp.services import assessment_service
 from webapp.services import domain_classification_service as dcs
 from webapp.services import catalog_navigation
+from webapp.services import catalog_governance
 from webapp.presentation import artifact_icons
 from webapp.services import catalog_ingestion_orchestration
 from webapp.services import catalog_cds_docs
@@ -210,6 +212,15 @@ async def lifespan(app: FastAPI):
                 log.info("restore en background completo: %d archivos, cache de catálogo invalidado", restored)
         except Exception as exc:
             log.warning("restore en background falló: %s", exc)
+        await _publication_boot_recovery()
+
+    async def _publication_boot_recovery():
+        """P1: una publicación que la caída del proceso dejó a medias se completa o se deshace VERIFICANDO Spaces, recién con el restore terminado (nunca antes)."""
+        try:
+            from webapp.services import datasphere_publication_service
+            await asyncio.to_thread(datasphere_publication_service.boot_recover)
+        except Exception as exc:
+            log.warning("recuperación de publicaciones al arranque falló: %s", exc)
 
     log.info("persistencia: %s", remote_store.describe_mode())
     warning = remote_store.mode_warning()
@@ -217,8 +228,15 @@ async def lifespan(app: FastAPI):
         log.warning(warning)
     tasks = []
     if remote_store.enabled():
+        try:                                                              # P1·B1: antes de servir, la compuerta de lectores queda cerrada hasta verificar lo restaurado (solo con la publicación segura encendida)
+            from webapp.services import datasphere_publication_service
+            datasphere_publication_service.begin_boot_gate()
+        except Exception as exc:
+            log.warning("no se pudo cerrar la compuerta de arranque de la publicación: %s", exc)
         tasks.append(asyncio.create_task(_restore_bg()))
         tasks.append(asyncio.create_task(remote_store.sync_loop()))
+    else:
+        await _publication_boot_recovery()
     try:
         yield
     finally:
@@ -247,6 +265,18 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Copiloto Metodológico Danwor Beta", version="0.2.0", lifespan=lifespan)
+
+
+# P1 — compuerta de lectores de la publicación del Catálogo: mientras una versión nueva se activa (o queda sin confirmar) los lectores reciben un 503 reintentable, nunca una vista a medias.
+@app.exception_handler(publication_gate.PublicationInProgress)
+async def _publication_in_progress(request, exc):
+    return PlainTextResponse("Se está publicando una versión nueva del Catálogo. Reintentá en unos segundos.", status_code=503, headers={"Retry-After": str(exc.retry_after)})
+
+
+@app.exception_handler(publication_gate.PublicationBlocked)
+async def _publication_blocked(request, exc):
+    code = f" (código {exc.reason})" if getattr(exc, "reason", "") else ""
+    return PlainTextResponse(f"La última publicación del Catálogo está en verificación{code}. La lectura se reanuda sola al resolverse.", status_code=503, headers={"Retry-After": "30"})
 app.mount("/static", StaticFiles(directory=WEB_DIR / "static"), name="static")
 app.include_router(system_router.router)
 app.include_router(telemetry_router.router)
@@ -1698,6 +1728,7 @@ def catalog_domain(request: Request, dominio: str = "", modulo: str = "", pack: 
     return templates.TemplateResponse(
         request=request, name="partials/catalog_flows.html",
         context={"flows": flows, "dominio": dominio, "foco": foco, "pack": _pack(pack),
+                 "deletable": catalog_governance.deletable_ids(auth_service.session_user(request), flows),
                  "grades": assessment_presenter.tile_grades(flows),
                  "logical_counts": {f.entry_id: _catalog_logical_artifact_count(f) for f in flows}},   # cantidad LÓGICA (mismo conjunto normalizado del linaje)   # grado PRIMARIO de la tile = Adopción metodológica persistida
     )
@@ -1732,6 +1763,43 @@ _LOB_EMPTY = {
 }
 
 
+@app.post("/catalog/flow/retire", response_class=HTMLResponse, include_in_schema=False)
+def catalog_flow_retire(request: Request, flow: str = Form(""), pack: str = Form(DEFAULT_PACK), delete_files: str = Form("")):
+    """Retira (LÓGICAMENTE) un tile del Catálogo. Política del owner: APP_OWNER cualquiera; los demás solo el tile cuyo ÚLTIMO publicador son ellos (``catalog_governance.can_retire``: el MISMO predicado que decide
+    si el ícono se dibuja). Sin sesión 401; mismo origen obligatorio; sin permiso 403 aunque el tile no exista (no revela nada). Por defecto no borra archivos, manifiestos ni assessment; con ``delete_files`` (casilla
+    opcional del diálogo, MISMA autorización) además borra la carpeta propia del tile: ver ``catalog_governance``."""
+    user = auth_service.session_user(request)
+    if not user:
+        raise HTTPException(401, "Sin sesión")
+    if not same_origin_guard.is_same_origin_write(request):
+        raise HTTPException(403, "Origen no permitido")
+    entry_id = (flow or "").strip()
+    if not catalog_governance.can_retire(user, entry_id):
+        raise HTTPException(403, "No autorizado")
+    _mod, entries = _catalog_entries()
+    entry = next((e for e in entries if e.entry_id == entry_id), None)
+    if entry is None:
+        raise HTTPException(404, "El tile ya no está en el Catálogo")
+    actor = str(user.get("sub") or user.get("email") or "")
+    want_files = (delete_files or "").strip().lower() in ("1", "true", "on", "yes")
+    ctx = {"entry": entry, "pack": _pack(pack), "files": "kept"}
+    try:
+        catalog_governance.retire(entry, actor)
+    except catalog_governance.GovernanceStorageError:
+        return templates.TemplateResponse(request=request, name="partials/catalog_retired_tile.html", context={**ctx, "ok": False})
+    purged = None
+    if want_files:
+        try:
+            purged = catalog_governance.purge_files(entry)
+            ctx["files"] = "deleted"
+        except catalog_governance.GovernanceStorageError:
+            ctx["files"] = "failed"                                    # retirado, pero sus archivos se conservan: se informa y se puede reintentar desde el dueño / republicando
+    _invalidate_catalog_cache()
+    log_activity("catalog_entry_retired", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG, entry_id=entry_id, cliente=entry.cliente, dominio=entry.dominio,
+                 files_requested=want_files, files_deleted=(purged or {}).get("deleted", 0))
+    return templates.TemplateResponse(request=request, name="partials/catalog_retired_tile.html", context={**ctx, "ok": True})
+
+
 @app.get("/catalog/lob", response_class=HTMLResponse, include_in_schema=False)
 def catalog_lob(request: Request, lob: str = "", pack: str = Query(DEFAULT_PACK)):
     """Flujos de una LÍNEA DE NEGOCIO (tercera modalidad del Catálogo, junto a Dominios y Data Products). Solo LEE la clasificación v2 PERSISTIDA
@@ -1761,7 +1829,7 @@ def catalog_lob(request: Request, lob: str = "", pack: str = Query(DEFAULT_PACK)
         return templates.TemplateResponse(request=request, name="partials/catalog_flows.html", context=ctx)
     flows = catalog_navigation.sort_flows_by_verdict(dcs.partition_by_lob(universe, eff)[wanted])
     n_unavailable = sum(1 for v in eff.values() if not v["available"])
-    ctx.update({"flows": flows, "grades": assessment_presenter.tile_grades(flows, statuses),
+    ctx.update({"flows": flows, "grades": assessment_presenter.tile_grades(flows, statuses), "deletable": catalog_governance.deletable_ids(auth_service.session_user(request), flows),
                 "logical_counts": {f.entry_id: _catalog_logical_artifact_count(f) for f in flows},
                 "lob_info": {f.entry_id: {"note": _lob_note(eff[f.entry_id])} for f in flows},
                 "empty_kind": "empty", "empty_title": "Sin modelos disponibles", "empty_message": _LOB_EMPTY.get(wanted, "Todavía no hay modelos asociados a esta línea de negocio."),
@@ -1783,6 +1851,7 @@ def catalog_client(request: Request, cliente: str = "", pack: str = Query(DEFAUL
     return templates.TemplateResponse(
         request=request, name="partials/catalog_flows.html",
         context={"flows": flows, "dominio": "", "foco": None, "pack": selected,
+                 "deletable": catalog_governance.deletable_ids(auth_service.session_user(request), flows),
                  "empty_kind": "empty" if name else "prompt",
                  "empty_title": "Sin modelos disponibles" if name else "Elegí un cliente.",
                  "empty_message": f"Todavía no hay modelos asociados al cliente «{name}»." if name else None,

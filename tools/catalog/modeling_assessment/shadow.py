@@ -165,6 +165,15 @@ def _acquired_flow_families(evidence_scope: dict | None):
     return {"replication-flows", "data-flows"} & effective
 
 
+def semantic_universe(entities, group: dict[str, list[Path]]):
+    """(entidades sin sombras técnicas delta, universo semántico, sombras excluidas). Es EXACTAMENTE la construcción del universo que usa ``assess`` (extraída sin cambios para que quien necesite la MISMA
+    clausura que el motor —p. ej. la firma de dependencias del assessment— no la duplique)."""
+    shadows = technical_delta_shadow_entities(entities, group["jsons"])
+    if shadows:
+        entities = {n: e for n, e in entities.items() if n not in shadows}
+    return entities, AssessmentUniverse.from_entities(entities), shadows
+
+
 def assess(inbound: Path, client: str, am: str | None, domain: str | None = None, *, evidence_scope: dict | None = None,
            generic_root: bool = False, root_type: str | None = None) -> tuple[dict, dict]:
     """(documento publico, metadatos de pool para el manifiesto). Lanza ClientNotFoundError/AmbiguousClientDomainError/UnknownTerminalAmError/
@@ -186,11 +195,9 @@ def assess(inbound: Path, client: str, am: str | None, domain: str | None = None
     # interna de X. Si el pool la materializa como entidad, se excluye del universo semántico para que la frontera/linaje
     # se detengan en X (el RF productor con target físico D queda como DELTA_SHADOW_SUFFIX en procedencia). Por el HECHO
     # del CSN, nunca por el sufijo; una D consumida por una fuente ordinaria se preserva.
-    shadows = technical_delta_shadow_entities(entities, group["jsons"])
+    entities, universe, shadows = semantic_universe(entities, group)
     if shadows:
-        entities = {n: e for n, e in entities.items() if n not in shadows}
         meta["technical_delta_shadows_excluded"] = sorted(shadows)
-    universe = AssessmentUniverse.from_entities(entities)
     if generic_root and am is not None:
         universe, scope = universe.resolve_root(entities, am, root_type, pool_signature=signature)   # puede lanzar UnknownRootObjectError
     else:
@@ -270,4 +277,4 @@ def run(*, inbound: str | Path, client: str, am: str | None, out: str | Path | N
 
 
 __all__ = ["AmbiguousClientDomainError", "AssessmentPoolLoadError", "ClientNotFoundError", "RunResult", "TerminalAmSelectionRequired",
-           "UnknownTerminalAmError", "UnknownRootObjectError", "assess", "collect_facts", "list_terminal_models", "pool_signature", "run", "select_pool", "write_outputs"]
+           "UnknownTerminalAmError", "UnknownRootObjectError", "assess", "collect_facts", "list_terminal_models", "pool_signature", "run", "select_pool", "semantic_universe", "write_outputs"]

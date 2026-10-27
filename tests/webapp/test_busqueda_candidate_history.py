@@ -177,7 +177,7 @@ def test_there_is_a_single_history_table_in_its_usual_place_and_htmx_mutations_r
     assert r.text.count('id="busqueda-historial"') == 1 and 'hx-swap-oob="true"' in r.text and "Ana Pérez → Preselección" in r.text and "Candidato asociado" in r.text   # tabla actualizada al instante
 
 
-def test_solicitud_transitions_stay_intact_and_candidate_events_never_reach_operaciones():
+def test_solicitud_transitions_stay_intact_and_candidate_events_reach_operaciones_only_through_the_shared_history():
     bid = _taken()
     c = session_client(CCHH_EMAIL)
     _post(c, f"/cchh/busquedas/{bid}/candidatos", profile_id=_profile())
@@ -185,9 +185,11 @@ def test_solicitud_transitions_stay_intact_and_candidate_events_never_reach_oper
     assert [h["transicion"] for h in s["historial"]] == ["enviar", "tomar", "candidato_asociado"] and s["estado"] == "en_gestion"      # mismas transiciones; el evento convive en el MISMO historial
     assert repo.solicitud_fue_tomada(doc(bid)) and repo.solicitud_reenvios(doc(bid)) == 0
     ops_view = svc.get_solicitud_view(bid)
-    assert [h["transicion"] for h in ops_view["historial"]] == ["enviar", "tomar"]                                  # Operaciones: sin movimientos de candidatos
+    assert [h["transicion"] for h in ops_view["historial"]] == ["enviar", "tomar"]                                  # la proyección segura por defecto sigue sin movimientos de candidatos
+    full = svc.get_solicitud_view(bid, full_history=True)
+    assert [h["transicion"] for h in full["historial"]] == ["enviar", "tomar", "candidato_asociado"]                # el DETALLE de Operaciones usa la MISMA proyección que CCHH (decisión del owner)
     ops_page = session_client(OPS_A).get(f"/operaciones/busquedas/{bid}").text
-    assert "Ana Pérez" not in ops_page and "Candidato asociado" not in ops_page and CCHH_EMAIL not in ops_page
+    assert "Ana Pérez → Preselección" in ops_page and "Candidato asociado" in ops_page and CCHH_EMAIL in ops_page
 
 
 def test_a_manual_process_keeps_its_classification_and_historical_pipeline_data_is_not_reconstructed():

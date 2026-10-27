@@ -12,11 +12,12 @@
 {% if not pub.can_execute %}
   <div class="tool-empty">
     <span>Acceso restringido</span>
-    <p>Esta herramienta publica un modelo real en el Catálogo gobernado y solo puede ejecutarla el dueño de la aplicación.</p>
+    <p>Esta herramienta publica un modelo real en el Catálogo gobernado y no está habilitada para tu usuario.</p>
   </div>
 {% else %}
   <form id="dsp-form" data-dsp-form method="post" action="/modules/{{ pub.stem }}/datasphere-publication/run" autocomplete="off">
     <input type="hidden" name="pack" value="{{ pack }}">
+    {% if pub.allowed_clients %}<p class="field-hint" data-dsp-allowed-clients>Podés publicar en estos clientes: {{ pub.allowed_clients | join(", ") }}. Usás tus propias credenciales de Datasphere.</p>{% endif %}
     {{ datasphere_form_fields("dsp", pub.form, pub.feature_options, "Seleccioná qué tipos de evidencia incluir en la extracción. Excluirlos puede reducir el tiempo de procesamiento, pero limita el alcance publicado.", pub.owner_profiles_url) }}
     <div class="admin-actions">
       <button type="submit" class="btn-primary tool-primary" data-dsp-submit>Publicar modelo</button>

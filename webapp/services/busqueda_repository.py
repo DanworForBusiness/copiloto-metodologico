@@ -82,7 +82,8 @@ SOLICITUD_ESTADOS = (SOLICITUD_ENVIADA, SOLICITUD_OBSERVADA, SOLICITUD_EN_GESTIO
 # vive en los routers futuros); `desde=None` = la solicitud todavía no existe.
 SOLICITUD_TRANSICIONES = {
     "enviar":   {"actor": ORIGEN_OPERACIONES, "desde": (None,), "hasta": SOLICITUD_ENVIADA},
-    "editar":   {"actor": ORIGEN_OPERACIONES, "desde": (SOLICITUD_ENVIADA,), "hasta": SOLICITUD_ENVIADA},
+    # `editar`: `hasta=None` = el estado NO cambia. Operaciones edita su requerimiento mientras la solicitud está VIGENTE (enviada, o tomada y con el proceso aún activo); una vez cerrada/cancelada es solo lectura.
+    "editar":   {"actor": ORIGEN_OPERACIONES, "desde": (SOLICITUD_ENVIADA, SOLICITUD_EN_GESTION), "hasta": None},
     "observar": {"actor": ORIGEN_CCHH, "desde": (SOLICITUD_ENVIADA,), "hasta": SOLICITUD_OBSERVADA},
     "reenviar": {"actor": ORIGEN_OPERACIONES, "desde": (SOLICITUD_OBSERVADA,), "hasta": SOLICITUD_ENVIADA},
     "tomar":    {"actor": ORIGEN_CCHH, "desde": (SOLICITUD_ENVIADA,), "hasta": SOLICITUD_EN_GESTION},
@@ -364,16 +365,51 @@ def is_operations_originated(doc: dict) -> bool:
     return origen_tipo(doc) == ORIGEN_OPERACIONES or solicitud_of(doc) is not None
 
 
-def update(busqueda_id: str, expected_revision: int, fields: dict) -> dict:
+PROCESO_CAMPOS_LABELS = {
+    "nombre_puesto": "Nombre del puesto", "fecha_apertura": "Fecha de apertura", "descripcion": "Descripción", "area_departamento": "Área / Departamento", "modalidad": "Modalidad",
+    "area_consultora": "Área de la consultora", "pedido_formal_recibido": "Pedido formal", "jd_texto": "Job Description", "palabras_clave": "Palabras clave",
+}
+_REQUERIMIENTO_ESPEJO = ("nombre_puesto", "area_consultora", "modalidad")      # campos que el requerimiento de Operaciones comparte con la búsqueda
+
+
+def _log_process_event(doc: dict, transicion: str, *, actor, now: str, motivo: str | None = None) -> None:
+    """Evento de CCHH sobre el PROCESO (editar / cerrar) en el MISMO historial compartido (`solicitud.historial` si nació de una solicitud, `historial` del documento si no): lo ve Operaciones igual que CCHH."""
+    who = (str(actor).strip().lower() or None) if actor else None
+    entry = {"transicion": transicion, "desde": None, "hasta": None, "actor": who, "actor_tipo": ORIGEN_CCHH, "fecha": now}
+    if motivo:
+        entry["motivo"] = motivo
+    sol = solicitud_of(doc)
+    (sol.setdefault("historial", []) if sol is not None else doc.setdefault("historial", [])).append(entry)
+
+
+def update(busqueda_id: str, expected_revision: int, fields: dict, *, actor: str | None = None) -> dict:
     """Edita los campos de una búsqueda (form de edición). Concurrencia
     optimista por `revision`. NO toca estado/fecha_cierre/candidatos. En una
-    búsqueda originada en Operaciones `OPERATIONS_LOCKED_FIELDS` no se modifican."""
+    búsqueda originada en Operaciones `OPERATIONS_LOCKED_FIELDS` no se modifican.
+    Un cambio efectivo queda en el historial compartido (`editar_cchh`, con el ejecutor y los campos cambiados) y, si la búsqueda nació en Operaciones, sus campos compartidos
+    (puesto, área y modalidad) se reflejan también en el requerimiento que Operaciones ve."""
     def _apply(doc: dict) -> None:
         _require_managed(doc, "editar")
         locked = is_operations_originated(doc)
+        changed = []
         for k in EDITABLE_FIELDS:
             if k in fields and not (locked and k in OPERATIONS_LOCKED_FIELDS):
+                if doc.get(k) != fields[k]:
+                    changed.append(k)
                 doc[k] = fields[k]
+        if not changed:
+            return
+        req = doc.get("requerimiento")
+        if solicitud_of(doc) is not None and isinstance(req, dict):
+            for k in _REQUERIMIENTO_ESPEJO:
+                if k in changed and doc.get(k):                         # un valor vacío NO se propaga: el requerimiento de Operaciones exige estos datos
+                    req[k] = doc.get(k)
+            if "modalidad" in changed and doc.get("modalidad"):         # coherencia con la presencialidad que guarda el requerimiento
+                if doc.get("modalidad") == "Remoto":
+                    req["presencialidad"] = None
+                elif doc.get("modalidad") == "On site" and isinstance(req.get("presencialidad"), dict):
+                    req["presencialidad"]["dias"] = None
+        _log_process_event(doc, "editar_cchh", actor=actor, now=_now_iso(), motivo="Campos: " + ", ".join(PROCESO_CAMPOS_LABELS[k] for k in changed))
     return _mutate(busqueda_id, _apply, expected_revision=expected_revision)
 
 
@@ -622,6 +658,7 @@ def close(busqueda_id: str, finalize_application_ids: list[str] | None = None, *
                 _log_candidate_event(doc, CANDIDATO_FINALIZADO, actor=actor, now=now, application=app, names=names, desde=desde, hasta=ETAPA_FINAL, resultado="Rechazado")
         doc["estado"] = "cerrado"
         doc["fecha_cierre"] = _business_today()
+        _log_process_event(doc, "cerrar", actor=actor, now=now)
     return _mutate(busqueda_id, _apply)
 
 
@@ -677,6 +714,15 @@ def solicitud_fue_tomada(doc: dict) -> bool:
     if sol.get("estado") == SOLICITUD_EN_GESTION or sol.get("tomada_por") or sol.get("tomada_en"):
         return True
     return any(isinstance(h, dict) and h.get("transicion") == "tomar" for h in (sol.get("historial") or []))
+
+
+def solicitud_puede_editar(doc: dict) -> bool:
+    """Operaciones puede EDITAR el requerimiento de su solicitud mientras está VIGENTE: `enviada`, o `en_gestion` (CCHH ya la tomó) con el proceso todavía activo. Acordado entre los equipos: la toma ya no la
+    congela; cerrada o cancelada es solo lectura. La edición queda siempre en el historial (con actor y campos)."""
+    sol = solicitud_of(doc)
+    if sol is None or doc.get("estado") == "cerrado":
+        return False
+    return sol.get("estado") == SOLICITUD_ENVIADA or (sol.get("estado") == SOLICITUD_EN_GESTION and doc.get("estado") == "activo")
 
 
 def solicitud_puede_eliminar(doc: dict) -> bool:
@@ -757,7 +803,9 @@ def _require_transition(doc: dict, nombre: str) -> dict:
     sol = solicitud_of(doc)
     if sol is None:
         raise BusquedaInvalidTransitionError("Esta búsqueda no es una solicitud originada en Operaciones.")
-    if SOLICITUD_TRANSICIONES[nombre]["actor"] == ORIGEN_OPERACIONES and solicitud_fue_tomada(doc):
+    if nombre == "editar" and doc.get("estado") == "cerrado":
+        raise BusquedaInvalidTransitionError("No se puede 'editar': la búsqueda está cerrada y es de solo lectura.")
+    if SOLICITUD_TRANSICIONES[nombre]["actor"] == ORIGEN_OPERACIONES and solicitud_fue_tomada(doc) and nombre != "editar":
         # El HISTORIAL manda, no solo el estado visible: una solicitud que CCHH tomó alguna vez deja de ser del ciclo de vida de Operaciones, aunque hoy figure en otro estado.
         raise BusquedaInvalidTransitionError(f"No se puede '{nombre}': la solicitud ya fue tomada en gestión por Capital Humano.")
     estado = sol.get("estado")
@@ -786,11 +834,12 @@ def _check_actor(actor) -> str:
 
 def _record(sol: dict, nombre: str, desde: str | None, actor: str, now: str, motivo: str | None = None) -> None:
     spec = SOLICITUD_TRANSICIONES[nombre]
-    entry = {"transicion": nombre, "desde": desde, "hasta": spec["hasta"],
+    hasta = spec["hasta"] if spec["hasta"] is not None else desde
+    entry = {"transicion": nombre, "desde": desde, "hasta": hasta,
              "actor": actor, "actor_tipo": spec["actor"], "fecha": now}
     if motivo:
         entry["motivo"] = motivo
-    sol["estado"] = spec["hasta"]
+    sol["estado"] = hasta
     sol.setdefault("historial", []).append(entry)
 
 
@@ -897,8 +946,8 @@ def _transition(busqueda_id: str, expected_revision, nombre: str, actor: str, ap
         sol = _require_transition(doc, nombre)
         desde = sol.get("estado")
         now = _now_iso()
-        apply(doc, sol, now)
-        _record(sol, nombre, desde, actor, now, motivo)
+        detalle = apply(doc, sol, now)                       # opcional: un `str` devuelto reemplaza el motivo (p. ej. «qué campos cambió» una edición)
+        _record(sol, nombre, desde, actor, now, detalle if isinstance(detalle, str) and detalle else motivo)
     return _mutate(busqueda_id, _apply, expected_revision=expected_revision)
 
 
@@ -926,10 +975,28 @@ def delete_solicitud(busqueda_id: str, expected_revision: int, actor: str) -> di
     return {"busqueda_id": busqueda_id, "estado_solicitud": solicitud_estado(current), "revision": current.get("revision", 1)}
 
 
+REQUERIMIENTO_LABELS = {
+    "nombre_puesto": "Perfil solicitado", "tipo_busqueda": "Tipo de búsqueda", "proyecto": "Proyecto", "cantidad_recursos": "Cantidad de recursos", "dedicacion": "Dedicación",
+    "duracion": "Duración", "area_consultora": "Área", "seniority": "Seniority", "ubicacion": "Ubicación", "modalidad": "Modalidad", "presencialidad": "Presencialidad",
+    "responsabilidades": "Responsabilidades", "skills_excluyentes": "Skills excluyentes", "habilidades_blandas": "Habilidades blandas", "ingles": "Nivel de inglés",
+    "certificaciones": "Certificaciones", "tipo_contrato": "Modalidad de contratación", "fecha_inicio_prevista": "Fecha de inicio prevista", "comentarios": "Observaciones",
+}
+
+
+def requerimiento_changes(before: dict | None, after: dict | None) -> list[str]:
+    """Rótulos (legibles) de los campos del requerimiento que CAMBIARON entre dos versiones: el «Detalle» del historial de una edición. Solo nombres de campo, nunca los valores."""
+    before, after = before or {}, after or {}
+    return [label for key, label in REQUERIMIENTO_LABELS.items() if before.get(key) != after.get(key)]
+
+
 def edit_solicitud(busqueda_id: str, expected_revision: int, requerimiento: dict, actor: str) -> dict:
-    """Operaciones corrige una solicitud todavía `enviada` (no tomada)."""
-    return _transition(busqueda_id, expected_revision, "editar", actor,
-                       lambda doc, sol, now: _mirror_requerimiento(doc, requerimiento))
+    """Operaciones edita su solicitud mientras está VIGENTE: `enviada` o ya tomada (`en_gestion`) con el proceso activo. El estado NO cambia; la edición queda en el historial COMPARTIDO con el actor y los
+    campos modificados. Solo reescribe el requerimiento (y sus tres campos espejo): jamás candidatos, JD, estado ni nada del proceso de CCHH."""
+    def _apply(doc: dict, sol: dict, now: str):
+        changed = requerimiento_changes(doc.get("requerimiento"), requerimiento)
+        _mirror_requerimiento(doc, requerimiento)
+        return ("Campos: " + ", ".join(changed)) if changed else "Sin cambios en los datos"
+    return _transition(busqueda_id, expected_revision, "editar", actor, _apply)
 
 
 def resubmit_solicitud(busqueda_id: str, expected_revision: int, requerimiento: dict, actor: str) -> dict:

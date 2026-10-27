@@ -406,10 +406,9 @@ def test_history_attributes_each_movement_to_its_own_executor_with_different_use
     assert b_hc.post(f"/cchh/busquedas/{SID}/tomar", data={"expected_revision": str(rev())}, headers=ORIGIN).status_code == 303                                          # toma cchh_b
     page = b_hc.get(f"/cchh/busquedas/{SID}").text
     assert _history_actors(page) == [("Tomada por Capital Humano", cchh_b), ("Corregida y reenviada", OPS_B), ("Corrección solicitada por Capital Humano", CCHH_EMAIL), ("Enviada a Capital Humano", OPS_A)]
-    # Operaciones conserva su frontera de privacidad: ve a sus propias personas y el ÁREA de CCHH, nunca a quienes la integran
+    # Operaciones ve el MISMO historial que CCHH (decisión del owner): sus propias personas y también quiénes de CCHH ejecutaron cada movimiento.
     ops_page = session_client(OPS_A).get(f"/operaciones/busquedas/{SID}").text
-    assert _history_actors(ops_page) == [("Tomada por Capital Humano", "Capital Humano"), ("Corregida y reenviada", OPS_B), ("Corrección solicitada por Capital Humano", "Capital Humano"), ("Enviada a Capital Humano", OPS_A)]
-    assert CCHH_EMAIL not in ops_page and cchh_b not in ops_page
+    assert _history_actors(ops_page) == [("Tomada por Capital Humano", cchh_b), ("Corregida y reenviada", OPS_B), ("Corrección solicitada por Capital Humano", CCHH_EMAIL), ("Enviada a Capital Humano", OPS_A)]
 
 
 def test_legacy_history_with_only_the_area_label_is_not_promoted_to_an_identity_and_is_never_rewritten():

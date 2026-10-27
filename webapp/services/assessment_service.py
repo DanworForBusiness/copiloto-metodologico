@@ -52,7 +52,8 @@ from pathlib import Path
 from typing import Any, Iterable
 
 import config
-from core import remote_store
+from core import publication_gate, remote_store
+from tools.catalog.modeling_assessment import dependency_signature as ma_dependencies
 from tools.catalog.modeling_assessment import paths as ma_paths
 from tools.catalog.modeling_assessment import profile as ma_profile
 from tools.catalog.modeling_assessment import shadow as ma_shadow
@@ -242,6 +243,8 @@ class AssessmentStatus:
     stale_targeted: str | None = field(default=None, compare=False)     # solo STALE VERSION_ONLY: nombre de la migracion de evidencia que lo cubre (None = no cubierto)
     stale_version_diff: tuple = field(default=(), compare=False)        # solo STALE: claves de ``versions`` que difieren
     pending_migration: str | None = field(default=None, compare=False)  # solo CURRENT por compatibilidad de transicion: migracion de evidencia pendiente (sigue siendo CURRENT)
+    pool_drift: bool = field(default=False, compare=False)             # CURRENT porque las DEPENDENCIAS del AM no cambiaron aunque la firma del pool completo sí (independencia demostrada)
+    stale_dependency: str | None = field(default=None, compare=False)  # solo STALE por entrada: AFFECTED (cambió algo que el AM lee) | UNCERTAIN (no se puede afirmar independencia)
 
     @property
     def viewable(self) -> bool:
@@ -296,6 +299,7 @@ def pool_root() -> Path | None:
     ``DANWOR_CATALOG_CSN_CACHE`` o ``<catalog_local>/.csn_cache`` (deploy con SharePoint); si no existe o está
     vacío, el stand-in local ``DANWOR_CATALOG_INBOUND_DIR`` / ``catalog_inbound`` (desarrollo). None si no hay ninguno.
     Solo se LEE; jamás se copia ni se escribe nada ahí."""
+    publication_gate.check(catalog_dir())                # P1: mientras una publicación se activa/recupera nadie lee el pool (el hilo dueño sí)
     cache = Path(os.getenv("DANWOR_CATALOG_CSN_CACHE", "").strip() or str(catalog_dir() / ".csn_cache"))
     inbound = Path(os.getenv("DANWOR_CATALOG_INBOUND_DIR", "").strip() or str(config.BASE_DIR / "catalog_inbound"))
     for cand in (cache, inbound):
@@ -324,6 +328,57 @@ def invalidate_pool_index() -> None:
     recalcula en el próximo acceso; la huella de tamaños/mtimes ya detecta cambios sin esta llamada."""
     with _index_lock:
         _index_memo.clear()
+        _dependency_memo.clear()
+
+
+# ── firma de DEPENDENCIAS (granularidad de la vigencia) ──
+# La vigencia compara la firma del pool COMPLETO del cliente; publicar un modelo dejaba STALE a todos los demás. La firma de dependencias (ver ``dependency_signature``)
+# cubre solo lo que el assessment de UN AM puede leer. Es un dato de vigencia APARTE: no entra al perfil, a su firma ni a ninguna regla metodológica.
+_dependency_memo: dict[tuple, dict[str, str | None]] = {}
+_DEPENDENCY_MEMO_MAX = 64
+
+
+def dependency_signatures_for(res: "Resolution") -> dict[str, str | None]:
+    """``{AM terminal: firma de dependencias | None}`` del grupo de pool de ``res`` (memoizado por firma del pool). Vacío si no se puede calcular: el llamador lo trata como INCIERTO."""
+    if res.pool_root is None or not res.client_dir or not res.pool_signature:
+        return {}
+    key = (str(res.pool_root), res.client_dir, res.domain_dir, res.pool_signature)
+    with _index_lock:
+        cached = _dependency_memo.get(key)
+    if cached is not None:
+        return cached
+    try:
+        _k, group = ma_shadow.select_pool(res.pool_root, res.client_dir, res.domain_dir)
+        entities, universe, _shadows = ma_shadow.semantic_universe(ma_shadow.load_pool(group), group)
+        sigs = ma_dependencies.dependency_signatures(res.pool_root, group, entities, universe)
+    except Exception:                                   # noqa: BLE001 — incierto, jamás un fallo de lectura
+        log.warning("assessment: no se pudo calcular la firma de dependencias de %s/%s", res.client_dir, res.domain_dir, exc_info=True)
+        sigs = {}
+    with _index_lock:
+        if len(_dependency_memo) >= _DEPENDENCY_MEMO_MAX:
+            _dependency_memo.clear()
+        _dependency_memo[key] = sigs
+    return sigs
+
+
+def closure_signature(res: "Resolution") -> str | None:
+    """Firma de dependencias del AM terminal de ``res`` contra el pool ACTUAL, o None (incierto)."""
+    return dependency_signatures_for(res).get(res.terminal_am) if res.terminal_am else None
+
+
+DEP_INDEPENDENT, DEP_AFFECTED, DEP_UNCERTAIN = "INDEPENDENT", "AFFECTED", "UNCERTAIN"
+
+
+def dependency_verdict(env: dict | None, res: "Resolution") -> str:
+    """¿Cambió algo de lo que el assessment guardado puede haber leído? ``INDEPENDENT`` = las firmas de dependencias (guardada y actual) existen, son de la MISMA regla y coinciden;
+    ``AFFECTED`` = existen y difieren; ``UNCERTAIN`` = falta alguna (sobre previo a esta firma, regla distinta o dependencias no calculables): no se afirma independencia."""
+    stored = (env or {}).get("input_closure_signature")
+    if not stored or (env or {}).get("dependency_rule_version") != ma_dependencies.DEPENDENCY_RULE_VERSION:
+        return DEP_UNCERTAIN
+    current = closure_signature(res)
+    if current is None:
+        return DEP_UNCERTAIN
+    return DEP_INDEPENDENT if current == stored else DEP_AFFECTED
 
 
 def _stat_fingerprint(files: Iterable[Path]) -> tuple:
@@ -484,8 +539,8 @@ def _derive_domain_classification(entry: Any, am: str | None) -> dict | None:
 def _envelope(client: str, am: str, *, status: str, profile: dict | None, pool_signature: str | None,
               versions: dict | None, error_code: str | None = None, generated_at: str | None = None,
               judgment: dict | None = _UNSET, domain_classification: dict | None = None,
-              business_classification: dict | None = None) -> dict:
-    return {
+              business_classification: dict | None = None, closure_signature: str | None = None) -> dict:
+    env = {
         "envelope_version": ENVELOPE_VERSION,
         "client": client,
         "terminal_am": am,
@@ -503,6 +558,10 @@ def _envelope(client: str, am: str, *, status: str, profile: dict | None, pool_s
         "business_classification": business_classification,
         "error_code": error_code,
     }
+    if closure_signature:                               # vigencia por dependencias (aditivo): sin ella el sobre se juzga solo por la firma del pool completo, como siempre
+        env["input_closure_signature"] = closure_signature
+        env["dependency_rule_version"] = ma_dependencies.DEPENDENCY_RULE_VERSION
+    return env
 
 
 # ═══════════════════════════ almacén: memoria + disco DURABLE (gobernado) ═══════════════════════════
@@ -731,7 +790,7 @@ def _load_envelope(client: str, am: str) -> dict | None:
     return env
 
 
-def _store_envelope(env: dict) -> str:
+def _store_envelope(env: dict, *, push: bool = True) -> str:
     """Persiste el sobre canónico: memoria + archivo atómico local + write-through a Spaces (``remote_store.push_path``; el ciclo
     ``mirror_up`` reintenta si falla). Devuelve el nivel de durabilidad REALMENTE logrado: ``remote`` (PUT remoto confirmado),
     ``local`` (escrito en disco; sin Spaces configurado o con el PUT pendiente) o ``memory`` (no se pudo escribir). Un fallo nunca
@@ -754,7 +813,7 @@ def _store_envelope(env: dict) -> str:
     except OSError:
         log.error("assessment: no se pudo escribir el almacén durable (%s); queda SOLO en memoria", path, exc_info=True)
         return DURABLE_MEMORY
-    if not remote_store.enabled():
+    if not push or not remote_store.enabled():
         return DURABLE_LOCAL
     if remote_store.push_path(path):
         return DURABLE_REMOTE
@@ -796,11 +855,18 @@ def _status_from(entry: Any, res: Resolution, versions: dict) -> AssessmentStatu
         return AssessmentStatus(INCOMPATIBLE_SCHEMA, eid, client, am, reason=INCOMPATIBLE_MESSAGE, error_code="INCOMPATIBLE_SCHEMA",
                                 generated_at=env.get("generated_at"), business_classification=bcl)
     cur = classify_currentness(env.get("input_pool_signature"), env.get("assessment_versions"), res.pool_signature, versions)
+    drift, dependency = False, None
+    if cur.state == STALE and cur.reason in (STALE_INPUT_CHANGED, STALE_VERSION_AND_INPUT):
+        # El pool completo del cliente cambió. Eso solo invalida este assessment si cambió algo que ÉL puede leer: se juzga por la firma de dependencias del AM.
+        dependency = dependency_verdict(env, res)
+        if dependency == DEP_INDEPENDENT:
+            drift = True
+            cur = classify_currentness(env.get("input_pool_signature"), env.get("assessment_versions"), env.get("input_pool_signature"), versions)   # a efectos de vigencia, su entrada no cambió
     if cur.state == CURRENT:
         return AssessmentStatus(CURRENT, eid, client, am, generated_at=env.get("generated_at"), profile=prof, judgment=jdg, domain_classification=dcl, business_classification=bcl,
-                                pending_migration=cur.pending_migration)
+                                pending_migration=cur.pending_migration, pool_drift=drift)
     return AssessmentStatus(STALE, eid, client, am, generated_at=env.get("generated_at"), profile=prof, judgment=jdg, domain_classification=dcl, business_classification=bcl, stale_reason=cur.reason, stale_targeted=cur.targeted,
-                            stale_version_diff=cur.version_diff)
+                            stale_version_diff=cur.version_diff, pool_drift=drift, stale_dependency=dependency)
 
 
 def _persisted_judgment(env: dict) -> dict | None:
@@ -955,7 +1021,8 @@ def _generate_locked(entry: Any, res: Resolution, versions: dict, *, force: bool
             sig = (doc.get("scope") or {}).get("pool_signature") or meta.get("pool_signature")
             durable = _store_envelope(_envelope(client, am, status="OK", profile=doc, pool_signature=sig, versions=dict(doc["versions"]),
                                                 domain_classification=_derive_domain_classification(entry, am),
-                                                business_classification=_derive_business_classification(entry, am)))
+                                                business_classification=_derive_business_classification(entry, am),
+                                                closure_signature=closure_signature(res) if sig == res.pool_signature else None))
             return replace(_status_from(entry, res, versions), durable=durable)
         if state == "NOT_APPLICABLE":
             return AssessmentStatus(NOT_APPLICABLE, entry.entry_id, client, None, reason=NA_REASONS["NO_TERMINAL_AM"])
@@ -980,6 +1047,119 @@ def _generate_locked(entry: Any, res: Resolution, versions: dict, *, force: bool
         error_code=code, generated_at=retained.get("generated_at") if retained else None,
         domain_classification=(retained or {}).get("domain_classification"), business_classification=(retained or {}).get("business_classification")))
     return replace(_status_from(entry, res, versions), durable=durable)
+
+
+# ═══════════════════════════ etapa de PUBLICACIÓN: preparar en memoria → validar → escribir local (P1) ═══════════════════════════
+# La publicación segura trata el assessment como parte de la UNIDAD (pool + Catálogo + assessments gobernados): primero se PREPARA en memoria contra el pool ya aplicado (el motor corre
+# y se valida; nada se escribe), y solo si todo valida se escribe en LOCAL; el PUT a Spaces lo hace la unidad (confirmación durable + marcador), nunca estas primitivas.
+class PrepareError(Exception):
+    """El assessment de un AM no se pudo preparar: la publicación NO se activa. ``code`` estable (sin trazas ni rutas)."""
+
+    def __init__(self, code: str, am: str | None = None):
+        super().__init__(code)
+        self.code, self.am = code, am
+
+
+@dataclass(frozen=True)
+class PreparedAssessment:
+    client: str
+    terminal_am: str
+    action: str                       # REGENERATE | REBASE | REMOVE
+    envelope: dict | None = None
+    entry_id: str = ""
+
+
+def governed_client_dir(client: str) -> Path | None:
+    """Directorio del almacén gobernado de UN cliente (``<raíz>/v1/<cliente>``) o None sin almacén durable."""
+    d = governed_dir()
+    return None if d is None else d / GOVERNED_LAYOUT_VERSION / (_SAFE.sub("_", client).strip(".") or "_")
+
+
+def governed_envelopes_of(client: str) -> dict[str, dict]:
+    """``{AM: sobre}`` de los sobres gobernados LEGIBLES del cliente (los ilegibles/ajenos se ignoran, como en toda lectura)."""
+    folder = governed_client_dir(client)
+    out: dict[str, dict] = {}
+    if folder is None or not folder.is_dir():
+        return out
+    for path in sorted(folder.glob("*.json")):
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            am = raw.get("terminal_am")
+            if isinstance(am, str) and (env := _read_governed(path, client, am)) is not None:
+                out[am] = env
+        except (OSError, ValueError):
+            continue
+    return out
+
+
+def prepare_regeneration(entry: Any, res: Resolution | None = None) -> PreparedAssessment | None:
+    """Corre el motor canónico en MEMORIA contra el pool actual y devuelve el sobre candidato (``status=OK``), o None si el AM no es aplicable. NO escribe nada y NO deja un sobre FAILED:
+    cualquier falla lanza ``PrepareError`` (la publicación se deshace y conserva la última versión válida)."""
+    res = res or resolve_entry(entry)
+    if res.kind in ("NO_TERMINAL_AM", "MULTIPLE_TERMINAL_AMS"):
+        return None
+    if res.kind != "OK":
+        raise PrepareError(res.kind if res.kind in ERROR_MESSAGES else "POOL_UNAVAILABLE")
+    client, am = res.client, res.terminal_am
+    try:
+        doc, meta = _engine_assess(res.pool_root, res.client_dir, am, res.domain_dir)
+        state = doc.get("assessment_state")
+        if state == "NOT_APPLICABLE":
+            return None
+        if state != "ASSESSED":
+            log.warning("assessment: INDETERMINATE (publicación) para %s/%s: %s", client, am, (meta or {}).get("errors"))
+            raise PrepareError("POOL_LOAD_ERROR", am)
+        ma_profile.validate_assessment(doc)
+    except PrepareError:
+        raise
+    except UnknownTerminalAmError:
+        raise PrepareError("AM_NOT_TERMINAL", am) from None
+    except ma_shadow.ClientNotFoundError:
+        raise PrepareError("POOL_UNAVAILABLE", am) from None
+    except ValueError:
+        log.exception("assessment: perfil inválido (publicación) para %s/%s", client, am)
+        raise PrepareError("INVALID_PROFILE", am) from None
+    except Exception:                                   # noqa: BLE001 — traza SOLO al log del servidor
+        log.exception("assessment: fallo de generación (publicación) para %s/%s", client, am)
+        raise PrepareError("GENERATION_ERROR", am) from None
+    sig = (doc.get("scope") or {}).get("pool_signature") or (meta or {}).get("pool_signature")
+    if sig != res.pool_signature:
+        raise PrepareError("POOL_SIGNATURE_MISMATCH", am)
+    env = _envelope(client, am, status="OK", profile=doc, pool_signature=sig, versions=dict(doc["versions"]),
+                    domain_classification=_derive_domain_classification(entry, am), business_classification=_derive_business_classification(entry, am),
+                    closure_signature=closure_signature(res))
+    if not (env.get("assessment_versions") == current_assessment_versions() and _valid_profile(env)):
+        raise PrepareError("WOULD_NOT_BE_CURRENT", am)
+    return PreparedAssessment(client, am, "REGENERATE", env, getattr(entry, "entry_id", ""))
+
+
+def prepare_rebase(client: str, am: str, previous: dict, closure_sig: str) -> PreparedAssessment:
+    """Sobre previo VÁLIDO cuyo AM demostró no depender de nada que cambió: se conserva TAL CUAL (perfil, firmas y fecha) y solo se le agrega la firma de dependencias, para que su
+    vigencia deje de depender de la firma del pool completo. No es una regeneración."""
+    env = {**previous, "input_closure_signature": closure_sig, "dependency_rule_version": ma_dependencies.DEPENDENCY_RULE_VERSION}
+    return PreparedAssessment(client, am, "REBASE", env)
+
+
+def commit_prepared_local(prepared: PreparedAssessment) -> str:
+    """Escribe el sobre preparado en LOCAL (archivo atómico + memoria). NO sube a Spaces. Devuelve ``local`` | ``memory``; ``memory`` (no se pudo escribir) es un error para la unidad."""
+    assert prepared.envelope is not None
+    return _store_envelope(prepared.envelope, push=False)
+
+
+def remove_governed_local(client: str, am: str) -> Path | None:
+    """Retira el sobre gobernado de un AM que ya no existe en el pool (diagnóstico OBSOLETO). Solo local; devuelve la ruta retirada (o None si no había)."""
+    forget(client, am)
+    path = governed_path(client, am)
+    if path is None or not path.is_file():
+        return None
+    path.unlink()
+    return path
+
+
+def forget(client: str, am: str) -> None:
+    """Olvida el sobre en MEMORIA (tras escribir, retirar o deshacer en disco): la próxima lectura lo relee del archivo."""
+    with _cache_lock:
+        _memory.pop(_key(client, am), None)
 
 
 # ═══════════════════════════ enriquecimiento controlado de assessments gobernados CURRENT ═══════════════════════════

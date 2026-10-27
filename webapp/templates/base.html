@@ -21,6 +21,11 @@
     <div class="dw-confirm__body">
       <h2 class="dw-confirm__title" id="dwConfirmTitle">Confirmar</h2>
       <p class="dw-confirm__msg" data-dw-confirm-msg></p>
+      {# Casilla OPCIONAL (solo si quien llama pasa `checkbox`): siempre DESMARCADA al abrir; sin `name` (no se envía con el <form method="dialog">: `dwConfirmChoice` devuelve su estado). Estilo propio en tools.css (`.dw-confirm__check`): no depende de hojas de un workspace. #}
+      <div class="dw-confirm__check" data-dw-confirm-check-wrap hidden>
+        <label data-dw-confirm-check-label><input type="checkbox" data-dw-confirm-check></label>
+        <p class="dw-confirm__hint" data-dw-confirm-check-hint></p>
+      </div>
     </div>
     <div class="dw-confirm__actions">
       <button type="submit" value="cancel" class="btn-secondary" data-dw-confirm-cancel>Cancelar</button>

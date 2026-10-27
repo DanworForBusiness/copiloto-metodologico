@@ -280,13 +280,19 @@ def _catalog_module():
     return _cat, cat_dir
 
 
+def _visible_catalog(entries, cat_dir):
+    """Sin los tiles retirados lógicamente del Catálogo (``catalog_governance``): el asistente no los cita."""
+    from webapp.services import catalog_governance
+    return catalog_governance.visible_entries(entries, cat_dir)
+
+
 def _find_matching_catalog(question: str, pack_name: str):
     """Mejor flujo del catálogo (evidencia real publicada) para la consulta, o None.
     Lee catalog_local (runtime); si está vacío/ausente → None y el router cae a su
     comportamiento normal (template/sección). El catálogo NUNCA rompe el routing."""
     try:
         _cat, cat_dir = _catalog_module()
-        entries = _cat.load_catalog(cat_dir)
+        entries = _visible_catalog(_cat.load_catalog(cat_dir), cat_dir)
         return _cat.best_domain_match(question, entries) if entries else None
     except Exception:  # noqa: BLE001 — el catálogo nunca debe romper el routing
         return None
@@ -681,7 +687,7 @@ def _find_flow_verdict(question: str):
         return None
     try:
         _cat, cat_dir = _catalog_module()
-        entries = _cat.load_catalog(cat_dir)
+        entries = _visible_catalog(_cat.load_catalog(cat_dir), cat_dir)
     except Exception:  # noqa: BLE001
         return None
     if not entries:

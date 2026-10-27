@@ -60,7 +60,7 @@ def artifact_title(entry, name: str) -> tuple[str, str]:
 
 
 @lru_cache(maxsize=1)
-def _catalog_entries():
+def _catalog_entries_cached():
     """Carga el catálogo local (catalog_local) vía el servicio del piloto.
     Determinístico, sin IA. Devuelve (módulo, entradas) o (None, []).
 
@@ -76,9 +76,24 @@ def _catalog_entries():
             _sys.path.insert(0, svc_dir)
         import catalog_service as mod
         cat_dir = os.getenv("DANWOR_CATALOG_DIR", "").strip() or str(BASE_DIR / "catalog_local")
-        return mod, mod.load_catalog(cat_dir)
+        from webapp.services import catalog_governance
+        return mod, catalog_governance.visible_entries(mod.load_catalog(cat_dir), cat_dir)      # sin los tiles retirados lógicamente
     except Exception:
         return None, []
+
+
+def _catalog_entries():
+    """Lectura cacheada del catálogo con la COMPUERTA DE LECTORES de la publicación (P1): una lectura en FRÍO (caché vacía) espera a que termine la activación de una publicación —o
+    se rechaza si está sin resolver—, para no cargar un Catálogo a medio escribir. Con la caché caliente se sirve la última versión CONFIRMADA (la publicación invalida la caché recién
+    cuando su versión nueva está confirmada)."""
+    if _catalog_entries_cached.cache_info().currsize == 0:
+        from core import publication_gate
+        publication_gate.check(os.getenv("DANWOR_CATALOG_DIR", "").strip() or None)
+    return _catalog_entries_cached()
+
+
+_catalog_entries.cache_clear = _catalog_entries_cached.cache_clear
+_catalog_entries.cache_info = _catalog_entries_cached.cache_info
 
 
 def _catalog_domains() -> list:

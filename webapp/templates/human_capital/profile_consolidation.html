@@ -1,0 +1,182 @@
+{% extends "base.html" %}
+{% from "partials/platform_topbar.html" import platform_topbar %}
+{% from "partials/workspace_shell.html" import sidebar_resize_handle %}
+{% block title %}Consolidar perfiles · Capital Humano · Danwor{% endblock %}
+{% block head_styles %}<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}">{% endblock %}
+{% block body %}
+{# «Consolidar perfiles» (solo APP_OWNER). Tres estados de la misma pantalla: `plan` (comparación + documentos + relaciones + resolución de conflictos + confirmación explícita), `result` (resultado de la operación) y
+   `operations` (operaciones pendientes/cerradas con reanudar/revertir). Solo primitivos del Hub (dashboard-section, dashboard-table, dashboard-empty, btn-*): sin CSS propio. Todo valor viene escapado por Jinja. #}
+<div x-data="copilotLayout('human-capital')" x-init="init()" class="app-shell no-copilot">
+  {% set _identity_html %}<iframe src="/brand/dancing/{{ pack }}?title={{ config.HUMAN_CAPITAL_APP_TITLE | urlencode }}&subtitle={{ config.HUMAN_CAPITAL_APP_SUBTITLE | urlencode }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
+  {% call platform_topbar(current_workspace, available_workspaces, current_workspace.home_url, _identity_html, "Menú") %}{% include "partials/human_capital_catalog_refresh_topbar.html" %}{% endcall %}
+
+  {% include "partials/human_capital_nav.html" %}
+
+  {{ sidebar_resize_handle() }}
+
+  <main id="content" class="module-content" data-hc-consolidation data-state="{{ state }}">
+    <a class="catalog-back" href="/cchh/candidatos">← Volver al listado</a>
+    <section class="module-hero hc-profiles-hero">
+      <div class="hc-profiles-hero-text">
+        <p class="eyebrow">Capital Humano · Operación administrativa</p>
+        <h1>Consolidar perfiles</h1>
+        <div class="hero-meta"><span>Dos perfiles de la misma persona pasan a ser una única identidad activa</span></div>
+      </div>
+      <div class="hc-profiles-hero-actions"><a class="btn-secondary" href="/cchh/consolidaciones">Operaciones</a></div>
+    </section>
+
+    {% macro name_of(p) %}{{ p.first_name }} {{ p.last_name }}{% endmacro %}
+    {% macro shown(v) %}{% if v is none or v == "" or v == [] %}—{% elif v is iterable and v is not string %}{{ v | join(", ") }}{% else %}{{ v }}{% endif %}{% endmacro %}
+
+    {% if state == "invalid" %}
+    <div class="dashboard-empty" data-state-kind="invalid"><span class="dashboard-empty__label">No se puede consolidar</span><p>{{ message }}</p></div>
+
+    {% elif state == "operations" %}
+    <div class="dashboard-sections" data-dashboard-key="cchh-consolidation-ops">
+      <details class="dashboard-section" data-section-id="operaciones" open>
+        <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Operaciones de consolidación</span><span class="dashboard-section__count">{{ operations | length }}</span></summary>
+        <div class="dashboard-section__body">
+          {% if operations %}
+          <table class="dashboard-table" data-consolidation-operations>
+            <thead><tr><th class="left">Estado</th><th class="left">Principal</th><th class="left">Duplicado</th><th class="left">Documentos</th><th class="left">Inicio</th><th class="left">Usuario</th><th class="center">Acciones</th></tr></thead>
+            <tbody>
+              {% for op in operations %}
+              <tr data-operation-id="{{ op.operation_id }}" data-operation-status="{{ op.status }}">
+                <td class="left">{{ {"PENDING": "Pendiente", "COMPLETED": "Completada", "ABORTED": "Revertida"}.get(op.status, op.status) }}</td>
+                <td class="left">{{ op.primary_name }}</td><td class="left">{{ op.duplicate_name }}</td><td class="left">{{ op.documents }}</td>
+                <td class="left">{{ op.started_at }}</td><td class="left">{{ op.actor }}</td>
+                <td class="center">
+                  {% if op.status == "PENDING" %}
+                  <form method="post" action="/cchh/consolidaciones/{{ op.operation_id }}/reanudar"><button type="submit" class="btn-primary" data-consolidation-resume>Reanudar</button></form>
+                  <form method="post" action="/cchh/consolidaciones/{{ op.operation_id }}/revertir"><button type="submit" class="btn-secondary" data-consolidation-abort>Revertir</button></form>
+                  {% else %}—{% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          {% else %}
+          <div class="dashboard-empty"><span class="dashboard-empty__label">Sin operaciones</span><p>Todavía no se consolidó ningún perfil.</p></div>
+          {% endif %}
+        </div>
+      </details>
+    </div>
+
+    {% elif state == "result" %}
+    {% set st = outcome.status %}
+    <div class="dashboard-empty" data-outcome="{{ st }}" role="status">
+      <span class="dashboard-empty__label">{{ {"COMPLETED": "Consolidación completada", "ALREADY_CONSOLIDATED": "Ya estaba consolidado", "PENDING": "Consolidación PENDIENTE", "ABORTED": "Consolidación revertida", "BLOCKED": "No se consolidó", "INVALID": "No se consolidó", "AUDIT_UNAVAILABLE": "No se consolidó", "STALE_PLAN": "El plan cambió"}.get(st, st) }}</span>
+      <p>{{ outcome.message }}</p>
+      {% if st == "PENDING" %}
+      <p><strong>No es un resultado exitoso.</strong> Los dos perfiles permanecen ocultos y bloqueados. Reanudá o revertí desde <a href="/cchh/consolidaciones">Operaciones</a>{% if outcome.operation_id %} (operación <code>{{ outcome.operation_id }}</code>){% endif %}.</p>
+      {% elif st in ("COMPLETED", "ALREADY_CONSOLIDATED") and primary_id %}
+      <p><a class="btn-primary" data-consolidation-open-profile href="/cchh/candidatos/{{ primary_id }}">Abrir la ficha del perfil principal</a></p>
+      {% endif %}
+    </div>
+
+    {% elif state == "plan" %}
+    {% set plan = plan %}
+    {% if message %}<div class="dashboard-empty" data-consolidation-notice role="alert"><span class="dashboard-empty__label">Revisá antes de confirmar</span><p>{{ message }}</p></div>{% endif %}
+
+    {% if plan.status == "ALREADY_CONSOLIDATED" %}
+    <div class="dashboard-empty" data-outcome="ALREADY_CONSOLIDATED"><span class="dashboard-empty__label">Ya estaban consolidados</span><p>El segundo perfil ya se consolidó en el primero (operación <code>{{ plan.operation_id }}</code>). No hay nada que hacer.</p><p><a class="btn-primary" href="/cchh/candidatos/{{ primary_id }}">Abrir la ficha del perfil principal</a></p></div>
+    {% elif plan.primary is none or plan.duplicate is none %}
+    <div class="dashboard-empty" data-state-kind="invalid"><span class="dashboard-empty__label">No se puede consolidar</span><p>{% for b in plan.blockers %}{{ b.message }} {% endfor %}</p></div>
+    {% else %}
+
+    {% for b in plan.blockers %}
+    <div class="dashboard-empty" data-blocker="{{ b.code }}" role="alert"><span class="dashboard-empty__label">{{ "Bloqueado" if plan.status == "BLOCKED" else "No se puede consolidar" }}</span><p>{{ b.message }}</p>{% if b.code == "PROFILE_LOCKED" %}<p><a href="/cchh/consolidaciones">Ver operaciones pendientes</a></p>{% endif %}</div>
+    {% endfor %}
+
+    <div class="dashboard-sections" data-dashboard-key="cchh-consolidation-plan">
+      <details class="dashboard-section" data-section-id="roles" open>
+        <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Perfil principal y duplicado</span></summary>
+        <div class="dashboard-section__body">
+          <p>Se <strong>conserva</strong> el perfil principal (<code>{{ plan.primary.profile_id }}</code>). El duplicado se da de baja <em>lógicamente</em>: no se elimina información y no se crea ningún perfil nuevo.</p>
+          <table class="dashboard-table" data-consolidation-roles>
+            <thead><tr><th class="left">Rol</th><th class="left">Candidato</th><th class="left">Email</th><th class="left">Alta</th><th class="left">Documentos</th></tr></thead>
+            <tbody>
+              <tr data-role="primary"><td class="left"><strong>Principal (se conserva)</strong></td><td class="left">{{ name_of(plan.primary) }}</td><td class="left">{{ shown(plan.primary.email) }}</td><td class="left">{{ shown(plan.primary.created_at) }}</td><td class="left">{{ (plan.documents.get(plan.primary.profile_id) or []) | length }}</td></tr>
+              <tr data-role="duplicate"><td class="left"><strong>Duplicado (baja lógica)</strong></td><td class="left">{{ name_of(plan.duplicate) }}</td><td class="left">{{ shown(plan.duplicate.email) }}</td><td class="left">{{ shown(plan.duplicate.created_at) }}</td><td class="left">{{ (plan.documents.get(plan.duplicate.profile_id) or []) | length }}</td></tr>
+            </tbody>
+          </table>
+          <form method="post" action="/cchh/candidatos/consolidar">
+            <input type="hidden" name="profile_ids" value="{{ plan.primary.profile_id }}"><input type="hidden" name="profile_ids" value="{{ plan.duplicate.profile_id }}">
+            <input type="hidden" name="primary_id" value="{{ swap_id }}">
+            <button type="submit" class="btn-secondary" data-consolidation-swap>Invertir: conservar el otro perfil como principal</button>
+          </form>
+        </div>
+      </details>
+
+      <details class="dashboard-section" data-section-id="comparacion" open>
+        <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Comparación de atributos</span><span class="dashboard-section__count">{{ plan.conflicts | length }} conflicto(s)</span></summary>
+        <div class="dashboard-section__body">
+          {% set conflict_fields = plan.conflicts | map(attribute="field") | list %}
+          {% set fill_fields = plan.fills | map(attribute="field") | list %}
+          <form id="consolidation-confirm" method="post" action="/cchh/candidatos/consolidar/confirmar">
+            <input type="hidden" name="primary_id" value="{{ plan.primary.profile_id }}"><input type="hidden" name="duplicate_id" value="{{ plan.duplicate.profile_id }}"><input type="hidden" name="plan_digest" value="{{ plan.digest }}">
+            <table class="dashboard-table" data-consolidation-compare>
+              <thead><tr><th class="left">Campo</th><th class="left">Principal</th><th class="left">Duplicado</th><th class="left">Resultado</th></tr></thead>
+              <tbody>
+                {% for name, label in labels.items() %}
+                {% set a = plan.primary.get(name) %}{% set b = plan.duplicate.get(name) %}
+                <tr data-field="{{ name }}" data-kind="{{ 'conflict' if name in conflict_fields else ('fill' if name in fill_fields else 'same') }}">
+                  <td class="left">{{ label }}</td>
+                  <td class="left">{{ shown(a) }}</td>
+                  <td class="left">{{ shown(b) }}</td>
+                  <td class="left">
+                    {% if name in conflict_fields %}
+                    <label><input type="radio" name="res_{{ name }}" value="{{ plan.primary.profile_id }}" {{ 'checked' if resolutions and resolutions.get(name) == plan.primary.profile_id }} required> conservar el del principal</label><br>
+                    <label><input type="radio" name="res_{{ name }}" value="{{ plan.duplicate.profile_id }}" {{ 'checked' if resolutions and resolutions.get(name) == plan.duplicate.profile_id }} required> usar el del duplicado</label>
+                    {% elif name in fill_fields %}Se completa con el dato del duplicado
+                    {% else %}Sin cambios{% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+            <p class="field-hint">Los conflictos exigen una elección explícita; nada se resuelve por similitud.</p>
+
+            <h3>Documentos asociados</h3>
+            <table class="dashboard-table" data-consolidation-documents>
+              <thead><tr><th class="left">Perfil</th><th class="left">Archivo</th><th class="left">Subido</th><th class="left">Destino</th></tr></thead>
+              <tbody>
+                {% for pid, docs in plan.documents.items() %}{% for d in docs %}
+                <tr data-document-id="{{ d.document_id }}"><td class="left">{{ "Principal" if pid == plan.primary.profile_id else "Duplicado" }}</td><td class="left">{{ d.filename }}</td><td class="left">{{ d.uploaded_at }}</td>
+                    <td class="left">{{ "Se queda en el principal" if pid == plan.primary.profile_id else "Se traslada al principal" }}</td></tr>
+                {% endfor %}{% else %}<tr><td class="left" colspan="4">Sin documentos.</td></tr>{% endfor %}
+              </tbody>
+            </table>
+
+            <h3>Relaciones</h3>
+            <table class="dashboard-table" data-consolidation-relations>
+              <thead><tr><th class="left">Perfil</th><th class="left">Candidaturas</th><th class="left">Entrevistas</th><th class="left">Onboarding</th><th class="left">Tratamiento</th></tr></thead>
+              <tbody>
+                {% for role, p in (("Principal", plan.primary), ("Duplicado", plan.duplicate)) %}
+                {% set rel = plan.relations.get(p.profile_id) %}
+                <tr data-relations-of="{{ 'primary' if role == 'Principal' else 'duplicate' }}"><td class="left">{{ role }}</td>
+                  <td class="left">{{ rel.counts().busquedas if rel else "—" }}</td><td class="left">{{ rel.counts().entrevistas if rel else "—" }}</td><td class="left">{{ rel.counts().onboardings if rel else "—" }}</td>
+                  <td class="left">{% if role == "Principal" %}Se conservan tal cual{% elif rel and rel.total %}<strong>Bloquea la consolidación</strong> (no se migran por supuestos){% else %}Sin relaciones{% endif %}</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+
+            <h3>Resumen de lo que se hará</h3>
+            <ul data-consolidation-summary>
+              <li>{{ (plan.documents.get(plan.duplicate.profile_id) or []) | length }} documento(s) del duplicado pasarán a la ficha del principal; los archivos de SharePoint <strong>no se mueven ni se modifican</strong>.</li>
+              <li>{{ plan.fills | length }} dato(s) se completarán desde el duplicado y {{ plan.conflicts | length }} conflicto(s) se resuelven con tu elección.</li>
+              <li>El perfil duplicado queda dado de baja lógicamente (recuperable) y la operación queda auditada de forma durable.</li>
+              <li>Mientras dure la operación ambos perfiles permanecen ocultos y bloqueados; si algo falla queda <em>pendiente</em> y se puede reanudar o revertir.</li>
+            </ul>
+            <label><input type="checkbox" name="confirm" value="1" required data-consolidation-confirm> Entiendo y confirmo que estos dos perfiles corresponden a la misma persona.</label>
+            <p><button type="submit" class="btn-primary" data-consolidation-submit {{ 'disabled' if plan.status != "READY" }}>Consolidar perfiles</button>
+               <a class="btn-secondary" href="/cchh/candidatos">Cancelar</a></p>
+          </form>
+        </div>
+      </details>
+    </div>
+    {% endif %}
+    {% endif %}
+  </main>
+</div>
+{% endblock %}

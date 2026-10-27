@@ -177,6 +177,14 @@ class DatasphereCliError(RuntimeError):
     pass
 
 
+class ExtractionIncompleteError(DatasphereCliError):
+    """La extracción tuvo fallos de lectura o de listado (o violó un invariante de completitud): jamás se publica. ``failures``: ``[{kind, object_type, technical_name, code}]``."""
+
+    def __init__(self, failures: list[dict]):
+        super().__init__(f"EXTRACTION_INCOMPLETE - {len(failures)} fallo(s) de lectura/listado/consistencia.")
+        self.failures = list(failures)
+
+
 class RootTypeConstraintError(DatasphereCliError):
     pass
 
@@ -550,6 +558,7 @@ class DatasphereCli:
         page_size = 200
         skip = 0
         rows: list[dict[str, Any]] = []
+        self.last_list_incomplete = False
         while True:
             data = self._run(
                 [
@@ -561,6 +570,7 @@ class DatasphereCli:
                 expect_json=True,
             )
             if not isinstance(data, list):
+                self.last_list_incomplete = True            # respuesta inesperada: el listado puede estar truncado (lo registra el exportador)
                 break
             rows.extend(row for row in data if isinstance(row, dict))
             if len(data) < page_size:
@@ -695,6 +705,7 @@ class LineageExporter:
         self.edges: set[Edge] = set()
         self.external_sources: set[str] = set()
         self.read_cache: dict[tuple[str, str], dict[str, Any] | None] = {}
+        self.failures: list[dict[str, Any]] = []     # fallos de lectura/listado (códigos estables, sin texto crudo del CLI)
 
     def ensure_inventory(self, object_type: str) -> set[str]:
         if object_type in self.inventory:
@@ -703,8 +714,11 @@ class LineageExporter:
         self.diagnostics.record_inventory_request(object_type, cache_hit=False)
         try:
             rows = self.cli.list_objects(self.space, object_type)
+            if getattr(self.cli, "last_list_incomplete", False):
+                self.failures.append({"kind": "inventory", "object_type": object_type, "technical_name": None, "code": "INVENTORY_INCOMPLETE"})
         except DatasphereCliError as exc:
             _say(f"WARN inventory {object_type}: {exc}", file=sys.stderr)
+            self.failures.append({"kind": "inventory", "object_type": object_type, "technical_name": None, "code": "INVENTORY_FAILED"})
             rows = []
         self.inventory_rows[object_type] = rows
         names = {
@@ -826,6 +840,7 @@ class LineageExporter:
             data = self.cli.read_object(self.space, object_type, technical_name)
         except DatasphereCliError as exc:
             _say(f"WARN read {object_type}/{technical_name}: {exc}", file=sys.stderr)
+            self.failures.append({"kind": "read", "object_type": object_type, "technical_name": technical_name, "code": "READ_FAILED"})
             self.read_cache[key] = None
             return None
         self.read_cache[key] = data
@@ -1179,7 +1194,44 @@ class LineageExporter:
         _say("==========================================")
         return client_cache_dir
 
-    def run(self) -> Path:
+    def render_outputs(self) -> tuple[dict[tuple[str, str], str], list[tuple[str, str]]]:
+        """Texto EXACTO que ``write_outputs`` escribiría por objeto (sin escribir nada), y los objetos sin contenido. Usa lo ya leído (``read_cache``)."""
+        texts: dict[tuple[str, str], str] = {}
+        missing: list[tuple[str, str]] = []
+        for node in sorted(self.nodes.values(), key=lambda n: (n.object_type, n.technical_name)):
+            if node.object_type not in OBJECT_TYPES:
+                continue
+            data = self.safe_read(node.object_type, node.technical_name)
+            if data is None:
+                missing.append((node.object_type, node.technical_name))
+                continue
+            output_data = data
+            if node.object_type == "views":
+                output_data = dict(data)
+                output_data["viewType"] = self.classify_view_type(data, node.technical_name)
+            texts[(node.object_type, node.technical_name)] = json.dumps(output_data, indent=2, ensure_ascii=False)
+        return texts, missing
+
+    def assert_complete(self) -> None:
+        """Compuerta de completitud (H1): lanza ``ExtractionIncompleteError`` si hubo CUALQUIER fallo de lectura o listado, si un nodo quedó sin contenido, si una arista
+        apunta a un objeto que no está en el plan o si falta la raíz. Se invoca ANTES de escribir nada."""
+        problems = list(self.failures)
+        keys = set(self.nodes)
+        for (otype, name) in sorted(keys):
+            if otype in OBJECT_TYPES and self.read_cache.get((otype, name)) is None:
+                problems.append({"kind": "read", "object_type": otype, "technical_name": name, "code": "NODE_WITHOUT_CONTENT"})
+        for edge in sorted(self.edges, key=lambda e: (e.source_type, e.source_name, e.relation, e.target_type, e.target_name)):
+            for t, n in ((edge.source_type, edge.source_name), (edge.target_type, edge.target_name)):
+                if t in OBJECT_TYPES and (t, n) not in keys:
+                    problems.append({"kind": "edge", "object_type": t, "technical_name": n, "code": "EDGE_TARGET_NOT_IN_PLAN"})
+        if not self.root_type or (ROOT_TYPE_TO_OBJECT_TYPE[self.root_type], self.root_object) not in keys:
+            problems.append({"kind": "root", "object_type": ROOT_TYPE_TO_OBJECT_TYPE.get(self.root_type or "", ""), "technical_name": self.root_object, "code": "ROOT_MISSING"})
+        unique = {(p["kind"], p["object_type"], p["technical_name"], p["code"]): p for p in problems}
+        if unique:
+            raise ExtractionIncompleteError(list(unique.values()))
+
+    def extract(self) -> Path:
+        """Las fases de ADQUISICIÓN (sin escribir nada). ``run()`` = ``extract()`` + exportar al pool (camino de siempre)."""
         with self.diagnostics.phase("ROOT / INVENTORY"):
             self.detect_root_type()
             self.normalize_scope()
@@ -1195,6 +1247,10 @@ class LineageExporter:
             self.discover_producers()
         with self.diagnostics.phase("TASK CHAINS"):
             self.discover_task_chains()
+        return self.output_dir
+
+    def run(self) -> Path:
+        self.extract()
         with self.diagnostics.phase("WRITE / EXPORT"):
             return self.write_outputs()
 
@@ -1437,6 +1493,8 @@ class ExportRequest:
     mode: str = "assessment"
     allowed_root_types: str | Iterable[str] | None = None
     diagnostics: bool = False
+    safe: bool | None = None          # publicación SEGURA (fase 0); None = según DANWOR_PUBLICATION_SAFE. Solo aplica al modo PUBLISH
+    stage_hooks: Any = None           # etapas adicionales de la unidad de publicación (P1: el assessment gobernado); ver ``publication_txn.StageHooks``. Solo publicación segura
 
 
 @dataclass
@@ -1468,6 +1526,17 @@ class ExportResult:
     mirrored_files: int | None = None
     diagnostics: dict[str, Any] | None = None
     exit_code: int = 0
+    # ── contrato de la publicación segura (vacío en el camino anterior) ──
+    status: str = ""                  # COMPLETED | FAILED_NO_CHANGE | ROLLED_BACK | COMMITTED_UNCONFIRMED | COMMITTED_CLEANUP_DEFERRED | RECOVERY_REQUIRED
+    operation_id: str = ""
+    durability: str = ""
+    failures: list[dict[str, Any]] = field(default_factory=list)
+    stages: dict[str, str] = field(default_factory=dict)
+    applied: dict[str, Any] = field(default_factory=dict)
+    observations: dict[str, Any] = field(default_factory=dict)
+    deferred_reasons: list[str] = field(default_factory=list)
+    client_dir: str = ""              # directorio canónico del cliente con el que se publicó (una sola identidad por cliente)
+    outcome: str = ""                 # CHANGED | NO_CHANGE (una republicación idéntica no escribe nada)
 
 
 _PRECHECK_CODES = (
@@ -1483,6 +1552,7 @@ _PRECHECK_CODES = (
     ("AMBIGUOUS_ROOT_OBJECT_TYPE", "AMBIGUOUS_ROOT_OBJECT_TYPE"),
     ("INVALID_FEATURE_SCOPE", "INVALID_FEATURE_SCOPE"),
     ("ROOT_ARGUMENT_CONFLICT", "ROOT_ARGUMENT_CONFLICT"),
+    ("EXTRACTION_INCOMPLETE", "EXTRACTION_INCOMPLETE"),
     ("ROOT_TYPE_CONSTRAINT_FAILED", "ROOT_TYPE_CONSTRAINT_FAILED"),
     ("INVALID_ROOT_TYPE_CONSTRAINT", "INVALID_ROOT_TYPE_CONSTRAINT"),
 )
@@ -1495,12 +1565,14 @@ def classify_error(message: str) -> str:
     return "EXTRACTION_FAILED"
 
 
-def regenerate_catalog_from_pool(csn_cache_root: Path, catalog_root: Path) -> str:
+def regenerate_catalog_from_pool(csn_cache_root: Path, catalog_root: Path, only_clients: set[str] | None = None) -> str:
     project_root = Path(__file__).resolve().parents[2]
     if str(project_root) not in sys.path:
         sys.path.insert(0, str(project_root))
     from tools.catalog.generate_catalog import generate_all
 
+    if only_clients is not None:
+        return str(generate_all(csn_cache_root, catalog_root, only_clients=only_clients))
     return str(generate_all(csn_cache_root, catalog_root))
 
 
@@ -1513,6 +1585,660 @@ def format_runtime(seconds: float) -> str:
     return f"{minutes:02d}m {int(total - 60 * minutes):02d}s ({total:.1f} s)"
 
 
+
+# ════════════════════════════════════════════════════════════════════════════════════════
+# PUBLICACIÓN SEGURA (fase 0: H1/H3/H5/H6) — se usa SOLO con ``DANWOR_PUBLICATION_SAFE`` activo (o ``ExportRequest.safe=True``) y modo PUBLISH.
+# Diseño: docs/audit/CATALOG_REPUBLICATION_PHASE0_DESIGN_20261026.md. Con el interruptor apagado ``run_export`` sigue exactamente el camino anterior.
+#   EXTRACT (sin candado) → VALIDATE (completitud) → [hold] → candado de ESCRITOR ÚNICO → recuperar pendientes → REVALIDAR manifiestos/precondiciones (bajo candado)
+#   → journal + undo → APPLY atómico → VERIFY → COMMIT (journal) → confirmación remota (persist_changed) → resultado con ``status`` explícito.
+# ════════════════════════════════════════════════════════════════════════════════════════
+_SAFE_LOCK_TIMEOUT_S = 30.0
+
+
+def _txn():
+    """Import diferido: el exportador puede correr como script antes del bootstrap de ``sys.path``."""
+    root = str(Path(__file__).resolve().parents[2])
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    from tools.catalog import publication_txn
+    return publication_txn
+
+
+def _txn_call(hooks, name):
+    fn = getattr(hooks, name, None) if hooks is not None else None
+    return fn() if callable(fn) else None
+
+
+def _tenant_id(host: str) -> str:
+    from urllib.parse import urlparse
+    return (urlparse(host if "://" in host else "https://" + host).hostname or "").lower()
+
+
+def _safe_failure(req: "ExportRequest", base: "ExportResult", finish, status: str, code: str, message: str, *, operation_id: str = "",
+                  stages: dict | None = None, failures: list | None = None, exit_code: int = 1) -> "ExportResult":
+    _say(f"ERROR: {code} - {message}", file=sys.stderr)
+    _say("\nESTADO DE LA PUBLICACIÓN: " + status + " (no se modificó el Catálogo)" if status == "FAILED_NO_CHANGE" else "\nESTADO DE LA PUBLICACIÓN: " + status)
+    base.ok = False
+    base.error_code = code
+    base.message = message
+    base.status = status
+    base.operation_id = operation_id
+    base.failures = list(failures or [])
+    base.stages = dict(stages or {})
+    base.exit_code = exit_code
+    return finish(base)
+
+
+PERSISTENCE_GAP_MESSAGE = ("La persistencia efectiva no cubre esta publicación ({code}): {detail}. No se modificó nada; corregí la configuración "
+                           "(DANWOR_PERSISTENCE=remote, DANWOR_PUBLICATION_MIRROR_UP, SPACES_PERSIST_PATHS con 'governed-assessments') y reintentá.")
+
+
+def _persistence_gap(req: "ExportRequest", txn, remote_store, catalog_root: Path, csn_cache_root: Path, client_dir_name: str, root_object: str, root_type: str | None) -> "tuple[str, str] | None":
+    """B2 — ``(código, detalle)`` si la persistencia EFECTIVA no cubre lo que esta publicación va a escribir (el Catálogo y el almacén de assessments de la etapa), o ``None``. Se evalúa antes de
+    conectar con Datasphere y otra vez bajo el candado, y siempre ANTES de modificar nada."""
+    from tools.catalog import publication_remote as pr
+    hooks = req.stage_hooks
+    store = None
+    if hooks is not None and callable(getattr(hooks, "durable_store", None)):
+        ctx = txn.StageContext(operation_id="", client_dir=client_dir_name, catalog_root=catalog_root, csn_cache_root=csn_cache_root, root_object=root_object, root_type=root_type or "", space=req.space)
+        store = hooks.durable_store(ctx)
+    return pr.persistence_gap(remote_store, mirror_up=bool(req.mirror_up), catalog_root=catalog_root, durable_store=store)
+
+
+def _publish_safe(req: "ExportRequest", exporter: "LineageExporter", *, base: "ExportResult", client_dir_name: str, catalog_root: Path,
+                  csn_cache_root: Path, client_cache_dir: Path, diagnostics: Any, finish) -> "ExportResult":
+    txn = _txn()
+    op_id = txn.new_operation_id()
+    base.root_type = exporter.root_type
+    base.requested_features = sorted(exporter.requested_features)
+    base.effective_features = sorted(exporter.effective_features)
+    stages: dict[str, str] = {"extraction": "OK"}
+    _say("\n==========================================")
+    _say("PUBLICACION SEGURA (DANWOR_PUBLICATION_SAFE)")
+    _say("==========================================")
+
+    # ── VALIDATE: una extracción incompleta NO llega a tocar nada ──
+    try:
+        exporter.assert_complete()
+        planned, missing = exporter.render_outputs()
+        if missing:
+            raise ExtractionIncompleteError([{"kind": "render", "object_type": t, "technical_name": n, "code": "NO_CONTENT"} for t, n in missing])
+    except ExtractionIncompleteError as exc:
+        stages["extraction"] = "INCOMPLETE"
+        _say(f"Objetos con lectura/listado incompleto: {len(exc.failures)}")
+        for f in exc.failures[:20]:
+            _say(f"  - {f.get('kind')}: {f.get('object_type') or '-'}/{f.get('technical_name') or '-'} ({f.get('code')})")
+        return _safe_failure(req, base, finish, txn.FAILED_NO_CHANGE, "EXTRACTION_INCOMPLETE",
+                             "La extracción quedó incompleta (falló la lectura o el listado de algún objeto): no se modificó el Catálogo.",
+                             operation_id=op_id, stages=stages, failures=exc.failures)
+    planned_sha = {key: txn.sha256_text(text) for key, text in planned.items()}
+    current_objects = set(planned)
+    stages["validation"] = "OK"
+    txn.fault("after_validate")
+
+    from core import remote_store
+    want_remote = bool(req.mirror_up)
+    hold_names = ("catalog_local", *(_txn_call(req.stage_hooks, "persisted_names") or ()))
+    hold_cm = remote_store.hold_publication(hold_names) if (want_remote and remote_store.write_enabled()) else contextlib.nullcontext(None)
+    try:
+        with hold_cm as hold:
+            if hold is not None and not hold.exclusive:
+                return _safe_failure(req, base, finish, txn.FAILED_NO_CHANGE, "CATALOG_BUSY",
+                                     "Hay una publicación periódica en curso sobre el Catálogo: no se modificó nada. Reintentá en unos minutos.",
+                                     operation_id=op_id, stages=stages)
+            with txn.writer_lock(_SAFE_LOCK_TIMEOUT_S):
+                return _apply_locked(req, exporter, base=base, txn=txn, op_id=op_id, stages=stages, planned=planned, planned_sha=planned_sha,
+                                     current_objects=current_objects, client_dir_name=client_dir_name, catalog_root=catalog_root,
+                                     csn_cache_root=csn_cache_root, client_cache_dir=client_cache_dir, remote_store=remote_store, hold=hold, finish=finish,
+                                     diagnostics=diagnostics)
+    except txn.CatalogBusyError:
+        return _safe_failure(req, base, finish, txn.FAILED_NO_CHANGE, "CATALOG_BUSY",
+                             "Hay otra operación sobre el Catálogo en curso: no se modificó nada. Reintentá en unos minutos.", operation_id=op_id, stages=stages)
+
+
+def _pool_path(client_cache_dir: Path, key: tuple[str, str]) -> Path:
+    return client_cache_dir / key[0] / f"{LineageExporter._safe_filename(key[1])}.json"
+
+
+def _remote_dirs(remote_store) -> dict[str, Path]:
+    """Directorios persistidos (nombre lógico → ruta local) tal como los resuelve ``remote_store`` (la MISMA fuente de verdad del mapeo local→clave)."""
+    return {name: Path(local).resolve() for name, local in remote_store._persist_dirs()}
+
+
+def _key_of(dirs: dict[str, Path], path: Path) -> str | None:
+    """Clave estable ``<dir persistido>/<ruta relativa>`` de una ruta local, o None si no cae bajo un directorio persistido."""
+    resolved = Path(path).resolve()
+    for name, base in dirs.items():
+        try:
+            return f"{name}/{resolved.relative_to(base).as_posix()}"
+        except ValueError:
+            continue
+    return None
+
+
+def _path_of(dirs: dict[str, Path], key: str) -> Path | None:
+    name, _, rel = key.partition("/")
+    return dirs[name] / rel if name in dirs else None
+
+
+def _apply_locked(req, exporter, *, base, txn, op_id, stages, planned, planned_sha, current_objects, client_dir_name, catalog_root,
+                  csn_cache_root, client_cache_dir, remote_store, hold, finish, diagnostics) -> "ExportResult":
+    from core import atomic_io, publication_gate
+    from tools.catalog import publication_ledger as ledger_mod
+    from tools.catalog import publication_remote as pr
+    hooks = req.stage_hooks
+    ctx = txn.StageContext(operation_id=op_id, client_dir=client_dir_name, catalog_root=catalog_root, csn_cache_root=csn_cache_root,
+                           root_object=exporter.root_object, root_type=exporter.root_type, space=req.space)
+    # ── 0. recuperar cualquier operación a medias ANTES de decidir nada ──
+    try:
+        recovered = txn.recover_pending(catalog_root)
+    except txn.RecoveryError as exc:
+        return _safe_failure(req, base, finish, txn.RECOVERY_REQUIRED, "RECOVERY_REQUIRED",
+                             "Hay una operación anterior a medias que no pudo recuperarse: no se publica hasta resolverla.", operation_id=op_id, stages=stages)
+    for item in recovered:
+        _say(f"Recuperación previa: operación {item['operation_id']} {item['from']} → {item['action']}")
+    if recovered:
+        txn.call_hook(hooks, "after_rollback", ctx)                       # el disco pudo cambiar: la memoria del servicio no puede conservar la versión anterior
+    if txn.has_pending(catalog_root):
+        return _safe_failure(req, base, finish, txn.RECOVERY_REQUIRED, "RECOVERY_REQUIRED",
+                             "Una publicación anterior sigue sin confirmarse en Spaces: no se publica hasta resolverla.", operation_id=op_id, stages=stages)
+    txn.fault("after_lock")
+
+    # ── 1. REVALIDAR bajo el candado: manifiestos y precondiciones se calculan ACÁ (nada calculado antes de adquirirlo se da por válido) ──
+    space = req.space
+    diag_dir = _canonical_run_dir(catalog_root, client_dir_name, space, exporter.root_type, exporter.root_object)
+    manifest_path = diag_dir / "lineage-manifest.json"
+    own = txn.load_manifest(manifest_path)
+    migrated_from: Path | None = None
+    legacy_problem: str | None = None
+    if own.state == txn.M_ABSENT and exporter.root_type == "analytic-model":
+        for cand in (_v1_space_manifest(catalog_root, client_dir_name, space, exporter.root_object),
+                     _legacy_run_manifest(catalog_root, client_dir_name, exporter.root_object)):
+            if not cand.exists():
+                continue
+            loaded = txn.load_manifest(cand)
+            if not loaded.usable:
+                legacy_problem = f"legacy_manifest_{loaded.state.lower()}"
+                continue
+            if str(loaded.data.get("space") or "") == space and str(loaded.data.get("analyticModel") or loaded.data.get("rootObject") or "") == exporter.root_object:
+                _say(f"  Previous ownership: V1 manifest {cand}")
+                own, migrated_from = loaded, cand
+                break
+    runs_root = catalog_root / ".lineage_runs" / client_dir_name
+    excluded = {manifest_path.resolve()} | ({migrated_from.resolve()} if migrated_from else set())
+    other_owned: set[tuple[str, str]] = set()
+    claims: dict[tuple[str, str], list[dict]] = {}
+    unusable: list[str] = []
+    if runs_root.exists():
+        for mp in sorted(runs_root.rglob("lineage-manifest.json")):
+            try:
+                if mp.resolve() in excluded:
+                    continue
+            except OSError:
+                pass
+            loaded = txn.load_manifest(mp)
+            if not loaded.usable:
+                unusable.append(f"{mp.parent.name}:{loaded.state}")
+                continue
+            for key in _manifest_object_keys(loaded.data):
+                other_owned.add(key)
+                claims.setdefault(key, []).append(loaded.data)
+
+    reasons: list[str] = []
+    if own.state in (txn.M_UNREADABLE, txn.M_INVALID_SCHEMA, txn.M_DIGEST_MISMATCH):
+        reasons.append("previous_manifest_" + own.state.lower())
+    if legacy_problem:
+        reasons.append(legacy_problem)
+    if unusable:
+        reasons.append("other_manifest_unusable")
+    if remote_store.read_enabled() and remote_store.sync_blocked_reason():
+        reasons.append("restore_incomplete")
+    deletes_allowed = not reasons
+    own_unknown = own.state in (txn.M_UNREADABLE, txn.M_INVALID_SCHEMA, txn.M_DIGEST_MISMATCH) or bool(legacy_problem)
+    previous_objects = _manifest_object_keys(own.data) if own.usable else set()
+    pending_prev = {(o.get("object_type"), o.get("technical_name")) for o in (own.data.get("pendingCleanup") or []) if isinstance(o, dict)} if own.usable else set()
+    stale = (previous_objects | pending_prev) - current_objects      # lo que un cleanup DIFERIDO anterior dejó pendiente se retoma acá (no queda huérfano)
+    retained_shared = sorted(k for k in stale if k in other_owned)
+    deletable = sorted(k for k in stale if k not in other_owned and _pool_path(client_cache_dir, k).exists()) if deletes_allowed else []
+    pending_next = sorted(k for k in stale if k not in other_owned and _pool_path(client_cache_dir, k).exists()) if not deletes_allowed else []
+    if stale and not deletes_allowed:
+        _say(f"\nLimpieza DIFERIDA (no se borra nada): {', '.join(reasons)}")
+        if unusable:
+            _say("  Manifiestos no utilizables: " + ", ".join(unusable))
+
+    # observabilidad (sin bloqueo): contracción fuerte del conjunto de objetos
+    observations: dict[str, Any] = {}
+    if len(previous_objects) >= 4 and len(current_objects) * 2 < len(previous_objects):
+        observations["contraction"] = {"previous": len(previous_objects), "current": len(current_objects)}
+        _say(f"OBSERVACION: el modelo pasó de {len(previous_objects)} a {len(current_objects)} objetos (contracción > 50 %); revisá que sea un cambio real del Space.")
+
+    # guardia de identidad (red de seguridad transitoria): no pisar un objeto de OTRO Space/tenant con contenido distinto
+    tenant = _tenant_id(req.host)
+    for key in sorted(current_objects):
+        path = _pool_path(client_cache_dir, key)
+        if not path.exists():
+            continue
+        existing = txn.sha256_text_file(path)
+        if existing == planned_sha[key]:
+            continue
+        for claim in claims.get(key, []):
+            c_space, c_tenant = str(claim.get("space") or ""), str(claim.get("tenantId") or "")
+            if c_space != space or (c_tenant and tenant and c_tenant != tenant):
+                return _safe_failure(req, base, finish, txn.FAILED_NO_CHANGE, "POOL_IDENTITY_CONFLICT",
+                                     f"El objeto {key[0]}/{key[1]} ya está publicado desde otro Space/tenant con contenido distinto: no se modificó nada.",
+                                     operation_id=op_id, stages=stages)
+
+    writes = [(key, _pool_path(client_cache_dir, key), planned[key]) for key in sorted(current_objects)
+              if not (_pool_path(client_cache_dir, key).exists() and txn.sha256_text_file(_pool_path(client_cache_dir, key)) == planned_sha[key])]
+    new_manifest = txn.seal_manifest({
+        "schemaVersion": 3, "extractorVersion": EXTRACTOR_VERSION, "createdAt": txn.now_iso(), "operationId": op_id, "hostId": txn.host_id(),
+        "client": req.client, "space": space, "tenantId": tenant, "rootObject": exporter.root_object, "rootType": exporter.root_type, "mode": req.mode.upper(),
+        "requestedFeatures": sorted(exporter.requested_features), "effectiveFeatures": sorted(exporter.effective_features),
+        "objects": [{**asdict(n), "sha256": planned_sha[(n.object_type, n.technical_name)]}
+                    for n in sorted(exporter.nodes.values(), key=lambda n: (n.object_type, n.technical_name)) if (n.object_type, n.technical_name) in planned_sha],
+        "edges": [asdict(e) for e in sorted(exporter.edges, key=lambda e: (e.source_type, e.source_name, e.relation, e.target_type, e.target_name))],
+        "externalSources": sorted(exporter.external_sources),
+        "cleanup": {"deletedStaleObjects": len(deletable), "retainedSharedObjects": len(retained_shared)},
+        **({"pendingCleanup": [{"object_type": t, "technical_name": n} for t, n in pending_next]} if pending_next else {}),
+    })
+    if exporter.root_type == "analytic-model":
+        new_manifest = txn.seal_manifest({**{k: v for k, v in new_manifest.items() if k != "integrity"}, "analyticModel": exporter.root_object})
+    same_manifest = own.usable and migrated_from is None and own.state == txn.M_OK and txn.semantic_signature(new_manifest) == txn.semantic_signature(own.data) and "integrity" in own.data
+    write_manifest = not same_manifest
+    pool_changed = bool(writes or deletable or write_manifest)
+    ctx.pool_changed = pool_changed
+
+    # ── 1b. persistencia remota: ¿hay que confirmarla? Antes de tocar nada se verifica que se PUEDA (un fallo de lectura/listado es un resultado explícito, no «sin huérfanos») ──
+    client_catalog_dir = catalog_root / client_dir_name
+    catalog_manifest = catalog_root / ".catalog_manifest.json"
+    ledger_file = ledger_mod.ledger_path(catalog_root, client_dir_name)
+    stage_names = tuple(txn.call_hook(hooks, "persisted_names", default=()) or ())
+    stage_dir = txn.call_hook(hooks, "governed_client_dir", ctx)
+    persisted = ("catalog_local", *stage_names)
+    want_remote = bool(req.mirror_up and remote_store.write_enabled())
+    dirs = _remote_dirs(remote_store) if want_remote else {}
+    markers = (catalog_manifest.name, ledger_file.name)
+    prefix_keys: list[str] = []
+    listing: dict[str, dict] = {}
+    gap = _persistence_gap(req, txn, remote_store, catalog_root, csn_cache_root, client_dir_name, exporter.root_object, exporter.root_type)      # B2, revalidado bajo el candado
+    if gap is not None:
+        stages["persistence"] = "FAILED"
+        return _safe_failure(req, base, finish, txn.FAILED_NO_CHANGE, gap[0], PERSISTENCE_GAP_MESSAGE.format(code=gap[0], detail=gap[1]), operation_id=op_id, stages=stages)
+    if want_remote:
+        prefix_keys = _client_prefix_keys(dirs, catalog_root, csn_cache_root, client_dir_name, stage_dir)
+        pre = pr.preflight(remote_store, persisted, prefix_keys, probe=ledger_file)
+        if not pre.ok:
+            stages["remote"] = "FAILED"
+            return _safe_failure(req, base, finish, txn.FAILED_NO_CHANGE, pre.code,
+                                 "No se puede confirmar la publicación en Spaces (" + pre.code + "): no se modificó nada.", operation_id=op_id, stages=stages)
+        listing = pre.listing
+    elif req.mirror_up and not remote_store.local_only():
+        stages["remote"] = "FAILED"
+        return _safe_failure(req, base, finish, txn.FAILED_NO_CHANGE, "PERSISTENCE_NOT_AVAILABLE",
+                             "La persistencia en Spaces no está disponible en este modo (solo lectura o sin autorizar): no se modificó nada.", operation_id=op_id, stages=stages)
+
+    # ── 1c. ¿hay algo que hacer? Una republicación idéntica NO escribe nada (ni pool, ni Catálogo, ni assessments, ni bitácora) ──
+    ledger_state, ledger = ledger_mod.load(catalog_root, client_dir_name)
+    stage_work = True if pool_changed else bool(txn.call_hook(hooks, "needs_work", ctx, default=False))
+    unit_now = ledger_mod.unit_files(catalog_root, csn_cache_root, client_dir_name, stage_dir) if (not pool_changed and not stage_work) else {}
+    ledger_problems = (["ledger " + ledger_state] if ledger_state != ledger_mod.L_OK else ledger_mod.verify(ledger, unit_now)) if (not pool_changed and not stage_work) else ["pendiente"]
+    verify_now = _verify_applied(txn, planned_sha, client_cache_dir, manifest_path, client_catalog_dir, require_flows=bool(req.generate_catalog and planned)) if (not pool_changed and not stage_work and not ledger_problems) else ["pendiente"]
+    if not pool_changed and not stage_work and not ledger_problems and not verify_now:
+        return _finish_no_change(req, exporter, base=base, txn=txn, op_id=op_id, stages=stages, planned=planned, client_cache_dir=client_cache_dir, manifest_path=manifest_path,
+                                 client_dir_name=client_dir_name, ledger_file=ledger_file, deferred=(list(reasons) if ((stale and not deletes_allowed) or own_unknown) else []), observations=observations,
+                                 want_remote=want_remote, remote_store=remote_store, pr=pr, markers=markers, unit_now=unit_now, listing=listing, dirs=dirs, persisted=persisted,
+                                 diagnostics=diagnostics, finish=finish, retained_shared=retained_shared, space=space)
+    changed = True
+
+    # ── 2. journal + undo (la compuerta de lectores se cierra ANTES de tocar nada y se abre sólo con la versión confirmada o deshecha) ──
+    journal = txn.Journal(catalog_root, op_id, {
+        "operation_id": op_id, "mode": "publish", "client_dir": client_dir_name, "space": space, "root_object": exporter.root_object,
+        "root_type": exporter.root_type, "catalog_root": str(catalog_root), "csn_cache_root": str(csn_cache_root), "host_id": txn.host_id(),
+        "started_at": txn.now_iso(), "planned_writes": [f"{k[0]}/{k[1]}" for k, _, _ in writes], "planned_deletes": [f"{k[0]}/{k[1]}" for k in deletable],
+        "touched_dirs": [str(client_cache_dir), str(client_catalog_dir), str(diag_dir), *([str(stage_dir)] if stage_dir else [])]})
+    journal.update(txn.J_PLANNED)
+    publication_gate.begin(op_id, client_dir_name, catalog_root)
+    keep_closed = {"on": False}
+    try:
+        return _apply_unit(req, exporter, base=base, txn=txn, op_id=op_id, stages=stages, planned=planned, planned_sha=planned_sha, client_dir_name=client_dir_name,
+                           catalog_root=catalog_root, csn_cache_root=csn_cache_root, client_cache_dir=client_cache_dir, remote_store=remote_store, hold=hold, finish=finish,
+                           diagnostics=diagnostics, hooks=hooks, ctx=ctx, journal=journal, writes=writes, deletable=deletable, retained_shared=retained_shared, reasons=reasons,
+                           stale=stale, deletes_allowed=deletes_allowed, own_unknown=own_unknown, previous_objects=previous_objects, observations=observations,
+                           manifest_path=manifest_path, new_manifest=new_manifest, write_manifest=write_manifest, migrated_from=migrated_from, diag_dir=diag_dir,
+                           client_catalog_dir=client_catalog_dir, catalog_manifest=catalog_manifest, ledger_file=ledger_file, ledger=ledger, stage_dir=stage_dir, persisted=persisted,
+                           want_remote=want_remote, dirs=dirs, markers=markers, prefix_keys=prefix_keys, listing=listing, keep_closed=keep_closed, atomic_io=atomic_io,
+                           ledger_mod=ledger_mod, pr=pr, space=space, changed=changed, publication_gate=publication_gate)
+    except BaseException as exc:                  # noqa: BLE001 — una caída (no una ``Exception`` controlada) deja la unidad a medias: la compuerta SIGUE cerrada hasta que la recuperación la resuelva
+        if not isinstance(exc, Exception):
+            keep_closed["on"] = True
+        raise
+    finally:
+        if not keep_closed["on"]:
+            publication_gate.end(op_id, catalog_root)
+
+
+def _client_prefix_keys(dirs: dict[str, Path], catalog_root: Path, csn_cache_root: Path, client_dir: str, stage_dir: Path | None) -> list[str]:
+    """Prefijos de claves remotas del cliente (pool, linaje, Catálogo, ledger, y la carpeta del cliente de la etapa)."""
+    out: list[str] = []
+    for folder in (csn_cache_root / client_dir, catalog_root / ".lineage_runs" / client_dir, catalog_root / client_dir):
+        key = _key_of(dirs, folder)
+        if key:
+            out.append(key + "/")
+    key = _key_of(dirs, catalog_root / ".publication_state" / f"{client_dir}.publication.json")
+    if key:
+        out.append(key)
+    if stage_dir is not None:
+        key = _key_of(dirs, Path(stage_dir))
+        if key:
+            out.append(key + "/")
+    return out
+
+
+def _finish_no_change(req, exporter, *, base, txn, op_id, stages, planned, client_cache_dir, manifest_path, client_dir_name, ledger_file, deferred, observations, want_remote, remote_store, pr,
+                      markers, unit_now, listing, dirs, persisted, diagnostics, finish, retained_shared, space) -> "ExportResult":
+    """Republicación idéntica: no se escribió NADA. Si hay persistencia remota se verifica (solo lectura salvo que Spaces estuviera atrasado) y se informa sin cambios."""
+    durability = txn.DURABILITY_NOT_REQUESTED
+    stages.update({"apply": "SKIPPED", "catalog": "SKIPPED", "assessment": "SKIPPED"})
+    if want_remote:
+        keyed = dict(unit_now)
+        ledger_key = _key_of(dirs, ledger_file)
+        if ledger_key and ledger_file.exists():
+            keyed[ledger_key] = ledger_file
+        outcome = pr.converge(remote_store, keyed, last=[k for k, p in keyed.items() if p.name in markers])
+        if outcome.status != pr.CONFIRMED:
+            stages["remote"] = "FAILED" if outcome.status == pr.FAILED else "PARTIAL"
+            return _safe_failure(req, base, finish, txn.FAILED_NO_CHANGE, "PERSISTENCE_UNCONFIRMED",
+                                 "La versión local ya es la publicada, pero no se pudo confirmar en Spaces. Reintentá (es idempotente).", operation_id=op_id, stages=stages)
+        durability = txn.DURABILITY_REMOTE
+        stages["remote"] = "OK"
+    else:
+        stages["remote"] = "SKIPPED"
+        durability = txn.DURABILITY_LOCAL_BY_CONFIG if req.mirror_up else txn.DURABILITY_NOT_REQUESTED
+    files_by_type = {t: sum(1 for _ in (client_cache_dir / t).glob("*.json")) if (client_cache_dir / t).is_dir() else 0 for t in OBJECT_TYPES}
+    base.ok, base.status, base.exit_code, base.outcome = True, txn.COMPLETED, 0, "NO_CHANGE"
+    base.client, base.space, base.analytic_model = req.client, space, req.analytic_model
+    base.root_object, base.root_type = exporter.root_object, exporter.root_type
+    base.objects, base.edges, base.external_sources = len(exporter.nodes), len(exporter.edges), len(exporter.external_sources)
+    base.exported_files, base.files_by_type = sum(files_by_type.values()), {k: v for k, v in files_by_type.items() if v}
+    base.retained_shared = len(retained_shared)
+    base.pool_dir, base.manifest_path, base.catalog_generated = client_cache_dir, manifest_path, False
+    base.operation_id, base.durability, base.stages, base.observations, base.client_dir = op_id, durability, stages, observations, client_dir_name
+    base.deferred_reasons = list(deferred)
+    base.applied = {"added": [], "modified": [], "removed": [], "retained_shared": [f"{k[0]}/{k[1]}" for k in retained_shared], "changed": False}
+    base.diagnostics = diagnostics.snapshot() if diagnostics.enabled else None
+    if base.deferred_reasons:
+        base.status, base.ok, base.error_code, base.exit_code = txn.COMMITTED_CLEANUP_DEFERRED, False, "CLEANUP_DEFERRED", 3
+        base.message = "Sin cambios; quedan objetos obsoletos sin limpiar (no se pudo verificar la propiedad): no se borró nada."
+    _say("\nREPUBLICACION SIN CAMBIOS: el Catálogo y los assessments ya reflejan exactamente esta extracción; no se escribió nada.")
+    _say(f"ESTADO DE LA PUBLICACIÓN: {base.status}")
+    _say("STATUS: SUCCESS" if base.status == txn.COMPLETED else f"STATUS: {base.status}")
+    return finish(base)
+
+
+def _apply_unit(req, exporter, *, base, txn, op_id, stages, planned, planned_sha, client_dir_name, catalog_root, csn_cache_root, client_cache_dir, remote_store, hold, finish,
+                diagnostics, hooks, ctx, journal, writes, deletable, retained_shared, reasons, stale, deletes_allowed, own_unknown, previous_objects, observations, manifest_path,
+                new_manifest, write_manifest, migrated_from, diag_dir, client_catalog_dir, catalog_manifest, ledger_file, ledger, stage_dir, persisted, want_remote, dirs, markers,
+                prefix_keys, listing, keep_closed, atomic_io, ledger_mod, pr, space, changed, publication_gate) -> "ExportResult":
+    undo = txn.UndoLog(txn.undo_dir(catalog_root, op_id))
+    stage = "snapshot"
+    catalog_generated = False
+    stage_summary: dict[str, Any] = {}
+    failures: list[dict] = []
+    try:
+        txn.fault("after_journal_planned")
+        txn.call_hook(hooks, "before_apply", ctx)                                  # estado PREVIO del assessment (nada escrito todavía)
+        for _key, path, _text in writes:
+            undo.capture(path)
+        for key in deletable:
+            undo.capture(_pool_path(client_cache_dir, key))
+        undo.capture(manifest_path)
+        if migrated_from is not None:
+            undo.capture(migrated_from)
+        undo.capture(client_catalog_dir)
+        undo.capture(catalog_manifest)
+        undo.capture(ledger_file)
+        for extra in txn.call_hook(hooks, "undo_paths", ctx, default=[]) or []:
+            undo.capture(extra)
+        undo.save()
+        journal.update(txn.J_APPLYING)
+        txn.fault("after_undo_snapshot")
+        # ── 3. APPLY (atómico por archivo) → ETAPAS → VERIFY ──
+        stage = "apply"
+        for index, (key, path, text) in enumerate(writes):
+            txn.fault("mid_pool_write", index=index, key=key)
+            atomic_io.write_text(path, text)
+        txn.fault("after_pool")
+        for key in deletable:
+            _pool_path(client_cache_dir, key).unlink(missing_ok=True)
+        for child in sorted(client_cache_dir.iterdir()) if client_cache_dir.exists() else []:
+            if child.is_dir():
+                try:
+                    child.rmdir()
+                except OSError:
+                    pass
+        txn.fault("after_cleanup")
+        txn.fault("before_manifest")
+        if write_manifest:
+            atomic_io.write_text(manifest_path, json.dumps(new_manifest, indent=2, ensure_ascii=False))
+        txn.fault("after_manifest")
+        if migrated_from is not None and migrated_from != manifest_path:
+            migrated_from.unlink(missing_ok=True)
+            try:
+                migrated_from.parent.rmdir()
+            except OSError:
+                pass
+        if req.generate_catalog:
+            stage = "catalog"
+            _say("\n==========================================")
+            _say("REGENERANDO CATALOGO (acotado al cliente)")
+            _say("==========================================")
+            _say(regenerate_catalog_from_pool(csn_cache_root, catalog_root, only_clients={client_dir_name}))
+            catalog_generated = True
+        txn.fault("after_catalog")
+        if hooks is not None:
+            stage = "assessment"
+            _say("\n==========================================")
+            _say("ASSESSMENT DEL CLIENTE (preparar → validar → escribir en local)")
+            _say("==========================================")
+            txn.call_hook(hooks, "after_catalog", ctx)                              # PREPARA en memoria; falla ⇒ se deshace la unidad entera
+            txn.fault("after_assessment_prepare")
+            stage_summary = txn.call_hook(hooks, "commit", ctx, default={}) or {}
+            txn.fault("after_assessment_commit")
+        stage = "verify"
+        txn.fault("before_verify")
+        problems = _verify_applied(txn, planned_sha, client_cache_dir, manifest_path, client_catalog_dir, require_flows=bool(req.generate_catalog and planned))
+        problems += list(txn.call_hook(hooks, "verify", ctx, default=[]) or [])
+        if problems:
+            raise RuntimeError("VERIFY_FAILED: " + "; ".join(problems[:5]))
+        stage = "ledger"
+        unit = ledger_mod.unit_files(catalog_root, csn_cache_root, client_dir_name, stage_dir)
+        new_ledger = ledger_mod.build(
+            ledger, operation_id=op_id, activated_at=txn.now_iso(), client_dir=client_dir_name, space=space, root_object=exporter.root_object, root_type=exporter.root_type,
+            extra={"manifest_sha256": txn.sha256_text_file(manifest_path), "objects": {f"{t}/{n}": planned_sha[(t, n)] for (t, n) in sorted(planned_sha)}, **stage_summary},
+            file_digests=ledger_mod.digests(unit),
+            counts={"written": len(writes), "removed": len(deletable), "assessment": {k: len(v) for k, v in (stage_summary.get("assessment") or {}).items()}})
+        ledger_mod.write(catalog_root, client_dir_name, new_ledger)
+        txn.fault("after_ledger")
+    except Exception as exc:                     # noqa: BLE001 — una caída real (BaseException) NO pasa por acá: la recupera el journal
+        code = {"catalog": "CATALOG_GENERATION_FAILED", "verify": "VERIFY_FAILED", "assessment": "ASSESSMENT_FAILED", "ledger": "APPLY_FAILED"}.get(stage, "APPLY_FAILED")
+        if stage == "assessment":
+            code = str(getattr(exc, "code", "") or code)
+            failures = list(getattr(exc, "failures", []) or [])
+        _say(f"ERROR: {code} - {type(exc).__name__}", file=sys.stderr)
+        stages.update({"apply": "FAILED", "catalog": "FAILED" if stage == "catalog" else "SKIPPED", "assessment": "FAILED" if stage == "assessment" else "SKIPPED"})
+        residue = undo.restore()
+        txn.call_hook(hooks, "after_rollback", ctx)
+        if residue:
+            keep_closed["on"] = True
+            publication_gate.mark_uncertain(op_id, client_dir_name, catalog_root, "LOCAL_RESTORE_UNVERIFIED")
+            return _safe_failure(req, base, finish, txn.RECOVERY_REQUIRED, "RECOVERY_REQUIRED",
+                                 "La publicación falló y la restauración no pudo verificarse por completo: no se publica hasta resolverlo.", operation_id=op_id, stages=stages)
+        journal.update(txn.J_ROLLED_BACK, error_code=code)
+        shutil.rmtree(txn.undo_dir(catalog_root, op_id), ignore_errors=True)
+        _say("Estado anterior RESTAURADO y verificado.")
+        message = {"CATALOG_GENERATION_FAILED": "La extracción terminó, pero falló la regeneración del catálogo: se restauró el estado anterior.",
+                   "VERIFY_FAILED": "La publicación falló y se restauró el estado anterior del Catálogo."}.get(code)
+        return _safe_failure(req, base, finish, txn.ROLLED_BACK, code, message or "La publicación falló y se restauró el estado anterior del Catálogo.",
+                             operation_id=op_id, stages=stages, failures=failures)
+    stages.update({"apply": "OK", "catalog": "OK" if catalog_generated else "SKIPPED", "assessment": "OK" if hooks is not None else "SKIPPED"})
+
+    # ── 4. confirmación DURABLE: la versión nueva NO es vigente hasta que Spaces la confirma (cuerpo + marcador al final). Hasta entonces la compuerta sigue cerrada ──
+    unit = ledger_mod.unit_files(catalog_root, csn_cache_root, client_dir_name, stage_dir)
+    removed_keys: dict[str, Path] = {}
+    if want_remote:
+        for gone in undo.removed_paths():
+            k = _key_of(dirs, gone)
+            if k:
+                removed_keys[k] = gone
+        ledger_key = _key_of(dirs, ledger_file)
+        for k in pr.orphans(listing, prefix_keys, {*unit, *([ledger_key] if ledger_key else [])}):          # el marcador de activación es de la unidad: jamás es un «huérfano» a borrar
+            p = _path_of(dirs, k)
+            if p is not None and k not in removed_keys and len(removed_keys) < _MAX_REMOTE_DELETES:
+                removed_keys[k] = p
+        unit_keyed = {k: p for k, p in unit.items() if k.split("/", 1)[0] in persisted}
+        if ledger_key:
+            unit_keyed[ledger_key] = ledger_file                                    # el marcador de activación: se confirma el ÚLTIMO
+    else:
+        unit_keyed = {}
+    journal.update(txn.J_COMMIT_UNCERTAIN if want_remote else txn.J_LOCAL_COMMITTED, changed=changed,
+                   unit={"keyed": {k: str(p) for k, p in {**unit_keyed, **removed_keys}.items()}, "removed": sorted(removed_keys), "markers": list(markers), "persisted": list(persisted)})
+    txn.fault("after_local_commit")
+    durability = txn.DURABILITY_NOT_REQUESTED
+    remote_note = ""
+    if want_remote:
+        txn.fault("before_remote")
+        _say("\n==========================================")
+        _say("PERSISTENCIA EN DIGITALOCEAN SPACES (confirmación durable)")
+        _say("==========================================")
+        base.storage_enabled = True
+        from tools.catalog import publication_intent as pi
+        outcome = None
+        intent_failed = False
+        try:                                                                        # B1: ANTES de escribir un solo objeto del cuerpo, la evidencia para recuperar desde Spaces (aunque se pierda el disco)
+            pi.write(remote_store, catalog_root, client_dir_name, operation_id=op_id, previous_operation_id=(ledger.get("active") or {}).get("operation_id"),
+                     created_at=txn.now_iso(), keyed=unit_keyed, removed=removed_keys, listing=listing, markers=markers)
+        except Exception as exc:                                                    # noqa: BLE001 — el cuerpo remoto sigue intacto: se vuelve a la última versión confirmada
+            _say(f"ERROR: no se pudo registrar la intención de la publicación en Spaces ({type(exc).__name__}): {exc}", file=sys.stderr)
+            outcome = pr.RemoteOutcome(pr.FAILED, detail="intent")
+            intent_failed = True
+        txn.fault("after_intent")
+        if outcome is None:
+            try:
+                outcome = pr.confirm(remote_store, persisted, markers, unit_keyed, removed_keys, ledger_file)
+            except Exception:                                                       # noqa: BLE001 — una falla inesperada no decide nada: se resuelve verificando el remoto
+                outcome = pr.RemoteOutcome(pr.UNCERTAIN, detail="confirmación interrumpida")
+        txn.fault("after_remote")
+        if outcome.status == pr.CONFIRMED:
+            durability = txn.DURABILITY_REMOTE
+            stages["remote"] = "OK"
+            journal.update(txn.J_REMOTE_CONFIRMED, durability=durability, reconciled=outcome.reconciled)
+            txn.fault("after_confirm_journal")
+            txn.fault("before_intent_close")
+            pi.close_if(remote_store, catalog_root, client_dir_name, op_id)         # confirmada: la evidencia ya no hace falta (si no se pudo retirar, la recuperación lo hace: idempotente)
+            txn.fault("after_intent_close")
+        elif outcome.status == pr.FAILED:
+            # Se leyó el remoto y se verificó que NO refleja la versión: se mantiene la última versión confirmada (local y remoto vuelven a la previa).
+            stages["remote"] = "FAILED"
+            if hold is not None:
+                hold.fail()
+            residue = undo.restore()
+            txn.call_hook(hooks, "after_rollback", ctx)
+            if residue:
+                keep_closed["on"] = True
+                journal.update(txn.J_COMMIT_UNCERTAIN)
+                publication_gate.mark_uncertain(op_id, client_dir_name, catalog_root, "LOCAL_RESTORE_UNVERIFIED")
+                return _safe_failure(req, base, finish, txn.RECOVERY_REQUIRED, "RECOVERY_REQUIRED", "No se pudo restaurar la versión previa: no se publica hasta resolverlo.",
+                                     operation_id=op_id, stages=stages)
+            journal.update(txn.J_REMOTE_DIVERGED, local_restored=True)
+            if intent_failed:                                                       # el cuerpo remoto no se tocó (la intención se registra antes): no hay nada que compensar
+                back = pr.RemoteOutcome(pr.CONFIRMED)
+            else:
+                back = pr.converge(remote_store, {**unit_keyed, **removed_keys}, last=[k for k, p in unit_keyed.items() if p.name in markers])
+            if back.status == pr.CONFIRMED:
+                journal.update(txn.J_ROLLED_BACK, error_code="PERSISTENCE_FAILED")
+                shutil.rmtree(txn.undo_dir(catalog_root, op_id), ignore_errors=True)
+                pi.close_if(remote_store, catalog_root, client_dir_name, op_id)
+                return _safe_failure(req, base, finish, txn.ROLLED_BACK, "PERSISTENCE_FAILED",
+                                     "No se pudo confirmar la publicación en Spaces: se mantuvo la última versión confirmada.", operation_id=op_id, stages=stages)
+            return _safe_failure(req, base, finish, txn.RECOVERY_REQUIRED, "PERSISTENCE_DIVERGED",
+                                 "La versión previa quedó activa en local, pero Spaces todavía no la refleja: se reintenta; no se publica hasta resolverlo.", operation_id=op_id, stages=stages)
+        else:
+            # No se pudo leer/verificar el remoto: ni se confirma ni se deshace. Los lectores NO ven la versión nueva: la compuerta queda cerrada hasta resolverlo.
+            stages["remote"] = "UNCERTAIN"
+            keep_closed["on"] = True
+            if hold is not None:
+                hold.fail()
+            journal.update(txn.J_COMMIT_UNCERTAIN, durability=txn.DURABILITY_UNCONFIRMED)
+            publication_gate.mark_uncertain(op_id, client_dir_name, catalog_root, "PERSISTENCE_UNCERTAIN")
+            return _safe_failure(req, base, finish, txn.RECOVERY_REQUIRED, "PERSISTENCE_UNCERTAIN",
+                                 "No se pudo verificar en Spaces si la publicación quedó guardada: la lectura queda bloqueada hasta resolverlo.", operation_id=op_id, stages=stages)
+    else:
+        stages["remote"] = "SKIPPED"
+        durability = txn.DURABILITY_LOCAL_BY_CONFIG if req.mirror_up else txn.DURABILITY_NOT_REQUESTED
+        journal.update(txn.J_LOCAL_COMMITTED, durability=durability)
+    shutil.rmtree(txn.undo_dir(catalog_root, op_id), ignore_errors=True)
+    txn.call_hook(hooks, "finished", ctx)                                           # cachés fuera ANTES de abrir la compuerta: los lectores ven SOLO la versión nueva
+
+    # ── 5. resultado: SUCCESS ⇔ COMPLETED ──
+    files_by_type = {t: sum(1 for _ in (client_cache_dir / t).glob("*.json")) if (client_cache_dir / t).is_dir() else 0 for t in OBJECT_TYPES}
+    base.ok = False
+    base.client, base.space, base.analytic_model = req.client, space, req.analytic_model
+    base.root_object, base.root_type = exporter.root_object, exporter.root_type
+    base.objects, base.edges, base.external_sources = len(exporter.nodes), len(exporter.edges), len(exporter.external_sources)
+    base.exported_files, base.files_by_type = sum(files_by_type.values()), {k: v for k, v in files_by_type.items() if v}
+    base.deleted_stale, base.retained_shared = len(deletable), len(retained_shared)
+    base.pool_dir, base.manifest_path, base.catalog_generated = client_cache_dir, manifest_path, catalog_generated
+    base.operation_id, base.durability, base.stages, base.observations, base.client_dir, base.outcome = op_id, durability, stages, observations, client_dir_name, "CHANGED"
+    base.deferred_reasons = list(reasons) if ((stale and not deletes_allowed) or own_unknown) else []
+    base.applied = {"added": [f"{k[0]}/{k[1]}" for k, _, _ in writes if k not in previous_objects],
+                    "modified": [f"{k[0]}/{k[1]}" for k, _, _ in writes if k in previous_objects],
+                    "removed": [f"{k[0]}/{k[1]}" for k in deletable], "retained_shared": [f"{k[0]}/{k[1]}" for k in retained_shared], "changed": changed,
+                    "remote_removed": sorted(removed_keys), **stage_summary}
+    base.diagnostics = diagnostics.snapshot() if diagnostics.enabled else None
+    if base.deferred_reasons:
+        base.status, base.error_code, base.exit_code = txn.COMMITTED_CLEANUP_DEFERRED, "CLEANUP_DEFERRED", 3
+        base.message = "Publicado, pero no se limpiaron objetos obsoletos (no se pudo verificar la propiedad): no se borró nada."
+    else:
+        base.status, base.ok, base.exit_code = txn.COMPLETED, True, 0
+    _say("\nEXTRACCION DE LINAJE FINALIZADA")
+    _say(f"Cliente: {req.client}")
+    _say(f"Space: {space}")
+    _say(f"Objeto raíz: {exporter.root_object}")
+    _say(f"Tipo raíz: {exporter.root_type}")
+    _say(f"Objetos incluidos: {len(exporter.nodes)}")
+    _say(f"Obsoletos eliminados: {len(deletable)}")
+    _say(f"Compartidos retenidos: {len(retained_shared)}")
+    _say(f"Catálogo materializado: {'SI' if catalog_generated else 'NO'}")
+    _say(f"Persistencia canónica: {'OK' if durability == txn.DURABILITY_REMOTE else 'NO CONFIRMADA (' + durability + ')'}")
+    _say(f"ESTADO DE LA PUBLICACIÓN: {base.status}")
+    _say("STATUS: SUCCESS" if base.status == txn.COMPLETED else f"STATUS: {base.status}")
+    return finish(base)
+
+
+_MAX_REMOTE_DELETES = 500                  # tope de borrados remotos por publicación (red de seguridad: un error de cálculo no puede vaciar el bucket)
+
+
+def _verify_applied(txn, planned_sha: dict, client_cache_dir: Path, manifest_path: Path, client_catalog_dir: Path, *, require_flows: bool) -> list[str]:
+    problems: list[str] = []
+    for key, sha in planned_sha.items():
+        path = _pool_path(client_cache_dir, key)
+        if not path.is_file() or txn.sha256_text_file(path) != sha:
+            problems.append(f"objeto {key[0]}/{key[1]}")
+    loaded = txn.load_manifest(manifest_path)
+    if not loaded.usable:
+        problems.append(f"manifiesto {loaded.state}")
+    else:
+        for obj in loaded.data.get("objects") or []:
+            sha = obj.get("sha256")
+            key = (obj.get("object_type"), obj.get("technical_name"))
+            if sha and key in planned_sha and planned_sha[key] != sha:
+                problems.append(f"manifiesto≠pool {key[0]}/{key[1]}")
+    if require_flows and not any(client_catalog_dir.rglob("flujo_*.md")):
+        problems.append("catálogo sin flujos")
+    return problems
+
+
+
 def run_export(req: ExportRequest) -> ExportResult:
     """Run one extraction without reading argv or exiting the process.
 
@@ -1522,9 +2248,12 @@ def run_export(req: ExportRequest) -> ExportResult:
     orchestration decisions and are not inferred by lineage traversal.
     """
     started_at = time.perf_counter()
+    safe_flag = {"on": False}
 
     def finish(result: ExportResult) -> ExportResult:
         result.duration_s = round(time.perf_counter() - started_at, 1)
+        if safe_flag["on"] and not result.ok and not result.status:
+            result.status = "FAILED_NO_CHANGE"          # publicación segura: una falla previa a APPLY no modificó nada
         return result
 
     list_spaces_only = req.space.strip().lower() == SPACE_LIST_SENTINEL
@@ -1630,6 +2359,30 @@ def run_export(req: ExportRequest) -> ExportResult:
         base.exit_code = 2
         return finish(base)
 
+    safe = bool(req.mode == "publish" and (req.safe if req.safe is not None else _txn().safe_mode_enabled()))
+    safe_flag["on"] = safe
+    if safe:                                          # un cliente es UNA identidad aunque se escriba con otra capitalización (P1): se reusa el directorio existente o se rechaza el conflicto
+        txn = _txn()
+        try:
+            client_dir_name = txn.canonical_client_dir(client_dir_name, txn.existing_client_dirs(catalog_root, csn_cache_root))
+        except txn.ClientKeyConflict as exc:
+            _say("ERROR: CLIENT_KEY_CONFLICT - el Catálogo tiene más de una variante del cliente: " + ", ".join(exc.variants), file=sys.stderr)
+            base.error_code, base.message, base.exit_code = "CLIENT_KEY_CONFLICT", "CLIENT_KEY_CONFLICT", 1
+            base.failures = [{"kind": "client_key", "object_type": "", "technical_name": v, "code": "CASE_VARIANT"} for v in exc.variants]
+            return finish(base)
+    base.client_dir = client_dir_name
+    if safe:                                          # B2: sin persistencia efectiva para lo que se va a escribir, ni se empieza (antes de conectar con Datasphere)
+        from core import publication_gate as _gate, remote_store as _rs
+        try:
+            gap = _persistence_gap(req, _txn(), _rs, catalog_root, csn_cache_root, client_dir_name, root_object, req.root_type)
+        except (_gate.PublicationInProgress, _gate.PublicationBlocked):
+            gap = None                                # hay una publicación activándose o en verificación: la validación definitiva la repite, bajo el candado, esta misma operación
+        if gap is not None:
+            _say(f"ERROR: {gap[0]} - {gap[1]}", file=sys.stderr)
+            base.error_code, base.message, base.exit_code = gap[0], PERSISTENCE_GAP_MESSAGE.format(code=gap[0], detail=gap[1]), 1
+            base.status, base.stages = "FAILED_NO_CHANGE", {"persistence": "FAILED"}
+            return finish(base)
+
     client_cache_dir = csn_cache_root / client_dir_name
     _say("Extraction integration:")
     _say(f"  Client:       {req.client}")
@@ -1677,7 +2430,7 @@ def run_export(req: ExportRequest) -> ExportResult:
                 allowed_root_types=req.allowed_root_types,
                 diagnostics=diagnostics,
             )
-            exported_pool = exporter.run()
+            exported_pool = exporter.extract() if safe else exporter.run()
         except RootTypeConstraintError as exc:
             _say(f"ERROR: {exc}")
             base.error_code = "ROOT_TYPE_CONSTRAINT_FAILED"
@@ -1693,11 +2446,18 @@ def run_export(req: ExportRequest) -> ExportResult:
         except DatasphereCliError as exc:
             _say(f"ERROR: {exc}")
             base.error_code = classify_error(str(exc))
+            if safe and base.error_code in ("ROOT_OBJECT_NOT_FOUND", "AMBIGUOUS_ROOT_OBJECT_TYPE") and "exporter" in locals() and exporter.failures:
+                base.error_code = "EXTRACTION_INCOMPLETE"             # el «no existe» es consecuencia de un listado fallido, no del Space
+                base.failures = list(exporter.failures)
             base.message = str(exc)
             base.exit_code = 1
             if diagnostics.enabled:
                 base.diagnostics = diagnostics.snapshot()
             return finish(base)
+
+    if safe:
+        return _publish_safe(req, exporter, base=base, client_dir_name=client_dir_name, catalog_root=catalog_root, csn_cache_root=csn_cache_root,
+                             client_cache_dir=client_cache_dir, diagnostics=diagnostics, finish=finish)
 
     assert exporter.root_type
     base.root_type = exporter.root_type

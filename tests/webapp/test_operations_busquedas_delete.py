@@ -101,10 +101,9 @@ def test_history_wins_over_the_visible_state_a_request_taken_once_never_regains_
         before = repo.get(sid)
         assert delete(c, sid).status_code == 409
         assert c.post(f"{BASE}/{sid}/cancelar", data={"expected_revision": str(rev(sid))}, headers=ORIGIN).status_code == 409
-        assert c.post(f"{BASE}/{sid}/editar", data={"expected_revision": str(rev(sid)), **form_payload(sid)}, headers=ORIGIN).status_code == 409
         assert repo.get(sid) == before
         view = svc.get_solicitud_view(sid)
-        assert not (view["puede_eliminar"] or view["puede_cancelar"] or view["puede_editar"] or view["puede_corregir"])
+        assert not (view["puede_eliminar"] or view["puede_cancelar"] or view["puede_corregir"])     # la toma sigue cerrando eliminar y cancelar (editar quedó habilitado solo para `en_gestion`, acordado entre equipos)
         html = c.get(f"{BASE}/{sid}").text
         assert "Eliminar solicitud" not in html and "opsb-delete-dialog" not in html
 

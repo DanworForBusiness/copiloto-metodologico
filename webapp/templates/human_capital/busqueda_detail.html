@@ -39,32 +39,7 @@
         </div>
       </div>
       <div class="hc-profiles-hero-actions">
-        {% if solicitud_gestion %}
-        {% if busqueda.estado == 'activo' %}
-        <button type="button" class="btn-secondary" data-dialog-open="busqueda-add-dialog">+ Agregar candidato</button>
-        {% endif %}
-        <a href="/cchh/busquedas/{{ busqueda.busqueda_id }}/editar" class="btn-secondary">Editar</a>
-        {% if busqueda.estado == 'activo' %}
-        <button type="button" class="btn-danger" data-dialog-open="busqueda-close-dialog">Cerrar proceso</button>
-        {% endif %}
-        {# «Eliminar» el proceso COMPLETO (a la derecha de «Cerrar proceso»; activo o cerrado, de alta directa o nacido de una solicitud de Operaciones ya tomada): rojo intenso (`.btn-danger--strong`), MISMO trash SVG y diálogo corporativo de confirmación (`data-dw-confirm-form`). En una solicitud de Operaciones la solicitud original se conserva (queda cancelada con constancia). #}
-        <form method="post" action="/cchh/busquedas/{{ busqueda.busqueda_id }}/eliminar-completa"
-              data-dw-confirm-form data-dw-confirm-title="Eliminar búsqueda"
-              data-dw-confirm-message="Se eliminará la búsqueda «{{ busqueda.nombre_puesto }}» y TODOS los registros asociados: sus postulaciones, entrevistas, onboardings, grilla y evaluaciones. Las publicaciones vinculadas se conservan, sin vínculo con la búsqueda. Los perfiles de los candidatos y sus CVs no se modifican, ni sus participaciones en otras búsquedas. {% if solicitud %} La solicitud original de Operaciones no se borra: se conserva como historial y queda cancelada con constancia de que Capital Humano eliminó el proceso.{% endif %} Esta acción no se puede deshacer."
-              data-dw-confirm-ok="Eliminar">
-          <button type="submit" class="btn-danger btn-danger--strong">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
-            Eliminar
-          </button>
-        </form>
-        {% elif solicitud.estado_solicitud == 'enviada' %}
-        {# Solicitud de Operaciones aún no tomada: solo se puede tomar o pedir corrección (el pipeline y las acciones de candidatos quedan ocultos hasta tomarla). #}
-        <button type="button" class="btn-secondary" data-dialog-open="solicitud-correccion-dialog">Solicitar corrección</button>
-        <form method="post" action="/cchh/busquedas/{{ busqueda.busqueda_id }}/tomar" data-solicitud-form>
-          <input type="hidden" name="expected_revision" value="{{ busqueda.revision }}">
-          <button type="submit" class="btn-primary">Tomar en gestión</button>
-        </form>
-        {% endif %}
+        {% include "partials/human_capital_busqueda_hero_actions.html" %}
       </div>
     </section>
 
@@ -113,17 +88,8 @@
     {% else %}
     {# Pestañas definitivas del proceso: Pipeline / Evaluación / Sugeridos / Reportes. «Pipeline» y «Evaluación» son funcionales (enlaces del mismo detalle: `?vista=evaluacion`; el enlace viejo `?vista=scoring` redirige acá);
        «Sugeridos» y «Reportes» siguen pendientes. La antigua «Vista evaluación» (estrellas) se descartó. #}
-    <div class="dashboard-view-switch busqueda-views" role="group" aria-label="Vistas del proceso">
-      <a href="/cchh/busquedas/{{ busqueda.busqueda_id }}" class="{% if vista != 'evaluacion' %}is-active{% endif %}"{% if vista != 'evaluacion' %} aria-current="page"{% endif %}>Pipeline</a>
-      {% if can_use_evaluation %}
-      <a href="/cchh/busquedas/{{ busqueda.busqueda_id }}?vista=evaluacion" class="{% if vista == 'evaluacion' %}is-active{% endif %}"{% if vista == 'evaluacion' %} aria-current="page"{% endif %}>Evaluación</a>
-      {% else %}
-      {# En desarrollo: solo el dueño de la app (APP_OWNER) la usa; para el resto queda visible pero deshabilitada, igual que Sugeridos/Reportes (sin navegación ni acción; el servidor además protege sus endpoints). #}
-      <button type="button" disabled title="En desarrollo: disponible solo para el dueño de la app" data-evaluation-locked>Evaluación</button>
-      {% endif %}
-      <button type="button" disabled title="Próximamente">Sugeridos</button>
-      <button type="button" disabled title="Próximamente">Reportes</button>
-    </div>
+    {% set views_pipeline_url = "/cchh/busquedas/" ~ busqueda.busqueda_id %}{% set views_evaluation_url = views_pipeline_url ~ "?vista=evaluacion" %}
+    {% include "partials/human_capital_busqueda_views_bar.html" %}
 
     {% if vista == 'evaluacion' and scoring %}
     {% include "partials/human_capital_scoring_panel.html" %}

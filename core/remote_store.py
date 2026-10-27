@@ -337,6 +337,16 @@ def restore(overwrite: bool = False) -> int:
     return downloaded
 
 
+_mirror_guard = None                          # ``() -> str | None``: motivo por el que el sync periódico NO debe subir ahora (lo registra la publicación segura; ``None`` = sin guarda)
+
+
+def set_mirror_guard(fn) -> None:
+    """Registra la guarda del sync periódico. La publicación segura la usa para que ``mirror_up`` (y el flush final) NO suba el resto de una versión a medias tras un reinicio: eso la
+    daría por completa sin que nadie la haya verificado. Solo afecta a ``mirror_up``; la propia publicación escribe con ``persist_changed``/``push_path``."""
+    global _mirror_guard
+    _mirror_guard = fn
+
+
 def mirror_up() -> int:
     """Sube al bucket los archivos nuevos o modificados de cada directorio. Salta
     los que no cambiaron respecto de la última sincronización de este proceso.
@@ -349,6 +359,15 @@ def mirror_up() -> int:
     if blocked is not None:
         (log.info if _restore_state == "in_progress" else log.warning)("remote_store.mirror_up: BLOQUEADO — %s; no se sube nada.", blocked)
         return 0
+    guard = _mirror_guard
+    if guard is not None:
+        try:
+            held = guard()
+        except Exception as exc:  # noqa: BLE001 — una guarda que falla se trata como «no seguro subir»
+            held = f"la guarda del sync falló: {type(exc).__name__}"
+        if held:
+            log.warning("remote_store.mirror_up: BLOQUEADO — %s; no se sube nada.", held)
+            return 0
     try:
         client = _get_client()
     except Exception as exc:
@@ -817,6 +836,7 @@ def delete_path(local_path: str | Path) -> bool:
             key = f"{_key(name)}/{rel}"
             client.delete_object(Bucket=config.SPACES_BUCKET, Key=key)
             _signatures.pop(key, None)
+            _digests.pop(key, None)                      # un objeto borrado ya no está «confirmado»: sin esto un persist_changed posterior lo daría por subido (mismo contenido) y no lo volvería a subir
             return True
         except Exception as exc:
             log.warning("remote_store.delete_path: fallo borrando '%s': %s", path, exc)

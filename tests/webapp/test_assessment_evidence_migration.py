@@ -362,6 +362,7 @@ def _make_old(world, *, old_versions=True, input_changed=False, extra=None):
             _downgrade(env)
         if input_changed:
             env["input_pool_signature"] = "0" * 64
+            env.pop("input_closure_signature", None)                 # sobre previo a la firma de dependencias: incierto => STALE explícito
         if extra:
             extra(env)
     _rewrite(path, mutate)
@@ -693,7 +694,7 @@ def test_the_report_callout_says_the_right_thing_for_each_stale_reason(world):
     restart()
     f.write_text(f.read_text(encoding="utf-8").replace('"A7"', '"A8"', 1), encoding="utf-8")
     changed = _report_html(world)
-    assert "El modelo cambió desde la última evaluación" in changed and "versión anterior de la metodología" not in changed
+    assert "Cambió algo que este modelo usa desde la última evaluación" in changed and "versión anterior de la metodología" not in changed        # P1: la causa es una DEPENDENCIA del AM
 
 
 # ═══════════════ 8. TARGETED_CLOSURE_EXPANSION (evidence release): el cierre solo puede CRECER por la correccion aprobada ═══════════════
@@ -955,6 +956,7 @@ def _make_v2(world, *, input_changed=False):
         _downgrade_v2(env)
         if input_changed:
             env["input_pool_signature"] = "0" * 64
+            env.pop("input_closure_signature", None)                 # sobre previo a la firma de dependencias: incierto => STALE explícito
     _rewrite(path, mutate)
     restart()
     return path
