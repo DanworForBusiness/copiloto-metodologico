@@ -694,7 +694,7 @@ def test_the_report_callout_says_the_right_thing_for_each_stale_reason(world):
     restart()
     f.write_text(f.read_text(encoding="utf-8").replace('"A7"', '"A8"', 1), encoding="utf-8")
     changed = _report_html(world)
-    assert "El modelo cambió desde la última evaluación" in changed and "versión anterior de la metodología" not in changed
+    assert "Cambió algo que este modelo usa desde la última evaluación" in changed and "versión anterior de la metodología" not in changed        # P1: la causa es una DEPENDENCIA del AM
 
 
 # ═══════════════ 8. TARGETED_CLOSURE_EXPANSION (evidence release): el cierre solo puede CRECER por la correccion aprobada ═══════════════

@@ -251,7 +251,7 @@ def test_stale_report_is_still_exportable_and_viewable(world):
     f = world.inbound / "Acme/views/1VR_RAW.json"
     f.write_text(f.read_text(encoding="utf-8").replace('"A"', '"A9"', 1), encoding="utf-8")
     html = c.get("/catalog/flow/assessment?flow=acme-4am", headers=HX).text
-    assert 'Assessment desactualizado</strong>' in html and "<p>El modelo cambió desde la última evaluación.</p>" in html      # título corto + nota como primer párrafo (mismo formato que el resto de los punch)
+    assert 'Assessment desactualizado</strong>' in html and "<p>Cambió algo que este modelo usa desde la última evaluación.</p>" in html      # P1: causa por dependencia; título corto + nota como primer párrafo (mismo formato que el resto de los punch)
     assert "Regenerar assessment" in html and "Resumen" in html            # banner + informe anterior + acción
     assert c.get("/catalog/flow/assessment.json?flow=acme-4am").status_code == 200
 
