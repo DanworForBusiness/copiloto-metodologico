@@ -291,7 +291,9 @@ def test_publication_inputs_get_the_same_styling_as_the_assessment_inputs():
 
 # ───────────────────────── seguridad / secretos ─────────────────────────
 def test_non_owner_sees_no_publication_tool(monkeypatch):
+    """Quien no tiene perfil completo (aquí: fuera de la allowlist) no ve la herramienta; un consultor ``full`` sí (ver test_datasphere_publication_consultant_access)."""
     monkeypatch.setattr(access, "APP_OWNER", "owner@danwor.com")
+    monkeypatch.setattr(auth_service, "ALLOWED_USERS", "owner@danwor.com")
     other = _client("intruso@danwor.com")
     html = other.get(CATALOG_PUBLISH_URL).text
     assert 'id="dsp-form"' not in html and 'id="catalog-publish-state"' not in html
@@ -306,6 +308,7 @@ def test_post_run_requires_session(monkeypatch):
 
 def test_post_run_rejects_non_owner(monkeypatch):
     monkeypatch.setattr(access, "APP_OWNER", "owner@danwor.com")
+    monkeypatch.setattr(auth_service, "ALLOWED_USERS", "owner@danwor.com")
     other = _client("intruso@danwor.com")
     r = other.post(RUN_URL, data={"pack": PACK}, headers={"Content-Type": "application/x-www-form-urlencoded"})
     assert r.status_code in (401, 403)                               # nunca 200

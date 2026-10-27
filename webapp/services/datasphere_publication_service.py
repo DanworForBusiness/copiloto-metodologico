@@ -23,7 +23,6 @@ salvo que se habilite explícitamente por entorno (``DANWOR_PUBLICATION_MIRROR_U
 from __future__ import annotations
 
 import base64
-import importlib
 import logging
 import os
 import threading
@@ -56,38 +55,15 @@ def tool_enabled(stem: str) -> bool:
     return stem in PUBLICATION_MODULES
 
 
-# ── capacidad «Publicar» para consultores (apagada por defecto) ──
-# Publicar ESCRIBE en el Catálogo gobernado (pool, manifiestos, Catálogo materializado, assessments): una escritura potencialmente destructiva. Abrirla a los consultores exige TRES condiciones, todas a la vez,
-# y por eso cada una tiene su propio interruptor/garantía (ver docs/PUBLISH_CONSULTANT_ACCESS.md):
-#   1. ``DANWOR_PUBLICATION_CONSULTANTS`` encendida (decisión explícita del dueño; apagada = comportamiento de siempre: solo el dueño);
-#   2. las garantías de integridad de la publicación segura ACTIVAS (``DANWOR_PUBLICATION_SAFE``, fase 0 / P1): sin ellas no se concede, aunque 1 esté encendida (falla cerrado). Si el código de la publicación
-#      segura no está presente en este despliegue, la garantía no puede estar activa;
-#   3. clientes autorizados EXPLÍCITAMENTE para consultores (``DANWOR_PUBLICATION_CONSULTANT_CLIENTS``, lista separada por comas): un consultor solo publica sobre esos clientes. Lista vacía ⇒ no se concede.
-# No se distingue «primera publicación» de «republicación»: la identidad vigente no permite demostrarla de forma confiable (ver el documento); lo acota la lista de clientes y lo protege la publicación segura.
-CONSULTANTS_ENV = "DANWOR_PUBLICATION_CONSULTANTS"
+# ── quién puede publicar ──
+# Publicar ESCRIBE en el Catálogo gobernado (pool, manifiestos, Catálogo materializado, assessments). La AUTORIZACIÓN es el perfil, no la configuración: el dueño (APP_OWNER) o cualquier usuario
+# autenticado con perfil COMPLETO del Hub (``user_tier == "full"``, el MISMO criterio que el Assessment). No depende de ``DANWOR_PUBLICATION_SAFE``: la publicación segura (P1) mejora la INTEGRIDAD de la
+# operación —``run()`` elige el camino seguro o el de siempre según esa configuración, sea quien sea el que publica—, no decide quién puede ejecutarla. Riesgo residual del camino de siempre (SAFE apagada)
+# en docs/PUBLISH_CONSULTANT_ACCESS.md §3.
+# ``DANWOR_PUBLICATION_CONSULTANT_CLIENTS`` es una restricción OPCIONAL: ausente o vacía no restringe; si está definida, un consultor solo publica sobre esos clientes (el dueño, sobre cualquiera).
 CONSULTANT_CLIENTS_ENV = "DANWOR_PUBLICATION_CONSULTANT_CLIENTS"
 CLIENT_NOT_AUTHORIZED_TITLE = "No se pudo publicar el modelo"
 CLIENT_NOT_AUTHORIZED_MESSAGE = ("Tu usuario no está autorizado para publicar en ese cliente. Pedile al administrador que lo habilite o elegí uno de los clientes autorizados.")
-
-
-def _env_flag(name: str) -> bool:
-    return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
-
-
-def publication_guarantees_active() -> bool:
-    """¿Están ACTIVAS las garantías de integridad de la publicación (publicación segura: completitud, persistencia confirmada, candado, manifiestos íntegros)? Falla cerrado: sin el módulo o con el
-    interruptor apagado, ``False``."""
-    try:
-        # `importlib` (no `from tools.catalog import publication_txn`): resuelve SIEMPRE por `sys.modules`, no por el atributo que el paquete conserva del submódulo ya importado (con P1 integrado otro código
-        # lo importa antes y ese atributo ocultaba cualquier sustitución del módulo, p. ej. la de las pruebas de esta capacidad).
-        publication_txn = importlib.import_module("tools.catalog.publication_txn")
-    except Exception:                                                   # noqa: BLE001 — este despliegue no trae la publicación segura
-        return False
-    check = getattr(publication_txn, "safe_mode_enabled", None)
-    try:
-        return bool(callable(check) and check())
-    except Exception:                                                   # noqa: BLE001
-        return False
 
 
 def _client_key(name: str) -> str:
@@ -95,7 +71,7 @@ def _client_key(name: str) -> str:
 
 
 def consultant_clients() -> tuple[str, ...]:
-    """Clientes que el dueño autorizó EXPLÍCITAMENTE para publicación por consultores (``DANWOR_PUBLICATION_CONSULTANT_CLIENTS``). Sin comodines."""
+    """Restricción OPCIONAL de clientes para consultores (``DANWOR_PUBLICATION_CONSULTANT_CLIENTS``, lista separada por comas). Vacía = sin restricción. Un ``*`` suelto no es un cliente: se ignora."""
     seen: dict[str, str] = {}
     for raw in os.getenv(CONSULTANT_CLIENTS_ENV, "").split(","):
         name = " ".join(raw.split())
@@ -104,23 +80,11 @@ def consultant_clients() -> tuple[str, ...]:
     return tuple(seen.values())
 
 
-def consultants_enabled() -> bool:
-    """La capacidad está disponible para consultores solo si el interruptor, las garantías de integridad Y al menos un cliente autorizado coinciden."""
-    return _env_flag(CONSULTANTS_ENV) and publication_guarantees_active() and bool(consultant_clients())
-
-
 def can_execute(request) -> bool:
-    """Publicar en el Catálogo gobernado: el dueño (``access.is_owner_user``), o —solo con la capacidad para consultores disponible (``consultants_enabled``)— un consultor con sesión válida y perfil COMPLETO del
-    Hub (``user_tier == "full"``: el de solo lectura y quien está fuera de la allowlist quedan afuera; el retiro de la allowlist surte efecto en la siguiente request). UN SOLO predicado gobierna la UI (botón «+»,
-    panel, deep links) y el backend (POST /run). NO amplía ``access.is_owner``: las capacidades administrativas siguen siendo del dueño (``can_use_client_profiles``, ``can_administer``)."""
-    from webapp import access
-    from webapp.services import auth_service
-    user = auth_service.session_user(request)
-    if not user:
-        return False
-    if access.is_owner_user(user):
-        return True
-    return consultants_enabled() and auth_service.user_tier(str(user.get("sub") or "")) == "full"
+    """Publicar en el Catálogo gobernado: el dueño o un usuario con sesión válida y perfil COMPLETO del Hub (``asd.can_execute``: el mismo criterio del Assessment; el de solo lectura y quien está fuera de la
+    allowlist quedan afuera, y el retiro de la allowlist surte efecto en la siguiente request). UN SOLO predicado gobierna la UI (botón «+», panel, deep links) y el backend (POST /run). NO amplía
+    ``access.is_owner``: las capacidades administrativas siguen siendo del dueño (``can_use_client_profiles``, ``can_administer``)."""
+    return asd.can_execute(request)
 
 
 def can_use_client_profiles(request) -> bool:
@@ -129,12 +93,14 @@ def can_use_client_profiles(request) -> bool:
 
 
 def client_authorized(request, client: str) -> bool:
-    """¿Puede ESTE usuario publicar sobre ``client``? El dueño, sobre cualquiera; un consultor, solo sobre los clientes autorizados explícitamente (sin distinguir mayúsculas ni espacios repetidos)."""
+    """¿Puede ESTE usuario publicar sobre ``client``? El dueño, sobre cualquiera; un consultor, sobre cualquiera salvo que el dueño haya definido la restricción opcional de clientes (sin distinguir
+    mayúsculas ni espacios repetidos)."""
     from webapp import access
     from webapp.services import auth_service
     if access.is_owner_user(auth_service.session_user(request)):
         return True
-    return _client_key(client) in {_client_key(c) for c in consultant_clients()}
+    allowed = consultant_clients()
+    return not allowed or _client_key(client) in {_client_key(c) for c in allowed}
 
 
 def denied_run_events(code: str, message: str) -> str:
@@ -161,7 +127,7 @@ def tool_context(request, stem: str) -> dict:
     from webapp.services import datasphere_profiles
     return {"enabled": enabled, "can_execute": can, "stem": stem, "form": values, "feature_options": options,
             "owner_profiles_url": datasphere_profiles.selector_url(stem, owner_only),               # el libro compartido de perfiles es SOLO del dueño
-            "allowed_clients": [] if (owner_only or not can) else list(consultant_clients())}      # lo que un consultor puede publicar (informativo; el servidor lo exige igual)
+            "allowed_clients": [] if (owner_only or not can) else list(consultant_clients())}      # solo si hay restricción opcional de clientes (informativo; el servidor lo exige igual)
 
 
 # ───────────────────────────── recuperación: confirmar o deshacer lo que quedó a medias, con la compuerta de lectores ─────────────────────────────
