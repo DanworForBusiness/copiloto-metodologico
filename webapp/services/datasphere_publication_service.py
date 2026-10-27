@@ -96,11 +96,41 @@ def resolve_pending(root=None) -> list[dict]:
     return results
 
 
+def verify_ledgers(root=None) -> dict[str, list[str]]:
+    """``{cliente: diferencias}`` de cada cliente cuyo disco NO coincide con la versión activa de su bitácora (digests de TODA la unidad: pool, linaje, Catálogo y assessments). Es la
+    detección de una mezcla —p. ej. un restore desde un Spaces que quedó a medias por una caída— que ninguna publicación completó. Solo LECTURA; vacío = todo coherente."""
+    from tools.catalog import publication_ledger as ledger_mod
+    from webapp.services import assessment_service as assess
+    catalog_root, csn_cache = _canonical_roots()
+    base = Path(root) if root else catalog_root
+    out: dict[str, list[str]] = {}
+    folder = base / ledger_mod.STATE_DIR
+    if not folder.is_dir():
+        return out
+    for lf in sorted(folder.glob("*" + ledger_mod.SUFFIX)):
+        client = lf.name[: -len(ledger_mod.SUFFIX)]
+        state, data = ledger_mod.load(base, client)
+        if state != ledger_mod.L_OK:
+            out[client] = ["ledger " + state]
+            continue
+        problems = ledger_mod.verify(data, ledger_mod.unit_files(base, csn_cache, client, assess.governed_client_dir(client)))
+        if problems:
+            out[client] = problems
+    return out
+
+
 def boot_recover() -> None:
-    """Arranque (después del restore): completa o deshace una publicación que la caída del proceso dejó a medias. Solo con la publicación segura encendida."""
+    """Arranque (después del restore): completa o deshace una publicación que la caída del proceso dejó a medias y VERIFICA que lo restaurado sea una versión publicada (no una mezcla).
+    Solo con la publicación segura encendida. Una incoherencia se registra con severidad de error: se corrige republicando el modelo (la republicación detecta el desvío y reescribe la unidad)."""
     from tools.catalog import publication_txn as txn
-    if txn.safe_mode_enabled():
-        resolve_pending()
+    if not txn.safe_mode_enabled():
+        return
+    resolve_pending()
+    try:
+        for client, problems in verify_ledgers().items():
+            log.error("datasphere_publication: el cliente %s NO coincide con su última publicación (%d diferencia(s): %s); republicá su modelo para reconstruirlo", client, len(problems), "; ".join(problems[:3]))
+    except Exception:                                                   # noqa: BLE001 — la verificación nunca impide el arranque
+        log.warning("datasphere_publication: no se pudo verificar la coherencia de las publicaciones", exc_info=True)
 
 
 try:                                                                    # la compuerta de lectores intenta resolver un bloqueo (UNCERTAIN) sin esperar a la próxima publicación
