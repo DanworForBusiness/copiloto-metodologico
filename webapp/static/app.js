@@ -1702,7 +1702,11 @@ function initResizableColumns(scope) {
       if (!resizing) return;
       const { key, col, handle } = resizing;
       handle.classList.remove("is-resizing");
-      const widths = Object.assign({}, readStoredColumnWidths(container.dataset.resizableColumnsKey) || {});
+      // Un registro previo de OTRA estructura (ya descartado por la lectura) o medido para OTRO ancho de contenedor no se mezcla con el override nuevo.
+      const layout = columnLayoutOfContainer(container);
+      const previous = readStoredColumnWidthsEnvelope(container.dataset.resizableColumnsKey, layout);
+      const reusable = previous && Math.abs(container.clientWidth - previous.containerWidth) <= previous.containerWidth * COLUMN_WIDTHS_TOLERANCE_RATIO;
+      const widths = Object.assign({}, reusable ? previous.widths : {});
       widths[key] = col.style.width;
       // Contrato de compatibilidad de persistencia (owner post-#107 acceptance,
       // corrective T1): CADA escritura graba el ancho de CONTENEDOR vigente en
@@ -1713,6 +1717,7 @@ function initResizableColumns(scope) {
       const envelope = {
         schemaVersion: COLUMN_WIDTHS_SCHEMA_VERSION,
         containerWidth: container.clientWidth,
+        layout: { version: layout.version, signature: layout.signature },
         widths,
       };
       try { window.localStorage.setItem(storageKey, JSON.stringify(envelope)); } catch (e) { /* privado/cuota: no persiste, no rompe */ }
@@ -1738,7 +1743,34 @@ function initResizableColumns(scope) {
 // INCOMPATIBLE y se descarta -- nunca se "adivina"/migra en caliente, la
 // tabla cae a su layout responsive normal (`width:100%`, ver el fresh-load
 // de siempre) en vez de arriesgar un total congelado potencialmente erróneo.
-const COLUMN_WIDTHS_SCHEMA_VERSION = 1;
+//
+// COMPATIBILIDAD ESTRUCTURAL (hotfix anchos obsoletos, Candidatos): el ancho de
+// contenedor no alcanza -- una tabla a la que se le agrega una columna (la
+// casilla de selección de Candidatos) conserva el mismo contenedor pero los
+// px guardados ya no describen su estructura, y el total congelado desborda.
+// Dos versiones, a propósito separadas:
+//   * `schemaVersion` = FORMATO de serialización (cómo se escribe el registro).
+//   * `layout.version` + `layout.signature` = ESTRUCTURA de la tabla a la que
+//     pertenecen esos anchos. La firma es DETERMINISTA y sale de las columnas
+//     reales (`columnLayoutFor`): su identidad (`data-column-key`), el lugar de
+//     las columnas sin key (casilla, Acciones) y -en tablas NO reordenables- el
+//     orden. `layout.version` es el `data-layout-version` EXPLÍCITO del
+//     contenedor (default 1): se sube SOLO cuando un cambio visual no se ve en la
+//     firma (p. ej. otra columna fija con el mismo markup) o para invalidar
+//     registros legacy; nunca por cambios cosméticos.
+// Un registro incompatible se ELIMINA (solo el de ESA tabla) y la tabla usa sus
+// defaults; el próximo resize graba la estructura vigente. Los registros legacy
+// (`schemaVersion: 1`, sin `layout`) se interpretan como `layout.version` 1: una
+// tabla que declara una versión mayor los descarta, y las demás los conservan y
+// les agregan la firma vigente (una única escritura, ver `stampStoredColumnWidthsLayout`).
+const COLUMN_WIDTHS_SCHEMA_VERSION = 2;
+const COLUMN_WIDTHS_LEGACY_SCHEMA_VERSION = 1;
+const COLUMN_LAYOUT_DEFAULT_VERSION = 1;
+// Rango de un ancho persistido válido: el resize clampa a >= 60px; el piso 40 y el
+// techo son solo una cota de cordura contra valores corruptos o manipulados.
+const COLUMN_WIDTH_MIN_PX = 40;
+const COLUMN_WIDTH_MAX_PX = 4000;
+const COLUMN_LAYOUT_UNKEYED_TOKEN = "~";
 // Tolerancia de "mismo ancho de contenedor", RELATIVA (no un px fijo: un
 // layout angosto y uno ancho no deberían compartir el mismo margen
 // absoluto) -- ÚNICO lugar que la define, documentada acá, nunca repetida
@@ -1753,16 +1785,101 @@ const COLUMN_WIDTHS_TOLERANCE_RATIO = 0.08;
 // Cualquier shape que NO matchee el contrato exacto (incluido el plano
 // `{colKey:"Npx"}` pre-corrective) es tratado como ausente -- null, nunca
 // una migración implícita.
-function readStoredColumnWidthsEnvelope(key) {
+function isStoredColumnWidth(value) {
+  const m = typeof value === "string" ? /^(\d+(?:\.\d+)?)px$/.exec(value) : null;
+  if (!m) return false;
+  const px = parseFloat(m[1]);
+  return px >= COLUMN_WIDTH_MIN_PX && px <= COLUMN_WIDTH_MAX_PX;
+}
+// Firma estructural DETERMINISTA de una tabla. `tokens` = una entrada por columna,
+// en orden de DOM: su `data-column-key` o "" si no tiene (casilla, Acciones). En
+// una tabla `reorderable` (el usuario puede arrastrar las columnas) el orden de las
+// columnas con key es una preferencia y NO parte de la estructura: se canoniza
+// (orden alfabético dentro de los mismos lugares); el lugar de las columnas sin key
+// sí cuenta. Devuelve `{version, signature, keys}` (`keys` = Set, solo para validar
+// registros legacy; no se persiste).
+function columnLayoutFor(tokens, { reorderable = false, version = COLUMN_LAYOUT_DEFAULT_VERSION } = {}) {
+  const keyed = tokens.filter(Boolean);
+  const ordered = reorderable ? keyed.slice().sort() : keyed;
+  let next = 0;
+  const canonical = tokens.map(token => (token ? ordered[next++] : COLUMN_LAYOUT_UNKEYED_TOKEN));
+  return { version, signature: canonical.join("|"), keys: new Set(keyed) };
+}
+// Estructura REAL de un contenedor (`data-resizable-columns-key`): las `<col>` de su
+// tabla (o, sin colgroup, sus `<th>`), la versión explícita `data-layout-version` y si
+// es reordenable (`data-draggable-columns-key`).
+function columnLayoutOfContainer(container) {
+  const parsedVersion = parseInt(container.dataset ? container.dataset.layoutVersion : "", 10);
+  const table = container.querySelector("table");
+  let nodes = table ? [].slice.call(table.querySelectorAll("colgroup > col")) : [];
+  if (!nodes.length && table) nodes = [].slice.call(table.querySelectorAll("th"));
+  return columnLayoutFor(nodes.map(node => node.getAttribute("data-column-key") || ""), {
+    reorderable: !!(container.dataset && container.dataset.draggableColumnsKey),
+    version: parsedVersion >= 1 ? parsedVersion : COLUMN_LAYOUT_DEFAULT_VERSION,
+  });
+}
+// El caller puede pasar la estructura ya calculada o, sin depender de este módulo
+// (p. ej. Comercial arma el <colgroup> desde un catálogo declarativo),
+// `{tokens, reorderable, version}`.
+function resolveColumnLayout(spec) {
+  if (!spec) return null;
+  if (typeof spec.signature === "string") return spec;
+  return Array.isArray(spec.tokens) ? columnLayoutFor(spec.tokens, spec) : null;
+}
+function discardStoredColumnWidths(key) {
+  try { window.localStorage.removeItem(`dw-col-widths:${key}`); } catch (e) { /* storage no disponible: nada que descartar */ }
+}
+// Un registro legacy aceptado se re-graba UNA vez con la estructura vigente (mismo
+// contenido, solo se agrega `layout` y el formato nuevo): así un cambio estructural
+// futuro lo detecta. No altera widths ni containerWidth.
+function stampStoredColumnWidthsLayout(key, envelope, layout) {
+  try {
+    window.localStorage.setItem(`dw-col-widths:${key}`, JSON.stringify({
+      schemaVersion: COLUMN_WIDTHS_SCHEMA_VERSION,
+      containerWidth: envelope.containerWidth,
+      layout: { version: layout.version, signature: layout.signature },
+      widths: envelope.widths,
+    }));
+    envelope.layout = { version: layout.version, signature: layout.signature };
+    envelope.schemaVersion = COLUMN_WIDTHS_SCHEMA_VERSION;
+  } catch (e) { /* privado/cuota: sigue siendo válido en memoria */ }
+}
+// `expectedLayout` (opcional): la estructura ACTUAL de la tabla. Con ella un registro
+// incompatible se elimina (solo ese key) y devuelve null; sin ella el contrato es el de
+// siempre (forma válida, sin juzgar la estructura).
+function readStoredColumnWidthsEnvelope(key, expectedLayout) {
   try {
     const raw = window.localStorage.getItem(`dw-col-widths:${key}`);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
-    if (parsed.schemaVersion !== COLUMN_WIDTHS_SCHEMA_VERSION) return null;
+    const legacy = parsed.schemaVersion === COLUMN_WIDTHS_LEGACY_SCHEMA_VERSION;
+    if (!legacy && parsed.schemaVersion !== COLUMN_WIDTHS_SCHEMA_VERSION) return null;
     if (typeof parsed.containerWidth !== "number" || !(parsed.containerWidth > 0)) return null;
     if (!parsed.widths || typeof parsed.widths !== "object" || Array.isArray(parsed.widths)) return null;
-    return parsed;
+    if (!Object.keys(parsed.widths).every(k => isStoredColumnWidth(parsed.widths[k]))) return null;
+    let layout = null;
+    if (!legacy) {
+      const l = parsed.layout;
+      if (!l || typeof l !== "object" || !Number.isInteger(l.version) || l.version < 1 || typeof l.signature !== "string" || !l.signature) return null;
+      layout = { version: l.version, signature: l.signature };
+    }
+    const envelope = { schemaVersion: parsed.schemaVersion, containerWidth: parsed.containerWidth, widths: parsed.widths, layout };
+    const expected = resolveColumnLayout(expectedLayout);
+    if (!expected) return envelope;
+    let compatible;
+    if (layout) {
+      compatible = layout.version === expected.version && layout.signature === expected.signature;
+    } else {
+      // Legacy (sin firma): se interpreta como layout v1 -- compatible solo si la tabla sigue en v1 y todas las columnas que el registro nombra existen.
+      compatible = expected.version === COLUMN_LAYOUT_DEFAULT_VERSION && Object.keys(parsed.widths).every(k => expected.keys.has(k));
+    }
+    if (!compatible) {
+      discardStoredColumnWidths(key);
+      return null;
+    }
+    if (!layout) stampStoredColumnWidthsLayout(key, envelope, expected);
+    return envelope;
   } catch (e) {
     return null;
   }
@@ -1774,8 +1891,8 @@ function readStoredColumnWidthsEnvelope(key) {
 // un detalle del contrato de restore de TABLAS QUE CONGELAN UN TOTAL
 // EXPLÍCITO (ver arriba), irrelevante para un consumidor que resuelve cada
 // columna de forma independiente contra su propio default declarativo.
-function readStoredColumnWidths(key) {
-  const envelope = readStoredColumnWidthsEnvelope(key);
+function readStoredColumnWidths(key, expectedLayout) {
+  const envelope = readStoredColumnWidthsEnvelope(key, expectedLayout);
   return envelope ? envelope.widths : null;
 }
 
@@ -1808,7 +1925,7 @@ function restorePersistedColumnWidths(container) {
   if (!container || typeof readStoredColumnWidthsEnvelope !== "function") return false;
   const key = container.dataset ? container.dataset.resizableColumnsKey : null;
   if (!key) return false;
-  const envelope = readStoredColumnWidthsEnvelope(key);
+  const envelope = readStoredColumnWidthsEnvelope(key, columnLayoutOfContainer(container));
   if (!envelope || !Object.keys(envelope.widths).length) return false;
   const currentWidth = container.clientWidth;
   const savedWidth = envelope.containerWidth;
