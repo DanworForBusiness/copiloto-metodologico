@@ -1494,6 +1494,7 @@ class ExportRequest:
     allowed_root_types: str | Iterable[str] | None = None
     diagnostics: bool = False
     safe: bool | None = None          # publicación SEGURA (fase 0); None = según DANWOR_PUBLICATION_SAFE. Solo aplica al modo PUBLISH
+    stage_hooks: Any = None           # etapas adicionales de la unidad de publicación (P1: el assessment gobernado); ver ``publication_txn.StageHooks``. Solo publicación segura
 
 
 @dataclass
@@ -1535,6 +1536,7 @@ class ExportResult:
     observations: dict[str, Any] = field(default_factory=dict)
     deferred_reasons: list[str] = field(default_factory=list)
     client_dir: str = ""              # directorio canónico del cliente con el que se publicó (una sola identidad por cliente)
+    outcome: str = ""                 # CHANGED | NO_CHANGE (una republicación idéntica no escribe nada)
 
 
 _PRECHECK_CODES = (
@@ -1602,6 +1604,11 @@ def _txn():
     return publication_txn
 
 
+def _txn_call(hooks, name):
+    fn = getattr(hooks, name, None) if hooks is not None else None
+    return fn() if callable(fn) else None
+
+
 def _tenant_id(host: str) -> str:
     from urllib.parse import urlparse
     return (urlparse(host if "://" in host else "https://" + host).hostname or "").lower()
@@ -1655,7 +1662,8 @@ def _publish_safe(req: "ExportRequest", exporter: "LineageExporter", *, base: "E
 
     from core import remote_store
     want_remote = bool(req.mirror_up)
-    hold_cm = remote_store.hold_publication(("catalog_local",)) if (want_remote and remote_store.write_enabled()) else contextlib.nullcontext(None)
+    hold_names = ("catalog_local", *(_txn_call(req.stage_hooks, "persisted_names") or ()))
+    hold_cm = remote_store.hold_publication(hold_names) if (want_remote and remote_store.write_enabled()) else contextlib.nullcontext(None)
     try:
         with hold_cm as hold:
             if hold is not None and not hold.exclusive:
@@ -1676,9 +1684,35 @@ def _pool_path(client_cache_dir: Path, key: tuple[str, str]) -> Path:
     return client_cache_dir / key[0] / f"{LineageExporter._safe_filename(key[1])}.json"
 
 
+def _remote_dirs(remote_store) -> dict[str, Path]:
+    """Directorios persistidos (nombre lógico → ruta local) tal como los resuelve ``remote_store`` (la MISMA fuente de verdad del mapeo local→clave)."""
+    return {name: Path(local).resolve() for name, local in remote_store._persist_dirs()}
+
+
+def _key_of(dirs: dict[str, Path], path: Path) -> str | None:
+    """Clave estable ``<dir persistido>/<ruta relativa>`` de una ruta local, o None si no cae bajo un directorio persistido."""
+    resolved = Path(path).resolve()
+    for name, base in dirs.items():
+        try:
+            return f"{name}/{resolved.relative_to(base).as_posix()}"
+        except ValueError:
+            continue
+    return None
+
+
+def _path_of(dirs: dict[str, Path], key: str) -> Path | None:
+    name, _, rel = key.partition("/")
+    return dirs[name] / rel if name in dirs else None
+
+
 def _apply_locked(req, exporter, *, base, txn, op_id, stages, planned, planned_sha, current_objects, client_dir_name, catalog_root,
                   csn_cache_root, client_cache_dir, remote_store, hold, finish, diagnostics) -> "ExportResult":
-    from core import atomic_io
+    from core import atomic_io, publication_gate
+    from tools.catalog import publication_ledger as ledger_mod
+    from tools.catalog import publication_remote as pr
+    hooks = req.stage_hooks
+    ctx = txn.StageContext(operation_id=op_id, client_dir=client_dir_name, catalog_root=catalog_root, csn_cache_root=csn_cache_root,
+                           root_object=exporter.root_object, root_type=exporter.root_type, space=req.space)
     # ── 0. recuperar cualquier operación a medias ANTES de decidir nada ──
     try:
         recovered = txn.recover_pending(catalog_root)
@@ -1687,6 +1721,11 @@ def _apply_locked(req, exporter, *, base, txn, op_id, stages, planned, planned_s
                              "Hay una operación anterior a medias que no pudo recuperarse: no se publica hasta resolverla.", operation_id=op_id, stages=stages)
     for item in recovered:
         _say(f"Recuperación previa: operación {item['operation_id']} {item['from']} → {item['action']}")
+    if recovered:
+        txn.call_hook(hooks, "after_rollback", ctx)                       # el disco pudo cambiar: la memoria del servicio no puede conservar la versión anterior
+    if txn.has_pending(catalog_root):
+        return _safe_failure(req, base, finish, txn.RECOVERY_REQUIRED, "RECOVERY_REQUIRED",
+                             "Una publicación anterior sigue sin confirmarse en Spaces: no se publica hasta resolverla.", operation_id=op_id, stages=stages)
     txn.fault("after_lock")
 
     # ── 1. REVALIDAR bajo el candado: manifiestos y precondiciones se calculan ACÁ (nada calculado antes de adquirirlo se da por válido) ──
@@ -1790,22 +1829,147 @@ def _apply_locked(req, exporter, *, base, txn, op_id, stages, planned, planned_s
         new_manifest = txn.seal_manifest({**{k: v for k, v in new_manifest.items() if k != "integrity"}, "analyticModel": exporter.root_object})
     same_manifest = own.usable and migrated_from is None and own.state == txn.M_OK and txn.semantic_signature(new_manifest) == txn.semantic_signature(own.data) and "integrity" in own.data
     write_manifest = not same_manifest
-    changed = bool(writes or deletable or write_manifest)
+    pool_changed = bool(writes or deletable or write_manifest)
+    ctx.pool_changed = pool_changed
 
-    # ── 2. journal + undo ──
+    # ── 1b. persistencia remota: ¿hay que confirmarla? Antes de tocar nada se verifica que se PUEDA (un fallo de lectura/listado es un resultado explícito, no «sin huérfanos») ──
     client_catalog_dir = catalog_root / client_dir_name
     catalog_manifest = catalog_root / ".catalog_manifest.json"
+    ledger_file = ledger_mod.ledger_path(catalog_root, client_dir_name)
+    stage_names = tuple(txn.call_hook(hooks, "persisted_names", default=()) or ())
+    stage_dir = txn.call_hook(hooks, "governed_client_dir", ctx)
+    persisted = ("catalog_local", *stage_names)
+    want_remote = bool(req.mirror_up and remote_store.write_enabled())
+    dirs = _remote_dirs(remote_store) if want_remote else {}
+    markers = (catalog_manifest.name, ledger_file.name)
+    prefix_keys: list[str] = []
+    listing: dict[str, dict] = {}
+    if want_remote and stage_dir is not None and not stage_names:        # el almacén gobernado existe pero NO figura en las rutas persistidas: sus assessments no sobreviven a un redeploy
+        observations["governed_assessments_not_persisted"] = True
+        _say("ADVERTENCIA: el almacén gobernado de assessments no figura en SPACES_PERSIST_PATHS; los assessments no quedan confirmados en Spaces (sumá 'governed-assessments').")
+    if want_remote:
+        prefix_keys = _client_prefix_keys(dirs, catalog_root, csn_cache_root, client_dir_name, stage_dir)
+        pre = pr.preflight(remote_store, persisted, prefix_keys, probe=ledger_file)
+        if not pre.ok:
+            stages["remote"] = "FAILED"
+            return _safe_failure(req, base, finish, txn.FAILED_NO_CHANGE, pre.code,
+                                 "No se puede confirmar la publicación en Spaces (" + pre.code + "): no se modificó nada.", operation_id=op_id, stages=stages)
+        listing = pre.listing
+    elif req.mirror_up and not remote_store.local_only():
+        stages["remote"] = "FAILED"
+        return _safe_failure(req, base, finish, txn.FAILED_NO_CHANGE, "PERSISTENCE_NOT_AVAILABLE",
+                             "La persistencia en Spaces no está disponible en este modo (solo lectura o sin autorizar): no se modificó nada.", operation_id=op_id, stages=stages)
+
+    # ── 1c. ¿hay algo que hacer? Una republicación idéntica NO escribe nada (ni pool, ni Catálogo, ni assessments, ni bitácora) ──
+    ledger_state, ledger = ledger_mod.load(catalog_root, client_dir_name)
+    stage_work = True if pool_changed else bool(txn.call_hook(hooks, "needs_work", ctx, default=False))
+    unit_now = ledger_mod.unit_files(catalog_root, csn_cache_root, client_dir_name, stage_dir) if (not pool_changed and not stage_work) else {}
+    ledger_problems = (["ledger " + ledger_state] if ledger_state != ledger_mod.L_OK else ledger_mod.verify(ledger, unit_now)) if (not pool_changed and not stage_work) else ["pendiente"]
+    verify_now = _verify_applied(txn, planned_sha, client_cache_dir, manifest_path, client_catalog_dir, require_flows=bool(req.generate_catalog and planned)) if (not pool_changed and not stage_work and not ledger_problems) else ["pendiente"]
+    if not pool_changed and not stage_work and not ledger_problems and not verify_now:
+        return _finish_no_change(req, exporter, base=base, txn=txn, op_id=op_id, stages=stages, planned=planned, client_cache_dir=client_cache_dir, manifest_path=manifest_path,
+                                 client_dir_name=client_dir_name, ledger_file=ledger_file, deferred=(list(reasons) if ((stale and not deletes_allowed) or own_unknown) else []), observations=observations,
+                                 want_remote=want_remote, remote_store=remote_store, pr=pr, markers=markers, unit_now=unit_now, listing=listing, dirs=dirs, persisted=persisted,
+                                 diagnostics=diagnostics, finish=finish, retained_shared=retained_shared, space=space)
+    changed = True
+
+    # ── 2. journal + undo (la compuerta de lectores se cierra ANTES de tocar nada y se abre sólo con la versión confirmada o deshecha) ──
     journal = txn.Journal(catalog_root, op_id, {
         "operation_id": op_id, "mode": "publish", "client_dir": client_dir_name, "space": space, "root_object": exporter.root_object,
         "root_type": exporter.root_type, "catalog_root": str(catalog_root), "csn_cache_root": str(csn_cache_root), "host_id": txn.host_id(),
         "started_at": txn.now_iso(), "planned_writes": [f"{k[0]}/{k[1]}" for k, _, _ in writes], "planned_deletes": [f"{k[0]}/{k[1]}" for k in deletable],
-        "touched_dirs": [str(client_cache_dir), str(client_catalog_dir), str(diag_dir)]})
+        "touched_dirs": [str(client_cache_dir), str(client_catalog_dir), str(diag_dir), *([str(stage_dir)] if stage_dir else [])]})
     journal.update(txn.J_PLANNED)
+    publication_gate.begin(op_id, client_dir_name, catalog_root)
+    keep_closed = {"on": False}
+    try:
+        return _apply_unit(req, exporter, base=base, txn=txn, op_id=op_id, stages=stages, planned=planned, planned_sha=planned_sha, client_dir_name=client_dir_name,
+                           catalog_root=catalog_root, csn_cache_root=csn_cache_root, client_cache_dir=client_cache_dir, remote_store=remote_store, hold=hold, finish=finish,
+                           diagnostics=diagnostics, hooks=hooks, ctx=ctx, journal=journal, writes=writes, deletable=deletable, retained_shared=retained_shared, reasons=reasons,
+                           stale=stale, deletes_allowed=deletes_allowed, own_unknown=own_unknown, previous_objects=previous_objects, observations=observations,
+                           manifest_path=manifest_path, new_manifest=new_manifest, write_manifest=write_manifest, migrated_from=migrated_from, diag_dir=diag_dir,
+                           client_catalog_dir=client_catalog_dir, catalog_manifest=catalog_manifest, ledger_file=ledger_file, ledger=ledger, stage_dir=stage_dir, persisted=persisted,
+                           want_remote=want_remote, dirs=dirs, markers=markers, prefix_keys=prefix_keys, listing=listing, keep_closed=keep_closed, atomic_io=atomic_io,
+                           ledger_mod=ledger_mod, pr=pr, space=space, changed=changed, publication_gate=publication_gate)
+    except BaseException as exc:                  # noqa: BLE001 — una caída (no una ``Exception`` controlada) deja la unidad a medias: la compuerta SIGUE cerrada hasta que la recuperación la resuelva
+        if not isinstance(exc, Exception):
+            keep_closed["on"] = True
+        raise
+    finally:
+        if not keep_closed["on"]:
+            publication_gate.end(op_id, catalog_root)
+
+
+def _client_prefix_keys(dirs: dict[str, Path], catalog_root: Path, csn_cache_root: Path, client_dir: str, stage_dir: Path | None) -> list[str]:
+    """Prefijos de claves remotas del cliente (pool, linaje, Catálogo, ledger, y la carpeta del cliente de la etapa)."""
+    out: list[str] = []
+    for folder in (csn_cache_root / client_dir, catalog_root / ".lineage_runs" / client_dir, catalog_root / client_dir):
+        key = _key_of(dirs, folder)
+        if key:
+            out.append(key + "/")
+    key = _key_of(dirs, catalog_root / ".publication_state" / f"{client_dir}.publication.json")
+    if key:
+        out.append(key)
+    if stage_dir is not None:
+        key = _key_of(dirs, Path(stage_dir))
+        if key:
+            out.append(key + "/")
+    return out
+
+
+def _finish_no_change(req, exporter, *, base, txn, op_id, stages, planned, client_cache_dir, manifest_path, client_dir_name, ledger_file, deferred, observations, want_remote, remote_store, pr,
+                      markers, unit_now, listing, dirs, persisted, diagnostics, finish, retained_shared, space) -> "ExportResult":
+    """Republicación idéntica: no se escribió NADA. Si hay persistencia remota se verifica (solo lectura salvo que Spaces estuviera atrasado) y se informa sin cambios."""
+    durability = txn.DURABILITY_NOT_REQUESTED
+    stages.update({"apply": "SKIPPED", "catalog": "SKIPPED", "assessment": "SKIPPED"})
+    if want_remote:
+        keyed = dict(unit_now)
+        ledger_key = _key_of(dirs, ledger_file)
+        if ledger_key and ledger_file.exists():
+            keyed[ledger_key] = ledger_file
+        outcome = pr.converge(remote_store, keyed, last=[k for k, p in keyed.items() if p.name in markers])
+        if outcome.status != pr.CONFIRMED:
+            stages["remote"] = "FAILED" if outcome.status == pr.FAILED else "PARTIAL"
+            return _safe_failure(req, base, finish, txn.FAILED_NO_CHANGE, "PERSISTENCE_UNCONFIRMED",
+                                 "La versión local ya es la publicada, pero no se pudo confirmar en Spaces. Reintentá (es idempotente).", operation_id=op_id, stages=stages)
+        durability = txn.DURABILITY_REMOTE
+        stages["remote"] = "OK"
+    else:
+        stages["remote"] = "SKIPPED"
+        durability = txn.DURABILITY_LOCAL_BY_CONFIG if req.mirror_up else txn.DURABILITY_NOT_REQUESTED
+    files_by_type = {t: sum(1 for _ in (client_cache_dir / t).glob("*.json")) if (client_cache_dir / t).is_dir() else 0 for t in OBJECT_TYPES}
+    base.ok, base.status, base.exit_code, base.outcome = True, txn.COMPLETED, 0, "NO_CHANGE"
+    base.client, base.space, base.analytic_model = req.client, space, req.analytic_model
+    base.root_object, base.root_type = exporter.root_object, exporter.root_type
+    base.objects, base.edges, base.external_sources = len(exporter.nodes), len(exporter.edges), len(exporter.external_sources)
+    base.exported_files, base.files_by_type = sum(files_by_type.values()), {k: v for k, v in files_by_type.items() if v}
+    base.retained_shared = len(retained_shared)
+    base.pool_dir, base.manifest_path, base.catalog_generated = client_cache_dir, manifest_path, False
+    base.operation_id, base.durability, base.stages, base.observations, base.client_dir = op_id, durability, stages, observations, client_dir_name
+    base.deferred_reasons = list(deferred)
+    base.applied = {"added": [], "modified": [], "removed": [], "retained_shared": [f"{k[0]}/{k[1]}" for k in retained_shared], "changed": False}
+    base.diagnostics = diagnostics.snapshot() if diagnostics.enabled else None
+    if base.deferred_reasons:
+        base.status, base.ok, base.error_code, base.exit_code = txn.COMMITTED_CLEANUP_DEFERRED, False, "CLEANUP_DEFERRED", 3
+        base.message = "Sin cambios; quedan objetos obsoletos sin limpiar (no se pudo verificar la propiedad): no se borró nada."
+    _say("\nREPUBLICACION SIN CAMBIOS: el Catálogo y los assessments ya reflejan exactamente esta extracción; no se escribió nada.")
+    _say(f"ESTADO DE LA PUBLICACIÓN: {base.status}")
+    _say("STATUS: SUCCESS" if base.status == txn.COMPLETED else f"STATUS: {base.status}")
+    return finish(base)
+
+
+def _apply_unit(req, exporter, *, base, txn, op_id, stages, planned, planned_sha, client_dir_name, catalog_root, csn_cache_root, client_cache_dir, remote_store, hold, finish,
+                diagnostics, hooks, ctx, journal, writes, deletable, retained_shared, reasons, stale, deletes_allowed, own_unknown, previous_objects, observations, manifest_path,
+                new_manifest, write_manifest, migrated_from, diag_dir, client_catalog_dir, catalog_manifest, ledger_file, ledger, stage_dir, persisted, want_remote, dirs, markers,
+                prefix_keys, listing, keep_closed, atomic_io, ledger_mod, pr, space, changed, publication_gate) -> "ExportResult":
     undo = txn.UndoLog(txn.undo_dir(catalog_root, op_id))
     stage = "snapshot"
     catalog_generated = False
+    stage_summary: dict[str, Any] = {}
+    failures: list[dict] = []
     try:
         txn.fault("after_journal_planned")
+        txn.call_hook(hooks, "before_apply", ctx)                                  # estado PREVIO del assessment (nada escrito todavía)
         for _key, path, _text in writes:
             undo.capture(path)
         for key in deletable:
@@ -1815,10 +1979,13 @@ def _apply_locked(req, exporter, *, base, txn, op_id, stages, planned, planned_s
             undo.capture(migrated_from)
         undo.capture(client_catalog_dir)
         undo.capture(catalog_manifest)
+        undo.capture(ledger_file)
+        for extra in txn.call_hook(hooks, "undo_paths", ctx, default=[]) or []:
+            undo.capture(extra)
         undo.save()
         journal.update(txn.J_APPLYING)
         txn.fault("after_undo_snapshot")
-        # ── 3. APPLY (atómico por archivo) → VERIFY ──
+        # ── 3. APPLY (atómico por archivo) → ETAPAS → VERIFY ──
         stage = "apply"
         for index, (key, path, text) in enumerate(writes):
             txn.fault("mid_pool_write", index=index, key=key)
@@ -1851,58 +2018,126 @@ def _apply_locked(req, exporter, *, base, txn, op_id, stages, planned, planned_s
             _say(regenerate_catalog_from_pool(csn_cache_root, catalog_root, only_clients={client_dir_name}))
             catalog_generated = True
         txn.fault("after_catalog")
+        if hooks is not None:
+            stage = "assessment"
+            _say("\n==========================================")
+            _say("ASSESSMENT DEL CLIENTE (preparar → validar → escribir en local)")
+            _say("==========================================")
+            txn.call_hook(hooks, "after_catalog", ctx)                              # PREPARA en memoria; falla ⇒ se deshace la unidad entera
+            txn.fault("after_assessment_prepare")
+            stage_summary = txn.call_hook(hooks, "commit", ctx, default={}) or {}
+            txn.fault("after_assessment_commit")
         stage = "verify"
         txn.fault("before_verify")
         problems = _verify_applied(txn, planned_sha, client_cache_dir, manifest_path, client_catalog_dir, require_flows=bool(req.generate_catalog and planned))
+        problems += list(txn.call_hook(hooks, "verify", ctx, default=[]) or [])
         if problems:
             raise RuntimeError("VERIFY_FAILED: " + "; ".join(problems[:5]))
+        stage = "ledger"
+        unit = ledger_mod.unit_files(catalog_root, csn_cache_root, client_dir_name, stage_dir)
+        new_ledger = ledger_mod.build(
+            ledger, operation_id=op_id, activated_at=txn.now_iso(), client_dir=client_dir_name, space=space, root_object=exporter.root_object, root_type=exporter.root_type,
+            extra={"manifest_sha256": txn.sha256_text_file(manifest_path), "objects": {f"{t}/{n}": planned_sha[(t, n)] for (t, n) in sorted(planned_sha)}, **stage_summary},
+            file_digests=ledger_mod.digests(unit),
+            counts={"written": len(writes), "removed": len(deletable), "assessment": {k: len(v) for k, v in (stage_summary.get("assessment") or {}).items()}})
+        ledger_mod.write(catalog_root, client_dir_name, new_ledger)
+        txn.fault("after_ledger")
     except Exception as exc:                     # noqa: BLE001 — una caída real (BaseException) NO pasa por acá: la recupera el journal
-        code = {"catalog": "CATALOG_GENERATION_FAILED", "verify": "VERIFY_FAILED"}.get(stage, "APPLY_FAILED")
+        code = {"catalog": "CATALOG_GENERATION_FAILED", "verify": "VERIFY_FAILED", "assessment": "ASSESSMENT_FAILED", "ledger": "APPLY_FAILED"}.get(stage, "APPLY_FAILED")
+        if stage == "assessment":
+            code = str(getattr(exc, "code", "") or code)
+            failures = list(getattr(exc, "failures", []) or [])
         _say(f"ERROR: {code} - {type(exc).__name__}", file=sys.stderr)
-        stages.update({"apply": "FAILED", "catalog": "FAILED" if stage == "catalog" else "SKIPPED"})
+        stages.update({"apply": "FAILED", "catalog": "FAILED" if stage == "catalog" else "SKIPPED", "assessment": "FAILED" if stage == "assessment" else "SKIPPED"})
         residue = undo.restore()
+        txn.call_hook(hooks, "after_rollback", ctx)
         if residue:
+            keep_closed["on"] = True
+            publication_gate.mark_uncertain(op_id, client_dir_name, catalog_root)
             return _safe_failure(req, base, finish, txn.RECOVERY_REQUIRED, "RECOVERY_REQUIRED",
                                  "La publicación falló y la restauración no pudo verificarse por completo: no se publica hasta resolverlo.", operation_id=op_id, stages=stages)
         journal.update(txn.J_ROLLED_BACK, error_code=code)
         shutil.rmtree(txn.undo_dir(catalog_root, op_id), ignore_errors=True)
         _say("Estado anterior RESTAURADO y verificado.")
-        return _safe_failure(req, base, finish, txn.ROLLED_BACK, code,
-                             "La publicación falló y se restauró el estado anterior del Catálogo." if code != "CATALOG_GENERATION_FAILED"
-                             else "La extracción terminó, pero falló la regeneración del catálogo: se restauró el estado anterior.", operation_id=op_id, stages=stages)
-    stages.update({"apply": "OK", "catalog": "OK" if catalog_generated else "SKIPPED"})
-    journal.update(txn.J_LOCAL_COMMITTED, changed=changed)
-    shutil.rmtree(txn.undo_dir(catalog_root, op_id), ignore_errors=True)
-    txn.fault("after_local_commit")
+        message = {"CATALOG_GENERATION_FAILED": "La extracción terminó, pero falló la regeneración del catálogo: se restauró el estado anterior.",
+                   "VERIFY_FAILED": "La publicación falló y se restauró el estado anterior del Catálogo."}.get(code)
+        return _safe_failure(req, base, finish, txn.ROLLED_BACK, code, message or "La publicación falló y se restauró el estado anterior del Catálogo.",
+                             operation_id=op_id, stages=stages, failures=failures)
+    stages.update({"apply": "OK", "catalog": "OK" if catalog_generated else "SKIPPED", "assessment": "OK" if hooks is not None else "SKIPPED"})
 
-    # ── 4. confirmación REMOTA (solo si se pidió): contrato de persist_changed, nunca «OK» por no haber fallado ──
+    # ── 4. confirmación DURABLE: la versión nueva NO es vigente hasta que Spaces la confirma (cuerpo + marcador al final). Hasta entonces la compuerta sigue cerrada ──
+    unit = ledger_mod.unit_files(catalog_root, csn_cache_root, client_dir_name, stage_dir)
+    removed_keys: dict[str, Path] = {}
+    if want_remote:
+        for gone in undo.removed_paths():
+            k = _key_of(dirs, gone)
+            if k:
+                removed_keys[k] = gone
+        for k in pr.orphans(listing, prefix_keys, unit):
+            p = _path_of(dirs, k)
+            if p is not None and k not in removed_keys and len(removed_keys) < _MAX_REMOTE_DELETES:
+                removed_keys[k] = p
+        unit_keyed = {k: p for k, p in unit.items() if k.split("/", 1)[0] in persisted}
+        ledger_key = _key_of(dirs, ledger_file)
+        if ledger_key:
+            unit_keyed[ledger_key] = ledger_file                                    # el marcador de activación: se confirma el ÚLTIMO
+    else:
+        unit_keyed = {}
+    journal.update(txn.J_COMMIT_UNCERTAIN if want_remote else txn.J_LOCAL_COMMITTED, changed=changed,
+                   unit={"keyed": {k: str(p) for k, p in {**unit_keyed, **removed_keys}.items()}, "markers": list(markers), "persisted": list(persisted)})
+    txn.fault("after_local_commit")
     durability = txn.DURABILITY_NOT_REQUESTED
-    remote_status = "not_requested"
-    if req.mirror_up:
+    remote_note = ""
+    if want_remote:
         txn.fault("before_remote")
         _say("\n==========================================")
-        _say("PERSISTIENCIA EN DIGITALOCEAN SPACES")
+        _say("PERSISTENCIA EN DIGITALOCEAN SPACES (confirmación durable)")
         _say("==========================================")
-        try:
-            out = remote_store.persist_changed(("catalog_local",), last=(".catalog_manifest.json",))
-            remote_status = str(out.get("status"))
-        except Exception as exc:                 # noqa: BLE001 — la persistencia nunca rompe lo ya aplicado, pero tampoco se confirma
-            remote_status = "failed"
-            _say(f"WARN persistencia: {type(exc).__name__}", file=sys.stderr)
-        base.storage_enabled = bool(remote_store.write_enabled())
-        if remote_status == "remote":
+        base.storage_enabled = True
+        outcome = pr.confirm(remote_store, persisted, markers, unit_keyed, removed_keys, ledger_file)
+        txn.fault("after_remote")
+        if outcome.status == pr.CONFIRMED:
             durability = txn.DURABILITY_REMOTE
-        elif remote_status == "disabled" and remote_store.local_only():
-            durability = txn.DURABILITY_LOCAL_BY_CONFIG
-        else:
-            durability = txn.DURABILITY_UNCONFIRMED
+            stages["remote"] = "OK"
+            journal.update(txn.J_REMOTE_CONFIRMED, durability=durability, reconciled=outcome.reconciled)
+        elif outcome.status == pr.FAILED:
+            # Se leyó el remoto y se verificó que NO refleja la versión: se mantiene la última versión confirmada (local y remoto vuelven a la previa).
+            stages["remote"] = "FAILED"
             if hold is not None:
                 hold.fail()
-        stages["remote"] = {"remote": "OK", "disabled": "SKIPPED"}.get(remote_status, "PARTIAL" if remote_status == "partial" else "FAILED")
-        journal.update({txn.DURABILITY_REMOTE: txn.J_REMOTE_CONFIRMED, txn.DURABILITY_UNCONFIRMED: txn.J_REMOTE_PENDING}.get(durability, txn.J_LOCAL_COMMITTED),
-                       durability=durability, remote_status=remote_status)
+            residue = undo.restore()
+            txn.call_hook(hooks, "after_rollback", ctx)
+            if residue:
+                keep_closed["on"] = True
+                journal.update(txn.J_COMMIT_UNCERTAIN)
+                publication_gate.mark_uncertain(op_id, client_dir_name, catalog_root)
+                return _safe_failure(req, base, finish, txn.RECOVERY_REQUIRED, "RECOVERY_REQUIRED", "No se pudo restaurar la versión previa: no se publica hasta resolverlo.",
+                                     operation_id=op_id, stages=stages)
+            journal.update(txn.J_REMOTE_DIVERGED, local_restored=True)
+            back = pr.converge(remote_store, {**unit_keyed, **removed_keys}, last=[k for k, p in unit_keyed.items() if p.name in markers])
+            if back.status == pr.CONFIRMED:
+                journal.update(txn.J_ROLLED_BACK, error_code="PERSISTENCE_FAILED")
+                shutil.rmtree(txn.undo_dir(catalog_root, op_id), ignore_errors=True)
+                return _safe_failure(req, base, finish, txn.ROLLED_BACK, "PERSISTENCE_FAILED",
+                                     "No se pudo confirmar la publicación en Spaces: se mantuvo la última versión confirmada.", operation_id=op_id, stages=stages)
+            return _safe_failure(req, base, finish, txn.RECOVERY_REQUIRED, "PERSISTENCE_DIVERGED",
+                                 "La versión previa quedó activa en local, pero Spaces todavía no la refleja: se reintenta; no se publica hasta resolverlo.", operation_id=op_id, stages=stages)
+        else:
+            # No se pudo leer/verificar el remoto: ni se confirma ni se deshace. Los lectores NO ven la versión nueva: la compuerta queda cerrada hasta resolverlo.
+            stages["remote"] = "UNCERTAIN"
+            keep_closed["on"] = True
+            if hold is not None:
+                hold.fail()
+            journal.update(txn.J_COMMIT_UNCERTAIN, durability=txn.DURABILITY_UNCONFIRMED)
+            publication_gate.mark_uncertain(op_id, client_dir_name, catalog_root)
+            return _safe_failure(req, base, finish, txn.RECOVERY_REQUIRED, "PERSISTENCE_UNCERTAIN",
+                                 "No se pudo verificar en Spaces si la publicación quedó guardada: la lectura queda bloqueada hasta resolverlo.", operation_id=op_id, stages=stages)
     else:
         stages["remote"] = "SKIPPED"
+        durability = txn.DURABILITY_LOCAL_BY_CONFIG if req.mirror_up else txn.DURABILITY_NOT_REQUESTED
+        journal.update(txn.J_LOCAL_COMMITTED, durability=durability)
+    shutil.rmtree(txn.undo_dir(catalog_root, op_id), ignore_errors=True)
+    txn.call_hook(hooks, "finished", ctx)                                           # cachés fuera ANTES de abrir la compuerta: los lectores ven SOLO la versión nueva
 
     # ── 5. resultado: SUCCESS ⇔ COMPLETED ──
     files_by_type = {t: sum(1 for _ in (client_cache_dir / t).glob("*.json")) if (client_cache_dir / t).is_dir() else 0 for t in OBJECT_TYPES}
@@ -1913,17 +2148,14 @@ def _apply_locked(req, exporter, *, base, txn, op_id, stages, planned, planned_s
     base.exported_files, base.files_by_type = sum(files_by_type.values()), {k: v for k, v in files_by_type.items() if v}
     base.deleted_stale, base.retained_shared = len(deletable), len(retained_shared)
     base.pool_dir, base.manifest_path, base.catalog_generated = client_cache_dir, manifest_path, catalog_generated
-    base.operation_id, base.durability, base.stages, base.observations = op_id, durability, stages, observations
+    base.operation_id, base.durability, base.stages, base.observations, base.client_dir, base.outcome = op_id, durability, stages, observations, client_dir_name, "CHANGED"
     base.deferred_reasons = list(reasons) if ((stale and not deletes_allowed) or own_unknown) else []
     base.applied = {"added": [f"{k[0]}/{k[1]}" for k, _, _ in writes if k not in previous_objects],
                     "modified": [f"{k[0]}/{k[1]}" for k, _, _ in writes if k in previous_objects],
-                    "removed": [f"{k[0]}/{k[1]}" for k in deletable], "retained_shared": [f"{k[0]}/{k[1]}" for k in retained_shared], "changed": changed}
+                    "removed": [f"{k[0]}/{k[1]}" for k in deletable], "retained_shared": [f"{k[0]}/{k[1]}" for k in retained_shared], "changed": changed,
+                    "remote_removed": sorted(removed_keys), **stage_summary}
     base.diagnostics = diagnostics.snapshot() if diagnostics.enabled else None
-    unconfirmed = bool(req.mirror_up and durability == txn.DURABILITY_UNCONFIRMED)
-    if unconfirmed:
-        base.status, base.error_code, base.exit_code = txn.COMMITTED_UNCONFIRMED, "PERSISTENCE_UNCONFIRMED", 3
-        base.message = "Publicado en el Catálogo local; la persistencia en Spaces NO está confirmada."
-    elif base.deferred_reasons:
+    if base.deferred_reasons:
         base.status, base.error_code, base.exit_code = txn.COMMITTED_CLEANUP_DEFERRED, "CLEANUP_DEFERRED", 3
         base.message = "Publicado, pero no se limpiaron objetos obsoletos (no se pudo verificar la propiedad): no se borró nada."
     else:
@@ -1941,6 +2173,9 @@ def _apply_locked(req, exporter, *, base, txn, op_id, stages, planned, planned_s
     _say(f"ESTADO DE LA PUBLICACIÓN: {base.status}")
     _say("STATUS: SUCCESS" if base.status == txn.COMPLETED else f"STATUS: {base.status}")
     return finish(base)
+
+
+_MAX_REMOTE_DELETES = 500                  # tope de borrados remotos por publicación (red de seguridad: un error de cálculo no puede vaciar el bucket)
 
 
 def _verify_applied(txn, planned_sha: dict, client_cache_dir: Path, manifest_path: Path, client_catalog_dir: Path, *, require_flows: bool) -> list[str]:

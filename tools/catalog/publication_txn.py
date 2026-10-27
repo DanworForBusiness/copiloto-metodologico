@@ -327,6 +327,25 @@ class UndoLog:
     def save(self) -> None:
         atomic_io.write_text(self.op_dir / "undo.json", json.dumps({"entries": [e.__dict__ for e in self.entries]}, indent=1))
 
+    def removed_paths(self) -> list[Path]:
+        """Archivos que EXISTÍAN al capturar y YA NO existen (borrados por la operación): lo que un restore desde Spaces resucitaría si no se retira también del remoto."""
+        gone: list[Path] = []
+        for e in self.entries:
+            if not e.existed:
+                continue
+            target = Path(e.path)
+            if not e.is_dir:
+                if not target.exists():
+                    gone.append(target)
+                continue
+            backup = self.op_dir / "backup" / str(e.backup)
+            for src in sorted(backup.rglob("*")):
+                if src.is_file():
+                    original = target / src.relative_to(backup)
+                    if not original.exists():
+                        gone.append(original)
+        return gone
+
     def restore(self) -> list[str]:
         """Restaura en orden inverso. Devuelve la lista de rutas que NO quedaron idénticas a lo capturado (vacía = verificado)."""
         problems: list[str] = []
@@ -382,7 +401,47 @@ def sha256_text(text: str) -> str:
 # ═════════════════════════ journal y recuperación ═════════════════════════
 J_PLANNED, J_APPLYING, J_LOCAL_COMMITTED, J_REMOTE_CONFIRMED, J_REMOTE_PENDING, J_ROLLED_BACK, J_DISCARDED = (
     "PLANNED", "APPLYING", "LOCAL_COMMITTED", "REMOTE_CONFIRMED", "REMOTE_PENDING", "ROLLED_BACK", "DISCARDED")
-_PENDING_STATES = frozenset({J_PLANNED, J_APPLYING})
+# P1 — estados INTERNOS de recuperación (no son resultados funcionales de una publicación):
+#   COMMIT_UNCERTAIN  aplicada en local, verificada, pero NO se pudo confirmar ni deshacer de forma verificable en Spaces: la compuerta de lectores sigue cerrada (se conserva el undo).
+#   REMOTE_DIVERGED   el local ya volvió a la versión previa confirmada, pero el remoto todavía no (la compensación sigue pendiente): se reintenta; no se publica nada nuevo mientras tanto.
+J_COMMIT_UNCERTAIN, J_REMOTE_DIVERGED = "COMMIT_UNCERTAIN", "REMOTE_DIVERGED"
+_LOCAL_PENDING = frozenset({J_PLANNED, J_APPLYING})
+_PENDING_STATES = frozenset({J_PLANNED, J_APPLYING, J_COMMIT_UNCERTAIN, J_REMOTE_DIVERGED})
+_REMOTE_PENDING_STATES = frozenset({J_COMMIT_UNCERTAIN, J_REMOTE_DIVERGED})
+
+
+@dataclass
+class StageContext:
+    """Contexto que la unidad de publicación le pasa a las ETAPAS adicionales (``StageHooks``, p. ej. el assessment gobernado)."""
+    operation_id: str
+    client_dir: str
+    catalog_root: Path
+    csn_cache_root: Path
+    root_object: str
+    root_type: str
+    space: str
+    pool_changed: bool = False
+
+
+class StageHooks:
+    """Protocolo (todos los métodos son opcionales) de una etapa que forma parte de la unidad. Corre bajo el candado de escritor y detrás de la compuerta de lectores:
+
+      persisted_names()            directorios persistidos EXTRA de la etapa (p. ej. ``governed-assessments``) que deben retenerse y confirmarse con la unidad
+      governed_client_dir(ctx)     carpeta de la etapa para el cliente (entra al undo, a los digests y a la confirmación remota)
+      undo_paths(ctx)              rutas a capturar en el undo ANTES de aplicar
+      needs_work(ctx)              sin cambios en el pool: ¿la etapa tiene trabajo pendiente? (si no, la republicación es NO_CHANGE)
+      before_apply(ctx)            lee el estado PREVIO (nada escrito todavía)
+      after_catalog(ctx)           PREPARA en memoria contra el pool y el Catálogo ya aplicados; lanza para deshacer la unidad
+      commit(ctx) -> dict          escribe en LOCAL lo preparado; devuelve el resumen para la bitácora
+      verify(ctx) -> list[str]     problemas de la etapa tras aplicar
+      after_rollback(ctx)          el disco volvió al estado previo
+      finished(ctx)                versión confirmada: descartar cachés antes de abrir la compuerta
+    La etapa NUNCA sube a Spaces: la confirmación durable es de la unidad."""
+
+
+def call_hook(hooks: Any, name: str, *args: Any, default: Any = None) -> Any:
+    fn = getattr(hooks, name, None) if hooks is not None else None
+    return fn(*args) if callable(fn) else default
 
 
 def runtime_dir(catalog_root: str | Path) -> Path:
@@ -428,7 +487,7 @@ def _prune_journals(catalog_root: Path) -> None:
 
 
 def has_pending(catalog_root: str | Path) -> bool:
-    """¿Hay un journal sin cerrar (PLANNED/APPLYING)? Barato y sin candado: lo usan los caminos que no toman el candado para negarse a trabajar sobre un estado a medias."""
+    """¿Hay un journal sin cerrar (PLANNED/APPLYING, o con la confirmación remota por resolver)? Barato y sin candado: lo usan los caminos que no toman el candado para negarse a trabajar sobre un estado a medias."""
     for jf in journal_dir(catalog_root).glob("*.json"):
         try:
             if json.loads(jf.read_text(encoding="utf-8")).get("state") in _PENDING_STATES:
@@ -457,6 +516,9 @@ def recover_pending(catalog_root: str | Path, *, timeout: float | None = None) -
                 continue
             op = str(data.get("operation_id") or jf.stem)
             journal = Journal(root, op, data)
+            if state in (J_COMMIT_UNCERTAIN, J_REMOTE_DIVERGED):
+                results.append({"operation_id": op, "from": state, "action": _resolve_remote_state(root, data, journal)})
+                continue
             if state == J_PLANNED:
                 _clean_temporaries(data)
                 journal.update(J_DISCARDED, recovered=True)
@@ -475,6 +537,44 @@ def recover_pending(catalog_root: str | Path, *, timeout: float | None = None) -
             results.append({"operation_id": op, "from": state, "action": "ROLLED_BACK"})
         _prune_journals(root)
     return results
+
+
+def _resolve_remote_state(root: Path, data: dict, journal: Journal) -> str:
+    """Resuelve una operación cuya confirmación remota quedó incierta o divergente, VERIFICANDO el remoto (nunca asumiendo): primero intenta COMPLETAR hacia adelante (el local es la versión
+    nueva); si se verifica que el remoto no puede reflejarla, DESHACE (restaura el local desde el undo y reconcilia el remoto con la versión previa). Devuelve ``CONFIRMED`` · ``ROLLED_BACK`` ·
+    ``UNCERTAIN`` (sigue sin poder verificarse: la compuerta de lectores permanece cerrada) · ``DIVERGED`` (local ya previo; compensación remota pendiente)."""
+    from core import publication_gate, remote_store
+    from tools.catalog import publication_remote as pr
+    op, state = journal.operation_id, journal.state
+    unit = data.get("unit") or {}
+    keyed = {k: Path(v) for k, v in (unit.get("keyed") or {}).items()}
+    markers = tuple(unit.get("markers") or ())
+    last = [k for k, p in keyed.items() if p.name in markers]
+    od = undo_dir(root, op)
+    if state == J_COMMIT_UNCERTAIN:
+        out = pr.converge(remote_store, keyed, last=last)             # hacia adelante: el local ES la versión nueva
+        if out.status == pr.CONFIRMED:
+            journal.update(J_REMOTE_CONFIRMED, durability=DURABILITY_REMOTE, resolved="forward")
+            shutil.rmtree(od, ignore_errors=True)
+            publication_gate.clear(root)
+            return "CONFIRMED"
+        if out.status == pr.UNCERTAIN:
+            return "UNCERTAIN"
+        try:                                                         # el remoto se leyó y NO refleja la versión: se deshace
+            problems = UndoLog.load(od).restore()
+        except (OSError, ValueError, KeyError) as exc:
+            raise RecoveryError(f"no se pudo restaurar la operación {op}") from exc
+        if problems:
+            raise RecoveryError(f"la restauración de la operación {op} no quedó verificada ({len(problems)} ruta(s))")
+        _clean_temporaries(data)
+        shutil.rmtree(od, ignore_errors=True)
+        journal.update(J_REMOTE_DIVERGED, local_restored=True)
+        publication_gate.clear(root)                                 # el local ya es la versión previa confirmada: los lectores pueden volver
+    out = pr.converge(remote_store, keyed, last=last)                # hacia atrás: el local ES la versión previa
+    if out.status == pr.CONFIRMED:
+        journal.update(J_ROLLED_BACK, resolved="backward", error_code="PERSISTENCE_FAILED")
+        return "ROLLED_BACK"
+    return "DIVERGED"                                                # el local es la versión previa; la compensación remota se reintenta en la próxima recuperación
 
 
 def _clean_temporaries(journal_data: dict) -> None:

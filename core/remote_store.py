@@ -817,6 +817,7 @@ def delete_path(local_path: str | Path) -> bool:
             key = f"{_key(name)}/{rel}"
             client.delete_object(Bucket=config.SPACES_BUCKET, Key=key)
             _signatures.pop(key, None)
+            _digests.pop(key, None)                      # un objeto borrado ya no está «confirmado»: sin esto un persist_changed posterior lo daría por subido (mismo contenido) y no lo volvería a subir
             return True
         except Exception as exc:
             log.warning("remote_store.delete_path: fallo borrando '%s': %s", path, exc)
