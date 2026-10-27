@@ -224,6 +224,12 @@ PUBLICATION_MESSAGES = {
     "VERIFY_FAILED": "La publicación no pasó la verificación posterior. Se restauró el estado anterior del Catálogo.",
     "APPLY_FAILED": "La publicación falló al aplicarse. Se restauró el estado anterior del Catálogo.",
     "PERSISTENCE_UNCONFIRMED": "Publicado en el Catálogo local, pero la persistencia en Spaces NO está confirmada. Reintentá la publicación (es idempotente) para confirmarla.",
+    "PERSISTENCE_MODE_NOT_REMOTE": "El servidor tiene credenciales de Spaces pero no está en modo de persistencia remota: lo publicado se perdería en el próximo reinicio. No se modificó nada; avisá al equipo técnico (DANWOR_PERSISTENCE=remote).",
+    "PERSISTENCE_NOT_WRITABLE": "La persistencia remota está indicada pero la escritura en Spaces no está habilitada. No se modificó nada; avisá al equipo técnico.",
+    "PERSISTENCE_NOT_REQUESTED": "La publicación segura exige confirmar en Spaces y esa confirmación no está activada en el servidor. No se modificó nada; avisá al equipo técnico (DANWOR_PUBLICATION_MIRROR_UP).",
+    "CATALOG_NOT_PERSISTED": "El directorio del Catálogo no está entre los que se guardan en Spaces. No se modificó nada; avisá al equipo técnico (SPACES_PERSIST_PATHS).",
+    "ASSESSMENT_NOT_PERSISTED": "Los assessments no se guardarían en Spaces (el almacén 'governed-assessments' no está cubierto por la persistencia). No se modificó nada; avisá al equipo técnico (SPACES_PERSIST_PATHS).",
+    "ASSESSMENT_STORE_UNAVAILABLE": "El almacén de assessments no tiene un directorio válido, así que no habría dónde guardarlos. No se modificó nada; avisá al equipo técnico.",
     "CLEANUP_DEFERRED": "Publicado, pero no se limpiaron los objetos obsoletos porque no se pudo verificar la propiedad (manifiesto ilegible o restauración incompleta). No se borró nada; reintentá más tarde.",
 }
 
