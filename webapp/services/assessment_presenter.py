@@ -30,6 +30,7 @@ canonical_signal_id = P.canonical_signal_id        # los consumidores normalizan
 from webapp.services import catalog_reads
 from webapp.services import asset_evaluation as AE
 from webapp.services import assessment_acquisition as AQ
+from webapp.services import assessment_labels as AL
 from webapp.services import domain_classification_service as dcs
 from webapp.services import module_reference as MR
 from webapp.services.status_tone import ATTENTION, NEUTRAL, POSITIVE, status_tone
@@ -231,13 +232,14 @@ def governance_findings(profile: dict | None) -> list[dict] | None:
     if profile is None:
         return None
     doc = P.display_doc(profile)
-    groups = [{"id": g["id"], "title": g["title"], "explanation": g["explanation"], "kind_text": P.finding_kind_text(g["kind"])}
+    groups = [{"id": g["id"], "title": g["title"], "explanation": g["explanation"], "kind_text": P.finding_kind_text(g["kind"]),
+               "detail": ({"kind": "label_groups", "items": [_vocab_detail(o) for o in g.get("occurrences") or []], "note": _scope_note(doc, g)} if g["id"] == "FIELD_VOCABULARY_MIX" else None)}
               for key in ("observations", "review_required", "descriptive_signals") for g in doc.get(key) or [] if g.get("area") == "NAMING"]
     s28 = (((doc.get("canonical_evidence") or {}).get("naming_evidence") or {}).get("hygiene") or {}).get("artifact_name_populations", {}).get("section_28")
     if s28:                                                      # motivos persistidos con ordinales históricos («§29: …») → sin ordinal (compatibilidad de lectura)
         s28 = {**s28, "violation_reason_histogram": [{**r, "key": MR.strip_ordinals(r.get("key"))} for r in s28.get("violation_reason_histogram") or []]}
     ref = MR.resolve_ref(MR.NAMING_CONVENTION)                   # módulo/sección por CLAVE; el número se resuelve acá, contra la estructura VIGENTE del módulo
-    return AE.governed_findings(groups, s28, ref)
+    return AE.governed_findings(groups, s28, ref, AL.naming_view(doc))
 
 
 def tile_grade(status: svc.AssessmentStatus) -> dict:
@@ -504,15 +506,17 @@ def judgment_view(judgment: dict | None) -> dict | None:
     determined = status == "DETERMINED" and level is not None
 
     def _rows(items, with_kind=False):
-        seen, out = set(), []
+        seen, out = {}, []
         for it in items or []:
             key = (it.get("dimension"), it.get("statement_key"))
-            if key in seen:
+            if key in seen:                                                           # misma razón repetida: se suman sus artefactos, no se duplica la fila
+                seen[key]["artifacts"] = sorted({*seen[key]["artifacts"], *(str(a) for a in it.get("affected_artifacts") or [])})
                 continue
-            seen.add(key)
-            row = {"dimension": _DIM_LABEL.get(it.get("dimension") or "", it.get("dimension") or ""), "text": _jdg_statement_text(it)}
+            row = {"dimension": _DIM_LABEL.get(it.get("dimension") or "", it.get("dimension") or ""), "text": _jdg_statement_text(it),
+                   "artifacts": sorted({str(a) for a in it.get("affected_artifacts") or []})}
             if with_kind:
                 row["kind"] = _JDG_CLASSIFICATION.get(it.get("classification") or "", it.get("classification") or "")
+            seen[key] = row
             out.append(row)
         return out
 
@@ -591,14 +595,65 @@ def _focus_link(entry: Any, pack: str, names: list[str]) -> str | None:
     return flow_url(entry, pack, names) if names else None
 
 
-def _group_view(g: dict, entry: Any, pack: str) -> dict:
+_TRUNCATED = re.compile(r"…|\(\+\d+\)")
+
+
+def _value_rows(values: dict) -> list[dict]:
+    """Todos los valores de una ocurrencia tal como los conserva el perfil (sin recortar). La clave se muestra tal cual: su significado no está documentado fuera del motor."""
+    rows = []
+    for k, v in (values or {}).items():
+        if isinstance(v, list) and all(not isinstance(x, (dict, list)) for x in v):
+            rows.append({"key": k, "items": [str(x) for x in v], "text": None})
+        elif isinstance(v, list):
+            rows.append({"key": k, "items": ["; ".join(f"{a}: {b}" for a, b in x.items()) if isinstance(x, dict) else str(x) for x in v], "text": None})
+        elif isinstance(v, dict):
+            rows.append({"key": k, "items": None, "text": "; ".join(f"{a}: {b}" for a, b in v.items())})
+        else:
+            rows.append({"key": k, "items": None, "text": P.value_text(v)})
+    return rows
+
+
+def _vocab_detail(o: dict) -> dict:
+    """Etiqueta de negocio compartida por varios nombres técnicos: la etiqueta, TODOS los nombres con la forma de cada uno y dónde se observó la coincidencia."""
+    v = o.get("values") or {}
+    forms = {x.get("field"): [AL.label(f) or f for f in x.get("forms") or []] for x in v.get("forms_by_name") or [] if isinstance(x, dict)}
+    return {"kind": "label_group", "label": v.get("label"),
+            "names": [{"field": n, "forms": forms.get(n) or []} for n in v.get("technical_names") or []],
+            "evidence": [AL.EVIDENCE_TIER_TEXT.get(t, str(t).lower().replace("_", " ")) for t in v.get("evidence_tiers") or []],
+            "co_declared_in": list(v.get("co_declared_in") or []), "terminal_model_fields": list(v.get("terminal_model_fields") or []),
+            "field_occurrences": v.get("field_occurrences")}
+
+
+def _scope_note(doc: dict | None, g: dict) -> str | None:
+    """Alcance REAL de la evidencia de un hallazgo cuando el perfil solo conserva parte del universo contado (no se completa nada: se dice qué hay)."""
+    if g.get("id") != "FIELD_VOCABULARY_MIX" or not doc:
+        return None
+    naming = next((a for a in doc.get("areas") or [] if a.get("id") == "NAMING"), None) or {}
+    total = next((h.get("value") for h in naming.get("highlights") or [] if h.get("id") == "shared_label_groups"), None)
+    shown = len(g.get("occurrences") or [])
+    if not isinstance(total, int) or total <= shown:
+        return None
+    return (f"El Assessment detectó {total} etiquetas de negocio compartidas por varios nombres técnicos, pero solo conserva el detalle (etiqueta, nombres y artefactos) de las {shown} que la regla "
+            f"marca para revisión: las que aparecen juntas en un mismo artefacto o llegan al modelo analítico terminal. Para las otras {total - shown} solo existe el conteo agregado.")
+
+
+def _group_view(g: dict, entry: Any, pack: str, doc: dict | None = None) -> dict:
     occurrences = []
+    codes_used: set[str] = set()
     for o in g["occurrences"]:
         try:
             text = P.occurrence_text(g["id"], o, plain=True)
         except Exception:                               # noqa: BLE001 — formateo defensivo: nunca rompe el informe
             text = ", ".join(f"{k}={o['values'][k]}" for k in sorted(o.get("values") or {}))
-        occurrences.append({"id": o["occurrence_id"], "text": text, "artifacts": list(o["affected_artifacts"]),
+        text, used = AL.relabel(text)                 # los códigos del motor registrados en la línea del hallazgo se leen como etiqueta (el código queda en el glosario del detalle técnico)
+        codes_used.update(used)
+        detail = None
+        if g["id"] == "FIELD_VOCABULARY_MIX":
+            detail = _vocab_detail(o)
+            text = f"{len(detail['names'])} nombres técnicos comparten esta etiqueta"      # los nombres, sus formas y la evidencia van en el detalle (sin códigos del motor)
+        elif _TRUNCATED.search(text):                   # el texto de una línea recortó la lista: el detalle completo queda disponible bajo demanda
+            detail = {"kind": "values", "rows": _value_rows(o.get("values"))}
+        occurrences.append({"id": o["occurrence_id"], "text": text, "artifacts": list(o["affected_artifacts"]), "detail": detail,
                             "lineage_url": _focus_link(entry, pack, o["affected_artifacts"])})
     state = g.get("evidence_state")
     evidence_limit = None
@@ -611,9 +666,9 @@ def _group_view(g: dict, entry: Any, pack: str) -> dict:
         "question": (g.get("context_required") or {}).get("question") if g["kind"] != "DESCRIPTIVE" else None,
         "legitimate_reasons": g.get("legitimate_reasons") or [], "interpretation_limits": g.get("interpretation_limits") or [],
         "occurrence_count": g["occurrence_count"], "occurrence_unit": g["occurrence_unit"],
-        "artifacts": list(g["affected_artifacts"]), "evidence_limit": evidence_limit,
+        "artifacts": list(g["affected_artifacts"]), "evidence_limit": evidence_limit, "scope_note": _scope_note(doc, g),
         "lineage_url": _focus_link(entry, pack, g["affected_artifacts"]),
-        "occurrences": occurrences,
+        "occurrences": occurrences, "codes": sorted(codes_used),
     }
 
 
@@ -794,13 +849,13 @@ def _fact_into(group: dict, h: dict) -> None:
     (Hecho | Valor); composiciones, distribuciones y mapas → tabla propia."""
     v, label, bd = h["value"], h["label"], h.get("breakdown") or []
     if _is_number(v) and bd:
-        group["tables"].append({"title": label, "columns": ["Concepto", "Cantidad"], "rows": [["Total", v]] + [[b["name"], b["count"]] for b in bd]})
+        group["tables"].append({"title": label, "columns": ["Concepto", "Cantidad"], "rows": [["Total", v]] + [[AL.cell(b["name"], generic_ok=h["id"] == "by_provenance"), b["count"]] for b in bd]})
     elif _is_number(v):
         group["properties"].append({"label": label, "value": v, "names": None})
     elif isinstance(v, list) and v and all(isinstance(x, dict) for x in v):
         keys = sorted(dict.fromkeys(k for r in v for k in r), key=lambda k: k != "name")
         group["tables"].append({"title": label, "columns": [_column_title(k) for k in keys],
-                                "rows": [[(P.percent_text(r[k]) if k == "share" and k in r else r.get(k, "")) for k in keys] for r in v]})   # `share` = proporción 0–1
+                                "rows": [[(P.percent_text(r[k]) if k == "share" and k in r else (AL.cell(r.get(k, ""), generic_ok=h["id"] == "by_provenance") if k == "name" else r.get(k, ""))) for k in keys] for r in v]})   # `share` = proporción 0–1
     elif isinstance(v, dict):
         group["tables"].append({"title": label, "columns": ["Concepto", "Valor"], "rows": [[P.row_key_text(k).capitalize(), x] for k, x in v.items()]})
     elif isinstance(v, list):
@@ -814,7 +869,8 @@ def _facts_view(area_id: str, highlights: list[dict], extras: dict | None = None
     de vistas del cierre (``views_in_closure`` / ``view_type_distribution``) NO se muestra en el área: es transversal y vive en el resumen de la sección
     (``closure_views``); en el área solo queda el detalle por artefacto (``view_artifacts``)."""
     extras = extras or {}
-    hidden = extras.get("hide") or set()
+    hidden = set(extras.get("hide") or set()) | ({"violation_families"} if extras.get("naming") else set())     # las familias se muestran en el bloque propio (con sus artefactos)
+    
     highlights = [h for h in highlights if h["id"] not in hidden]                     # indicadores de federación sin artefactos remotos / sin evidencia evaluada: no se muestran
     if extras.get("breakdown") is not None:                                           # Ingesta: mismo hecho, desglose con la procedencia ya resuelta
         highlights = [({**h, "breakdown": extras["breakdown"]} if h["id"] == "boundary_artifacts" and h.get("breakdown") else h) for h in highlights]
@@ -857,7 +913,7 @@ def _facts_view(area_id: str, highlights: list[dict], extras: dict | None = None
     if closure is not None:
         n = {b["name"]: b["count"] for b in closure.get("breakdown") or []}
         closure_views = {"total": closure["value"], "graphical": n.get("gráficas", 0), "sql": n.get("SQL", 0), "unknown": n.get("sin clasificar", 0), "structural": structural}
-    return {"headline": headline, "groups": groups, "notes": notes, "closure_views": closure_views}
+    return {"headline": headline, "groups": groups, "notes": notes, "closure_views": closure_views, "naming": extras.get("naming")}
 
 
 def _view_overview(cv: dict) -> dict:
@@ -881,6 +937,9 @@ def _area_extras(a: dict, doc: dict) -> dict | None:
         breakdown = P.boundary_breakdown(doc, bd) if bd else None            # misma proyección que el Markdown (``presentation``)
         hide = AQ.ingestion_hidden(doc) if AQ._leaves(doc) is not None else set()
         return {**load, "breakdown": breakdown, "hide": hide} if (load or breakdown or hide) else None
+    if a["id"] == "NAMING":
+        nv = AL.naming_view(doc)
+        return {"naming": nv} if nv else None
     return None
 
 
@@ -1017,9 +1076,9 @@ def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: Adho
             _kpi("review_required", "Casos a revisar", sum(g["occurrence_count"] for g in doc["review_required"])),
             _kpi("context_open", "Preguntas abiertas", ctx["open_questions"]),
         ],
-        "observations": [_group_view(g, link_entry, pack) for g in doc["observations"]],
-        "review_required": [_group_view(g, link_entry, pack) for g in doc["review_required"]],
-        "descriptive": [_group_view(g, link_entry, pack) for g in doc["descriptive_signals"]],
+        "observations": [_group_view(g, link_entry, pack, doc) for g in doc["observations"]],
+        "review_required": [_group_view(g, link_entry, pack, doc) for g in doc["review_required"]],
+        "descriptive": [_group_view(g, link_entry, pack, doc) for g in doc["descriptive_signals"]],
         "limitations": [{"title": s["title"], "surface_id": s["surface_id"], "area": P.area_title(s["area"]),
                          "state": P.assessability_text(s["assessability"]), "reason": P.reason_text(s["reason"]) if s["reason"] else "",
                          "reason_code": s["reason"]["reason_code"] if s["reason"] else "",
@@ -1074,4 +1133,53 @@ def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: Adho
         "architecture": arch,
         "governance_areas": by_id.get("NAMING"),
     }
+    view["reading_guide"] = reading_guide(view, status.judgment)
+    view["code_glossary"] = AL.glossary(_codes_in(view))
     return view
+
+
+def _codes_in(node: Any):
+    """Códigos del registro presentes en el view-model (celdas etiquetadas y familias de la convención de nombres), en orden de aparición."""
+    if isinstance(node, dict):
+        if "code" in node and "text" in node and len(node) == 2:
+            yield node["code"]
+        if node.get("code") and node.get("label") and node.get("count") is not None and "artifacts" in node:
+            yield node["code"]
+        if isinstance(node.get("codes"), list):
+            yield from node["codes"]
+        for v in node.values():
+            yield from _codes_in(v)
+    elif isinstance(node, (list, tuple)):
+        for v in node:
+            yield from _codes_in(v)
+
+
+def reading_guide(view: dict, judgment: dict | None) -> dict:
+    """Guía «¿Cómo leer este Assessment?»: tabla Pregunta · Ir a (enlace) · Ayuda (tooltip). SOLO enlaces a secciones que existen en ESTE informe; las aclaraciones salen de los contratos ya
+    documentados del Assessment/Judgment (las mismas definiciones de ``KPI_HELP``). La afirmación sobre el nivel es específica y verificable: el Judgment declara ``level_effect`` NONE para la
+    gobernanza de nombres (``qualifiers.naming_governance``) y el motor no lee los hallazgos de etiquetas compartidas; no se generaliza a otras observaciones."""
+    s = view["summary"]
+    naming_gov = ((judgment or {}).get("qualifiers") or {}).get("naming_governance") or {}
+    level_note = None
+    if naming_gov.get("level_effect") == "NONE":
+        has_mix = any(g.get("id") == "FIELD_VOCABULARY_MIX" for g in view.get("review_required") or [])
+        level_note = (" En este modelo, la gobernanza de nombres " + ("y las etiquetas compartidas no lo modifican" if has_mix else "no lo modifica")
+                      + ": atenderlas mejora el gobierno, pero no cambia por sí solo el nivel.")
+    where = []
+    if view.get("judgment"):
+        where.append({"question": "¿Qué nivel de adopción metodológica tiene el modelo?", "section": "Adopción metodológica", "href": "#asr-juicio",
+                      "help": "Resultado determinista del Judgment sobre cuatro contratos; independiente del veredicto del catálogo."})
+        if view["judgment"].get("reasons_count"):
+            where.append({"question": "¿Qué es lo que efectivamente influye en ese nivel?", "section": "Puntos de atención", "href": "#asr-juicio",
+                          "help": "Las razones que determinan el nivel, con los artefactos que el motor les asocia." + (level_note or "")})
+    gov = (view.get("evaluation") or {}).get("governance")
+    if gov and gov.get("rows"):
+        where.append({"question": "¿Qué observaciones de gobierno hay?", "section": "Gobierno & estándares", "href": "#asr-gobierno-hallazgos",
+                      "help": "Convención de nombres y señales asociadas. Patrones descriptivos, sin juicio: no son por sí solos una desviación demostrada."})
+    where.append({"question": "¿Qué casos requieren criterio técnico?", "section": "Casos a revisar", "href": "#asr-revision", "help": KPI_HELP["review_required"][0]})
+    if s.get("context_rows"):
+        where.append({"question": "¿Qué información debe aportar el proyecto?", "section": "Preguntas abiertas", "href": "#asr-preguntas",
+                      "help": "Información que debe aportar el proyecto para interpretar el análisis; una pregunta puede relacionarse con varios hallazgos."})
+    where.append({"question": "¿Qué no pudo evaluarse?", "section": "Limitaciones de evidencia", "href": "#asr-limitaciones",
+                  "help": "Evidencia que no pudo evaluarse. Limita lo que puede concluirse; no implica que el modelo esté bien o mal en esa parte."})
+    return {"where": where, "level_note": level_note}

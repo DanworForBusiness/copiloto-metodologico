@@ -156,12 +156,14 @@ _KIND_LABEL = {"OBSERVATION": "Observación", "REVIEW_REQUIRED": "Caso a revisar
 NAMING_CONVENTION_TYPE = "NAMING_CONVENTION"
 
 
-def governed_findings(groups: list[dict], section_28: dict | None, reference: dict | None = None) -> list[dict]:
+def governed_findings(groups: list[dict], section_28: dict | None, reference: dict | None = None, naming: dict | None = None) -> list[dict]:
     """Hallazgos de GOBIERNO del Assessment gobernado PERSISTIDO (única fuente; el evaluador legacy del Catálogo no interviene).
     ``groups``: grupos de hallazgo del área NAMING ({id, title, explanation, kind_text}); ``section_28``: evidencia canónica de higiene de nombres
     ({applicable, non_compliant, non_compliant_artifacts, violation_reason_histogram}) con los motivos YA sin ordinales; ``reference``: referencia
     SEMÁNTICA resuelta por el presentador ({module_key, section_key, text}). Solo COMPONE: no detecta ni recalcula nada. La identidad del hallazgo
-    es ``finding_type`` + ``reference`` (módulo/sección por clave), NUNCA un número de sección: el número (``reference_text``) se resuelve al presentar."""
+    es ``finding_type`` + ``reference`` (módulo/sección por clave), NUNCA un número de sección: el número (``reference_text``) se resuelve al presentar.
+    ``naming`` (opcional): familias de incumplimiento con SUS artefactos (``assessment_labels.naming_view``, derivadas de la evidencia canónica); con él la evidencia se redacta por familia y el
+    universo completo queda disponible bajo demanda (``detail``) en lugar de un recorte «…(+N)». Sin él se conserva la redacción anterior."""
     rows = []
     s28 = section_28 or {}
     n_bad = int(s28.get("non_compliant") or 0)
@@ -171,13 +173,24 @@ def governed_findings(groups: list[dict], section_28: dict | None, reference: di
         shown = ", ".join(arts[:6]) + (f" (+{len(arts) - 6})" if len(arts) > 6 else "")
         lead = f"{n_bad} de {int(s28.get('applicable') or 0)} artefactos: " if n_bad > 1 else ""
         evidence = lead + shown + ((": " if shown else "") + " | ".join(reasons) if reasons else "")
+        detail = None
+        if naming and naming.get("families") and naming.get("all_attributed"):       # universo completo atribuido por familia: se redacta por familia y se listan TODOS bajo demanda
+            fams = " · ".join(f"{f['label']} ({f['count']})" for f in naming["families"])
+            more = f" y {len(arts) - 6} más" if len(arts) > 6 else ""
+            evidence = f"{n_bad} de {naming['applicable']} artefactos: {', '.join(arts[:6])}{more} — {fams}."
+            detail = {"kind": "naming", "view": naming}
+        elif naming and naming.get("families"):                                      # atribución parcial: redacción compacta de siempre + el detalle de lo que la evidencia sí identifica
+            detail = {"kind": "naming", "view": naming}
         ref = reference or {}
         rows.append({"id": NAMING_CONVENTION_TYPE, "finding_type": NAMING_CONVENTION_TYPE, "dom_id": "asr-a-NAMING", "tone": NEUTRAL, "label": "Nota",
-                     "title": "Oportunidades en la convención de nombres", "evidence": evidence or "Sin detalle de artefactos.",
+                     "title": "Oportunidades en la convención de nombres", "evidence": evidence or "Sin detalle de artefactos.", "detail": detail,
+                     "link": ({"href": "#asr-a-NAMING", "text": f"Ver los {n_bad} artefactos por familia" if naming.get("all_attributed") else f"Ver el detalle de los {n_bad} artefactos"} if detail else None),
                      "reference": {k: ref[k] for k in ("module_key", "section_key") if k in ref} or None, "reference_text": ref.get("text")})
     for g in groups or []:
         rows.append({"id": g["id"], "finding_type": g["id"], "dom_id": f"asr-g-{g['id']}", "tone": NEUTRAL, "label": g.get("kind_text") or _KIND_LABEL.get(g.get("kind"), "Observación"),
-                     "title": g["title"], "evidence": g.get("explanation") or "", "reference": None, "reference_text": None})
+                     "title": g["title"], "evidence": g.get("explanation") or "", "detail": g.get("detail"), "reference": None, "reference_text": None,
+                     "link": ({"href": f"#asr-g-{g['id']}", "text": (f"Ver las {len(g['detail']['items'])} etiquetas con sus nombres técnicos" if (g.get("detail") or {}).get("kind") == "label_groups"
+                                                                         else "Ver la evidencia del hallazgo")} if g.get("detail") or g.get("id") else None)})
     return rows
 
 

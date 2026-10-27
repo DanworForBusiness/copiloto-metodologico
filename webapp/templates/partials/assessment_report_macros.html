@@ -7,8 +7,48 @@
 {# Adopción metodológica — piezas compartidas entre el Catálogo (resumen) y el Assessment (detalle). El nivel/tono sale de `status_tone()` vía el presentador (`j.tone`, `c.tone`); acá no hay mapa de color. #}
 {% macro contracts_evaluated(j) %}<h3>Contratos evaluados</h3><div class="catalog-verdict-line">{% for c in j.contracts %}<span class="catalog-card__verdict catalog-card__verdict--{{ c.tone }}" title="{{ c.state_text }}">{{ c.label }}</span>{% endfor %}</div>{% endmacro %}
 {% macro tile_grid(tiles) %}<div class="activity-kpi-grid">{% for k in tiles %}{{ kpi_tile(k) }}{% endfor %}</div>{% endmacro %}
+{# ── Evidencia completa bajo demanda (reutilizable) ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+   Reemplaza el recorte opaco «… (+N)»: se muestran los primeros `limit` en línea y, si hay más, el UNIVERSO COMPLETO en un disclosure del Hub (`details.dashboard-section`, el mismo de CRM/Assessment)
+   con su cantidad. Solo presenta lo que el perfil conserva; nada se recalcula ni se completa. El contenido pasa por el autoescape de Jinja. #}
+{% macro artifact_list(items, limit=6, title="Ver todos los artefactos") %}{% for a in items[:limit] %}<code>{{ a }}</code> {% endfor %}{% if items|length > limit %}
+<details><summary>{{ title }} ({{ items|length }})</summary>{% for a in items %}<code>{{ a }}</code> {% endfor %}</details>{% endif %}{% endmacro %}
+{# Igual que `artifact_list` pero para UNIDADES descriptivas (texto, no identificadores de artefactos): sin `<code>`. #}
+{% macro text_list(items, limit=8, title="Ver todas") %}{{ items[:limit]|join(", ") }}{% if items|length > limit %}
+<details><summary>{{ title }} ({{ items|length }})</summary>{{ items|join(", ") }}</details>{% endif %}{% endmacro %}
+{# Convención de nombres: una fila de disclosure por familia con TODOS sus artefactos (cuando la evidencia los atribuye) y, aparte, los que cumplen. `lvl` = nivel de los rótulos. #}
+{% macro naming_families(nv, lvl=4, intro=True) %}
+  {% if intro %}<p class="catalog-note__ev">{{ nv.non_compliant }} de {{ nv.applicable }} artefactos no siguen la convención de nombres; {{ nv.compliant }} la cumplen. {{ nv.basis }}</p>{% endif %}
+  {% for f in nv.families %}
+  <details class="dashboard-section" id="{{ f.dom_id }}">
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title" title="Código técnico: {{ f.code }}">{{ f.label }}</span><span class="dashboard-section__count">{{ f.count }} artefacto{{ "s" if f.count != 1 }}</span></summary>
+    <div class="dashboard-section__body">
+      {% if f.meaning %}<p>{{ f.meaning }}</p>{% endif %}
+      {% if f.reason %}<p class="catalog-note__ev">Regla evaluada por el Assessment: {{ f.reason }}</p>{% endif %}
+      {% if f.artifacts is not none %}<p>{% for a in f.artifacts %}<code>{{ a }}</code> {% endfor %}</p>
+      {% else %}<p class="catalog-note__ev">La evidencia conserva solo el conteo agregado de esta familia ({{ f.count }}); no permite identificar cuáles de los artefactos que no cumplen pertenecen a ella.</p>{% endif %}
+    </div>
+  </details>
+  {% endfor %}
+  {% if nv.unattributed %}<p class="catalog-note__ev">Sin atribución por familia (la evidencia solo guarda el agregado de su grupo): {{ artifact_list(nv.unattributed, 12, "Ver todos") }}</p>{% endif %}
+  {% if nv.compliant_artifacts %}
+  <details class="dashboard-section"><summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Cumplen la convención</span><span class="dashboard-section__count">{{ nv.compliant_artifacts|length }}</span></summary><div class="dashboard-section__body"><p>{% for a in nv.compliant_artifacts %}<code>{{ a }}</code> {% endfor %}</p></div></details>
+  {% endif %}
+{% endmacro %}
+{# Etiqueta de negocio compartida por varios nombres técnicos (evidencia por grupo: etiqueta, TODOS los nombres con su forma y dónde se observó la coincidencia). #}
+{% macro label_group(d) %}<strong>“{{ d.label }}”</strong> → {% for n in d.names %}<code>{{ n.field }}</code>{% if n.forms %} <span class="catalog-note__ev">({{ n.forms|join(", ") }})</span>{% endif %}{% if not loop.last %}, {% endif %}{% endfor %}
+  <br><span class="catalog-note__ev">Evidencia: {{ d.evidence|join("; ") }}{% if d.co_declared_in %} ({% for a in d.co_declared_in %}<code>{{ a }}</code>{% if not loop.last %}, {% endif %}{% endfor %}){% endif %}{% if d.terminal_model_fields %} · campos del modelo terminal: {% for a in d.terminal_model_fields %}<code>{{ a }}</code> {% endfor %}{% endif %}</span>{% endmacro %}
+
+{# Detalle por ocurrencia (celda «Detalle» de un hallazgo): etiqueta compartida estructurada, o TODOS los valores que el perfil conserva cuando la línea de texto recortó una lista. #}
+{% macro occurrence_detail(d) %}{% if d %}
+  {% if d.kind == "label_group" %}<br>{{ label_group(d) }}
+  {% elif d.kind == "values" %}
+  <details><summary>Ver la evidencia completa de esta ocurrencia</summary><table><thead><tr><th>Valor</th><th>Contenido</th></tr></thead><tbody>
+      {% for r in d.rows %}<tr><td><code>{{ r.key }}</code></td><td>{% if r["items"] is not none %}{% for x in r["items"] %}<code>{{ x }}</code> {% endfor %}{% else %}{{ r.text }}{% endif %}</td></tr>{% endfor %}
+    </tbody></table></details>
+  {% endif %}
+{% endif %}{% endmacro %}
 {# Tabla de Gobierno / Portabilidad: filas ya escapadas por `asset_evaluation` (Markup); badge = `.catalog-card__verdict--{tone}`. #}
-{% macro evaluation_table(rows, headers) %}<table><thead><tr>{% for h in headers %}<th>{{ h }}</th>{% endfor %}</tr></thead><tbody>{% for r in rows %}<tr><td><span class="catalog-card__verdict catalog-card__verdict--{{ r.tone }}">{{ r.label }}</span></td><td>{{ r.title }}</td><td>{{ r.evidence }}{% if r.reference_url %}<br>Referencia: <a class="reference-text-link" href="{{ r.reference_url }}" target="_blank" rel="noopener noreferrer">{{ r.reference_text }}</a>{% elif r.reference_text %}<br><em>Referencia: {{ r.reference_text }}</em>{% endif %}</td></tr>{% endfor %}</tbody></table>{% endmacro %}
+{% macro evaluation_table(rows, headers, links=false) %}<table><thead><tr>{% for h in headers %}<th>{{ h }}</th>{% endfor %}</tr></thead><tbody>{% for r in rows %}<tr><td><span class="catalog-card__verdict catalog-card__verdict--{{ r.tone }}">{{ r.label }}</span></td><td>{{ r.title }}</td><td>{{ r.evidence }}{% if links and r.link %}<br><a href="{{ r.link.href }}"><code>{{ r.link.text }}</code></a>{% endif %}{% if r.reference_url %}<br>Referencia: <a class="reference-text-link" href="{{ r.reference_url }}" target="_blank" rel="noopener noreferrer">{{ r.reference_text }}</a>{% elif r.reference_text %}<br><em>Referencia: {{ r.reference_text }}</em>{% endif %}</td></tr>{% endfor %}</tbody></table>{% endmacro %}
 {# Compatibilidad con destinos BDC (eje ADITIVO, sin puntaje): `c` = `bdc_compatibility_service.build_view`. Mismo disclosure (`details.dashboard-section`) y tablas nativas del Hub; los estados usan los
    badges `.catalog-card__verdict--*` y el estado de validación el punto `.catalog-meta-dot--*` + texto (SAP documentado / Validado Danwor / Pendiente de verificación). Los enlaces SAP son Support Links. #}
 {% macro compatibility_block(c, id="asr-compatibilidad") %}{% if c %}
