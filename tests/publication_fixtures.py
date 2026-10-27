@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import pytest
 
+import config
 from tests.publication_fakes import Ctx, Tenant, seed_pricing
 from tools.catalog import DSP_CLI_Export_Lineage as dsp
 from tools.catalog import publication_txn as txn
@@ -28,4 +29,5 @@ def ctx(tmp_path, monkeypatch):
     monkeypatch.delenv(txn.SAFE_ENV, raising=False)
     monkeypatch.setenv(txn.LOCK_DIR_ENV, str(tmp_path / "locks"))
     monkeypatch.setattr(txn, "FAULT_HOOK", None)
+    monkeypatch.setattr(config, "SPACES_CONFIGURED", False, raising=False)          # hermético: las credenciales del .env local no cambian el resultado (la prueba que las necesita las fija)
     return Ctx(tmp_path, tenant)

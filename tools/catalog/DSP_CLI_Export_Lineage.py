@@ -1629,6 +1629,22 @@ def _safe_failure(req: "ExportRequest", base: "ExportResult", finish, status: st
     return finish(base)
 
 
+PERSISTENCE_GAP_MESSAGE = ("La persistencia efectiva no cubre esta publicación ({code}): {detail}. No se modificó nada; corregí la configuración "
+                           "(DANWOR_PERSISTENCE=remote, DANWOR_PUBLICATION_MIRROR_UP, SPACES_PERSIST_PATHS con 'governed-assessments') y reintentá.")
+
+
+def _persistence_gap(req: "ExportRequest", txn, remote_store, catalog_root: Path, csn_cache_root: Path, client_dir_name: str, root_object: str, root_type: str | None) -> "tuple[str, str] | None":
+    """B2 — ``(código, detalle)`` si la persistencia EFECTIVA no cubre lo que esta publicación va a escribir (el Catálogo y el almacén de assessments de la etapa), o ``None``. Se evalúa antes de
+    conectar con Datasphere y otra vez bajo el candado, y siempre ANTES de modificar nada."""
+    from tools.catalog import publication_remote as pr
+    hooks = req.stage_hooks
+    store = None
+    if hooks is not None and callable(getattr(hooks, "durable_store", None)):
+        ctx = txn.StageContext(operation_id="", client_dir=client_dir_name, catalog_root=catalog_root, csn_cache_root=csn_cache_root, root_object=root_object, root_type=root_type or "", space=req.space)
+        store = hooks.durable_store(ctx)
+    return pr.persistence_gap(remote_store, mirror_up=bool(req.mirror_up), catalog_root=catalog_root, durable_store=store)
+
+
 def _publish_safe(req: "ExportRequest", exporter: "LineageExporter", *, base: "ExportResult", client_dir_name: str, catalog_root: Path,
                   csn_cache_root: Path, client_cache_dir: Path, diagnostics: Any, finish) -> "ExportResult":
     txn = _txn()
@@ -1844,9 +1860,10 @@ def _apply_locked(req, exporter, *, base, txn, op_id, stages, planned, planned_s
     markers = (catalog_manifest.name, ledger_file.name)
     prefix_keys: list[str] = []
     listing: dict[str, dict] = {}
-    if want_remote and stage_dir is not None and not stage_names:        # el almacén gobernado existe pero NO figura en las rutas persistidas: sus assessments no sobreviven a un redeploy
-        observations["governed_assessments_not_persisted"] = True
-        _say("ADVERTENCIA: el almacén gobernado de assessments no figura en SPACES_PERSIST_PATHS; los assessments no quedan confirmados en Spaces (sumá 'governed-assessments').")
+    gap = _persistence_gap(req, txn, remote_store, catalog_root, csn_cache_root, client_dir_name, exporter.root_object, exporter.root_type)      # B2, revalidado bajo el candado
+    if gap is not None:
+        stages["persistence"] = "FAILED"
+        return _safe_failure(req, base, finish, txn.FAILED_NO_CHANGE, gap[0], PERSISTENCE_GAP_MESSAGE.format(code=gap[0], detail=gap[1]), operation_id=op_id, stages=stages)
     if want_remote:
         prefix_keys = _client_prefix_keys(dirs, catalog_root, csn_cache_root, client_dir_name, stage_dir)
         pre = pr.preflight(remote_store, persisted, prefix_keys, probe=ledger_file)
@@ -2331,6 +2348,18 @@ def run_export(req: ExportRequest) -> ExportResult:
             base.failures = [{"kind": "client_key", "object_type": "", "technical_name": v, "code": "CASE_VARIANT"} for v in exc.variants]
             return finish(base)
     base.client_dir = client_dir_name
+
+    if safe:                                          # B2: sin persistencia efectiva para lo que se va a escribir, ni se empieza (antes de conectar con Datasphere)
+        from core import publication_gate as _gate, remote_store as _rs
+        try:
+            gap = _persistence_gap(req, _txn(), _rs, catalog_root, csn_cache_root, client_dir_name, root_object, req.root_type)
+        except (_gate.PublicationInProgress, _gate.PublicationBlocked):
+            gap = None                                # hay una publicación activándose o en verificación: la validación definitiva la repite, bajo el candado, esta misma operación
+        if gap is not None:
+            _say(f"ERROR: {gap[0]} - {gap[1]}", file=sys.stderr)
+            base.error_code, base.message, base.exit_code = gap[0], PERSISTENCE_GAP_MESSAGE.format(code=gap[0], detail=gap[1]), 1
+            base.status, base.stages = "FAILED_NO_CHANGE", {"persistence": "FAILED"}
+            return finish(base)
 
     client_cache_dir = csn_cache_root / client_dir_name
     _say("Extraction integration:")

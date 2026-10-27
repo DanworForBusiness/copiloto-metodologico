@@ -52,6 +52,10 @@ class AssessmentStage:
     def governed_client_dir(self, ctx) -> Path | None:
         return assess.governed_client_dir(ctx.client_dir)
 
+    def durable_store(self, ctx) -> tuple[str, Path | None]:
+        """El almacén gobernado de assessments DEBE ser durable: la publicación segura no admite un assessment solo en disco efímero (B2)."""
+        return config.GOVERNED_ASSESSMENTS_NAME, self.governed_client_dir(ctx)
+
     def undo_paths(self, ctx) -> list[Path]:
         d = self.governed_client_dir(ctx)
         return [d] if d is not None else []

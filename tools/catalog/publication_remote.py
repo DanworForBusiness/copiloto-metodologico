@@ -7,6 +7,8 @@ una mezcla. Este módulo agrega, SOLO para la publicación segura y sin otro sis
                         resultado explícito, nunca «no hay huérfanos»). Devuelve los huérfanos remotos que un restore resucitaría.
   * ``confirm``         borra lo retirado, sube el cuerpo y el marcador de activación AL FINAL, y verifica por BYTES EXACTOS. Si algo no se confirma, RECONCILIA leyendo el remoto antes de
                         declarar fallo (una escritura efectiva con respuesta perdida cuenta como confirmada).
+  * ``persistence_gap`` (B2) ¿la persistencia EFECTIVA cubre lo que la publicación va a escribir (Catálogo y almacén de assessments)? Se valida la configuración real (modo, credenciales,
+                        rutas persistidas y el directorio al que realmente escribe cada almacén), no la presencia de un texto.
   * ``converge``        deja el remoto IDÉNTICO al local en un conjunto de rutas (sube lo distinto, borra lo sobrante) y lo verifica; es la base de ``confirm`` (local = versión nueva) y de la
                         compensación (local = versión previa restaurada).
 
@@ -57,6 +59,49 @@ def preflight(rs, persisted_names: Iterable[str], client_prefixes: Iterable[str]
     if unrec:
         return Preflight(False, "REMOTE_NOT_RECONCILED", f"{len(unrec)} archivo(s) locales difieren del remoto y no se reconciliaron")
     return Preflight(True, listing=listing)
+
+
+def _within(child: Path, parent: Path) -> bool:
+    try:
+        Path(child).resolve().relative_to(Path(parent).resolve())
+        return True
+    except (ValueError, OSError):
+        return False
+
+
+def persistence_gap(rs, *, mirror_up: bool, catalog_root: Path, durable_store: "tuple[str, Path | None] | None") -> "tuple[str, str] | None":
+    """B2. ``None`` si la persistencia efectiva cubre la publicación; si no, ``(código, detalle)`` y la publicación NO debe empezar.
+
+    ``durable_store``: ``(nombre persistido, carpeta del cliente)`` del almacén que la etapa exige durable (los assessments gobernados), o ``None`` si no hay etapa.
+    Reglas (sobre la configuración EFECTIVA de ``remote_store``):
+      * modo distinto de ``remote`` con credenciales de Spaces presentes → lo publicado quedaría SOLO en el disco efímero (el despliegue olvidó ``DANWOR_PERSISTENCE=remote``);
+      * modo ``remote`` sin escritura habilitada, o sin pedir la confirmación remota (``mirror_up``) → una publicación «exitosa» no estaría confirmada en Spaces;
+      * el Catálogo fuera de los directorios persistidos, o el almacén de la etapa inexistente / fuera de su directorio persistido efectivo → no sobrevive a un redeploy.
+    Sin credenciales (desarrollo local explícito) el disco es la fuente de verdad y solo se exige que el almacén exista. Sin almacén durable exigido (``None``) no hay nada que cubrir."""
+    if durable_store is None:
+        return None                                                            # sin etapa que exija un almacén durable (p. ej. el CLI sin assessment): la durabilidad se informa en el resultado, como siempre
+    if durable_store[1] is None:
+        return "ASSESSMENT_STORE_UNAVAILABLE", "el almacén de assessments no tiene un directorio válido (cae bajo el Catálogo o el pool): no habría dónde guardarlos"
+    import config
+    mode = rs.persistence_mode()
+    if mode != "remote":
+        if getattr(config, "SPACES_CONFIGURED", False):
+            return "PERSISTENCE_MODE_NOT_REMOTE", f"hay credenciales de Spaces pero DANWOR_PERSISTENCE={mode}: lo publicado quedaría solo en el disco efímero"
+        return None
+    if not rs.write_enabled():
+        return "PERSISTENCE_NOT_WRITABLE", "DANWOR_PERSISTENCE=remote pero la escritura en Spaces no está habilitada (credenciales incompletas)"
+    if not mirror_up:
+        return "PERSISTENCE_NOT_REQUESTED", "la publicación segura exige confirmar en Spaces (DANWOR_PUBLICATION_MIRROR_UP): sin eso lo publicado quedaría solo en el disco efímero"
+    dirs = {name: Path(local).resolve() for name, local in rs._persist_dirs()}
+    if not any(_within(catalog_root, base) for base in dirs.values()):
+        return "CATALOG_NOT_PERSISTED", "el directorio del Catálogo no figura entre los directorios persistidos (SPACES_PERSIST_PATHS)"
+    name, folder = durable_store
+    base = dirs.get(name)
+    if base is None:
+        return "ASSESSMENT_NOT_PERSISTED", f"'{name}' no figura en SPACES_PERSIST_PATHS: los assessments solo quedarían en el disco efímero"
+    if not _within(folder, base):
+        return "ASSESSMENT_NOT_PERSISTED", f"el almacén de assessments efectivo no está dentro del directorio persistido '{name}'"
+    return None
 
 
 def client_prefixes_unreconciled(rs, prefixes: Iterable[str]) -> list[str]:

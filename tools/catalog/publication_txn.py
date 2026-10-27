@@ -428,6 +428,7 @@ class StageHooks:
 
       persisted_names()            directorios persistidos EXTRA de la etapa (p. ej. ``governed-assessments``) que deben retenerse y confirmarse con la unidad
       governed_client_dir(ctx)     carpeta de la etapa para el cliente (entra al undo, a los digests y a la confirmación remota)
+      durable_store(ctx)           ``(nombre persistido, carpeta del cliente | None)`` del almacén que DEBE ser durable: si la persistencia efectiva no lo cubre, la publicación no empieza (B2)
       undo_paths(ctx)              rutas a capturar en el undo ANTES de aplicar
       needs_work(ctx)              sin cambios en el pool: ¿la etapa tiene trabajo pendiente? (si no, la republicación es NO_CHANGE)
       before_apply(ctx)            lee el estado PREVIO (nada escrito todavía)

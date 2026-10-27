@@ -343,14 +343,6 @@ def test_the_governed_assessments_are_confirmed_in_spaces_together_with_the_cata
     assert s3.objects[env_keys[0]] == assess.governed_path(CLIENT, AM_A).read_bytes()
 
 
-def test_governed_assessments_outside_the_persisted_paths_are_reported_not_silently_assumed_durable(world, monkeypatch):
-    s3 = FakeS3()
-    enable_remote(monkeypatch, s3)                                                                                  # PERSIST_PATHS = [catalog_local]: el almacén gobernado NO se persiste
-    res, lines = pub(world, mirror=True)
-    assert res.status == txn.COMPLETED and res.observations["governed_assessments_not_persisted"] is True
-    assert any("SPACES_PERSIST_PATHS" in ln for ln in lines) and not any(k.startswith("audit/governed-assessments/") for k in s3.objects)
-
-
 def test_a_remote_failure_restores_the_previous_assessment_in_local_and_in_spaces(world, monkeypatch):
     s3 = FakeS3()
     enable_remote(monkeypatch, s3, governed=world.governed)
