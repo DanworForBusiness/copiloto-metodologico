@@ -29,7 +29,7 @@
     {% if error_state %}
     <aside class="callout callout--warn" role="alert"><div class="callout__body"><p>El catálogo no está disponible en este momento. Reintentá en unos minutos.</p></div></aside>
     {% else %}
-    <aside class="callout callout--success" role="status" data-cp-status hidden><div class="callout__body"><p></p></div></aside>
+    <div class="cp-toast" aria-live="polite" data-dw-auto-dismiss="6000" data-cp-status></div>
     <div class="matrix-scroll">
     <table class="dashboard-table cp-catalog" id="cp-catalog-table">
       {# Anchos explícitos por columna (MISMO criterio que las tablas de CCHH/Comercial: `%` para las columnas de negocio, `px` fijo para Acciones): sin esto `table-layout:fixed` recorta Acciones. #}

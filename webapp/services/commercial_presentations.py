@@ -53,6 +53,8 @@ SCHEMA_VERSION = 1
 _SEED_DIR = Path(__file__).parent / "commercial_presentations_data"
 _PERSIST_SUBDIR = "presentations"
 _RESTORE_WAIT_TIMEOUT_S = 15.0
+# Logo institucional Danwor: el MISMO asset que Danwor Academy muestra a pantalla completa (variante de wordmark BLANCO, para fondo oscuro). Se referencia por `/pack-assets`; no se copia.
+_INSTITUTIONAL_LOGO = "academy/assets/img/danwor-logo.png"
 MAX_INSTANCES = 200                                   # tope global (V1): evita crecimiento sin control del directorio
 MAX_TITLE = 120
 
@@ -528,6 +530,7 @@ def render_context(presentation: dict, *, embed: bool = False) -> dict:
     return {
         "c": full_content(template_id, presentation.get("content")),
         "asset_base": asset_base,
+        "institutional_logo_url": f"/pack-assets/{DEFAULT_PACK}/{_INSTITUTIONAL_LOGO}",
         "css_url": f"{asset_base}/{spec.css}?v={_asset_hash(template_id, spec.css)}",
         "js_url": f"{asset_base}/{spec.js}?v={_asset_hash(template_id, spec.js)}",
         "embed": bool(embed),

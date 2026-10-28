@@ -3,14 +3,34 @@
 (function () {
   "use strict";
 
-  function status(text, warn) {
-    var el = document.querySelector("[data-cp-status]");
-    if (!el) return;
-    var line = el.querySelector("p") || el;
-    line.textContent = text;
-    el.hidden = !text;
-    el.classList.toggle("callout--warn", !!warn);
-    el.classList.toggle("callout--success", !warn);
+  // Confirmación TRANSITORIA: el contenedor `[data-cp-status]` lleva `data-dw-auto-dismiss` (primitivo Hub-wide, app.js `initAutoDismissFeedback`, el mismo del refresh de catálogos de CCHH):
+  // se vacía solo por timeout o al click afuera, y cada contenido nuevo reinicia el temporizador. Acá solo se arma el MISMO markup `.callout` (cabecera + cuerpo) con `textContent` y se
+  // REEMPLAZA lo anterior (`replaceChildren`): varias acciones seguidas muestran un único aviso, nunca una pila. Sin texto, solo limpia.
+  function toast(title, text, tone) {
+    var host = document.querySelector("[data-cp-status]");
+    if (!host) return;
+    if (!title && !text) { host.replaceChildren(); return; }
+    var box = document.createElement("div");
+    box.className = "callout callout--" + (tone || "success");
+    box.setAttribute("role", "status");
+    var head = document.createElement("div");
+    head.className = "callout__head";
+    var icon = document.createElement("span");
+    icon.className = "callout__icon";
+    icon.textContent = tone === "punch" ? "⚠️" : tone === "note" ? "ℹ️" : "✓";
+    var heading = document.createElement("span");
+    heading.className = "callout__title";
+    heading.textContent = title;
+    head.appendChild(icon);
+    head.appendChild(heading);
+    var body = document.createElement("div");
+    body.className = "callout__body";
+    var line = document.createElement("p");
+    line.textContent = text || "";
+    body.appendChild(line);
+    box.appendChild(head);
+    box.appendChild(body);
+    host.replaceChildren(box);
   }
 
   async function readJson(res) {
@@ -28,7 +48,7 @@
     var url = window.location.origin + btn.getAttribute("data-cp-copy-link");
     try {
       await navigator.clipboard.writeText(url);
-      status("Enlace copiado. Quien lo reciba lo abre con su propia sesión del Hub.", false);
+      toast("Enlace copiado", "Quien lo reciba lo abre con su propia sesión del Hub.", "success");
     } catch (e) {
       window.prompt("Copiá el enlace:", url);
     }
@@ -110,10 +130,10 @@
       ev.preventDefault();
       showError("");
       var delta = changed();
-      if (!Object.keys(delta).length) { status("No hay cambios para guardar.", false); return; }
+      if (!Object.keys(delta).length) { toast("Sin cambios", "No hay cambios para guardar.", "note"); return; }
       saving = true;
       saveBtn.disabled = true;
-      status("Guardando…", false);
+      toast("Guardando…", "", "note");
       try {
         var res = await fetch(form.getAttribute("data-save-url"), {
           method: "POST", credentials: "same-origin",
@@ -126,13 +146,13 @@
           fields.forEach(function (f) {
             if (data.content && typeof data.content[f.name] === "string") { f.value = data.content[f.name]; f.setAttribute("data-original", data.content[f.name]); }
           });
-          status("Guardado (revisión " + data.revision + ").", false);
+          toast("Guardado", "Revisión " + data.revision + ".", "success");
         } else {
-          status("", false);
+          toast("", "", "");
           showError(messageOf(data, "No se pudo guardar."));
         }
       } catch (e) {
-        status("", false);
+        toast("", "", "");
         showError("No se pudo guardar. Verificá tu conexión y reintentá; tus cambios en pantalla no se perdieron.");
       }
       saving = false;

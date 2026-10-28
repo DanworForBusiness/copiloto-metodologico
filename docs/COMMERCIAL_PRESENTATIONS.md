@@ -32,6 +32,21 @@ bloques genéricos, SPA ni persistencia transversal nueva. Las composiciones esp
 * CSS, JS, fuentes e imágenes son archivos **compartidos** (`content_packs/datasphere_core/assets/presentations/vanture-bdc/`, servidos por `/pack-assets`); la instancia no los duplica ni los referencia (~3 KB por instancia).
 * **Campos editables (todos texto plano, obligatorios):** hero (3), dato de s2 (2), CTA de s10 (4), s11: 4 propuestas × (título, texto) + reconocimientos en 3 partes. Lista y límites en `VANTURE_FIELDS`. El QR queda estático.
 
+## Homologación con el Hub (diferencias intencionales respecto del HTML original)
+
+El criterio de aceptación es **paridad narrativa y funcional + homologación institucional**. Se preserva la experiencia inmersiva de Vanture (composición, animaciones, tabs, scrollspy, marquee) y se homologa solo lo siguiente:
+
+| Elemento | Clasificación | Implementación |
+|---|---|---|
+| Botón **Volver** en detalle y editor | REUSE | `a.catalog-back` (tools.css), primer hijo de `main`, como Capital Humano/Catálogo. Detalle → catálogo; editor → detalle. La URL compartida (R1) **no** lleva Volver ni navegación de Comercial. |
+| **Aviso** de visibilidad del enlace | REUSE | `callout callout--note` (variante informativa, con su regla de tema claro) + escala compacta `.cp-notice`; sin estilos inline. En el editor, `callout--punch` con la misma escala. |
+| **Confirmación transitoria** («Enlace copiado», «Guardado», «Sin cambios») | REUSE | Contenedor `.cp-toast[data-dw-auto-dismiss="6000"]`: primitivo Hub-wide `initAutoDismissFeedback` (app.js), el mismo del refresh de catálogos de CCHH (se vacía solo; un contenido nuevo reinicia el temporizador; clic afuera lo retira). El JS arma el markup `.callout` con `textContent` y **reemplaza** el aviso anterior: nunca hay una pila. |
+| **Logo Danwor** (barra superior y pie) | REUSE | El asset de Danwor Academy a pantalla completa, `academy/assets/img/danwor-logo.png` (wordmark **blanco**, para fondo oscuro), referenciado por `/pack-assets` (sin copiar binarios). Reemplaza la variante de wordmark gris oscuro del HTML original, casi invisible sobre la barra negra. El co-branding con el logo de Vanture se conserva. |
+| **Numeración** de los 10 encabezados narrativos (s2–s9, s11, s12) | ADAPT | El número dorado pasa de la izquierda a **encima** del título (convención de Academy `.stop-num` y del instructivo «Paso NN de MM»): misma fila, en columna; se conservan tipografía, color, secuencia y la animación `wipeIn`. |
+| Números dentro de tarjetas, pasos, pilares y el encabezado de s10 (ya iba encima) | KEEP | Son indicadores de composición/diagrama, no encabezados narrativos. |
+
+**Referencia visual de paridad** = HTML original + estas dos diferencias aprobadas (logo y numeración). El gate compara el seed renderizado contra esa referencia: 0,0 de diferencia en las 12 secciones, en escritorio y móvil.
+
 ## Seguridad de salida
 
 * Todo campo es un `str` validado (strip, largo máximo, sin caracteres de control, U+2028/2029 ni controles bidi); las claves desconocidas dan 422 (sin reflejar su nombre).
@@ -68,6 +83,7 @@ y `restore`/`mirror_up`/`push_path` cubren los subdirectorios; **no se agregó n
 * QR estático; marca Vanture y logos de clientes heredados por todas las copias (sin neutralidad de marca ni personalización irrestricta).
 * «Copiar enlace» es el único sharing de V1 (sin permisos individuales, publicación anónima ni envío externo).
 * Tope de 200 instancias (`MAX_INSTANCES`).
+* En pantallas muy angostas el texto «SAP BUSINESS DATA CLOUD» de la barra superior se superpone al logo de Vanture: ya ocurre en el HTML original (paridad exacta con él) y V1 no lo modifica.
 
 ## Cómo agregar un campo o un template
 

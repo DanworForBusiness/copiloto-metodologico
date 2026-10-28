@@ -20,13 +20,17 @@
   {{ sidebar_resize_handle() }}
 
   <main id="content" class="module-content">
+    <a class="catalog-back" href="/comercial/presentaciones/{{ presentation.presentation_id }}">← Volver a la presentación</a>
     <section class="module-hero">
-      <p class="eyebrow"><a href="/comercial/presentaciones/{{ presentation.presentation_id }}">{{ presentation.title }}</a></p>
+      <p class="eyebrow">{{ presentation.title }}</p>
       <h1>Editar presentación</h1>
       <p class="hero-lead full-page-subtitle">Editás solo los textos comerciales habilitados; el diseño, la narrativa y el resto del contenido los gobierna el template.</p>
     </section>
 
-    <aside class="callout callout--punch"><div class="callout__body"><p>Esta presentación es visible para cualquier usuario del Hub que tenga el enlace.</p></div></aside>
+    <aside class="callout callout--punch cp-notice">
+      <div class="callout__head"><span class="callout__icon">⚠️</span><span class="callout__title">Visibilidad del enlace</span></div>
+      <div class="callout__body"><p>Esta presentación es visible para cualquier usuario autorizado del Hub que tenga la URL, aunque no tenga acceso a Comercial.</p></div>
+    </aside>
 
     <form class="tree-feedback-form cp-form" data-cp-edit-form data-save-url="/comercial/presentaciones/{{ presentation.presentation_id }}" data-revision="{{ presentation.revision }}" novalidate>
       {% for section, fields in sections.items() %}
@@ -46,11 +50,10 @@
         </div>
       </details>
       {% endfor %}
-      <aside class="callout callout--success" role="status" data-cp-status hidden><div class="callout__body"><p></p></div></aside>
+      <div class="cp-toast" aria-live="polite" data-dw-auto-dismiss="6000" data-cp-status></div>
       <p class="feedback-error" role="alert" data-cp-error hidden></p>
       <div class="cp-toolbar">
         <button type="submit" class="btn-primary" data-cp-save>Guardar</button>
-        <a class="btn-secondary" href="/comercial/presentaciones/{{ presentation.presentation_id }}">Volver</a>
       </div>
     </form>
   </main>

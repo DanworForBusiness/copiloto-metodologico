@@ -119,7 +119,7 @@ def test_the_template_source_has_no_unsafe_constructs_and_uses_exactly_the_spec_
         assert forbidden not in source, forbidden
     used = set(re.findall(r"\bc\.([a-z0-9_]+)\b", source))
     assert used == set(SPEC.field_keys)                                                         # ni claves de más ni campos sin usar
-    assert sorted(set(re.findall(r"\{\{\s*([^}]+?)\s*\}\}", source))) == sorted({f"c.{k}" for k in SPEC.field_keys} | {"css_url", "js_url", "asset_base"})
+    assert sorted(set(re.findall(r"\{\{\s*([^}]+?)\s*\}\}", source))) == sorted({f"c.{k}" for k in SPEC.field_keys} | {"css_url", "js_url", "asset_base", "institutional_logo_url"})
 
 
 def test_there_are_no_editable_attribute_or_url_contexts_in_v1():
@@ -165,7 +165,7 @@ def test_editing_a_copy_leaves_the_seed_render_byte_identical(world):
 def test_the_asset_directory_contains_only_brand_files_and_everything_referenced_exists():
     files = [p for p in ASSETS.rglob("*") if p.is_file()]
     assert {p.suffix for p in files} <= {".css", ".js", ".woff2", ".png", ".jpg"}, "solo fuentes, CSS, JS e imágenes de marca bajo /pack-assets"
-    assert len([p for p in files if p.suffix == ".woff2"]) == 33 and len([p for p in files if p.parent.name == "img"]) == 46
+    assert len([p for p in files if p.suffix == ".woff2"]) == 33 and len([p for p in files if p.parent.name == "img"]) == 45     # 46 menos la variante de wordmark oscuro del logo Danwor: se usa el asset de Academy
     assert (ASSETS / "vanture.css").is_file() and (ASSETS / "vanture.js").is_file()
     css = (ASSETS / "vanture.css").read_text(encoding="utf-8")
     assert "base64" not in css
@@ -295,3 +295,109 @@ def test_the_golden_fixture_covers_every_spec_field_with_the_v1_limits():
     payload = json.loads(FIXTURE.read_text(encoding="utf-8"))
     for key, limit in PINNED_V1.items():
         assert 0 < len(payload["content"][key]) <= limit
+
+
+# ── Homologación institucional con el Hub (diferencias APROBADAS respecto del HTML original) ─────────────────────────────────
+
+ACADEMY_LOGO = REPO / "content_packs" / "datasphere_core" / "assets" / "academy" / "assets" / "img" / "danwor-logo.png"
+ACADEMY_LOGO_URL = "/pack-assets/datasphere_core/academy/assets/img/danwor-logo.png"
+
+
+def test_the_danwor_logo_is_the_same_asset_danwor_academy_shows_fullscreen_in_both_of_its_uses(world):
+    soup = _soup(_page(world))
+    danwor = [i["src"] for i in soup.find_all("img") if i["src"] == ACADEMY_LOGO_URL]
+    assert danwor == [ACADEMY_LOGO_URL, ACADEMY_LOGO_URL]                                         # barra superior + pie de página
+    assert ACADEMY_LOGO.is_file()
+    assert "615c473fbf" not in TEMPLATE_PATH.read_text(encoding="utf-8") and not (ASSETS / "img" / "615c473fbf.png").exists(), \
+        "la variante de wordmark oscuro ya no se usa ni se duplica"
+    assert world.client(HUB_ONLY).get(ACADEMY_LOGO_URL).status_code == 200                       # accesible con el contrato de lectura del Hub
+
+
+def test_the_vanture_cobranding_next_to_the_danwor_logo_is_preserved(world):
+    html = _page(world)
+    assert "Vanture — a Knowmad Mood company" in html
+    header = _soup(html).find("div", style=re.compile("z-index:50"))
+    assert [i["alt"] for i in header.find_all("img")] == ["Danwor — Data & AI for Business", "Vanture — a Knowmad Mood company"]
+
+
+def test_the_ten_narrative_section_numbers_sit_above_their_titles_and_keep_the_sequence(world):
+    soup = _soup(_page(world))
+    expected = {"s2": "01", "s3": "02", "s4": "03", "s5": "04", "s6": "05", "s7": "06", "s8": "07", "s9": "08", "s11": "10", "s12": "11"}
+    for section, number in expected.items():
+        h2 = soup.find(id=section).find("h2")
+        row, num = h2.parent, h2.find_previous_sibling("span")
+        assert num.get_text(strip=True) == number, section
+        style = re.sub(r"\s+", "", row["style"])
+        assert "flex-direction:column" in style and "align-items:flex-start" in style, section   # el número queda ENCIMA del título
+        assert "align-items:baseline" not in style and "animation:wipeIn" in style, section        # la animación de entrada se conserva
+        assert "color:#EBBF08" in num["style"] and "IBMPlexMono" in re.sub(r"[\s']", "", num["style"]), section
+    assert "align-items:baseline;gap:20px" not in _page(world)
+
+
+def test_diagram_and_card_indicators_and_the_s10_header_are_kept_as_they_were(world):
+    soup = _soup(_page(world))
+    s10 = soup.find(id="s10").find("h2")
+    assert s10.parent.find("div").get_text(strip=True).startswith("09")                          # ya iba encima: sin cambios
+    assert [d.get_text(strip=True) for d in soup.find(id="s2").find_all("div", string=re.compile(r"^0[1-3]$"))] == ["01", "02", "03"]
+    assert [d.get_text(strip=True) for d in soup.find(id="s8").find_all("div", string=re.compile(r"^0[1-4]$"))] == ["01", "02", "03", "04"]
+
+
+def test_the_shared_url_document_carries_no_commercial_navigation_and_no_back_button(world):
+    html = _page(world, email=HUB_ONLY)
+    for forbidden in ("catalog-back", "module-nav", "/comercial", "commercial_nav", "Volver"):
+        assert forbidden not in html, forbidden
+
+
+# ── Pantallas del Hub: Volver, aviso informativo y confirmación transitoria ─────────────────────────────────────────────
+
+def _hub_page(world, path):
+    r = world.client(A).get(path)
+    assert r.status_code == 200, path
+    return _soup(r.text)
+
+
+def test_the_detail_and_the_editor_use_the_shared_back_primitive_as_first_child_of_main(world):
+    pid = _copy(world, A)
+    detail = _hub_page(world, f"/comercial/presentaciones/{pid}")
+    back = detail.find("main", id="content").find(True, recursive=False)
+    assert back.name == "a" and back["class"] == ["catalog-back"] and back["href"] == "/comercial/presentaciones"
+    assert back.get_text(strip=True) == "← Volver a Presentaciones"
+    edit = _hub_page(world, f"/comercial/presentaciones/{pid}/editar")
+    back = edit.find("main", id="content").find(True, recursive=False)
+    assert back["class"] == ["catalog-back"] and back["href"] == f"/comercial/presentaciones/{pid}"
+    assert not [a for a in edit.find_all("a") if a.get_text(strip=True) == "Volver"], "sin un segundo «Volver» redundante"
+    assert not detail.select("p.eyebrow a") and not edit.select("p.eyebrow a"), "ningún eyebrow dorado hecho enlace"
+
+
+def test_the_link_visibility_notices_use_the_hub_note_callout_with_compact_scale_and_no_inline_styles(world):
+    pid = _copy(world, A)
+    detail = _hub_page(world, f"/comercial/presentaciones/{pid}")
+    note = detail.select_one(".callout.callout--note.cp-notice")
+    assert note and not note.has_attr("style") and not note.find(style=True)
+    assert "URL" in note.get_text() and "Comercial" in note.get_text()
+    edit = _hub_page(world, f"/comercial/presentaciones/{pid}/editar")
+    warn = edit.select_one(".callout.callout--punch.cp-notice")
+    assert warn and not warn.find(style=True) and "cualquier usuario autorizado del Hub" in warn.get_text()
+    css = (REPO / "webapp" / "static" / "commercial.css").read_text(encoding="utf-8")
+    assert ".cp-notice .callout__body" in css and ".cp-toast .callout__body" in css
+
+
+@pytest.mark.parametrize("path", ["/comercial/presentaciones", "/comercial/presentaciones/{pid}", "/comercial/presentaciones/{pid}/editar"])
+def test_every_hub_screen_hosts_the_transient_status_in_the_shared_auto_dismiss_container(world, path):
+    pid = _copy(world, A)
+    page = _hub_page(world, path.format(pid=pid))
+    host = page.select_one("[data-cp-status]")
+    assert host and "cp-toast" in host["class"] and host["data-dw-auto-dismiss"] == "6000" and host["aria-live"] == "polite"
+    assert not host.get_text(strip=True), "nace vacío: no hay un mensaje persistente renderizado"
+    assert len(page.select("[data-cp-status]")) == 1
+    assert not page.select("aside.callout--success[data-cp-status], [data-cp-status][hidden]")
+
+
+def test_the_status_script_reuses_the_hub_primitive_builds_the_callout_with_text_nodes_and_never_stacks():
+    source = (REPO / "webapp" / "static" / "commercial_presentations.js").read_text(encoding="utf-8")
+    js = re.sub(r"/\*.*?\*/|//[^\n]*", "", source, flags=re.S)                                    # solo código, sin comentarios
+    assert "replaceChildren(box)" in js and "textContent" in js
+    assert "innerHTML" not in js
+    assert "setTimeout" not in js, "el temporizador es el del primitivo Hub-wide (`data-dw-auto-dismiss`), no uno propio"
+    app = (REPO / "webapp" / "static" / "app.js").read_text(encoding="utf-8")
+    assert "function initAutoDismissFeedback" in app and "[data-dw-auto-dismiss]" in app
