@@ -15,7 +15,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Iterable
 
-from tools.catalog.modeling_assessment import naming_rules as NR
 from webapp.services import module_reference as MR
 
 
@@ -140,7 +139,7 @@ def _hygiene(doc: dict | None) -> dict:
     return ((((doc or {}).get("canonical_evidence") or {}).get("naming_evidence") or {}).get("hygiene") or {}).get("artifact_name_populations") or {}
 
 
-def naming_view(doc: dict | None) -> dict | None:
+def naming_view(doc: dict | None, family_of) -> dict | None:
     """Familias de incumplimiento de la sección 28 con los artefactos de cada una, SOLO si la evidencia canónica los atribuye de forma demostrable.
 
     Regla de atribución (verificable, sin inferir): el perfil conserva, por procedencia del nombre (``by_identity``), la lista de artefactos que no cumplen y el histograma de familias de
@@ -156,7 +155,7 @@ def naming_view(doc: dict | None) -> dict | None:
     reason_by_family: dict[str, str] = {}
     for r in s28.get("violation_reason_histogram") or []:
         key = str(r.get("key") or "")
-        reason_by_family.setdefault(NR.violation_family(key).value, MR.strip_ordinals(key))      # sin el ordinal histórico de la sección (la referencia vigente se resuelve aparte)            # misma tabla que usa el motor para pasar del texto de la regla a la familia
+        reason_by_family.setdefault(family_of(key), MR.strip_ordinals(key))      # sin el ordinal histórico de la sección; ``family_of`` = clasificador del motor (lo inyecta el presenter)
     members: dict[str, list[str]] = {}
     attributed: set[str] = set()
     for grp in pop.get("by_identity") or []:
