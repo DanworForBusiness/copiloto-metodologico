@@ -986,8 +986,8 @@ table.dashboard-table.commercial-creadas-table td:nth-child(4) { width: auto; }
    1. `.cp-catalog`: piso de ancho de la tabla (con `table-layout:fixed` + `.matrix-scroll` la tabla scrollea en vez de aplastar las columnas en pantallas angostas).
    2. `.cp-toolbar`: fila de acciones que envuelve (el `.hero-lead-row > div` no envuelve y desbordaba en móvil).
    3. `.cp-form` en tema CLARO: `.tree-feedback-form` es un primitivo de panel oscuro (tokens --card/--ink) y no trae variante clara fuera de CCHH; sin esto los campos quedan negros sobre
-      el panel claro. Solo cambia fondo/texto/borde; el foco (anillo dorado) lo sigue dando el primitivo. */
+      el panel claro. Solo cambia fondo/borde y hereda el color de texto del contenedor (sin literales: el par de tinta neutra de Comercial es una variable con consumidores fijos); el foco (anillo dorado) lo sigue dando el primitivo. */
 .dashboard-table.cp-catalog { min-width: 820px; }
 .cp-toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; }
 .content-theme-light .cp-form input[type="text"],
-.content-theme-light .cp-form textarea { background: #fff; color: #1f1f24; border-color: rgba(0, 0, 0, .18); }
+.content-theme-light .cp-form textarea { background: #fff; color: inherit; border-color: rgba(0, 0, 0, .18); }
