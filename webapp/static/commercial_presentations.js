@@ -222,19 +222,82 @@
       return frame.contentDocument ? Array.prototype.slice.call(frame.contentDocument.querySelectorAll("section[data-cp-removed]")).map(function (s) { return s.id; }) : [];
     }
     function slidesChanged() { return removedNow().join(",") !== originalRemoved.join(","); }
+    // Composición por región: solo los DESVÍOS del ocupante por defecto (`null` = quitado), igual que los guarda el servidor.
+    var originalBlocks = "{}";
+    function blocksNow() {
+      var out = {};
+      if (!frame.contentDocument) return out;
+      Array.prototype.forEach.call(frame.contentDocument.querySelectorAll("[data-cp-region]"), function (r) {
+        var occ = r.getAttribute("data-cp-occupant"), def = r.getAttribute("data-cp-default");
+        if (occ === def) return;
+        var parts = occ.split(":");
+        out[r.getAttribute("data-cp-region")] = occ ? { component: parts[0], variant: parts.slice(1).join(":") } : null;
+      });
+      return out;
+    }
+    function blocksChanged() { return JSON.stringify(blocksNow()) !== originalBlocks; }
     function refresh() {
-      var dirty = Object.keys(changed()).length > 0 || slidesChanged();
+      var dirty = Object.keys(changed()).length > 0 || slidesChanged() || blocksChanged();
       dirtyBadge.hidden = !dirty;
       saveBtn.disabled = saving || !dirty;
       return dirty;
     }
     function showError(text) { errBox.textContent = text; errBox.hidden = !text; }
 
+    // QR de la copia: el archivo se sube APARTE (multipart, con la revisión vigente) y se aplica al instante; el servidor valida el PNG, publica el asset y recién después guarda la referencia. Los textos sin guardar
+    // siguen en pantalla; la revisión que devuelve el servidor reemplaza a la del editor.
+    var QR_MAX = 1024 * 1024;
+    async function sendQr(file, remove) {
+      showError("");
+      var form = new FormData();
+      form.append("revision", editor.getAttribute("data-revision"));
+      if (remove) form.append("remove", "1"); else form.append("file", file, file.name);
+      toast("Guardando QR…", "", "note");
+      try {
+        var res = await fetch(editor.getAttribute("data-qr-url"), { method: "POST", credentials: "same-origin", body: form });
+        var data = await readJson(res);
+        if (res.ok && data.state === "ok") {
+          editor.setAttribute("data-revision", String(data.revision));
+          var doc = frame.contentDocument;
+          var img = doc && doc.querySelector("[data-cp-qr]");
+          if (img) img.setAttribute("src", data.qr_url);
+          var reset = doc && doc.querySelector("[data-cp-qr-reset]");
+          if (reset) reset.hidden = !data.qr_custom;
+          toast(remove ? "QR institucional" : "QR actualizado", "Revisión " + data.revision + ".", "success");
+        } else {
+          toast("", "", "");
+          showError(messageOf(data, "No se pudo guardar el QR."));
+        }
+      } catch (e) {
+        toast("", "", "");
+        showError("No se pudo guardar el QR. Verificá tu conexión y reintentá.");
+      }
+    }
+    function onFrameClick(ev) {
+      var t = ev.target.closest && ev.target.closest("[data-cp-qr-replace], [data-cp-qr-reset]");
+      if (!t) return;
+      if (t.hasAttribute("data-cp-qr-replace")) frame.contentDocument.querySelector("[data-cp-qr-file]").click();
+      else sendQr(null, true);
+    }
+    function onFrameChange(ev) {
+      var input = ev.target.closest && ev.target.closest("[data-cp-qr-file]");
+      if (!input || !input.files || !input.files[0]) return;
+      var file = input.files[0];
+      input.value = "";
+      if (!(file.type === "image/png" || /\.png$/i.test(file.name))) { showError("El QR debe ser un archivo .png."); return; }
+      if (file.size > QR_MAX) { showError("El QR supera 1 MB: exportalo más liviano."); return; }
+      sendQr(file, false);
+    }
+
     frame.addEventListener("load", function () {
       if (!frame.contentDocument) return;
       frame.contentDocument.addEventListener("input", refresh);
       frame.contentDocument.addEventListener("cp:slides-changed", refresh);
+      frame.contentDocument.addEventListener("cp:composition-changed", refresh);
+      frame.contentDocument.addEventListener("click", onFrameClick);
+      frame.contentDocument.addEventListener("change", onFrameChange);
       originalRemoved = removedNow();
+      originalBlocks = JSON.stringify(blocksNow());
       refresh();
     });
 
@@ -258,7 +321,8 @@
       showError("");
       var delta = changed();
       var slidesDirty = slidesChanged();
-      if (!Object.keys(delta).length && !slidesDirty) { toast("Sin cambios", "No hay cambios para guardar.", "note"); return; }
+      var blocksDirty = blocksChanged();
+      if (!Object.keys(delta).length && !slidesDirty && !blocksDirty) { toast("Sin cambios", "No hay cambios para guardar.", "note"); return; }
       saving = true;
       saveBtn.disabled = true;
       toast("Guardando…", "", "note");
@@ -266,12 +330,13 @@
         var res = await fetch(editor.getAttribute("data-save-url"), {
           method: "POST", credentials: "same-origin",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(Object.assign({ revision: parseInt(editor.getAttribute("data-revision"), 10), fields: delta }, slidesDirty ? { removed_slides: removedNow() } : {})),
+          body: JSON.stringify(Object.assign({ revision: parseInt(editor.getAttribute("data-revision"), 10), fields: delta }, slidesDirty ? { removed_slides: removedNow() } : {}, blocksDirty ? { blocks: blocksNow() } : {})),
         });
         var data = await readJson(res);
         if (res.ok && data.state === "ok") {
           editor.setAttribute("data-revision", String(data.revision));
           if (Array.isArray(data.removed_slides)) originalRemoved = data.removed_slides.slice();
+          originalBlocks = JSON.stringify(blocksNow());
           leaves().forEach(function (el) {
             var key = el.getAttribute("data-cp-field");
             if (data.content && typeof data.content[key] === "string") el.setAttribute("data-original", data.content[key]);

@@ -76,7 +76,7 @@ def test_every_visible_text_is_editable_a_mirror_a_governed_block_the_legal_foot
         text = re.sub(r"\s+", " ", str(node)).strip()
         if not text:
             continue
-        if node.find_parent(class_="cp-slide-tools") or node.find_parent(attrs={"data-cp-kicker-no": True}) or node.find_parent(attrs={"data-cp-derived": True}):
+        if node.find_parent(class_=["cp-slide-tools", "cp-region-tools", "cp-asset-tools"]) or node.find_parent(attrs={"data-cp-kicker-no": True}) or node.find_parent(attrs={"data-cp-derived": True}):
             continue                                                                             # herramientas de edición (X / Restaurar), numeración dinámica y texto derivado: cromo del editor
         if node.find_parent(attrs={"data-cp-field": True}) or node.find_parent(attrs={"data-cp-mirror": True}) or node.find_parent(attrs={"data-cp-block": True}) or node.find_parent("footer"):
             continue
@@ -88,8 +88,10 @@ def test_every_visible_text_is_editable_a_mirror_a_governed_block_the_legal_foot
 
 def test_the_governed_blocks_are_identified_in_their_slides_and_hold_no_editable_field(world):
     soup = _edit_doc(world, _copy(world, A))
-    blocks = {b["data-cp-block"]: b for b in soup.select("[data-cp-block]")}
-    assert set(blocks) == set(BLOCKS) and len(soup.select("[data-cp-block]")) == len(BLOCKS)
+    live = [b for b in soup.select("[data-cp-block]") if not b.find_parent("template")]                # las <template> de la biblioteca (modo edición) repiten cada componente una vez
+    blocks = {b["data-cp-block"]: b for b in live}
+    assert set(blocks) == set(BLOCKS) and len(live) == len(BLOCKS)
+    assert {t["data-cp-component"] for t in soup.select("template[data-cp-component]")} == {"layer-stack:bdc-architecture", "layer-stack:knowledge-core-stack", "ecosystem-flow:open-ecosystem-flow", "logo-marquee:partner-logo-marquee"}
     for name, sid in BLOCKS.items():
         assert blocks[name].find_parent("section")["id"] == sid, name
         assert not blocks[name].select("[data-cp-field], [contenteditable]"), f"{name}: un bloque gobernado no expone sus cajas como campos"

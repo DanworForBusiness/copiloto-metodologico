@@ -15,9 +15,11 @@ bloques genéricos, SPA ni persistencia transversal nueva. Las composiciones esp
 | R3 | `GET /comercial/presentaciones/{id}` | Detalle: shell del Hub + iframe de R1 | Comercial |
 | R4 | `POST /comercial/presentaciones/{id}/copiar` | Copia como instancia propia | Comercial (cualquier presentación; sin requisito adicional) |
 | R5 | `GET /comercial/presentaciones/{id}/editar` | Editor INLINE: el documento real en modo edición + barra Cancelar · «Sin guardar» · Guardar | Comercial + poder editar esa instancia |
-| R6 | `POST /comercial/presentaciones/{id}` | Guarda campos y/o las slides eliminadas (JSON `{revision, fields?, removed_slides?}`; al menos uno) | ídem R5 + `same_origin_guard` |
+| R6 | `POST /comercial/presentaciones/{id}` | Guarda campos, slides eliminadas y/o composición de componentes (JSON `{revision, fields?, removed_slides?, blocks?}`; al menos uno) | ídem R5 + `same_origin_guard` |
 | R7 | `POST /comercial/presentaciones/{id}/eliminar` | Elimina la instancia (borrado real; el enlace compartido pasa a 404) | Comercial + poder eliminar esa instancia + `same_origin_guard` |
 | R8 | `GET /presentaciones/{id}/logo` | PNG del logo propio de una copia (404 si no tiene) | MISMO contrato de lectura que R1: sesión + `is_authorized`, **sin** exigir Comercial |
+| R9 | `POST /comercial/presentaciones/{id}/qr` | Reemplaza o quita (`remove=1`) el QR de la copia (multipart: `revision` + `file`) | ídem R6 (Comercial + poder editar esa instancia + `same_origin_guard`) |
+| R10 | `GET /presentaciones/{id}/qr` | PNG del QR propio de una copia (404 si no tiene) | MISMO contrato de lectura que R1/R8 |
 
 * **Copiar no implica editar.** Editar = Comercial **y** no-seed **y** (`owner_id` == usuario **o** `CONTENT_OWNER`). `CONTENT_OWNER` es la capacidad transversal de gobierno de edición de contenidos del Hub (no se creó ninguna variable, rol ni allowlist nueva).
   **`APP_OWNER` no edita contenido ajeno por ser administrador**: es el contrato que ya rige Estrategia (`commercial_access.can_edit_strategy_user`: «sin bypass de `APP_OWNER`; si el dueño de la app necesita editar, su identidad debe estar explícita en `CONTENT_OWNER`») y lo reitera `auth_service.is_content_owner_user`. Si el dueño de la app edita, lo hace porque también está en `CONTENT_OWNER`, o sobre sus propias copias (es su responsable).
@@ -134,22 +136,19 @@ Ningún texto visible queda sin clasificar: `test_every_visible_text_is_editable
 **Espejos:** el nombre de cada sección aparece en la etiqueta superior y en el riel (se edita en la etiqueta y el riel lo refleja en vivo); el título de cada pilar, también en su detalle; la etiqueta dorada de la portada, en el encabezado de la pestaña propia.
 **Edición:** los textos dentro de un enlace («Siguiente · …») se editan sin navegar; el de una solapa se edita sin que el `<label>` robe el foco (y activa la solapa); en el modo edición el detalle de cada pilar se apila bajo su título (al leer sigue siendo el revelado por hover).
 
-### Bloques gobernados (propuesta mínima, sin biblioteca)
+### Bloques gobernados
 
 Las visualizaciones especializadas son **bloques gobernados**: el template los dibuja, sus cajas y conexiones **no son campos**, y quedan identificados con el atributo inerte `data-cp-block` (no cambia el render ni agrega comportamiento):
 
-| Bloque | Slide | Elemento hoy | Textos del bloque / narrativa editable alrededor |
+| Bloque (variante) | Slide | Elemento | Textos del bloque / narrativa editable alrededor |
 |---|---|---|---|
 | `bdc-architecture` | 3 | `div.arch` (cuatro capas + los dos laterales) | 23 / título, subtítulo y cierre de la slide |
-| `knowledge-core-stack` | 4 | contenedor del stack de 3 capas con sus conectores | 16 / título, subtítulo, cierre; el rótulo «KNOWLEDGE CORE» queda **fuera** del elemento |
-| `open-ecosystem-flow` | 5 | `div.flow-grid` (plataformas → BDC Connect → lo que se construye) | 12 / tarjetas y subtítulo; el espaciador de 44 px queda fuera |
+| `knowledge-core-stack` | 4 | contenedor del stack de 3 capas con sus conectores | 16 / título, subtítulo, cierre; el rótulo «KNOWLEDGE CORE» (campo editable) vive en la región, fuera del elemento |
+| `open-ecosystem-flow` | 5 | `div.flow-grid` (plataformas → BDC Connect → lo que se construye) | 12 / tarjetas y subtítulo; el espaciador de 44 px vive en la región |
 | `partner-logo-marquee` | 12 | `div.logo-marquee` | solo imágenes |
 
 *Precedentes en el Hub:* no existe ninguno de selección/sustitución de componentes **por instancia**. Los más cercanos son preferencias por usuario en el navegador (anchos de columna, versionadas por `layout.version`) y la **referencia por id** (`template_id` + `template_version` de esta misma entidad; packs gobernados en Contratos Gobernados): se reutiliza ese patrón, nunca HTML guardado.
-*Alternativa real compatible:* **ninguna hoy**. En el repositorio no hay otra arquitectura BDC con el mismo propósito (Academy tiene tarjetas narrativas, y los HTML `danwor-arquitectura-*` describen la arquitectura de Danwor, no la de SAP BDC). Por eso **no se implementó** un selector de reemplazo (sería vacío).
-*Ocultar:* verificado en el navegador sobre los cuatro bloques (`display:none` sobre el elemento): el ancla, el riel y los «Siguiente» siguen resolviendo y no hay errores. En `bdc-architecture` el layout queda limpio (título → subtítulo → cierre, 68 px y 56 px de separación, la sección pasa de 1259 a 723 px). En `knowledge-core-stack` y `open-ecosystem-flow` el elemento actual **no basta**: quedaría el rótulo huérfano / el espaciador; el límite de ocultación debe incluir su rótulo (slide 4) y su espaciador (slide 5), lo que requiere un envoltorio de markup (aditivo, sin subir `version`).
-*Contrato mínimo propuesto (slice posterior, no implementado):* en la instancia, `blocks: {"<block_id>": {"ref": "<variante>@<versión>", "hidden": false}}` — solo ids y versiones; el template resuelve el markup de cada variante registrada (`BLOCK_VARIANTS` en la `TemplateSpec`); `ref` ausente = la variante por defecto, así que las instancias actuales no cambian; validación contra el registro (rechazo atómico), autorización y revisión idénticas a las de los campos. Con una sola variante registrada, la UI se limita a «mostrar / ocultar»; el selector de reemplazo aparece recién cuando exista una segunda variante real. La arquitectura V1 no lo impide: el id del bloque ya está en el template, las instancias admiten claves opcionales (como `removed_slides`) y las copias heredan la composición.
-**Decisión de producto pendiente (solo esta):** *si ocultar un diagrama debe ser una acción a nivel bloque (propuesta) o alcanza con quitar la slide completa*, que hoy ya existe.
+*Reutilización real hoy:* la arquitectura BDC y el stack de Knowledge Core son el **mismo componente** (`layer-stack`, un renderer con parámetros distintos); el flujo y el marquee son componentes propios. Quitar, restaurar, reemplazar y agregar sobre estas regiones están implementados: ver «Add-ons» más abajo. Ocultar un bloque se verificó en navegador antes de implementarlo (ancla, riel y «Siguiente» siguen resolviendo); el límite de la región incluye el rótulo de la slide 4 y el espaciador de la slide 5 para no dejar huérfanos.
 
 ### Eliminar slides de una copia
 
@@ -157,6 +156,34 @@ En el modo edición cada slide (menos la portada) muestra una **✕ arriba a la 
 * **Numeración dinámica:** el kicker «NN / total», el riel de puntos, los enlaces «Siguiente» y el cue de la portada se recalculan sobre las slides **visibles** (`01/09 … 09/09` si se quitan dos). Si el siguiente original ya no existe, «Siguiente» apunta a la siguiente visible y nombra **esa** slide; la última visible no ofrece «Siguiente». El servidor aplica la misma regla al renderizar la lectura (y el editor, en vivo).
 * **Persistencia:** `removed_slides` (lista de ids, opcional) dentro de la misma instancia; sin slides eliminadas el archivo conserva la forma de siempre. Se guarda con el mismo R6 (`removed_slides` en el payload, aun sin campos cambiados), con la misma revisión, validación atómica (lista, ids de slide quitable, sin repetidos; `s1` no) y autorización. «Sin guardar» también se activa por quitar/restaurar una slide.
 * **Lectura:** las slides eliminadas **no se renderizan**: su texto no viaja en el HTML. La copia de una copia hereda la composición del origen y es independiente después.
+
+## Add-ons: componentes gobernados, regiones y QR
+
+**Qué es:** se reutilizan composiciones visuales ya existentes (no hay editor drag-and-drop ni HTML/CSS/JS aportado por usuarios). Cuatro conceptos, todos en el repo:
+
+* **Componente** (código compartido: macro Jinja + CSS de `vanture.css`): `layer-stack` (un único renderer parametrizado), `ecosystem-flow`, `logo-marquee`. Los conectores animados son parte interna de `layer-stack` y de `ecosystem-flow`.
+* **Variante** (set de parámetros institucional): `layer-stack` tiene `bdc-architecture` y `knowledge-core-stack` (`webapp/services/commercial_presentations_data/addons.yaml`, validado al cargar: tonos, rangos y textos cerrados); `ecosystem-flow` y `logo-marquee` tienen su única variante (`open-ecosystem-flow`, `partner-logo-marquee`). El id de variante es el `data-cp-block` que el documento ya llevaba.
+* **Región** (lugar declarado del template, con **un solo ocupante**): tipo `body` (dentro del contenedor de la slide) o `bleed` (ancho completo). Hay nueve: las cuatro existentes (`s3.body` arquitectura BDC, `s4.body` stack Knowledge Core con su rótulo, `s5.body` flujo con su espaciador, `s12.bleed` marquee) y cinco `body` que **nacen vacías** (`s2`, `s6`, `s7`, `s8`, `s9`): mientras estén vacías no emiten markup ni alteran el layout; al ocuparse llevan la separación estándar de 56 px al final del contenedor.
+* **Uso en la instancia:** `blocks` = solo los **desvíos** del ocupante por defecto de cada región (`null` = quitado); ids, nunca markup. Sin desvíos la clave no existe.
+
+**Compatibilidad = solo el tipo de región** (`body` admite `layer-stack` y `ecosystem-flow`; `bleed` admite `logo-marquee`); no hay reglas semánticas por slide. El servidor valida región, componente, variante y tipo (422 atómico, sin reflejar el valor). La biblioteca ofrece únicamente composiciones reales y registradas.
+
+| Componente | Quitar / Restaurar | Reemplazar | Agregar |
+|---|---|---|---|
+| `layer-stack` (2 variantes) | sí | por cualquier componente de región `body` | en regiones `body` |
+| `ecosystem-flow` | sí | por cualquier componente de región `body` | en regiones `body` |
+| `logo-marquee` | sí (solo `s12.bleed`) | sin alternativa en `bleed`: no se ofrece | solo en `bleed` |
+
+**Experiencia (solo modo edición, patrón de la ✕ de slides):** cada región muestra una barra con su ocupante, el selector «Agregar:» / «Reemplazar por:» (segmentado nativo del Hub), «Quitar» y «Restaurar original». El editor **clona** el componente que ya está en una `<template>` del documento (nunca arma markup) y el servidor revalida al guardar. Al agregar o reemplazar se avisa, sin bloquear, que *los títulos y textos de la slide no se actualizan automáticamente* (no se reescribe nada solo). «Sin guardar», confirmación al descartar y revisión son los de siempre.
+
+**Integridad:** el seed conserva paridad exacta (DOM idéntico y capturas idénticas byte a byte en desktop/mobile, claro/oscuro, para s3, s4, s5 y s12); `removed_slides`, numeración, riel, anclas y «Siguiente» no cambian con la composición (las regiones de una slide eliminada se van con ella y vuelven al restaurarla); la copia hereda `blocks` como snapshot y queda independiente; las instancias anteriores renderizan la composición por defecto; la lectura de `blocks` es tolerante (lo inválido se ignora entrada por entrada) y el guardado es estricto.
+
+**QR intercambiable (asset, no arquitectura):** reutiliza el uploader del logo del cliente, sin duplicarlo. El validador PNG se factorizó en `validate_png(data, *, noun, require_alpha, square)`: el **logo** sigue exigiendo transparencia; el **QR** (`validate_qr_png`) pide PNG íntegro (firma, CRC, IEND), no animado, ≤ 1 MB, ≤ 1,5 M de px, **cuadrado (±10 %)** y **no** exige transparencia (un QR suele ser opaco y el documento lo apoya sobre un tile blanco). Se reutilizan la escritura atómica, el orden «asset primero, instancia después», la herencia en la copia (snapshot), la limpieza al eliminar, el servido con `Content-Security-Policy: default-src 'none'; sandbox` y el contrato de lectura de R8. El asset es `<uuid>.qr.png` junto a la instancia (mismo directorio ya persistido: **sin repositorio de medios ni variables nuevas**) y la instancia guarda `qr: {sha256, bytes, width, height}`. La ruta la deriva el servidor del uuid validado: no hay rutas arbitrarias ni acceso al asset de otra instancia. El QR se aplica aparte de «Guardar» (R9, con la revisión vigente); los textos sin guardar siguen en pantalla.
+*Fallas entre publicar el asset y guardar la referencia:* disco y Spaces vuelven a la versión anterior (se reenvía el QR/instancia previos o se retira el asset huérfano); si ni la compensación se puede confirmar, el resultado es **incierto** (503 `outcome_unknown` con aviso) y nunca se presenta un éxito parcial como éxito. Una referencia cuyo archivo se perdió vuelve al QR institucional (nunca una imagen rota).
+
+**Autorización:** la de siempre. Usar componentes y cambiar el QR = poder editar esa instancia (responsable o `CONTENT_OWNER`); `APP_OWNER` no obtiene edición de contenido ajeno; el seed y las definiciones institucionales no se editan (cambian por código y deploy). Sin variables, roles ni allowlists nuevos.
+
+**Guardar como (siguiente capacidad de producto, no implementada):** requiere parámetros realmente editables y por eso queda para el próximo slice, **sin repositorio de variantes todavía**. Compatibilidad reservada: el id de variante es el único contrato de selección; la instancia ya admite claves opcionales; una variante propia se guardará con nombre, identidad, autor, definición de origen y parámetros independientes, con alcance privado inicial, y **nunca HTML/CSS/JS**.
 
 ## Logo del cliente al copiar
 

@@ -1,0 +1,69 @@
+# Variantes INSTITUCIONALES de los componentes gobernados de Presentaciones (datos versionados con el código, igual que el seed: no hay UI para publicarlas).
+# Cada variante de `layer-stack` es un set de PARÁMETROS validado al cargar (`commercial_presentations._addons`): ni HTML, ni CSS, ni JS. El renderer es único y compartido (macro `layer_stack` del template).
+# tone de capa: light | strong | neutral · tone de caja: gold | neutral · reveal: % de scroll en que entra la capa (animation-range).
+layer-stack:
+  bdc-architecture:
+    label: "Arquitectura SAP BDC"
+    sides: ["Business Data Fabric", "Master Data Governance"]
+    connectors: false
+    layers:
+      - tone: light
+        label: "AI AGENTS"
+        sub: "Joule"
+        reveal: 34
+        boxes:
+          - {text: "Joule Agents", tone: gold}
+          - {text: "Intelligent content", tone: neutral}
+      - tone: strong
+        label: "KNOWLEDGE CORE"
+        sub: "Contexto de negocio crítico"
+        reveal: 28
+        boxes:
+          - {text: "SAP Datasphere", tone: gold}
+          - {text: "SAP Analytics Cloud", tone: gold}
+      - tone: neutral
+        label: "INTELLIGENT COMPUTE"
+        sub: "Motores de primer nivel"
+        reveal: 22
+        boxes:
+          - {text: "SAP HANA Cloud", tone: neutral}
+          - {text: "SAP Databricks", tone: neutral}
+          - {text: "SAP Snowflake", note: "Solution extension", tone: neutral}
+      - tone: neutral
+        label: "LAKE STORAGE"
+        sub: "Una base para todos los datos"
+        reveal: 16
+        boxes:
+          - {text: "Datos SAP", note: "Aplicaciones SAP", tone: neutral}
+          - {text: "SAP Business Warehouse", tone: neutral}
+          - {text: "Datos no SAP", note: "Híbrido · SaaS · Cloud-native · On-premises · Edge", tone: neutral}
+  knowledge-core-stack:
+    label: "Stack Knowledge Core"
+    sides: []
+    connectors: true
+    layers:
+      - tone: light
+        label: "AI AGENTS & APPLICATIONS"
+        reveal: 30
+        boxes:
+          - {text: "Experiencias adaptativas", tone: neutral}
+          - {text: "Ejecución autónoma", tone: neutral}
+          - {text: "Aprendizaje constante desde los datos", tone: neutral}
+      - tone: strong
+        label: "KNOWLEDGE CORE"
+        sub: "El significado del dato"
+        reveal: 26
+        boxes:
+          - {text: "Analítica y simulaciones", tone: gold}
+          - {text: "Grafo de conocimiento", tone: gold}
+          - {text: "Semántica de negocio", tone: gold}
+          - {text: "Productos de datos", tone: gold}
+      - tone: neutral
+        label: "COMPUTE & STORAGE"
+        sub: "Cómo se procesa el dato"
+        reveal: 22
+        boxes:
+          - {text: "Data lakes", tone: neutral}
+          - {text: "Data warehouse", tone: neutral}
+          - {text: "Data lakehouse", tone: neutral}
+          - {text: "Base operacional", tone: neutral}

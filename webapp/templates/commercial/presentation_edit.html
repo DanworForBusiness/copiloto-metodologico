@@ -34,7 +34,7 @@
 
     {# Edición INLINE, como «02. Estrategia»: los textos habilitados son leaves `contenteditable` (texto plano) del propio documento, que va en el iframe con `?embed=1&edit=1` (el servidor solo lo habilita si el usuario puede editar esta instancia).
        Esta barra (Cancelar · «Sin guardar» · Guardar) vive en el Hub; el guardado manda SOLO los campos que cambiaron, bajo la revisión que cargó la página (R6). #}
-    <div data-cp-editor data-save-url="/comercial/presentaciones/{{ presentation.presentation_id }}" data-revision="{{ presentation.revision }}" data-back-url="/comercial/presentaciones/{{ presentation.presentation_id }}">
+    <div data-cp-editor data-qr-url="/comercial/presentaciones/{{ presentation.presentation_id }}/qr" data-save-url="/comercial/presentaciones/{{ presentation.presentation_id }}" data-revision="{{ presentation.revision }}" data-back-url="/comercial/presentaciones/{{ presentation.presentation_id }}">
       <div class="cp-toolbar">
         <button type="button" class="btn-secondary" data-cp-cancel>Cancelar</button>
         <span class="status-badge status-badge--tentativo" data-cp-dirty hidden>Sin guardar</span>

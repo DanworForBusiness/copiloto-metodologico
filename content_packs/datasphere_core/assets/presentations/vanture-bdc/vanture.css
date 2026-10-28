@@ -76,6 +76,21 @@
   /* Modo edición: el detalle de cada pilar no se superpone (al pasar el mouse taparía el título y no se podría editar): se apila debajo, a la vista. La lectura no cambia. */
   html[data-cp-edit] .reveal-fade{overflow:visible}
   html[data-cp-edit] .reveal-fade{min-height:0!important}
+  /* Regiones de componentes: las nuevas nacen vacías y NO emiten nada al leer; separación de 56 px (la de párrafo → contenido) solo cuando tienen un componente. */
+  .cp-region-gap{margin-top:56px}
+  /* Edición de componentes por región (Quitar · Reemplazar · Agregar) y del QR: barras discretas que no existen en la lectura. */
+  html[data-cp-edit] .cp-region-tools{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:0 0 34px;padding:10px 14px;border:1px dashed color-mix(in srgb, var(--content-ink) 28%, transparent);font:600 11.5px/1.2 var(--mono);letter-spacing:.1em;color:var(--content-ink-soft)}
+  html[data-cp-edit] .cp-region-title{text-transform:uppercase;color:var(--gold)}
+  html[data-cp-edit] .cp-region-pick-label::before{content:"Agregar:"}
+  html[data-cp-edit] [data-cp-region]:not([data-cp-occupant=""]) .cp-region-pick-label::before{content:"Reemplazar por:"}
+  html[data-cp-edit] .cp-region-pick button[aria-pressed="true"]{background:var(--gold);color:#000}
+  html[data-cp-edit] .cp-region-btn{cursor:pointer;font:600 11.5px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;padding:9px 13px;color:var(--content-ink-soft);background:transparent;border:1px solid color-mix(in srgb, var(--content-ink) 24%, transparent);transition:color .15s ease,border-color .15s ease}
+  html[data-cp-edit] .cp-region-btn:hover,html[data-cp-edit] .cp-region-btn:focus-visible{color:var(--gold);border-color:var(--gold);outline:none}
+  html[data-cp-edit] .cp-region-note{flex:1 0 100%;font:500 11.5px/1.4 var(--mono);letter-spacing:.04em;text-transform:none;color:var(--content-ink-soft)}
+  html[data-cp-edit] [data-cp-region][data-cp-occupant=""] > :not(.cp-region-tools){display:none!important}
+  html[data-cp-edit] [data-cp-region][data-cp-occupant=""] [data-cp-region-remove]{display:none}
+  html[data-cp-edit] .cp-asset-tools{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:center}
+  html[data-cp-edit] .cp-asset-hint{font:500 11.5px/1.4 var(--mono);color:var(--content-ink-soft)}
   /* Eliminar una slide de la copia (solo edición): X arriba a la derecha de cada slide; la eliminada queda colapsada en una barra con «Restaurar». */
   html[data-cp-edit] [hidden]{display:none!important}
   html[data-cp-edit] .cp-slide-tools{position:absolute;top:16px;right:22px;z-index:20;display:flex;gap:8px;align-items:center}

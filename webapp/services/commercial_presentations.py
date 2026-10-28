@@ -63,6 +63,8 @@ MAX_INSTANCES = 200                                   # tope global (V1): evita 
 MAX_TITLE = 120
 MAX_LOGO_BYTES = 1024 * 1024                          # logo del cliente: PNG con fondo transparente, hasta 1 MB
 MAX_LOGO_PIXELS = 1_500_000
+_SQUARE_TOLERANCE = 0.10                              # QR: |ancho − alto| ≤ 10 % del lado mayor
+_DEFAULT_QR = "img/38a9ed59b4.png"                    # QR institucional del template (se reemplaza por el de la copia, nunca se modifica)
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 _DEFAULT_PARTNER_LOGO = "img/718d5d28e4.png"           # logo de Vanture del template (header y pie): es el que reemplaza el logo del cliente
 
@@ -386,6 +388,123 @@ VANTURE_FIELDS = (
 # La numeración («NN / total»), el riel y los «Siguiente» se recalculan sobre las visibles.
 NUMBERED_SLIDES = tuple(f"s{i}" for i in range(2, 13))
 
+# ── Add-ons: componentes gobernados, variantes y regiones ──────────────────────────────────────────────────────────────────────────────────────────────────────
+# Un COMPONENTE es código compartido (macro del template + CSS de vanture.css); una VARIANTE es un set de parámetros institucional (`addons.yaml`) o el único contenido de un componente fijo; una REGIÓN es
+# un lugar declarado del template con un tipo (`body`: dentro del contenedor de la slide · `bleed`: ancho completo) y UN solo ocupante. La instancia guarda solo ids: `blocks` = desvíos del ocupante por defecto
+# de cada región (`None` = quitado). Compatibilidad = solo el tipo de región; ninguna regla semántica por slide.
+COMPONENTS: dict[str, dict] = {
+    "layer-stack": {"label": "Capas de arquitectura", "region": "body", "variants": {"bdc-architecture": "Arquitectura SAP BDC", "knowledge-core-stack": "Stack Knowledge Core"}},
+    "ecosystem-flow": {"label": "Flujo del ecosistema", "region": "body", "variants": {"open-ecosystem-flow": "Flujo del ecosistema abierto"}},
+    "logo-marquee": {"label": "Marquee de logos", "region": "bleed", "variants": {"partner-logo-marquee": "Logos de clientes y socios"}},
+}
+# región → (tipo, ocupante por defecto `componente:variante` | None). Las cuatro primeras ya existían en el template; las cinco `body` restantes nacen vacías y no emiten nada mientras lo estén.
+REGIONS: dict[str, tuple[str, str | None]] = {
+    "s2.body": ("body", None), "s3.body": ("body", "layer-stack:bdc-architecture"), "s4.body": ("body", "layer-stack:knowledge-core-stack"), "s5.body": ("body", "ecosystem-flow:open-ecosystem-flow"),
+    "s6.body": ("body", None), "s7.body": ("body", None), "s8.body": ("body", None), "s9.body": ("body", None), "s12.bleed": ("bleed", "logo-marquee:partner-logo-marquee"),
+}
+
+
+def _ref(component: str, variant: str) -> str:
+    return f"{component}:{variant}"
+
+
+def _split_ref(ref: str) -> tuple[str, str]:
+    component, _, variant = ref.partition(":")
+    return component, variant
+
+
+def region_slide(region_id: str) -> str:
+    return region_id.split(".")[0]
+
+
+def validate_blocks(value) -> dict:
+    """`blocks`: mapa región → `None` (quitado) | `{component, variant}`. Solo regiones declaradas, componentes y variantes registrados y compatibles con el TIPO de la región; se normaliza a los desvíos del defecto
+    (lo que coincide con el ocupante por defecto no se guarda). Rechazo atómico y mensajes que no reflejan el valor recibido."""
+    if not isinstance(value, dict):
+        raise PresentationValidationError("La composición debe ser un mapa de regiones")
+    out: dict[str, dict | None] = {}
+    for region_id, occupant in value.items():
+        if not isinstance(region_id, str) or region_id not in REGIONS:
+            raise PresentationValidationError("Se indicó una región que no existe")
+        rtype, default = REGIONS[region_id]
+        if occupant is None:
+            if default is not None:
+                out[region_id] = None
+            continue
+        if not isinstance(occupant, dict) or set(occupant) != {"component", "variant"} or not all(isinstance(v, str) for v in occupant.values()):
+            raise PresentationValidationError("El componente indicado no es válido")
+        component, variant = occupant["component"], occupant["variant"]
+        spec = COMPONENTS.get(component)
+        if spec is None or variant not in spec["variants"]:
+            raise PresentationValidationError("El componente indicado no está en la biblioteca")
+        if spec["region"] != rtype:
+            raise PresentationValidationError("Ese componente no es compatible con la región elegida")
+        if _ref(component, variant) != default:
+            out[region_id] = {"component": component, "variant": variant}
+    return {rid: out[rid] for rid in REGIONS if rid in out}
+
+
+def resolve_regions(blocks: dict | None) -> dict[str, dict]:
+    """Estado efectivo de cada región: `{type, default, occupant}` con `default`/`occupant` = `(componente, variante)` | None."""
+    blocks = blocks or {}
+    out = {}
+    for rid, (rtype, default) in REGIONS.items():
+        d = _split_ref(default) if default else None
+        if rid in blocks:
+            o = None if blocks[rid] is None else (blocks[rid]["component"], blocks[rid]["variant"])
+        else:
+            o = d
+        out[rid] = {"type": rtype, "default": d, "occupant": o}
+    return out
+
+
+def component_library() -> list[dict]:
+    """Biblioteca de composiciones REALES y registradas (nada más), con el tipo de región al que calzan."""
+    return [{"component": c, "variant": v, "label": label, "region": spec["region"], "ref": _ref(c, v)}
+            for c, spec in COMPONENTS.items() for v, label in spec["variants"].items()]
+
+
+@lru_cache(maxsize=None)
+def _addons() -> dict:
+    """Parámetros de las variantes institucionales de `layer-stack` (`addons.yaml`), validados al cargar: tonos y rangos cerrados, textos no vacíos, sin caracteres de control."""
+    path = _SEED_DIR / "addons.yaml"
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as exc:
+        raise PresentationUnavailable("Variantes de add-ons ilegibles", "seed") from exc
+    stacks = data.get("layer-stack") if isinstance(data, dict) else None
+    if not isinstance(stacks, dict) or set(stacks) != set(COMPONENTS["layer-stack"]["variants"]):
+        raise PresentationUnavailable("Variantes de add-ons sin la forma esperada", "seed")
+
+    def text(v, *, required=True):
+        ok = isinstance(v, str) and (v.strip() or not required) and not _FORBIDDEN_CHARS.search(v) and len(v) <= 120
+        if not ok:
+            raise PresentationUnavailable("Variantes de add-ons con un texto inválido", "seed")
+        return v
+
+    for variant, v in stacks.items():
+        if set(v) != {"label", "sides", "connectors", "layers"} or not isinstance(v["connectors"], bool) or not isinstance(v["layers"], list) or not v["layers"]:
+            raise PresentationUnavailable("Variantes de add-ons sin la forma esperada", "seed")
+        text(v["label"])
+        if not isinstance(v["sides"], list) or len(v["sides"]) not in (0, 2):
+            raise PresentationUnavailable("Variantes de add-ons con laterales inválidos", "seed")
+        [text(x) for x in v["sides"]]
+        for layer in v["layers"]:
+            if set(layer) - {"tone", "label", "sub", "reveal", "boxes"} or layer.get("tone") not in ("light", "strong", "neutral") or not isinstance(layer.get("reveal"), int) or not 5 <= layer["reveal"] <= 60:
+                raise PresentationUnavailable("Variantes de add-ons con una capa inválida", "seed")
+            text(layer["label"])
+            if "sub" in layer:
+                text(layer["sub"])
+            if not isinstance(layer.get("boxes"), list) or not 1 <= len(layer["boxes"]) <= 6:
+                raise PresentationUnavailable("Variantes de add-ons con cajas inválidas", "seed")
+            for box in layer["boxes"]:
+                if set(box) - {"text", "note", "tone"} or box.get("tone") not in ("gold", "neutral"):
+                    raise PresentationUnavailable("Variantes de add-ons con una caja inválida", "seed")
+                text(box["text"])
+                if "note" in box:
+                    text(box["note"])
+    return stacks
+
 TEMPLATES: dict[str, TemplateSpec] = {
     "vanture-bdc": TemplateSpec(
         template_id="vanture-bdc", version=1, label="Vanture · La empresa autónoma comienza con los datos",
@@ -429,7 +548,7 @@ def _seed_view(template_id: str) -> dict:
         "title": str(data.get("title") or spec.label), "revision": 1, "is_seed": True,
         "created_by_id": None, "created_by_label": "Danwor (institucional)", "owner_id": None, "copied_from": None,
         "created_at": None, "updated_at": None, "updated_by_id": None, "updated_by_label": None,
-        "removed_slides": [],
+        "removed_slides": [], "blocks": {}, "qr_sha": None,
         "content": copy.deepcopy(data["content"]),
     }
 
@@ -506,6 +625,10 @@ def _logo_path(presentation_id: str) -> Path:
     return _dir() / f"{presentation_id}.logo.png"
 
 
+def _qr_path(presentation_id: str) -> Path:
+    return _dir() / f"{presentation_id}.qr.png"
+
+
 def _paeth(a: int, b: int, c: int) -> int:
     p = a + b - c
     pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
@@ -563,16 +686,16 @@ def _has_transparent_pixel(width: int, height: int, color_type: int, depth: int,
     return False
 
 
-def validate_logo_png(data) -> dict:
-    """Valida el logo subido: PNG íntegro (firma, CRC de cada bloque, IEND), ≤ 1 MB, ≤ 1,5 M de píxeles, no animado y CON TRANSPARENCIA real (canal alfa o `tRNS`, y al menos un píxel transparente cuando se puede decodificar).
+def validate_png(data, *, noun: str = "logo", require_alpha: bool = True, square: bool = False) -> dict:
+    """Valida una imagen PNG subida (logo del cliente o QR): PNG íntegro (firma, CRC de cada bloque, IEND), ≤ 1 MB, ≤ 1,5 M de píxeles, no animado y CON TRANSPARENCIA real (canal alfa o `tRNS`, y al menos un píxel transparente cuando se puede decodificar).
     Devuelve `{width, height, sha256, bytes}`. No re-codifica nada: se guarda tal cual se subió. Lanza `LogoValidationError` con un mensaje apto para mostrar."""
     if not isinstance(data, (bytes, bytearray)) or not data:
-        raise LogoValidationError("Elegí un archivo PNG para el logo.")
+        raise LogoValidationError(f"Elegí un archivo PNG para el {noun}.")
     data = bytes(data)
     if len(data) > MAX_LOGO_BYTES:
-        raise LogoValidationError("El logo supera 1 MB: exportalo más liviano.")
+        raise LogoValidationError(f"El {noun} supera 1 MB: exportalo más liviano.")
     if not data.startswith(_PNG_SIGNATURE):
-        raise LogoValidationError("El logo debe ser un archivo .png.")
+        raise LogoValidationError(f"El {noun} debe ser un archivo .png.")
     pos, first, ihdr, idat, trns, seen_end = len(_PNG_SIGNATURE), True, None, bytearray(), None, False
     while pos + 12 <= len(data):
         length = struct.unpack(">I", data[pos:pos + 4])[0]
@@ -604,16 +727,29 @@ def validate_logo_png(data) -> dict:
         raise LogoValidationError("El PNG está incompleto o dañado.")
     width, height, depth, color_type, _compression, _filter, interlace = ihdr
     if not (width and height) or width * height > MAX_LOGO_PIXELS:
-        raise LogoValidationError("El logo es demasiado grande en píxeles (máximo 1,5 millones, por ejemplo 1200 × 1200).")
+        raise LogoValidationError(f"El {noun} es demasiado grande en píxeles (máximo 1,5 millones, por ejemplo 1200 × 1200).")
     if color_type not in (0, 2, 3, 4, 6):
         raise LogoValidationError("El archivo no es un PNG válido.")
-    if color_type not in (4, 6) and trns is None:
-        raise LogoValidationError("El PNG no tiene transparencia: exportalo como PNG con fondo transparente.")
-    if interlace == 0:
-        found = _has_transparent_pixel(width, height, color_type, depth, bytes(idat), trns)
-        if found is False:
-            raise LogoValidationError("El PNG no tiene ningún píxel transparente: exportalo con fondo transparente.")
+    if square and abs(width - height) > _SQUARE_TOLERANCE * max(width, height):
+        raise LogoValidationError(f"El {noun} debe ser cuadrado (por ejemplo 600 × 600).")
+    if require_alpha:
+        if color_type not in (4, 6) and trns is None:
+            raise LogoValidationError("El PNG no tiene transparencia: exportalo como PNG con fondo transparente.")
+        if interlace == 0:
+            found = _has_transparent_pixel(width, height, color_type, depth, bytes(idat), trns)
+            if found is False:
+                raise LogoValidationError("El PNG no tiene ningún píxel transparente: exportalo con fondo transparente.")
     return {"width": width, "height": height, "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+
+
+def validate_logo_png(data) -> dict:
+    """Logo del cliente: PNG con fondo transparente (ver `validate_png`)."""
+    return validate_png(data, noun="logo", require_alpha=True)
+
+
+def validate_qr_png(data) -> dict:
+    """QR de la instancia: PNG cuadrado; a diferencia del logo NO exige transparencia (un QR suele ser opaco y el documento lo apoya sobre un tile blanco)."""
+    return validate_png(data, noun="QR", require_alpha=False, square=True)
 
 
 def read_logo(presentation_id: str) -> bytes:
@@ -629,6 +765,21 @@ def read_logo(presentation_id: str) -> bytes:
         raise PresentationNotFound(presentation_id) from exc
     except OSError as exc:
         raise PresentationStorageError(f"No se pudo leer el logo: {exc}") from exc
+
+
+def read_qr(presentation_id: str) -> bytes:
+    """Bytes del QR propio de una instancia (NotFound si no tiene). Mismo contrato que `read_logo`."""
+    if not is_instance_id(presentation_id):
+        raise PresentationNotFound(presentation_id)
+    raw = _read_raw(presentation_id)
+    if not (raw.get("qr") or {}).get("sha256"):
+        raise PresentationNotFound(presentation_id)
+    try:
+        return _qr_path(presentation_id).read_bytes()
+    except FileNotFoundError as exc:
+        raise PresentationNotFound(presentation_id) from exc
+    except OSError as exc:
+        raise PresentationStorageError(f"No se pudo leer el QR: {exc}") from exc
 
 
 def _persistence_mode() -> str:
@@ -716,6 +867,19 @@ def _restore_previous(path: Path, previous_bytes: bytes) -> None:
         _logger.error("commercial_presentations.rollback_failed reason=%s", type(exc).__name__)
 
 
+def _tolerant_blocks(value) -> dict:
+    """Lectura tolerante de `blocks` (una instancia escrita por una versión futura o dañada no rompe el render): lo inválido se ignora entrada por entrada; al GUARDAR se valida estricto."""
+    if not isinstance(value, dict):
+        return {}
+    ok = {}
+    for rid, occupant in value.items():
+        try:
+            ok.update(validate_blocks({rid: occupant}))
+        except PresentationValidationError:
+            continue
+    return {rid: ok[rid] for rid in REGIONS if rid in ok}
+
+
 def _instance_view(raw: dict) -> dict:
     """Instancia persistida → vista uniforme (misma forma que el seed). El contenido se normaliza contra la spec VIGENTE; una versión de template mayor que la soportada no se adivina."""
     template_id = str(raw.get("template_id") or "")
@@ -737,6 +901,8 @@ def _instance_view(raw: dict) -> dict:
         "updated_by_id": raw.get("updated_by_id"), "updated_by_label": raw.get("updated_by_label"),
         "logo_sha": (raw.get("logo") or {}).get("sha256") if isinstance(raw.get("logo"), dict) else None,
         "removed_slides": [s for s in NUMBERED_SLIDES if isinstance(raw.get("removed_slides"), list) and s in raw["removed_slides"]],      # tolerante: lo desconocido se ignora al leer
+        "blocks": _tolerant_blocks(raw.get("blocks")),
+        "qr_sha": (raw.get("qr") or {}).get("sha256") if isinstance(raw.get("qr"), dict) else None,
         "content": full_content(template_id, content),
     }
 
@@ -829,6 +995,8 @@ def copy_presentation(source_id: str, *, title, owner_id: str, owner_label: str,
     }
     if source.get("removed_slides"):
         payload["removed_slides"] = list(source["removed_slides"])               # la copia parte de la composición del origen (solo ids)
+    if source.get("blocks"):
+        payload["blocks"] = copy.deepcopy(source["blocks"])
     _require_writable_mode()
     path = _path(new_id)
     logo_bytes = logo
@@ -841,25 +1009,41 @@ def copy_presentation(source_id: str, *, title, owner_id: str, owner_label: str,
         meta = logo_meta if (logo and logo_meta) else validate_logo_png(logo_bytes)
         payload["logo"] = {k: meta[k] for k in ("sha256", "bytes", "width", "height")}
     logo_file = _logo_path(new_id)
+    qr_bytes = None
+    if not is_seed_id(source_id) and source.get("qr_sha"):
+        try:
+            qr_bytes = read_qr(source_id)                                        # hereda el QR propio del origen (snapshot: la copia queda independiente)
+            qr_meta = validate_qr_png(qr_bytes)
+            payload["qr"] = {k: qr_meta[k] for k in ("sha256", "bytes", "width", "height")}
+        except PresentationNotFound:
+            qr_bytes = None
+    qr_file = _qr_path(new_id)
 
     def _discard() -> None:
         _cleanup_failed_write(path)
         if logo_bytes:
             _cleanup_failed_write(logo_file)
+        if qr_bytes:
+            _cleanup_failed_write(qr_file)
 
     def _push_all() -> bool:
-        return (not logo_bytes or remote_store.push_path(logo_file)) and remote_store.push_path(path)    # el logo primero: la instancia nunca aparece remotamente sin su logo
+        return ((not logo_bytes or remote_store.push_path(logo_file)) and (not qr_bytes or remote_store.push_path(qr_file))
+                and remote_store.push_path(path))                                # los assets primero: la instancia nunca aparece remotamente sin ellos
 
     with _write_lock:
         if len(_instance_ids()) >= MAX_INSTANCES:
             raise QuotaExceeded()
-        if logo_bytes:
-            _write_bytes_atomic(logo_file, logo_bytes)
         try:
+            if logo_bytes:
+                _write_bytes_atomic(logo_file, logo_bytes)
+            if qr_bytes:
+                _write_bytes_atomic(qr_file, qr_bytes)
             _write_atomic(path, payload)
         except PresentationStorageError:
             if logo_bytes:
                 _cleanup_failed_write(logo_file)
+            if qr_bytes:
+                _cleanup_failed_write(qr_file)
             raise
         if _local_only():
             return _instance_view(payload)
@@ -898,16 +1082,22 @@ def delete_presentation(presentation_id: str) -> None:
         previous_bytes = path.read_bytes()
         logo_file = _logo_path(presentation_id)
         previous_logo = logo_file.read_bytes() if logo_file.exists() else None
+        qr_file = _qr_path(presentation_id)
+        previous_qr = qr_file.read_bytes() if qr_file.exists() else None
 
         def _restore() -> None:
             _restore_previous(path, previous_bytes)
             if previous_logo is not None:
                 _restore_previous(logo_file, previous_logo)
+            if previous_qr is not None:
+                _restore_previous(qr_file, previous_qr)
 
         try:
             path.unlink()
             if previous_logo is not None:
                 logo_file.unlink()
+            if previous_qr is not None:
+                qr_file.unlink()
         except OSError as exc:
             _restore()
             raise PresentationStorageError(f"No se pudo eliminar la presentación del disco: {exc}") from exc
@@ -919,13 +1109,87 @@ def delete_presentation(presentation_id: str) -> None:
         if remote_store.delete_path(path) or remote_store.delete_path(path):
             if previous_logo is not None and not remote_store.delete_path(logo_file):
                 _logger.warning("commercial_presentations.delete: logo remoto huérfano (id=%s)", presentation_id)   # sin la instancia el logo no es alcanzable ni listable
+            if previous_qr is not None and not remote_store.delete_path(qr_file):
+                _logger.warning("commercial_presentations.delete: QR remoto huérfano (id=%s)", presentation_id)
             return
         _restore()
         _logger.error("commercial_presentations.delete: el borrado en Spaces no se confirmó — local restaurado (id=%s)", presentation_id)
         raise DurablePushFailed()
 
 
-def save(presentation_id: str, fields, *, expected_revision: int, updated_by_id: str, updated_by_label: str, removed_slides=None) -> dict:
+def set_qr(presentation_id: str, data, *, expected_revision: int, updated_by_id: str, updated_by_label: str) -> dict:
+    """Reemplaza el QR de UNA instancia por un PNG cuadrado (`data`), o vuelve al QR institucional (`data=None`), bajo revisión optimista (una revisión por cambio). El seed no se toca nunca.
+    Orden y compensación (mismo contrato que la copia): primero el ASSET y después la instancia que lo referencia, tanto en disco como en Spaces; si algo no se confirma, disco y remoto vuelven a la versión
+    anterior. Si ni la compensación se puede confirmar, el resultado es INCIERTO (503 con aviso): nunca un éxito parcial presentado como éxito ni una referencia rota."""
+    if is_seed_id(presentation_id):
+        raise SeedIsReadOnly()
+    if not is_instance_id(presentation_id):
+        raise PresentationNotFound(presentation_id)
+    _require_writable_mode()
+    meta = validate_qr_png(data) if data is not None else None                    # se valida ANTES de escribir nada
+    with _write_lock:
+        raw = _read_raw(presentation_id)
+        view = _instance_view(raw)
+        if view["revision"] != expected_revision:
+            raise StaleRevision(view["revision"])
+        path, qr_file = _path(presentation_id), _qr_path(presentation_id)
+        previous_json = path.read_bytes()
+        previous_qr = qr_file.read_bytes() if qr_file.exists() else None
+        if meta is None and previous_qr is None and not view["qr_sha"]:
+            return view                                                          # ya usa el QR institucional: nada que hacer ni revisión que quemar
+        candidate = {**raw, "schema_version": SCHEMA_VERSION, "template_version": view["template_version"], "revision": expected_revision + 1,
+                     "updated_at": _now_iso(), "updated_by_id": str(updated_by_id or ""), "updated_by_label": str(updated_by_label or updated_by_id or "")}
+        if meta is not None:
+            candidate["qr"] = {k: meta[k] for k in ("sha256", "bytes", "width", "height")}
+        else:
+            candidate.pop("qr", None)
+
+        def _restore_local() -> None:
+            _restore_previous(path, previous_json)
+            if previous_qr is not None:
+                _restore_previous(qr_file, previous_qr)
+            else:
+                try:
+                    qr_file.unlink(missing_ok=True)                              # solo local: el remoto lo compensa más abajo, y en `local` no se toca Spaces
+                except OSError as exc:
+                    _logger.warning("commercial_presentations.set_qr: no se pudo retirar el asset local reason=%s", type(exc).__name__)
+
+        try:
+            if data is not None:
+                _write_bytes_atomic(qr_file, data)
+            elif previous_qr is not None:
+                qr_file.unlink()
+            _write_atomic(path, candidate)
+        except (PresentationStorageError, OSError) as exc:
+            _restore_local()
+            raise PresentationStorageError(f"No se pudo guardar el QR: {exc}") from exc
+        if _local_only():
+            return _instance_view(candidate)
+        if not remote_store.enabled():                                           # determinístico: ni este intento ni un reintento pueden confirmar en este entorno
+            _restore_local()
+            raise PresentationConfigIncomplete("Las presentaciones todavía no están configuradas para este entorno.")
+        asset_done = True
+        if data is not None:
+            asset_done = remote_store.push_path(qr_file)
+        elif previous_qr is not None:
+            asset_done = remote_store.delete_path(qr_file)
+        if asset_done and remote_store.push_path(path):
+            return _instance_view(candidate)
+        # No se confirmó: el local vuelve a la versión anterior y se intenta dejar el REMOTO igual (asset e instancia).
+        _restore_local()
+        compensated = True
+        if data is not None or previous_qr is not None:                          # el asset pudo quedar modificado en Spaces: se lo devuelve a lo que decía la instancia anterior
+            compensated = remote_store.push_path(qr_file) if previous_qr is not None else remote_store.delete_path(qr_file)
+        if asset_done:                                                           # la instancia pudo haber quedado actualizada en Spaces
+            compensated = remote_store.push_path(path) and compensated
+        if compensated:
+            _logger.error("commercial_presentations.set_qr: no se confirmó en Spaces — local y remoto revertidos (id=%s)", presentation_id)
+            raise DurablePushFailed()
+        _logger.error("commercial_presentations.set_qr: no se confirmó y la compensación tampoco (id=%s)", presentation_id)
+        raise RemoteOutcomeUnknown("No pudimos confirmar si el cambio del QR quedó guardado. Recargá la presentación y revisá el QR antes de reintentar.")
+
+
+def save(presentation_id: str, fields, *, expected_revision: int, updated_by_id: str, updated_by_label: str, removed_slides=None, blocks=None) -> dict:
     """Guarda un SUBCONJUNTO de campos y/o la lista de slides eliminadas de UNA instancia bajo revisión optimista (una sola revisión por guardado). `removed_slides=None` no la toca; una lista (aun vacía) la reemplaza.
     El seed no se edita nunca. Si el push a Spaces no se confirma, el local vuelve a la versión anterior (503)."""
     if is_seed_id(presentation_id):
@@ -939,7 +1203,8 @@ def save(presentation_id: str, fields, *, expected_revision: int, updated_by_id:
         if view["revision"] != expected_revision:
             raise StaleRevision(view["revision"])
         removed = validate_removed_slides(removed_slides) if removed_slides is not None else None
-        clean = validate_fields(view["template_id"], fields) if (fields or removed is None) else {}
+        composition = validate_blocks(blocks) if blocks is not None else None
+        clean = validate_fields(view["template_id"], fields) if (fields or (removed is None and composition is None)) else {}
         candidate = {**raw, "schema_version": SCHEMA_VERSION, "template_version": view["template_version"],
                      "content": {**view["content"], **clean}, "revision": expected_revision + 1,
                      "updated_at": _now_iso(), "updated_by_id": str(updated_by_id or ""), "updated_by_label": str(updated_by_label or updated_by_id or "")}
@@ -948,6 +1213,11 @@ def save(presentation_id: str, fields, *, expected_revision: int, updated_by_id:
                 candidate["removed_slides"] = removed
             else:
                 candidate.pop("removed_slides", None)                            # sin slides eliminadas el archivo conserva la forma de siempre
+        if composition is not None:
+            if composition:
+                candidate["blocks"] = composition
+            else:
+                candidate.pop("blocks", None)                                    # sin desvíos del defecto, tampoco la clave
         path = _path(presentation_id)
         previous_bytes = path.read_bytes()
         _write_atomic(path, candidate)
@@ -1017,8 +1287,12 @@ def render_context(presentation: dict, *, embed: bool = False, theme: str = "lig
     content = full_content(template_id, presentation.get("content"))
     removed = [s for s in NUMBERED_SLIDES if s in (presentation.get("removed_slides") or [])]
     visible = [s for s in NUMBERED_SLIDES if s not in removed]
+    regions = resolve_regions(presentation.get("blocks"))
+    qr_custom = bool(presentation.get("qr_sha")) and _qr_path(presentation["presentation_id"]).exists()      # referencia rota (archivo perdido) → vuelve al QR institucional, nunca una imagen rota
     return {
         "c": content,
+        "regions": regions, "addons": _addons(), "library": component_library() if edit else [],
+        "qr_url": (f"/presentaciones/{presentation['presentation_id']}/qr?v={str(presentation['qr_sha'])[:10]}" if qr_custom else f"{asset_base}/{_DEFAULT_QR}"), "qr_custom": qr_custom,
         "removed_ids": set(removed),                                             # el modo lectura omite estas slides; el de edición las muestra colapsadas con «Restaurar»
         "slide_no": {s: i for i, s in enumerate(visible, 1)},                    # numeración dinámica: «NN / total» sobre las visibles
         "slide_total": len(visible),

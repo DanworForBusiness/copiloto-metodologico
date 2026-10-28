@@ -65,6 +65,35 @@
         if (label) { e.preventDefault(); if (label.control && label.control.type === 'radio') label.control.checked = true; }
       });
     });
+    // Componentes por región. La biblioteca son las <template data-cp-component> que el servidor renderiza (solo composiciones REALES y registradas, cada una una sola vez); acá nunca se arma markup: se clona
+    // el que ya está. El servidor revalida todo al guardar (región, componente, variante y compatibilidad de tipo).
+    var tpl = {};
+    document.querySelectorAll('template[data-cp-component]').forEach(function(t){ tpl[t.getAttribute('data-cp-component')] = t; });
+    function syncRegion(reg){
+      var occ = reg.getAttribute('data-cp-occupant'), def = reg.getAttribute('data-cp-default');
+      reg.querySelectorAll('[data-cp-pick]').forEach(function(b){ b.setAttribute('aria-pressed', b.getAttribute('data-cp-pick') === occ ? 'true' : 'false'); });
+      var restore = reg.querySelector('[data-cp-restore-default]'); if (restore) restore.hidden = !def || occ === def;
+      var title = reg.querySelector('[data-cp-region-title]');
+      var current = occ && reg.querySelector('[data-cp-pick="' + occ + '"]');
+      if (title) title.textContent = current ? current.textContent : 'Región vacía';
+    }
+    function setOccupant(reg, ref){
+      var root = reg.querySelector(':scope > [data-cp-block]'); if (root) root.remove();
+      if (ref && tpl[ref]) reg.appendChild(tpl[ref].content.firstElementChild.cloneNode(true));
+      reg.setAttribute('data-cp-occupant', ref && tpl[ref] ? ref : '');
+      var note = reg.querySelector('[data-cp-note]'); if (note) note.hidden = !ref;       // aviso discreto: el texto de la slide no se reescribe solo
+      syncRegion(reg);
+      document.dispatchEvent(new CustomEvent('cp:composition-changed'));
+    }
+    document.querySelectorAll('[data-cp-region]').forEach(syncRegion);
+    document.addEventListener('click', function(e){
+      var t = e.target.closest && e.target.closest('[data-cp-pick], [data-cp-region-remove], [data-cp-restore-default]');
+      if (!t) return;
+      var reg = t.closest('[data-cp-region]');
+      if (t.hasAttribute('data-cp-pick')) setOccupant(reg, t.getAttribute('data-cp-pick'));
+      else if (t.hasAttribute('data-cp-region-remove')) setOccupant(reg, '');
+      else setOccupant(reg, reg.getAttribute('data-cp-default'));
+    });
     // Eliminar / restaurar una slide de la copia. La numeración («NN / total»), el riel, los «Siguiente» y el cue de la portada se recalculan sobre las slides visibles (el servidor aplica la MISMA regla al
     // renderizar la lectura). El editor del Hub escucha `cp:slides-changed` para marcar «Sin guardar».
     function pad(n){ return (n < 10 ? '0' : '') + n; }

@@ -10,6 +10,9 @@ DOS contratos de lectura/escritura, DELIBERADAMENTE separados (ver `webapp.servi
   R5  GET  /comercial/presentaciones/{id}/editar     formulario de edición                  — Comercial + poder editar ESA instancia
   R6  POST /comercial/presentaciones/{id}            guardar campos                         — ídem R5
   R7  POST /comercial/presentaciones/{id}/eliminar   eliminar la instancia                  — Comercial + (responsable O APP_OWNER); nunca la semilla
+  R8  GET  /presentaciones/{id}/logo                 logo propio de una copia               — contrato de lectura de R1
+  R9  POST /comercial/presentaciones/{id}/qr         reemplazar / quitar el QR de la copia  — ídem R6 (multipart: revision + file | remove)
+  R10 GET  /presentaciones/{id}/qr                   QR propio de una copia                 — contrato de lectura de R1
 
 La URL de R1 es una DIRECCIÓN de acceso autenticado: no es una credencial ni un permiso. No hay acceso anónimo, tokens ni permisos por destinatario. No existe ninguna ruta para administrar templates o seeds.
 
@@ -156,6 +159,25 @@ def presentation_logo(request: Request, presentation_id: str):
     return Response(content=data, media_type="image/png", headers={**_NO_STORE, "Content-Security-Policy": "default-src 'none'; sandbox"})
 
 
+# ── R10 — QR propio de una instancia (mismo contrato de lectura que R1/R8) ──────────────────────────────────────────────
+
+@router.get("/presentaciones/{presentation_id}/qr", include_in_schema=False)
+def presentation_qr(request: Request, presentation_id: str):
+    user = auth_service.session_user(request)
+    if not user:
+        return workspaces.platform_login_redirect(request)
+    if not presentations.can_read_shared_user(user):
+        raise HTTPException(403, "No autorizado")
+    _load(presentation_id)
+    try:
+        data = presentations.read_qr(presentation_id)
+    except presentations.PresentationNotFound:
+        raise HTTPException(404, "Esta presentación no tiene QR propio")
+    except presentations.PresentationStorageError:
+        raise HTTPException(503, "Presentaciones no disponibles")
+    return Response(content=data, media_type="image/png", headers={**_NO_STORE, "Content-Security-Policy": "default-src 'none'; sandbox"})
+
+
 # ── R2 — catálogo ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
 @router.get("/comercial/presentaciones", response_class=HTMLResponse, include_in_schema=False)
@@ -257,6 +279,56 @@ async def presentation_copy(request: Request, presentation_id: str):
     return JSONResponse({"state": "ok", "presentation_id": created["presentation_id"], "url": f"/comercial/presentaciones/{created['presentation_id']}"})
 
 
+# ── R9 — reemplazar / quitar el QR de la copia ───────────────────────────────────────────────────────────────────────────
+
+@router.post("/comercial/presentaciones/{presentation_id}/qr", include_in_schema=False)
+async def presentation_qr_set(request: Request, presentation_id: str):
+    user = _require_commercial_write(request)
+    view = _load(presentation_id)
+    if not presentations.can_edit_presentation_user(user, view):                 # incluye seeds (inmutables para TODOS)
+        raise HTTPException(403, "No autorizado para editar esta presentación")
+    if not same_origin_guard.is_same_origin_write(request):
+        raise HTTPException(403, "Origen del request no verificado")
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > presentations.MAX_LOGO_BYTES + 64 * 1024:
+        raise HTTPException(413, "El QR supera 1 MB: exportalo más liviano.")
+    if not request.headers.get("content-type", "").lower().startswith("multipart/form-data"):
+        raise HTTPException(400, "Se esperaba un formulario con la revisión y el archivo del QR")
+    form = await request.form()
+    revision = str(form.get("revision") or "")
+    if not revision.isdigit():
+        raise HTTPException(400, "Falta 'revision' (entero) en el formulario")
+    data = None
+    if str(form.get("remove") or "") != "1":
+        upload = form.get("file")
+        if upload is None or not getattr(upload, "filename", "") or not hasattr(upload, "read"):
+            raise HTTPException(422, "Elegí un archivo PNG para el QR.")
+        data = await upload.read(presentations.MAX_LOGO_BYTES + 1)
+        if not data:
+            raise HTTPException(422, "El archivo del QR está vacío.")
+    updated_by_id = str(user.get("sub") or "")
+    updated_by_label = str(user.get("name") or user.get("username") or user.get("email") or updated_by_id)
+    try:
+        saved = presentations.set_qr(presentation_id, data, expected_revision=int(revision), updated_by_id=updated_by_id, updated_by_label=updated_by_label)
+    except presentations.PresentationValidationError as exc:
+        raise HTTPException(422, str(exc))
+    except presentations.StaleRevision as exc:
+        return JSONResponse({"state": "stale", "current_revision": exc.current_revision,
+                             "message": "La presentación cambió desde que la cargaste — recargá la página antes de volver a guardar. Nada se sobrescribió."}, status_code=409)
+    except presentations.PresentationNotFound:
+        raise HTTPException(404, "Presentación no encontrada")
+    except presentations.PresentationUnavailable:
+        raise HTTPException(409, "Presentación no disponible")
+    except presentations.SeedIsReadOnly:
+        raise HTTPException(403, "Las presentaciones institucionales no se editan")
+    except presentations.PresentationStorageError as exc:
+        _logger.error("commercial_presentations.qr failed: %s", type(exc).__name__)
+        return _storage_response(exc)
+    log_activity("presentation.saved", user=user, scope=SCOPE_COMMERCIAL, area=AREA_PRESENTATIONS, module=CM03_MODULE_ID, revision=saved["revision"])
+    ctx = presentations.render_context(saved, edit=True)
+    return JSONResponse({"state": "ok", "revision": saved["revision"], "qr_url": ctx["qr_url"], "qr_custom": ctx["qr_custom"]})
+
+
 # ── R7 — eliminar ────────────────────────────────────────────────────────────
 
 @router.post("/comercial/presentaciones/{presentation_id}/eliminar", include_in_schema=False)
@@ -303,16 +375,18 @@ async def presentation_save(request: Request, presentation_id: str):
     if not isinstance(revision, int) or isinstance(revision, bool):
         raise HTTPException(400, "Falta 'revision' (entero) en el payload")
     removed = body.get("removed_slides")                                         # opcional: la lista COMPLETA de slides eliminadas de la copia (ids; nunca markup)
+    blocks = body.get("blocks")                                                  # opcional: los desvíos COMPLETOS de composición por región (ids de componente/variante; nunca markup)
     try:
         removed = presentations.validate_removed_slides(removed) if removed is not None else None
+        blocks = presentations.validate_blocks(blocks) if blocks is not None else None
         fields = body.get("fields")
-        clean = presentations.validate_fields(view["template_id"], fields) if (fields or removed is None) else {}
+        clean = presentations.validate_fields(view["template_id"], fields) if (fields or (removed is None and blocks is None)) else {}
     except presentations.PresentationValidationError as exc:
         raise HTTPException(422, str(exc))
     updated_by_id = str(user.get("sub") or "")
     updated_by_label = str(user.get("name") or user.get("username") or user.get("email") or updated_by_id)
     try:
-        saved = presentations.save(presentation_id, clean, expected_revision=revision, updated_by_id=updated_by_id, updated_by_label=updated_by_label, removed_slides=removed)
+        saved = presentations.save(presentation_id, clean, expected_revision=revision, updated_by_id=updated_by_id, updated_by_label=updated_by_label, removed_slides=removed, blocks=blocks)
     except presentations.StaleRevision as exc:
         return JSONResponse({"state": "stale", "current_revision": exc.current_revision,
                              "message": "La presentación cambió desde que la cargaste — recargá la página antes de volver a guardar. Nada se sobrescribió."}, status_code=409)
@@ -328,4 +402,4 @@ async def presentation_save(request: Request, presentation_id: str):
         _logger.error("commercial_presentations.save failed: %s", type(exc).__name__)
         return _storage_response(exc)
     log_activity("presentation.saved", user=user, scope=SCOPE_COMMERCIAL, area=AREA_PRESENTATIONS, module=CM03_MODULE_ID, revision=saved["revision"])
-    return JSONResponse({"state": "ok", "revision": saved["revision"], "updated_at": saved["updated_at"], "content": saved["content"], "removed_slides": saved["removed_slides"]})
+    return JSONResponse({"state": "ok", "revision": saved["revision"], "updated_at": saved["updated_at"], "content": saved["content"], "removed_slides": saved["removed_slides"], "blocks": saved["blocks"]})

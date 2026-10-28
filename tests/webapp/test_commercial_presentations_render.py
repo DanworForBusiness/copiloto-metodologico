@@ -126,15 +126,22 @@ def test_the_template_source_has_no_unsafe_constructs_and_uses_exactly_the_spec_
     used = re.findall(r"\{\{\s*f\('([a-z0-9_]+)'\)\s*\}\}", source) + re.findall(r"\{\{\s*nextlink\('s\d+','s\d+','([a-z0-9_]+)'\)\s*\}\}", source)
     assert sorted(used) == sorted(set(SPEC.field_keys)) and len(used) == len(set(used))         # ni claves de más ni campos sin usar, cada uno exactamente una vez (vía la macro `f`, o `nextlink`, que la usa)
     assert not re.search(r"\bc\.[a-z0-9_]+", source), "el contenido solo se lee a través de la macro `f` (que escapa y, en edición, envuelve el leaf)"
+    # Los macros de COMPOSICIÓN gobernada (componentes, regiones, herramientas de edición) leen solo parámetros institucionales (`addons`, `regions`, `library`): nunca contenido editable (`c`). Se verifica aparte.
+    governed = ("layer_stack", "flow", "marquee", "component", "region_tools", "region", "qr_tools", "slide_tools")
+    for name in governed:
+        body = re.search(r"\{%-?\s*macro " + name + r"\(.*?\{%-?\s*endmacro\s*-?%\}", source, re.S).group(0)
+        assert not re.search(r"\bc\[|\bc\.|\bf\(|\bm\(", body), f"el macro {name} no puede leer contenido editable"
+        source = source.replace(body, "")
     expressions = {e.strip() for e in re.findall(r"\{\{\s*([^}]+?)\s*\}\}", source)}
     mirrors = set(re.findall(r"\{\{\s*m\('([a-z0-9_]+)'\)\s*\}\}", source))
     assert mirrors <= set(SPEC.field_keys), "un espejo solo puede reflejar un campo editable de la spec (nunca contenido propio)"
     non_content = expressions - {f"f('{k}')" for k in SPEC.field_keys} - {f"m('{k}')" for k in mirrors}
     slide = r"s(?:[2-9]|1[0-2])"                                                                 # composición por slide: solo ids de slide quitable, nunca contenido
     structural = [re.compile(p) for p in (rf"' data-cp-removed' if '{slide}' in removed_ids else ''", rf"' hidden' if '{slide}' in removed_ids else ''", rf"kno\('{slide}'\)",
-                                          rf"slide_tools\('{slide}'\) if edit_mode else ''", rf"nextlink\('{slide}','{slide}','[a-z0-9_]+'\)")]
+                                          rf"slide_tools\('{slide}'\) if edit_mode else ''", rf"nextlink\('{slide}','{slide}','[a-z0-9_]+'\)",
+                                          r"region\('s\d+\.(?:body|bleed)'(?:, gap=True|, style='[^']*')?\)")]
     non_content = {e for e in non_content if not any(p.fullmatch(e) for p in structural)}
-    assert non_content == {"key", "c[key]", "sid", "orig", "t", "nx or orig", "f(key)", "nav_of[nx]", "first_slide or 's2'", '" data-cp-edit" if edit_mode else ""', "css_url", "js_url", "asset_base", "institutional_logo_url", "partner_logo_url", "partner_logo_alt", "theme", "hub_fonts_url", "static_version", '" data-cp-edit" if edit_mode else ""', "css_url", "js_url", "asset_base", "institutional_logo_url", "partner_logo_url", "partner_logo_alt", "theme", "hub_fonts_url", "static_version",
+    assert non_content == {"key", "c[key]", "sid", "orig", "t", "nx or orig", "f(key)", "nav_of[nx]", "first_slide or 's2'", "qr_url", "o.ref", "component(o.component, o.variant)", "qr_tools() if edit_mode else ''", "' data-cp-qr' if edit_mode else ''", '" data-cp-edit" if edit_mode else ""', "css_url", "js_url", "asset_base", "institutional_logo_url", "partner_logo_url", "partner_logo_alt", "theme", "hub_fonts_url", "static_version", '" data-cp-edit" if edit_mode else ""', "css_url", "js_url", "asset_base", "institutional_logo_url", "partner_logo_url", "partner_logo_alt", "theme", "hub_fonts_url", "static_version",
                            "url_for('static', path='app.css')", "url_for('static', path='content.css')", "url_for('static', path='layout.css')", "url_for('static', path='tools.css')",
                            "url_for('static', path='hub_theme.js')", 'theme_icon("light", \'style="display:none"\' if theme != "light" else "")', 'theme_icon("dark", \'style="display:none"\' if theme != "dark" else "")'}, non_content
 
@@ -657,7 +664,7 @@ def test_the_edit_mode_document_is_otherwise_the_same_document(world):
     plain = _soup(world.client(A).get(f"/presentaciones/{pid}?embed=1").text)
     edit = _edit_doc(world, pid, A)
     for soup in (plain, edit):
-        for tool in soup.select(".cp-slide-tools, [data-cp-derived]"):                          # herramientas de edición (X por slide) y texto derivado oculto: no son parte del documento
+        for tool in soup.select(".cp-slide-tools, [data-cp-derived], .cp-region-tools, .cp-asset-tools, template"):                          # herramientas de edición (X por slide) y texto derivado oculto: no son parte del documento
             tool.decompose()
         for kno in soup.select("[data-cp-kicker-no]"):
             kno.unwrap()
