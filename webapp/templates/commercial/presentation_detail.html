@@ -31,11 +31,15 @@
     </section>
 
     <div class="cp-toast" aria-live="polite" data-dw-auto-dismiss="6000" data-cp-status></div>
+    {# Acciones: el segmentado NATIVO del Hub (`.dashboard-view-switch`, el mismo de CRM → Actividades › Período), con `--scroll` para que no desborde en pantallas angostas; «Presentar» (la acción principal) va resaltada con `.is-active`; las cinco acciones están SIEMPRE y la que no corresponde queda inhabilitada (`button:disabled` del primitivo). #}
     <div class="cp-toolbar">
-        <a class="btn-primary" href="{{ share_path }}" target="_blank" rel="noopener">Presentar</a>
-        <button type="button" class="btn-secondary" data-cp-copy-link="{{ share_path }}">Copiar enlace</button>
-        <button type="button" class="btn-secondary" data-cp-copy-open data-cp-id="{{ presentation.presentation_id }}" data-cp-title="Copia de {{ presentation.title }}">Copiar como nueva</button>
-        {% if can_edit %}<a class="btn-secondary" href="/comercial/presentaciones/{{ presentation.presentation_id }}/editar">Editar</a>{% endif %}
+      <div class="dashboard-view-switch dashboard-view-switch--scroll" role="group" aria-label="Acciones de la presentación">
+        <a class="is-active" href="{{ share_path }}" target="_blank" rel="noopener">Presentar</a>
+        <button type="button" data-cp-copy-link="{{ share_path }}">Copiar enlace</button>
+        <button type="button" data-cp-copy-open data-cp-id="{{ presentation.presentation_id }}" data-cp-title="Copia de {{ presentation.title }}">Copiar como nueva</button>
+        {% if can_edit %}<a href="/comercial/presentaciones/{{ presentation.presentation_id }}/editar">Editar</a>{% else %}<button type="button" disabled title="{{ 'Las presentaciones institucionales son de solo lectura' if presentation.is_seed else 'Solo el responsable de la copia puede editarla' }}" aria-label="Editar no disponible: {{ 'las presentaciones institucionales son de solo lectura' if presentation.is_seed else 'solo el responsable de la copia puede editarla' }}">Editar</button>{% endif %}
+        {% if can_delete %}<button type="button" data-cp-delete="{{ presentation.presentation_id }}" data-cp-title="{{ presentation.title }}">Eliminar</button>{% else %}<button type="button" disabled title="{{ 'Las presentaciones institucionales no se eliminan' if presentation.is_seed else 'Solo el responsable de la copia o el dueño de la app pueden eliminarla' }}" aria-label="Eliminar no disponible: {{ 'las presentaciones institucionales no se eliminan' if presentation.is_seed else 'solo el responsable de la copia o el dueño de la app pueden eliminarla' }}">Eliminar</button>{% endif %}
+      </div>
     </div>
     {# Aviso informativo: `callout--note` (variante informativa del Hub, con su regla de tema claro) + escala compacta (`.cp-notice`, commercial.css), como los avisos chicos de Capital Humano. #}
     <aside class="callout callout--note cp-notice">

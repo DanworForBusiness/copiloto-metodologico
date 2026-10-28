@@ -16,7 +16,7 @@ import pytest
 import config
 from core import remote_store
 from tests.webapp.test_commercial_presentations_access import (  # noqa: F401  (fixtures y helpers compartidos)
-    A, ORIGIN, SEED_ID, _copy, _save, world,
+    A, ORIGIN, SEED_ID, _copy, _delete, _save, world,
 )
 from webapp.services import commercial_presentations as cp
 
@@ -218,3 +218,57 @@ def test_the_audit_trail_records_who_changed_what_without_changing_the_creator(w
     stored = json.loads((world.directory / f"{pid}.json").read_text(encoding="utf-8"))
     assert stored["created_by_id"] == A and stored["owner_id"] == A and stored["updated_by_id"] == A
     assert stored["copied_from"]["presentation_id"] == SEED_ID and stored["created_at"] <= stored["updated_at"]
+
+
+# ── Eliminar: el mismo contrato (read-only · local · remote con compensación) ───────────────────────────────────────────────────
+
+def test_delete_in_local_mode_removes_the_file_and_never_touches_spaces(world, monkeypatch):
+    monkeypatch.setattr(config, "PERSISTENCE_MODE", "local")
+    monkeypatch.setattr(remote_store, "delete_path", lambda p: (_ for _ in ()).throw(AssertionError("local no sincroniza")))
+    pid = _copy(world, A)
+    assert _delete(world, A, pid).status_code == 200 and world.files() == {}
+
+
+def test_delete_in_read_only_mode_is_rejected_before_touching_the_disk(world, monkeypatch):
+    pid = _copy(world, A)
+    before = world.files()
+    monkeypatch.setattr(config, "PERSISTENCE_MODE", "read-only")
+    r = _delete(world, A, pid)
+    assert r.status_code == 503 and r.json()["reason"] == "config_incomplete"
+    assert world.files() == before
+
+
+def test_delete_in_remote_mode_removes_the_same_object_in_spaces(world, monkeypatch):
+    spaces = FakeSpaces(monkeypatch)
+    pid = _copy(world, A)
+    assert _delete(world, A, pid).status_code == 200
+    assert spaces.deleted == [world.directory / f"{pid}.json"] and world.files() == {}
+
+
+def test_a_failed_remote_delete_is_retried_once_then_the_local_file_is_restored_and_it_reports_503(world, monkeypatch):
+    spaces = FakeSpaces(monkeypatch)
+    pid = _copy(world, A)
+    before = world.files()
+    calls = []
+    monkeypatch.setattr(remote_store, "delete_path", lambda p: calls.append(Path(p)) or False)
+    r = _delete(world, A, pid)
+    assert r.status_code == 503 and r.json()["reason"] == "durable_push_failed" and "sigue en el catálogo" in r.json()["message"]
+    assert len(calls) == 2 and world.files() == before                                         # un reintento; el archivo vuelve idéntico (nunca borrada en un lado y viva en el otro)
+    assert pid in world.client(A).get("/comercial/presentaciones").text
+
+
+def test_a_remote_delete_whose_retry_succeeds_is_a_success(world, monkeypatch):
+    FakeSpaces(monkeypatch)
+    pid = _copy(world, A)
+    results = iter([False, True])
+    monkeypatch.setattr(remote_store, "delete_path", lambda p: next(results))
+    assert _delete(world, A, pid).status_code == 200 and world.files() == {}
+
+
+def test_remote_mode_without_credentials_does_not_delete_anything(world, monkeypatch):
+    spaces = FakeSpaces(monkeypatch)
+    pid = _copy(world, A)
+    before = world.files()
+    spaces.enabled = False
+    r = _delete(world, A, pid)
+    assert r.status_code == 503 and r.json()["reason"] == "config_incomplete" and world.files() == before and spaces.deleted == []

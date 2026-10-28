@@ -1419,6 +1419,15 @@ button.star-rating__star:focus-visible { outline: 2px solid var(--gold); outline
 .dashboard-view-switch button:hover { color: #1f1f24; }
 .content-theme-dark .dashboard-view-switch button:hover { color: #e4e4ec; }
 .dashboard-view-switch button.is-active { background: var(--gold); color: #1f1f24; }
+/* Ítems que NAVEGAN o abren en otra pestaña: el MISMO aspecto con `<a>` (el primitivo solo estilizaba `button`; Capital Humano lo replica solo para `.busqueda-views a`, human_capital.css). Así un
+   grupo mixto de enlaces y botones (Comercial → Presentaciones: Presentar / Copiar enlace / Copiar como nueva / Editar) usa el primitivo nativo sin reimplementarlo. */
+.dashboard-view-switch a { display: inline-flex; align-items: center; background: #ffffff; border-right: 1px solid rgba(128,128,128,.28); padding: 8px 16px; font: 600 .78rem var(--sans); color: #55555c; text-decoration: none; cursor: pointer; }
+.content-theme-dark .dashboard-view-switch a { background: #181819; color: #b2b2bc; }
+.dashboard-view-switch a:last-child { border-right: none; }
+.dashboard-view-switch a:hover { color: #1f1f24; }
+.content-theme-dark .dashboard-view-switch a:hover { color: #e4e4ec; }
+.dashboard-view-switch a.is-active { background: var(--gold); color: #1f1f24; }
+.dashboard-view-switch a:focus-visible { outline: 2px solid var(--gold); outline-offset: -2px; }
 /* ESTADO VACÍO corrective (owner — mejora transversal a Año/Mes multi-
    select, ver pillMultiField/opts.disabledAll): base genérica, no solo
    `--multi` — Año (base) y Mes (`--scroll`) también pueden deshabilitarse

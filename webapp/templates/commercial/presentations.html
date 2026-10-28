@@ -61,7 +61,7 @@
         <col style="width:22%">
         <col style="width:16%">
         <col style="width:12%">
-        <col style="width:216px">
+        <col style="width:252px">
       </colgroup>
       <thead>
         <tr>
@@ -84,8 +84,10 @@
           <td class="left">{{ row.created_by_label or row.owner_id or "—" }}</td>
           <td class="left">{{ row.updated_label or "—" }}</td>
           <td class="center">
-            {% if row.available %}
+            {# Los CINCO botones siempre están; los que no corresponden quedan inhabilitados (grisados, `.table-action-btn:disabled` del Hub, MISMO patrón que Operaciones → Búsquedas) con el motivo en el tooltip y en `aria-label`, para que la fila se vea igual en todas. La autoridad sigue siendo el servidor. #}
+            {% set _na = "el template de esta presentación no está disponible" %}
             <div class="dw-row-actions">
+              {% if row.available %}
               <a href="/comercial/presentaciones/{{ row.presentation_id }}" class="table-action-btn chart-tooltip-anchor" aria-label="Ver presentación">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
                 <span class="chart-tooltip" aria-hidden="true"><p>Ver</p></span>
@@ -102,14 +104,63 @@
                 <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                 <span class="chart-tooltip" aria-hidden="true"><p>Copiar como nueva</p></span>
               </button>
-              {% if row.can_edit %}
+              {% else %}
+              <button type="button" class="table-action-btn chart-tooltip-anchor" disabled aria-label="Ver presentación no disponible: {{ _na }}">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                <span class="chart-tooltip" aria-hidden="true"><p>Template no disponible</p></span>
+              </button>
+              <button type="button" class="table-action-btn chart-tooltip-anchor" disabled aria-label="Presentar no disponible: {{ _na }}">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/><path d="m10 8 5 3-5 3Z"/></svg>
+                <span class="chart-tooltip" aria-hidden="true"><p>Template no disponible</p></span>
+              </button>
+              <button type="button" class="table-action-btn chart-tooltip-anchor" disabled aria-label="Copiar enlace no disponible: {{ _na }}">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                <span class="chart-tooltip" aria-hidden="true"><p>Template no disponible</p></span>
+              </button>
+              <button type="button" class="table-action-btn chart-tooltip-anchor" disabled aria-label="Copiar como nueva presentación no disponible: {{ _na }}">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <span class="chart-tooltip" aria-hidden="true"><p>Template no disponible</p></span>
+              </button>
+              {% endif %}
+              {% if row.available and row.can_edit %}
               <a href="/comercial/presentaciones/{{ row.presentation_id }}/editar" class="table-action-btn chart-tooltip-anchor" aria-label="Editar presentación">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
                 <span class="chart-tooltip" aria-hidden="true"><p>Editar</p></span>
               </a>
+              {% elif not row.available %}
+              <button type="button" class="table-action-btn chart-tooltip-anchor" disabled aria-label="Editar presentación no disponible: {{ _na }}">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                <span class="chart-tooltip" aria-hidden="true"><p>Template no disponible</p></span>
+              </button>
+              {% elif row.is_seed %}
+              <button type="button" class="table-action-btn chart-tooltip-anchor" disabled aria-label="Editar presentación no disponible: las presentaciones institucionales son de solo lectura">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                <span class="chart-tooltip" aria-hidden="true"><p>Solo lectura</p></span>
+              </button>
+              {% else %}
+              <button type="button" class="table-action-btn chart-tooltip-anchor" disabled aria-label="Editar presentación no disponible: solo el responsable de la copia puede editarla">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                <span class="chart-tooltip" aria-hidden="true"><p>Solo el responsable</p></span>
+              </button>
+              {% endif %}
+              {# Eliminar: SIEMPRE presente; habilitado solo para el responsable de la copia o `APP_OWNER` (el servidor lo vuelve a validar). Confirmación con el diálogo nativo del Hub (`dwConfirm`). La semilla institucional nunca se elimina. #}
+              {% if row.can_delete %}
+              <button type="button" class="table-action-btn chart-tooltip-anchor" data-cp-delete="{{ row.presentation_id }}" data-cp-title="{{ row.title }}" aria-label="Eliminar presentación">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+                <span class="chart-tooltip" aria-hidden="true"><p>Eliminar</p></span>
+              </button>
+              {% elif row.is_seed %}
+              <button type="button" class="table-action-btn chart-tooltip-anchor" disabled aria-label="Eliminar presentación no disponible: las presentaciones institucionales no se eliminan">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+                <span class="chart-tooltip" aria-hidden="true"><p>Solo lectura</p></span>
+              </button>
+              {% else %}
+              <button type="button" class="table-action-btn chart-tooltip-anchor" disabled aria-label="Eliminar presentación no disponible: solo el responsable de la copia o el dueño de la app pueden eliminarla">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+                <span class="chart-tooltip" aria-hidden="true"><p>Solo el responsable</p></span>
+              </button>
               {% endif %}
             </div>
-            {% endif %}
           </td>
         </tr>
         {% endfor %}

@@ -9,6 +9,7 @@ DOS contratos de lectura/escritura, DELIBERADAMENTE separados (ver `webapp.servi
   R4  POST /comercial/presentaciones/{id}/copiar     copia como instancia propia            — Comercial (NO requiere nada más; cualquier presentación se puede copiar)
   R5  GET  /comercial/presentaciones/{id}/editar     formulario de edición                  — Comercial + poder editar ESA instancia
   R6  POST /comercial/presentaciones/{id}            guardar campos                         — ídem R5
+  R7  POST /comercial/presentaciones/{id}/eliminar   eliminar la instancia                  — Comercial + (responsable O APP_OWNER); nunca la semilla
 
 La URL de R1 es una DIRECCIÓN de acceso autenticado: no es una credencial ni un permiso. No hay acceso anónimo, tokens ni permisos por destinatario. No existe ninguna ruta para administrar templates o seeds.
 
@@ -148,7 +149,7 @@ def presentations_catalog(request: Request):
     except presentations.PresentationStorageError:
         items, error_state = [], "unavailable"
     titles = {item["presentation_id"]: item["title"] for item in items}
-    rows = [{**item, "can_edit": presentations.can_edit_presentation_user(user, item), "share_path": _share_path(item["presentation_id"]),
+    rows = [{**item, "can_edit": presentations.can_edit_presentation_user(user, item), "can_delete": presentations.can_delete_presentation_user(user, item), "share_path": _share_path(item["presentation_id"]),
              "updated_label": _date_dmy(item.get("updated_at")),
              "copied_from_title": titles.get((item.get("copied_from") or {}).get("presentation_id"), "")} for item in items]
     return templates.TemplateResponse(
@@ -170,7 +171,8 @@ def presentation_detail(request: Request, presentation_id: str):
     return templates.TemplateResponse(
         request=request, name="commercial/presentation_detail.html",
         context=_shell_context(request, user, presentation={**view, "updated_label": _date_dmy(view.get("updated_at"))}, share_path=_share_path(presentation_id),
-                               can_edit=presentations.can_edit_presentation_user(user, view), max_title=presentations.MAX_TITLE),
+                               can_edit=presentations.can_edit_presentation_user(user, view), can_delete=presentations.can_delete_presentation_user(user, view),
+                               max_title=presentations.MAX_TITLE),
         headers=_NO_STORE,
     )
 
@@ -222,6 +224,37 @@ async def presentation_copy(request: Request, presentation_id: str):
         return _storage_response(exc)
     log_activity("presentation.copied", user=user, scope=SCOPE_COMMERCIAL, area=AREA_PRESENTATIONS, module=CM03_MODULE_ID, revision=created["revision"])
     return JSONResponse({"state": "ok", "presentation_id": created["presentation_id"], "url": f"/comercial/presentaciones/{created['presentation_id']}"})
+
+
+# ── R7 — eliminar ────────────────────────────────────────────────────────────
+
+@router.post("/comercial/presentaciones/{presentation_id}/eliminar", include_in_schema=False)
+async def presentation_delete(request: Request, presentation_id: str):
+    user = _require_commercial_write(request)
+    try:
+        view = presentations.authorization_view(presentation_id)
+    except presentations.PresentationNotFound:
+        raise HTTPException(404, "Presentación no encontrada")
+    except presentations.PresentationStorageError:
+        raise HTTPException(503, "Presentaciones no disponibles")
+    if not presentations.can_delete_presentation_user(user, view):               # incluye seeds (nunca se eliminan, tampoco `APP_OWNER`)
+        raise HTTPException(403, "No autorizado para eliminar esta presentación")
+    if not same_origin_guard.is_same_origin_write(request):
+        raise HTTPException(403, "Origen del request no verificado")
+    try:
+        presentations.delete_presentation(presentation_id)
+    except presentations.PresentationNotFound:
+        raise HTTPException(404, "Presentación no encontrada")
+    except presentations.SeedIsReadOnly:
+        raise HTTPException(403, "Las presentaciones institucionales no se eliminan")
+    except presentations.DurablePushFailed:
+        return JSONResponse({"state": "unavailable", "reason": "durable_push_failed",
+                             "message": "No se pudo confirmar la eliminación de forma durable — la presentación sigue en el catálogo. Reintentá en unos minutos."}, status_code=503)
+    except presentations.PresentationStorageError as exc:
+        _logger.error("commercial_presentations.delete failed: %s", type(exc).__name__)
+        return _storage_response(exc)
+    log_activity("presentation.deleted", user=user, scope=SCOPE_COMMERCIAL, area=AREA_PRESENTATIONS, module=CM03_MODULE_ID)
+    return JSONResponse({"state": "ok", "url": "/comercial/presentaciones"})
 
 
 # ── R6 — guardar campos ──────────────────────────────────────────────────────────────────────────────────────────────────

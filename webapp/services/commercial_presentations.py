@@ -12,7 +12,7 @@ AUTORIZACIÓN (contrato ratificado):
   * LEER / PRESENTAR por URL: `can_read_shared_user` = sesión + `auth_service.is_authorized` (ALLOWED_USERS ∪ ACADEMY_USERS). NO exige Comercial.
   * Catálogo, copia, edición: Comercial (`commercial_access.is_commercial_authorized_user`).
   * COPIAR no requiere nada más que Comercial (cualquier presentación, sin importar quién la creó). EDITAR es otra cosa: `can_edit_presentation_user` = Comercial Y no-seed Y (responsable
-    de la instancia O `CONTENT_OWNER`). `created_by_*` (procedencia histórica) y `owner_id` (responsabilidad editable) están separados aunque inicialmente coincidan.
+    de la instancia O `CONTENT_OWNER` O `APP_OWNER`). ELIMINAR: `can_delete_presentation_user` = Comercial Y no-seed Y (responsable O `APP_OWNER`). `created_by_*` (procedencia histórica) y `owner_id` (responsabilidad editable) están separados aunque inicialmente coincidan.
   * Sin variables, roles ni allowlists nuevos: se reusan `commercial_access`, `auth_service.is_authorized` y `auth_service.is_content_owner_user`.
 
 PERSISTENCIA: el MISMO contrato que `profile_repository` (un JSON por entidad, escritura atómica, push síncrono, compensación). Vive bajo `commercial_strategy_runtime/` — ya registrado en
@@ -44,7 +44,7 @@ import yaml
 import config
 from core import remote_store
 from core.content_registry import DEFAULT_PACK, resolve_pack_file
-from webapp import commercial_access
+from webapp import access, commercial_access
 from webapp.services import auth_service
 
 _logger = logging.getLogger("danwor.commercial_presentations")
@@ -458,6 +458,44 @@ def copy_presentation(source_id: str, *, title, owner_id: str, owner_label: str)
         raise RemoteOutcomeUnknown("No pudimos confirmar si la copia se guardó. Antes de reintentar, revisá el catálogo — si ya aparece, no la vuelvas a crear.")
 
 
+def authorization_view(presentation_id: str) -> dict:
+    """Lo mínimo que hace falta para AUTORIZAR sobre una instancia (`is_seed`, `owner_id`), sin exigir que su template esté disponible: una instancia de un template desconocido o más nuevo
+    igual se puede eliminar. NotFound si no existe."""
+    if is_seed_id(presentation_id):
+        return {"is_seed": True, "owner_id": ""}
+    if not is_instance_id(presentation_id):
+        raise PresentationNotFound(presentation_id)
+    return {"is_seed": False, "owner_id": str(_read_raw(presentation_id).get("owner_id") or "")}
+
+
+def delete_presentation(presentation_id: str) -> None:
+    """ELIMINA una instancia (borrado real, no recuperable desde el Hub). El seed no se elimina nunca. Quién puede hacerlo lo decide el router (`can_delete_presentation_user`). En `remote` el borrado
+    en Spaces es obligatorio: si no se confirma tras un reintento, el archivo local se restaura (503) — nunca queda borrada en un lado y viva en el otro."""
+    if is_seed_id(presentation_id):
+        raise SeedIsReadOnly()
+    if not is_instance_id(presentation_id):
+        raise PresentationNotFound(presentation_id)
+    _require_writable_mode()
+    with _write_lock:
+        _read_raw(presentation_id)                                               # NotFound si no existe
+        path = _path(presentation_id)
+        previous_bytes = path.read_bytes()
+        try:
+            path.unlink()
+        except OSError as exc:
+            raise PresentationStorageError(f"No se pudo eliminar la presentación del disco: {exc}") from exc
+        if _local_only():
+            return
+        if not remote_store.enabled():                                           # determinístico: ni este intento ni un reintento pueden confirmar en este entorno
+            _restore_previous(path, previous_bytes)
+            raise PresentationConfigIncomplete("Las presentaciones todavía no están configuradas para este entorno.")
+        if remote_store.delete_path(path) or remote_store.delete_path(path):
+            return
+        _restore_previous(path, previous_bytes)
+        _logger.error("commercial_presentations.delete: el borrado en Spaces no se confirmó — local restaurado (id=%s)", presentation_id)
+        raise DurablePushFailed()
+
+
 def save(presentation_id: str, fields, *, expected_revision: int, updated_by_id: str, updated_by_label: str) -> dict:
     """Guarda un SUBCONJUNTO de campos de UNA instancia bajo revisión optimista. El seed no se edita nunca. Si el push a Spaces no se confirma, el local vuelve a la versión anterior (503)."""
     if is_seed_id(presentation_id):
@@ -501,14 +539,25 @@ def can_read_shared_user(user: dict | None) -> bool:
 
 
 def can_edit_presentation_user(user: dict | None, presentation: dict) -> bool:
-    """EDITAR: Comercial Y no-seed Y (responsable de la instancia O `CONTENT_OWNER`). Copiar NO implica poder editar."""
+    """EDITAR: Comercial Y no-seed Y (responsable de la instancia O `CONTENT_OWNER` O `APP_OWNER`). Copiar NO implica poder editar."""
     if presentation.get("is_seed"):
         return False
     if not commercial_access.is_commercial_authorized_user(user):
         return False
     email = _email(user)
     owner = str(presentation.get("owner_id") or "").strip().lower()
-    return bool(email) and ((bool(owner) and email == owner) or auth_service.is_content_owner_user(email))
+    return bool(email) and ((bool(owner) and email == owner) or auth_service.is_content_owner_user(email) or access.is_owner_user(user))
+
+
+def can_delete_presentation_user(user: dict | None, presentation: dict) -> bool:
+    """ELIMINAR: Comercial Y no-seed Y (responsable de la instancia O `APP_OWNER`). Más estricto que editar a propósito: `CONTENT_OWNER` edita, pero no elimina lo ajeno."""
+    if presentation.get("is_seed"):
+        return False
+    if not commercial_access.is_commercial_authorized_user(user):
+        return False
+    email = _email(user)
+    owner = str(presentation.get("owner_id") or "").strip().lower()
+    return bool(email) and ((bool(owner) and email == owner) or access.is_owner_user(user))
 
 
 # ── Render ─────────────────────────────────────────────────────────────────────────────────────────────────────────────

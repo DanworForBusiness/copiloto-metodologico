@@ -42,22 +42,20 @@
   }
 
   // ── Buscar (catálogo): filtro 100% cliente sobre las filas ya renderizadas ────────────────────────────────────
-  // Sin endpoint ni preferencias persistidas. Compara en minúsculas, con espacios recortados y colapsados, contra `data-cp-search` (título + responsable). El contador del agrupador muestra el total con la
-  // búsqueda vacía y los coincidentes con búsqueda activa; sin coincidencias se muestra el estado vacío del Hub en lugar de la tabla.
+  // Sin endpoint ni preferencias persistidas. Normaliza con el MISMO helper de búsqueda libre del Hub (`dwSearchFold`, app.js: sin mayúsculas ni tildes, espacios recortados y colapsados) y compara contra
+  // `data-cp-search` (título + responsable). El contador del agrupador muestra el total con la búsqueda vacía y los coincidentes con búsqueda activa; sin coincidencias se muestra el estado vacío del Hub.
   (function () {
     var input = document.querySelector("[data-cp-search-input]");
     if (!input) return;
-    var rows = Array.prototype.slice.call(document.querySelectorAll("#cp-catalog-table tbody tr[data-cp-search]"));
     var count = document.querySelector("[data-cp-count]");
     var empty = document.querySelector("[data-cp-empty]");
     var wrap = document.querySelector("[data-cp-table-wrap]");
-    function norm(s) { return (s || "").toLowerCase().replace(/\s+/g, " ").trim(); }
-    var haystacks = rows.map(function (tr) { return norm(tr.getAttribute("data-cp-search")); });
     function apply() {
-      var q = norm(input.value);
+      var rows = Array.prototype.slice.call(document.querySelectorAll("#cp-catalog-table tbody tr[data-cp-search]"));    // se relee: una fila eliminada ya no cuenta
+      var q = dwSearchFold(input.value);
       var shown = 0;
-      rows.forEach(function (tr, i) {
-        var hit = !q || haystacks[i].indexOf(q) !== -1;
+      rows.forEach(function (tr) {
+        var hit = !q || dwSearchFold(tr.getAttribute("data-cp-search")).indexOf(q) !== -1;
         tr.hidden = !hit;
         if (hit) shown += 1;
       });
@@ -67,8 +65,54 @@
     }
     input.addEventListener("input", apply);
     input.closest("form").addEventListener("submit", function (ev) { ev.preventDefault(); });
-    apply();
+    document.addEventListener("cp:rows-changed", apply);
+    // `dwSearchFold` vive en app.js, que base.html carga DESPUÉS de este script: el primer pase espera a que terminen los scripts sincrónicos (DOMContentLoaded). Antes de eso no hay nada que filtrar.
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", apply); else apply();
   })();
+
+  // ── Eliminar (catálogo y detalle) ──────────────────────────────────────────────────────────────────────────────
+  // Confirmación con el diálogo nativo del Hub (`dwConfirm`, app.js: foco en «Cancelar», Escape/backdrop). La autoridad es el servidor (responsable o APP_OWNER; la semilla nunca). En el catálogo la fila
+  // sale del DOM, el contador se recalcula y se avisa con el toast transitorio; en el detalle se vuelve al catálogo con el aviso en `sessionStorage` (solo UI, un uso).
+  var FLASH_KEY = "cp-flash";
+  try {
+    var flash = window.sessionStorage.getItem(FLASH_KEY);
+    if (flash) { window.sessionStorage.removeItem(FLASH_KEY); toast("Presentación eliminada", flash, "success"); }
+  } catch (e) { /* sin sessionStorage: el aviso se omite, la eliminación ya ocurrió */ }
+
+  document.addEventListener("click", async function (ev) {
+    var btn = ev.target.closest("[data-cp-delete]");
+    if (!btn || btn.disabled) return;
+    var id = btn.getAttribute("data-cp-delete");
+    var title = btn.getAttribute("data-cp-title") || "esta presentación";
+    var message = "Se eliminará «" + title + "» de forma definitiva. El enlace compartido dejará de funcionar y no se puede deshacer.";
+    var confirmed = typeof dwConfirm === "function"
+      ? await dwConfirm({ title: "Eliminar presentación", message: message, confirmLabel: "Eliminar" })
+      : window.confirm(message);
+    if (!confirmed) return;
+    btn.disabled = true;
+    try {
+      var res = await fetch("/comercial/presentaciones/" + encodeURIComponent(id) + "/eliminar", {
+        method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: "{}",
+      });
+      var data = await readJson(res);
+      if (res.ok && data.state === "ok") {
+        var row = btn.closest("tr");
+        if (row) {
+          row.remove();
+          document.dispatchEvent(new CustomEvent("cp:rows-changed"));
+          toast("Presentación eliminada", "«" + title + "» ya no está en el catálogo.", "success");
+        } else {
+          try { window.sessionStorage.setItem(FLASH_KEY, "«" + title + "» ya no está en el catálogo."); } catch (e) { /* ver arriba */ }
+          window.location.assign(data.url || "/comercial/presentaciones");
+        }
+        return;
+      }
+      toast("No se pudo eliminar", messageOf(data, "Reintentá en unos minutos."), "punch");
+    } catch (e) {
+      toast("No se pudo eliminar", "Verificá tu conexión y reintentá.", "punch");
+    }
+    btn.disabled = false;
+  });
 
   // ── Copiar enlace (la URL de acceso autenticado; no es una credencial) ───────────────────────────────────────────────
   document.addEventListener("click", async function (ev) {

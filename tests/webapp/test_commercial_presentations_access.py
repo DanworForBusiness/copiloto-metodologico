@@ -71,6 +71,10 @@ def _copy(world, email, source=SEED_ID, title="Mi copia"):
     return r.json()["presentation_id"]
 
 
+def _delete(world, email, pid, headers=ORIGIN):
+    return world.client(email).post(f"/comercial/presentaciones/{pid}/eliminar", json={}, headers=headers)
+
+
 def _save(world, email, pid, fields, revision):
     return world.client(email).post(f"/comercial/presentaciones/{pid}", json={"revision": revision, "fields": fields}, headers=ORIGIN)
 
@@ -83,6 +87,7 @@ def _all_routes(pid):
         "R5": ("GET", f"/comercial/presentaciones/{pid}/editar"),
         "R4": ("POST", f"/comercial/presentaciones/{pid}/copiar"),
         "R6": ("POST", f"/comercial/presentaciones/{pid}"),
+        "R7": ("POST", f"/comercial/presentaciones/{pid}/eliminar"),
     }
 
 
@@ -213,11 +218,14 @@ def test_content_owner_without_commercial_cannot_edit(world, monkeypatch):
     assert world.client(HUB_ONLY).get(f"/comercial/presentaciones/{a_id}/editar").status_code == 403
 
 
-def test_app_owner_enters_commercial_and_copies_but_does_not_edit_others_without_content_owner(world):
+def test_app_owner_enters_commercial_and_any_action_is_enabled_on_every_non_seed_presentation(world):
     a_id = _copy(world, A)
     c_id = _copy(world, APP_OWNER, source=a_id)                                                # entra a Comercial y copia
     assert _save(world, APP_OWNER, c_id, {"hero_lead": "lo mío"}, 1).status_code == 200        # edita lo suyo
-    assert _save(world, APP_OWNER, a_id, {"hero_lead": "ajeno"}, 1).status_code == 403         # igual que Estrategia: APP_OWNER no edita ajenos por serlo
+    assert world.client(APP_OWNER).get(f"/comercial/presentaciones/{a_id}/editar").status_code == 200      # y lo ajeno: APP_OWNER habilita cualquier acción
+    assert _save(world, APP_OWNER, a_id, {"hero_lead": "ajeno"}, 1).status_code == 200
+    assert _delete(world, APP_OWNER, a_id).status_code == 200                                  # elimina lo ajeno
+    assert _delete(world, APP_OWNER, SEED_ID).status_code == 403                               # …pero la semilla institucional nunca
 
 
 def test_copying_does_not_imply_editing_and_a_commercial_user_cannot_edit_the_copy_of_someone_else(world):
@@ -239,7 +247,7 @@ def test_t7_the_seed_is_immutable_for_everyone_including_the_content_owner(world
     assert world.files() == {}                                                                 # ni siquiera apareció un archivo de runtime
 
 
-def test_t7_the_router_exposes_exactly_the_six_contract_routes_and_none_to_administer_templates_or_seeds():
+def test_t7_the_router_exposes_exactly_the_seven_contract_routes_and_none_to_administer_templates_or_seeds():
     from webapp.routers import commercial_presentations as router_module
     exposed = {(m, r.path) for r in router_module.router.routes for m in r.methods if m != "HEAD"}
     assert exposed == {
@@ -249,6 +257,7 @@ def test_t7_the_router_exposes_exactly_the_six_contract_routes_and_none_to_admin
         ("GET", "/comercial/presentaciones/{presentation_id}/editar"),
         ("POST", "/comercial/presentaciones/{presentation_id}/copiar"),
         ("POST", "/comercial/presentaciones/{presentation_id}"),
+        ("POST", "/comercial/presentaciones/{presentation_id}/eliminar"),
     }
     assert not any(m in {"PUT", "PATCH", "DELETE"} for m, _ in exposed)
 
@@ -335,3 +344,66 @@ def test_the_module_is_registered_in_the_commercial_workspace_and_the_nav_links_
     assert module_registry.resolve("presentaciones") is entry
     nav = world.client(A).get("/comercial/presentaciones").text
     assert 'href="/comercial/presentaciones" class="module-link is-active"' in nav
+
+
+# ── R7 — eliminar: el responsable o APP_OWNER; nunca la semilla ─────────────────────────────────────────────────────────────────
+
+def test_the_owner_deletes_their_own_copy_and_the_shared_link_stops_working(world):
+    pid = _copy(world, A)
+    assert (world.directory / f"{pid}.json").exists()
+    r = _delete(world, A, pid)
+    assert r.status_code == 200 and r.json() == {"state": "ok", "url": "/comercial/presentaciones"}
+    assert not (world.directory / f"{pid}.json").exists()
+    assert world.client(HUB_ONLY).get(f"/presentaciones/{pid}").status_code == 404           # el enlace compartido deja de resolver
+    assert pid not in world.client(A).get("/comercial/presentaciones").text
+    assert _delete(world, A, pid).status_code == 404                                          # idempotencia visible: ya no existe
+
+
+def test_a_commercial_user_cannot_delete_the_copy_of_someone_else_and_nothing_is_written(world):
+    b_id = _copy(world, B)
+    before = world.files()
+    assert _delete(world, A, b_id).status_code == 403
+    assert world.files() == before
+
+
+def test_content_owner_edits_but_does_not_delete_what_is_not_theirs(world):
+    a_id = _copy(world, A)
+    assert world.client(OWNER_C).get(f"/comercial/presentaciones/{a_id}/editar").status_code == 200
+    assert _delete(world, OWNER_C, a_id).status_code == 403
+    assert (world.directory / f"{a_id}.json").exists()
+
+
+def test_the_institutional_seed_is_never_deleted_not_even_by_the_app_owner(world):
+    for email in (A, OWNER_C, APP_OWNER):
+        assert _delete(world, email, SEED_ID).status_code == 403
+    assert world.files() == {} and SEED_YAML.exists()
+
+
+def test_a_hub_user_without_commercial_cannot_delete_even_by_direct_request(world):
+    pid = _copy(world, A)
+    assert _delete(world, HUB_ONLY, pid).status_code == 403 and _delete(world, ACADEMY, pid).status_code == 403
+    assert (world.directory / f"{pid}.json").exists()
+
+
+@pytest.mark.parametrize("headers", [{"Origin": "https://evil.example"}, {}], ids=["foreign-origin", "no-origin-no-referer"])
+def test_deleting_without_a_verified_same_origin_is_rejected(world, headers):
+    pid = _copy(world, A)
+    assert _delete(world, A, pid, headers=headers).status_code == 403
+    assert (world.directory / f"{pid}.json").exists()
+
+
+def test_an_unknown_or_malformed_id_is_a_404_and_never_touches_the_disk(world):
+    assert _delete(world, A, "no-existe").status_code == 404
+    assert _delete(world, A, "../../etc/passwd").status_code in (404, 405)
+    assert _delete(world, A, "00000000-0000-4000-8000-000000000000").status_code == 404
+
+
+def test_the_owner_can_delete_an_instance_whose_template_is_unavailable(world):
+    pid = _copy(world, A)
+    path = world.directory / f"{pid}.json"
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["template_version"] = 99                                                               # template «más nuevo»: la instancia queda no disponible, pero se puede limpiar
+    raw["template_id"] = "template-que-ya-no-existe"
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    assert world.client(A).get(f"/comercial/presentaciones/{pid}").status_code in (404, 409)
+    assert _delete(world, A, pid).status_code == 200 and not path.exists()

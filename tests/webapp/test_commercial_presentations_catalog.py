@@ -18,7 +18,7 @@ from pathlib import Path
 from bs4 import BeautifulSoup
 
 from tests.webapp.test_commercial_presentations_access import (  # noqa: F401  (fixtures y helpers compartidos)
-    A, B, OWNER_C, SEED_ID, _copy, world,
+    A, APP_OWNER, B, OWNER_C, SEED_ID, _copy, world,
 )
 
 REPO = Path(__file__).resolve().parents[2]
@@ -103,16 +103,57 @@ def test_the_empty_state_is_the_hub_primitive_hidden_until_the_search_leaves_no_
     assert empty.find_parent(class_="dashboard-section__body") is not None                       # el vacío vive dentro del agrupador, en lugar de la tabla
 
 
-def test_row_actions_and_permissions_are_unchanged(world):
+def test_every_row_always_shows_the_six_actions_and_the_ones_that_do_not_apply_are_disabled(world):
     mine, theirs = _copy(world, A, title="Mía"), _copy(world, B, title="Ajena")
     soup = _catalog(world)
-    acts = {tr["data-presentation-id"]: [a.get("aria-label") for a in tr.select(".dw-row-actions > *")] for tr in soup.select("#cp-catalog-table tbody tr")}
-    base = ["Ver presentación", "Presentar en una pestaña nueva", "Copiar enlace", "Copiar como nueva presentación"]
-    assert acts[SEED_ID] == base                                                                 # la semilla institucional nunca se edita
-    assert acts[mine] == base + ["Editar presentación"] and acts[theirs] == base                 # solo el responsable edita
+    rows = {tr["data-presentation-id"]: tr for tr in soup.select("#cp-catalog-table tbody tr")}
+    for pid, tr in rows.items():
+        buttons = tr.select(".dw-row-actions > *")
+        assert len(buttons) == 6, pid                                                            # la fila se ve igual en todas
+        assert [b.name for b in buttons[:4]] == ["a", "a", "button", "button"]                   # Ver · Presentar · Copiar enlace · Copiar como nueva (siempre habilitadas)
+        assert all(not b.has_attr("disabled") for b in buttons[:4])
+    edit = {pid: tr.select(".dw-row-actions > *")[4] for pid, tr in rows.items()}
+    assert edit[mine].name == "a" and edit[mine]["href"].endswith(f"/{mine}/editar") and edit[mine]["aria-label"] == "Editar presentación"   # solo el responsable edita
+    for pid, reason in ((SEED_ID, "institucionales son de solo lectura"), (theirs, "solo el responsable")):
+        b = edit[pid]
+        assert b.name == "button" and b.has_attr("disabled") and "table-action-btn" in b["class"] and not b.get("href")
+        assert b["aria-label"].startswith("Editar presentación no disponible") and reason in b["aria-label"]
+    delete = {pid: tr.select(".dw-row-actions > *")[5] for pid, tr in rows.items()}
+    assert delete[mine].name == "button" and not delete[mine].has_attr("disabled") and delete[mine]["data-cp-delete"] == mine and delete[mine]["data-cp-title"] == "Mía"
+    assert delete[mine]["aria-label"] == "Eliminar presentación"
+    for pid, reason in ((SEED_ID, "institucionales no se eliminan"), (theirs, "solo el responsable de la copia o el dueño de la app")):
+        b = delete[pid]
+        assert b.has_attr("disabled") and not b.get("data-cp-delete") and b["aria-label"].startswith("Eliminar presentación no disponible") and reason in b["aria-label"]
     assert len(soup.select("[data-cp-copy-link]")) == 3 and len(soup.select("[data-cp-copy-open]")) == 3
-    owner_acts = {tr["data-presentation-id"]: len(tr.select(".dw-row-actions > *")) for tr in _catalog(world, OWNER_C).select("#cp-catalog-table tbody tr")}
-    assert owner_acts[mine] == 5 and owner_acts[theirs] == 5 and owner_acts[SEED_ID] == 4         # CONTENT_OWNER edita cualquier copia, nunca la semilla
+    owner = {tr["data-presentation-id"]: tr.select(".dw-row-actions > *") for tr in _catalog(world, OWNER_C).select("#cp-catalog-table tbody tr")}
+    assert owner[mine][4].name == "a" and owner[theirs][4].name == "a" and owner[SEED_ID][4].has_attr("disabled")      # CONTENT_OWNER edita cualquier copia…
+    assert owner[mine][5].has_attr("disabled") and owner[theirs][5].has_attr("disabled")                              # …pero no elimina lo ajeno
+    app_owner = {tr["data-presentation-id"]: tr.select(".dw-row-actions > *") for tr in _catalog(world, APP_OWNER).select("#cp-catalog-table tbody tr")}
+    assert all(not app_owner[p][i].has_attr("disabled") for p in (mine, theirs) for i in range(6))                    # APP_OWNER: cualquier acción
+    assert app_owner[SEED_ID][4].has_attr("disabled") and app_owner[SEED_ID][5].has_attr("disabled")                  # …salvo editar/eliminar la semilla
+
+
+def test_the_detail_actions_use_the_native_segmented_control_and_edit_and_delete_are_always_there(world):
+    mine = _copy(world, A, title="Mía")
+    for pid, email, editable, deletable in ((mine, A, True, True), (mine, B, False, False), (mine, OWNER_C, True, False), (mine, APP_OWNER, True, True), (SEED_ID, A, False, False)):
+        soup = BeautifulSoup(world.client(email).get(f"/comercial/presentaciones/{pid}").text, "html.parser")
+        group = soup.select_one(".cp-toolbar > .dashboard-view-switch.dashboard-view-switch--scroll[role=group]")
+        assert group is not None and not soup.select(".cp-toolbar .btn-primary, .cp-toolbar .btn-secondary")      # primitivo nativo, no botones sueltos que lo imiten
+        items = group.find_all(["a", "button"], recursive=False)
+        assert [i.text.strip() for i in items] == ["Presentar", "Copiar enlace", "Copiar como nueva", "Editar", "Eliminar"]
+        assert items[0].name == "a" and "is-active" in items[0]["class"] and items[0]["target"] == "_blank"
+        assert all(not i.has_attr("disabled") for i in items[:3])
+        edit, delete = items[3], items[4]
+        assert (edit.name == "a" and edit["href"].endswith(f"/{pid}/editar")) if editable else (edit.name == "button" and edit.has_attr("disabled"))
+        assert (not delete.has_attr("disabled") and delete["data-cp-delete"] == pid) if deletable else (delete.has_attr("disabled") and not delete.get("data-cp-delete"))
+        if not deletable:
+            assert delete["aria-label"].startswith("Eliminar no disponible")
+
+
+def test_the_delete_flow_uses_the_hub_confirmation_dialog_and_posts_to_the_contract_route(world):
+    block = PRESENTATIONS_JS.split("// ── Eliminar", 1)[1]
+    assert "dwConfirm(" in block and "/eliminar" in block and 'method: "POST"' in block and "credentials" in block
+    assert "innerHTML" not in block and "eval(" not in block
 
 
 def test_the_page_content_is_wrapped_in_the_panel_that_carries_the_hero_spacing(world):
@@ -138,16 +179,14 @@ def test_the_filter_look_lives_next_to_its_layout_in_tools_css_and_no_longer_in_
     assert '.hc-profile-filters input[type="text"]' not in HC_CSS and ".hc-profile-filters input:focus" not in HC_CSS    # movidas, no copiadas
 
 
-def test_the_client_filter_has_no_network_or_persistence_and_never_touches_the_narrative(world):
-    block = PRESENTATIONS_JS.split("// ── Buscar (catálogo)", 1)[1].split("// ── Copiar enlace", 1)[0]
+def test_the_client_filter_reuses_the_hub_search_fold_and_has_no_network_or_persistence(world):
+    block = PRESENTATIONS_JS.split("// ── Buscar (catálogo)", 1)[1].split("// ── Eliminar", 1)[0]
     for forbidden in ("fetch(", "XMLHttpRequest", "localStorage", "sessionStorage", "innerHTML", "location."):
         assert forbidden not in block
-    assert 'data-cp-search' in block and "toLowerCase" in block and r"\s+" in block and ".trim()" in block   # normaliza: minúsculas + espacios colapsados/recortados
+    assert "dwSearchFold(" in block and "data-cp-search" in block                              # el normalizador del Hub (sin mayúsculas ni tildes, espacios colapsados), no uno propio
+    assert "toLowerCase" not in block and r"\s+" not in block
     assert "preventDefault" in block                                                             # Enter no recarga ni navega
-
-
-def test_the_presentations_css_block_has_balanced_comments_so_the_table_floor_rule_is_not_swallowed():
-    block = COMMERCIAL_CSS.split("Presentaciones V1 (CM03)", 1)[1]
-    assert block.count("/*") + 1 == block.count("*/")                                            # +1: el comentario de cabecera abre antes del marcador; un `*/` de más descarta la regla que sigue
-    head, rules = block.split("*/", 1)
-    assert ".dashboard-table.cp-catalog { min-width: 820px; }" in rules.split("/*")[0]           # la regla vive FUERA de cualquier comentario
+    assert "function dwSearchFold" in (REPO / "webapp" / "static" / "app.js").read_text(encoding="utf-8")
+    assert 'DOMContentLoaded' in block and "readyState" in block                                # app.js (dwSearchFold) carga DESPUÉS de este script: el primer pase no puede ser sincrónico
+    base = (REPO / "webapp" / "templates" / "base.html").read_text(encoding="utf-8")
+    assert base.index("app.js") > 0 and "commercial_presentations.js" not in base               # el orden real lo fija la plantilla de la página: por eso se espera a DOMContentLoaded

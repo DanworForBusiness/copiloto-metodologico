@@ -331,6 +331,7 @@ _USAGE_EVENTS: frozenset[str] = frozenset({
     # Comercial/Presentaciones V1: acciones de negocio completadas (copia y guardado exitosos), MISMO criterio que "strategy.saved".
     "presentation.copied",
     "presentation.saved",
+    "presentation.deleted",
     # Comercial/CRM — feedback transversal (Homologación al Danwor Hub, ver
     # HANDOFF): MISMA capacidad compartida que Reporting/Staffing, un control
     # por capability (Dashboard/Actividades/Licencias/Historial Perdidas/
@@ -415,6 +416,7 @@ EVENT_LABELS: dict[str, str] = {
     "strategy.saved": "Estrategia — guardado exitoso",
     "presentation.copied": "Presentaciones — copia creada",
     "presentation.saved": "Presentaciones — guardado exitoso",
+    "presentation.deleted": "Presentaciones — presentación eliminada",
     "commercial.feedback": "Comercial — feedback de capability",
     # "commercial.data_error" NO tiene entrada acá a propósito: es un evento
     # de DIAGNÓSTICO (_DIAGNOSTIC_EVENTS), no de uso — mismo criterio que

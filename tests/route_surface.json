@@ -209,6 +209,7 @@
   "POST /comercial/licensing/priority/restore",
   "POST /comercial/presentaciones/{presentation_id}",
   "POST /comercial/presentaciones/{presentation_id}/copiar",
+  "POST /comercial/presentaciones/{presentation_id}/eliminar",
   "POST /governed-decisions/ratify",
   "POST /governed-decisions/revoke",
   "POST /human-capital/profiles",
