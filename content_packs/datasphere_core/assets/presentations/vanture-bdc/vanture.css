@@ -73,6 +73,24 @@
   .reveal-fade{position:relative;overflow:hidden;cursor:default;outline:none}
   .reveal-fade__detail{position:absolute;inset:0;padding:28px 26px;box-sizing:border-box;background:var(--gold);opacity:0;transition:opacity .35s ease;display:flex;flex-direction:column;justify-content:center;gap:12px}
   .reveal-fade:hover .reveal-fade__detail,.reveal-fade:focus .reveal-fade__detail,.reveal-fade:focus-within .reveal-fade__detail{opacity:1}
+  /* Modo edición: el detalle de cada pilar no se superpone (al pasar el mouse taparía el título y no se podría editar): se apila debajo, a la vista. La lectura no cambia. */
+  html[data-cp-edit] .reveal-fade{overflow:visible}
+  html[data-cp-edit] .reveal-fade{min-height:0!important}
+  /* Eliminar una slide de la copia (solo edición): X arriba a la derecha de cada slide; la eliminada queda colapsada en una barra con «Restaurar». */
+  html[data-cp-edit] [hidden]{display:none!important}
+  html[data-cp-edit] .cp-slide-tools{position:absolute;top:16px;right:22px;z-index:20;display:flex;gap:8px;align-items:center}
+  @media (min-width:900px){html[data-cp-edit] .cp-slide-tools{right:64px}}   /* deja libre el riel de puntos del borde derecho */
+  html[data-cp-edit] .cp-slide-remove{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;padding:0;cursor:pointer;font:600 14px/1 var(--mono);color:var(--content-ink-soft);background:var(--content-surface,#fff);border:1px solid color-mix(in srgb, var(--content-ink) 24%, transparent);transition:color .15s ease,border-color .15s ease,background .15s ease}
+  html[data-cp-edit] .cp-slide-remove:hover,html[data-cp-edit] .cp-slide-remove:focus-visible{color:var(--gold);border-color:var(--gold);background:color-mix(in srgb, var(--gold) 12%, transparent);outline:none}
+  html[data-cp-edit] .cp-slide-restore{display:none;cursor:pointer;font:600 12px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;padding:12px 18px;color:var(--gold);background:transparent;border:1px dashed var(--gold)}
+  html[data-cp-edit] .cp-slide-restore:hover,html[data-cp-edit] .cp-slide-restore:focus-visible{background:color-mix(in srgb, var(--gold) 12%, transparent);outline:none}
+  html[data-cp-edit] section[data-cp-removed]{padding:0!important;min-height:0!important;background:none!important}
+  html[data-cp-edit] section[data-cp-removed] > :not(.cp-slide-tools){display:none!important}
+  html[data-cp-edit] section[data-cp-removed] .cp-slide-tools{position:static;justify-content:center;padding:18px 40px}
+  html[data-cp-edit] section[data-cp-removed] .cp-slide-remove{display:none}
+  html[data-cp-edit] section[data-cp-removed] .cp-slide-restore{display:inline-flex}
+  html[data-cp-edit] .reveal-fade > div:first-child{height:auto!important}
+  html[data-cp-edit] .reveal-fade__detail{position:relative;inset:auto;opacity:1;transition:none}
   .arch{display:grid;grid-template-columns:54px 1fr 54px;gap:14px;align-items:stretch}
   .arch__side{writing-mode:vertical-rl;transform:rotate(180deg);display:flex;align-items:center;justify-content:center;border:1px dashed color-mix(in srgb, var(--gold) 35%, transparent);background:color-mix(in srgb, var(--gold) 4%, transparent);font-family:var(--mono);font-size:12px;letter-spacing:.24em;color:var(--gold);padding:14px 0}
   .ptabs>input{position:absolute;opacity:0;pointer-events:none}

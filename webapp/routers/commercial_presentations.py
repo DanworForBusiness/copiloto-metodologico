@@ -132,7 +132,7 @@ def presentation_shared_view(request: Request, presentation_id: str, embed: str 
         log_activity(EVENT_MODULE_VIEWED, user=user, scope=SCOPE_COMMERCIAL, area=AREA_PRESENTATIONS, module=CM03_MODULE_ID)
     spec = presentations.template_spec(view["template_id"])
     theme = "dark" if request.cookies.get("dw-content-theme") == "dark" else "light"            # preferencia del Hub (cookie `dw-content-theme`), como /pack-assets: sin flash
-    # Edición inline: `?edit=1` solo se honra si el usuario PUEDE editar esta instancia (Comercial + responsable / CONTENT_OWNER / APP_OWNER; nunca la semilla). Para cualquier otro es la vista de siempre: leer por URL no habilita nada.
+    # Edición inline: `?edit=1` solo se honra si el usuario PUEDE editar esta instancia (Comercial + responsable / CONTENT_OWNER; nunca la semilla). Para cualquier otro es la vista de siempre: leer por URL no habilita nada.
     edit_mode = edit == "1" and embedded and presentations.can_edit_presentation_user(user, view)
     return templates.TemplateResponse(request=request, name=spec.jinja, context=presentations.render_context(view, embed=embedded, theme=theme, edit=edit_mode), headers=_NO_STORE)
 
@@ -302,14 +302,17 @@ async def presentation_save(request: Request, presentation_id: str):
     revision = body.get("revision")
     if not isinstance(revision, int) or isinstance(revision, bool):
         raise HTTPException(400, "Falta 'revision' (entero) en el payload")
+    removed = body.get("removed_slides")                                         # opcional: la lista COMPLETA de slides eliminadas de la copia (ids; nunca markup)
     try:
-        clean = presentations.validate_fields(view["template_id"], body.get("fields"))
+        removed = presentations.validate_removed_slides(removed) if removed is not None else None
+        fields = body.get("fields")
+        clean = presentations.validate_fields(view["template_id"], fields) if (fields or removed is None) else {}
     except presentations.PresentationValidationError as exc:
         raise HTTPException(422, str(exc))
     updated_by_id = str(user.get("sub") or "")
     updated_by_label = str(user.get("name") or user.get("username") or user.get("email") or updated_by_id)
     try:
-        saved = presentations.save(presentation_id, clean, expected_revision=revision, updated_by_id=updated_by_id, updated_by_label=updated_by_label)
+        saved = presentations.save(presentation_id, clean, expected_revision=revision, updated_by_id=updated_by_id, updated_by_label=updated_by_label, removed_slides=removed)
     except presentations.StaleRevision as exc:
         return JSONResponse({"state": "stale", "current_revision": exc.current_revision,
                              "message": "La presentación cambió desde que la cargaste — recargá la página antes de volver a guardar. Nada se sobrescribió."}, status_code=409)
@@ -325,4 +328,4 @@ async def presentation_save(request: Request, presentation_id: str):
         _logger.error("commercial_presentations.save failed: %s", type(exc).__name__)
         return _storage_response(exc)
     log_activity("presentation.saved", user=user, scope=SCOPE_COMMERCIAL, area=AREA_PRESENTATIONS, module=CM03_MODULE_ID, revision=saved["revision"])
-    return JSONResponse({"state": "ok", "revision": saved["revision"], "updated_at": saved["updated_at"], "content": saved["content"]})
+    return JSONResponse({"state": "ok", "revision": saved["revision"], "updated_at": saved["updated_at"], "content": saved["content"], "removed_slides": saved["removed_slides"]})

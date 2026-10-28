@@ -86,10 +86,11 @@ def test_every_editable_field_is_emitted_only_as_element_text_never_in_attribute
     marked = {k: f"{v}<i>\"'&" for k, v in sentinels.items()}                                  # sufijo corto: respeta el límite de los campos más cortos (20)
     assert _save(world, A, pid, marked, 1).status_code == 200
     seed_soup, soup = _soup(_page(world)), _soup(_page(world, pid))
+    source = TEMPLATE_PATH.read_text(encoding="utf-8")
 
     for key, token in sentinels.items():
         holders = [t for t in soup.find_all(string=re.compile(token))]
-        assert len(holders) == 1, key
+        assert len(holders) == 1 + source.count(f"m('{key}')"), key                              # el campo + sus espejos declarados (etiqueta de sección en el riel, título del pilar en su detalle, etiqueta superior en el encabezado)
         assert holders[0].parent.name not in {"script", "style", "title"}, key
         for tag in soup.find_all(True):
             assert not any(token in str(v) for v in tag.attrs.values()), (key, tag.name)
@@ -122,12 +123,18 @@ def test_the_template_source_has_no_unsafe_constructs_and_uses_exactly_the_spec_
     for forbidden in ("|safe", "| safe", "Markup", "autoescape", "{% raw", "|tojson", "{% include", "{% extends"):
         assert forbidden not in source, forbidden
     assert re.findall(r"\{%-?\s*(?:from|import)[^%]*-?%\}", source) == ['{%- from "partials/theme_icons.html" import theme_icon -%}'], "el único import permitido es la macro compartida de íconos de tema"
-    used = re.findall(r"\{\{\s*f\('([a-z0-9_]+)'\)\s*\}\}", source)
-    assert sorted(used) == sorted(set(SPEC.field_keys)) and len(used) == len(set(used))         # ni claves de más ni campos sin usar, cada uno exactamente una vez (siempre vía la macro `f`)
+    used = re.findall(r"\{\{\s*f\('([a-z0-9_]+)'\)\s*\}\}", source) + re.findall(r"\{\{\s*nextlink\('s\d+','s\d+','([a-z0-9_]+)'\)\s*\}\}", source)
+    assert sorted(used) == sorted(set(SPEC.field_keys)) and len(used) == len(set(used))         # ni claves de más ni campos sin usar, cada uno exactamente una vez (vía la macro `f`, o `nextlink`, que la usa)
     assert not re.search(r"\bc\.[a-z0-9_]+", source), "el contenido solo se lee a través de la macro `f` (que escapa y, en edición, envuelve el leaf)"
     expressions = {e.strip() for e in re.findall(r"\{\{\s*([^}]+?)\s*\}\}", source)}
-    non_content = expressions - {f"f('{k}')" for k in SPEC.field_keys}
-    assert non_content == {"key", "c[key]", '" data-cp-edit" if edit_mode else ""', "css_url", "js_url", "asset_base", "institutional_logo_url", "partner_logo_url", "partner_logo_alt", "theme", "hub_fonts_url", "static_version",
+    mirrors = set(re.findall(r"\{\{\s*m\('([a-z0-9_]+)'\)\s*\}\}", source))
+    assert mirrors <= set(SPEC.field_keys), "un espejo solo puede reflejar un campo editable de la spec (nunca contenido propio)"
+    non_content = expressions - {f"f('{k}')" for k in SPEC.field_keys} - {f"m('{k}')" for k in mirrors}
+    slide = r"s(?:[2-9]|1[0-2])"                                                                 # composición por slide: solo ids de slide quitable, nunca contenido
+    structural = [re.compile(p) for p in (rf"' data-cp-removed' if '{slide}' in removed_ids else ''", rf"' hidden' if '{slide}' in removed_ids else ''", rf"kno\('{slide}'\)",
+                                          rf"slide_tools\('{slide}'\) if edit_mode else ''", rf"nextlink\('{slide}','{slide}','[a-z0-9_]+'\)")]
+    non_content = {e for e in non_content if not any(p.fullmatch(e) for p in structural)}
+    assert non_content == {"key", "c[key]", "sid", "orig", "t", "nx or orig", "f(key)", "nav_of[nx]", "first_slide or 's2'", '" data-cp-edit" if edit_mode else ""', "css_url", "js_url", "asset_base", "institutional_logo_url", "partner_logo_url", "partner_logo_alt", "theme", "hub_fonts_url", "static_version", '" data-cp-edit" if edit_mode else ""', "css_url", "js_url", "asset_base", "institutional_logo_url", "partner_logo_url", "partner_logo_alt", "theme", "hub_fonts_url", "static_version",
                            "url_for('static', path='app.css')", "url_for('static', path='content.css')", "url_for('static', path='layout.css')", "url_for('static', path='tools.css')",
                            "url_for('static', path='hub_theme.js')", 'theme_icon("light", \'style="display:none"\' if theme != "light" else "")', 'theme_icon("dark", \'style="display:none"\' if theme != "dark" else "")'}, non_content
 
@@ -153,7 +160,7 @@ def test_a_copy_shares_css_js_and_assets_with_the_seed_and_stays_small(world):
     assert urls(seed_soup) == urls(copy_soup) and len(urls(seed_soup)) > 40
     assert [s["src"] for s in seed_soup.find_all("script", src=True)] == [s["src"] for s in copy_soup.find_all("script", src=True)]
     raw = (world.directory / f"{pid}.json").read_bytes()
-    assert len(raw) < 8_000
+    assert len(raw) < 20_000                                                                     # la copia guarda TODO el contenido editable (hoy ~200 textos), no markup ni assets
     stored = json.loads(raw)
     assert set(stored["content"]) == set(SPEC.field_keys)
     assert not any("/pack-assets" in v or "<" in v for v in stored["content"].values())        # la instancia no referencia assets ni guarda markup
@@ -214,10 +221,11 @@ def _write_instance(world, payload: dict) -> str:
 
 def test_the_golden_v1_instance_validates_renders_and_is_listed_forever(world):
     payload = json.loads(FIXTURE.read_text(encoding="utf-8"))
-    assert payload["schema_version"] == 1 and payload["template_version"] == 1 and set(payload["content"]) == set(SPEC.field_keys)
+    assert payload["schema_version"] == 1 and payload["template_version"] == 1 and set(payload["content"]) == set(PINNED_V1), "la fixture dorada es una instancia creada con los 20 campos originales"
     pid = _write_instance(world, payload)
     view = cp.get(pid)
-    assert view["content"] == payload["content"] and view["owner_id"] == payload["owner_id"]
+    assert view["content"] == {**SEED, **payload["content"]} and set(view["content"]) == set(SPEC.field_keys), "los campos agregados después caen al valor del seed; los propios se conservan"
+    assert view["owner_id"] == payload["owner_id"]
     html = _page(world, pid)
     assert _norm(payload["content"]["hero_lead"]) in _norm(_soup(html).get_text(" "))
     assert pid in world.client(A).get("/comercial/presentaciones").text
@@ -637,7 +645,7 @@ def test_the_owner_gets_every_editable_text_as_a_plain_text_contenteditable_leaf
     soup = _edit_doc(world, pid, A)
     assert soup.html.has_attr("data-cp-edit")
     leaves = soup.select("[data-cp-field]")
-    assert sorted(l["data-cp-field"] for l in leaves) == sorted(SPEC.field_keys) and len(leaves) == 20
+    assert sorted(l["data-cp-field"] for l in leaves) == sorted(SPEC.field_keys) and len(leaves) == len(SPEC.fields)
     for l in leaves:
         assert l.name == "span" and l["contenteditable"] == "true" and "dw-inline-edit" in l["class"]
         assert l.get_text() == l["data-original"] == cp.full_content("vanture-bdc", cp.get(pid)["content"])[l["data-cp-field"]]      # el valor de siempre, en su lugar
@@ -649,6 +657,10 @@ def test_the_edit_mode_document_is_otherwise_the_same_document(world):
     plain = _soup(world.client(A).get(f"/presentaciones/{pid}?embed=1").text)
     edit = _edit_doc(world, pid, A)
     for soup in (plain, edit):
+        for tool in soup.select(".cp-slide-tools, [data-cp-derived]"):                          # herramientas de edición (X por slide) y texto derivado oculto: no son parte del documento
+            tool.decompose()
+        for kno in soup.select("[data-cp-kicker-no]"):
+            kno.unwrap()
         for leaf in soup.select("[data-cp-field]"):
             leaf.unwrap()
         for el in soup.select("[data-cp-edit]"):
@@ -666,7 +678,7 @@ def test_edit_mode_is_never_granted_by_the_query_alone(world, who, query):
 def test_the_seed_is_never_editable_and_the_administrators_are(world):
     assert not _edit_doc(world, SEED_ID, A).select("[contenteditable]") and not _edit_doc(world, SEED_ID, OWNER_C).select("[contenteditable]")
     pid = _copy(world, A)
-    assert len(_edit_doc(world, pid, OWNER_C).select("[data-cp-field]")) == 20      # CONTENT_OWNER edita copias ajenas (APP_OWNER también, ver `can_edit_presentation_user`; su lectura por URL depende de ALLOWED_USERS)
+    assert len(_edit_doc(world, pid, OWNER_C).select("[data-cp-field]")) == len(SPEC.fields)      # CONTENT_OWNER edita copias ajenas; APP_OWNER no, por ser administrador (ver `can_edit_presentation_user`)
 
 
 def test_edited_values_are_emitted_escaped_inside_the_leaf_and_in_the_original_attribute(world):
@@ -697,7 +709,7 @@ def test_the_inline_editor_saves_only_changed_fields_with_plain_text_and_the_loa
     js = (REPO / "webapp" / "static" / "commercial_presentations.js").read_text(encoding="utf-8")
     block = js.split("// ── Editor INLINE", 1)[1]
     assert "el.textContent.replace(" in block and "u00a0" in block and "innerText" not in block      # texto plano de una línea; el NBSP del contenteditable se normaliza
-    assert "JSON.stringify({ revision: parseInt(editor.getAttribute(\"data-revision\"), 10), fields: delta })" in block
+    assert "revision: parseInt(editor.getAttribute(\"data-revision\"), 10), fields: delta }" in block and "removed_slides: removedNow()" in block      # los campos cambiados + (solo si cambió) la lista de slides eliminadas
     assert "innerHTML" not in block and "eval(" not in block
     assert "dwConfirm" in block and "beforeunload" in block                                    # confirma antes de descartar cambios
     doc = (ASSETS / "vanture.js").read_text(encoding="utf-8")

@@ -12,7 +12,9 @@ AUTORIZACIÓN (contrato ratificado):
   * LEER / PRESENTAR por URL: `can_read_shared_user` = sesión + `auth_service.is_authorized` (ALLOWED_USERS ∪ ACADEMY_USERS). NO exige Comercial.
   * Catálogo, copia, edición: Comercial (`commercial_access.is_commercial_authorized_user`).
   * COPIAR no requiere nada más que Comercial (cualquier presentación, sin importar quién la creó). EDITAR es otra cosa: `can_edit_presentation_user` = Comercial Y no-seed Y (responsable
-    de la instancia O `CONTENT_OWNER` O `APP_OWNER`). ELIMINAR: `can_delete_presentation_user` = Comercial Y no-seed Y (responsable O `APP_OWNER`). `created_by_*` (procedencia histórica) y `owner_id` (responsabilidad editable) están separados aunque inicialmente coincidan.
+    de la instancia O `CONTENT_OWNER`: el MISMO gobierno de edición de contenidos que Estrategia; `APP_OWNER` NO edita contenido por ser administrador — si necesita editar, su identidad debe estar en `CONTENT_OWNER`).
+    ELIMINAR: `can_delete_presentation_user` = Comercial Y no-seed Y (responsable O `APP_OWNER`): borrar es una acción ADMINISTRATIVA del workspace y `APP_OWNER` es su superusuario (`commercial_access`, decisión post-#107).
+    `created_by_*` (procedencia histórica) y `owner_id` (responsabilidad editable) están separados aunque inicialmente coincidan.
   * Sin variables, roles ni allowlists nuevos: se reusan `commercial_access`, `auth_service.is_authorized` y `auth_service.is_content_owner_user`.
 
 PERSISTENCIA: el MISMO contrato que `profile_repository` (un JSON por entidad, escritura atómica, push síncrono, compensación). Vive bajo `commercial_strategy_runtime/` — ya registrado en
@@ -130,7 +132,7 @@ class FieldSpec:
     section: str
     label: str
     max_len: int
-    multiline: bool = False       # solo gobierna si el editor usa <textarea> (la salida sigue siendo texto plano de una línea)
+    kind: str = "line"            # "line" (título/etiqueta) | "paragraph" (texto corrido): hoy ambos son texto plano de una línea
 
 
 @dataclass(frozen=True)
@@ -153,26 +155,236 @@ class TemplateSpec:
         return next((f for f in self.fields if f.key == key), None)
 
 
-_HERO, _S2, _CTA, _ALLIANCE = "Portada", "Dato de contexto", "Llamado a la acción", "Alianza"
+_SLIDE = {
+    1: "Slide 1 · Portada", 2: "Slide 2 · El límite no es la IA", 3: "Slide 3 · Qué es SAP BDC", 4: "Slide 4 · Knowledge Core", 5: "Slide 5 · Ecosistema abierto", 6: "Slide 6 · Casos de uso",
+    7: "Slide 7 · Por qué BDC", 8: "Slide 8 · Cómo empezar", 9: "Slide 9 · Tu punto de partida", 10: "Slide 10 · Conclusión y demo", 11: "Slide 11 · Por qué nuestra alianza", 12: "Slide 12 · Clientes y casos",
+}
 
+# Alcance de la edición: el CONTENIDO textual y los valores comerciales de las 12 slides. Los diagramas (arquitectura BDC, stack Knowledge Core, flujo del ecosistema), el logo-marquee, los números/íconos, el pie legal y
+# el cromo de la UI los gobierna el template (ver docs/COMMERCIAL_PRESENTATIONS.md): no son campos. `kind`: "line" = título/etiqueta (una línea); "paragraph" = texto corrido (hoy también de una línea: el servidor
+# no admite saltos y ningún texto del seed los necesita; habilitar saltos controlados sería un cambio local al validador y al render de los "paragraph").
 VANTURE_FIELDS = (
-    FieldSpec("hero_title_prefix", _HERO, "Título — inicio", 120),
-    FieldSpec("hero_title_accent", _HERO, "Título — palabra destacada", 40),
-    FieldSpec("hero_lead", _HERO, "Bajada", 400, True),
-    FieldSpec("s2_stat_value", _S2, "Dato — valor", 20),
-    FieldSpec("s2_stat_label", _S2, "Dato — descripción", 200, True),
-    FieldSpec("cta_title_prefix", _CTA, "Título — inicio", 120),
-    FieldSpec("cta_title_accent", _CTA, "Título — frase destacada", 60),
-    FieldSpec("cta_lead", _CTA, "Bajada", 300, True),
-    FieldSpec("cta_qr_caption", _CTA, "Texto junto al QR", 120),
+    # Campos de la v1 original (claves y límites fijados por PINNED_V1: solo pueden crecer)
+    FieldSpec("hero_title_prefix", _SLIDE[1], "Título — inicio", 120),
+    FieldSpec("hero_title_accent", _SLIDE[1], "Título — palabra destacada", 40),
+    FieldSpec("hero_lead", _SLIDE[1], "Bajada", 400, "paragraph"),
+    FieldSpec("s2_stat_value", _SLIDE[2], "Dato — valor", 20),
+    FieldSpec("s2_stat_label", _SLIDE[2], "Dato — descripción", 200, "paragraph"),
+    FieldSpec("cta_title_prefix", _SLIDE[10], "Título — inicio", 120),
+    FieldSpec("cta_title_accent", _SLIDE[10], "Título — frase destacada", 60),
+    FieldSpec("cta_lead", _SLIDE[10], "Bajada", 300, "paragraph"),
+    FieldSpec("cta_qr_caption", _SLIDE[10], "Texto junto al QR", 120),
     *(f for i in range(1, 5) for f in (
-        FieldSpec(f"alliance_{i}_title", _ALLIANCE, f"Propuesta {i} — título", 80),
-        FieldSpec(f"alliance_{i}_body", _ALLIANCE, f"Propuesta {i} — texto", 300, True),
+        FieldSpec(f"alliance_{i}_title", _SLIDE[11], f"Propuesta {i} — título", 80),
+        FieldSpec(f"alliance_{i}_body", _SLIDE[11], f"Propuesta {i} — texto", 300, "paragraph"),
     )),
-    FieldSpec("recognition_intro", _ALLIANCE, "Reconocimientos — inicio", 300, True),
-    FieldSpec("recognition_highlight", _ALLIANCE, "Reconocimientos — frase destacada", 80),
-    FieldSpec("recognition_tail", _ALLIANCE, "Reconocimientos — continuación", 400, True),
+    FieldSpec("recognition_intro", _SLIDE[11], "Reconocimientos — inicio", 300, "paragraph"),
+    FieldSpec("recognition_highlight", _SLIDE[11], "Reconocimientos — frase destacada", 80),
+    FieldSpec("recognition_tail", _SLIDE[11], "Reconocimientos — continuación", 400, "paragraph"),
+    # Campos agregados después (aditivos: las instancias anteriores caen al valor del seed)
+    # Slide 1
+    FieldSpec("hero_kicker", _SLIDE[1], "Etiqueta superior (dorada)", 80),
+    # Slide 2
+    FieldSpec("s2_nav", _SLIDE[2], "Nombre de la sección (etiqueta superior y riel)", 80),
+    FieldSpec("s2_title", _SLIDE[2], "Título", 180),
+    FieldSpec("s2_lead", _SLIDE[2], "Subtítulo", 300, "paragraph"),
+    FieldSpec("s2_cards_label", _SLIDE[2], "Rótulo sobre las tarjetas", 80),
+    FieldSpec("s2_card1_title", _SLIDE[2], "Tarjeta 1 — título", 160),
+    FieldSpec("s2_card1_body", _SLIDE[2], "Tarjeta 1 — texto", 300, "paragraph"),
+    FieldSpec("s2_card2_title", _SLIDE[2], "Tarjeta 2 — título", 160),
+    FieldSpec("s2_card2_body", _SLIDE[2], "Tarjeta 2 — texto", 300, "paragraph"),
+    FieldSpec("s2_card3_title", _SLIDE[2], "Tarjeta 3 — título", 160),
+    FieldSpec("s2_card3_body", _SLIDE[2], "Tarjeta 3 — texto", 300, "paragraph"),
+    FieldSpec("s2_next", _SLIDE[2], "Enlace «Siguiente»", 80),
+    # Slide 3
+    FieldSpec("s3_nav", _SLIDE[3], "Nombre de la sección (etiqueta superior y riel)", 80),
+    FieldSpec("s3_title", _SLIDE[3], "Título", 160),
+    FieldSpec("s3_lead", _SLIDE[3], "Subtítulo", 350, "paragraph"),
+    FieldSpec("s3_lead_highlight", _SLIDE[3], "Subtítulo — frase destacada", 80),
+    FieldSpec("s3_callout_intro", _SLIDE[3], "Cierre — inicio", 300, "paragraph"),
+    FieldSpec("s3_callout_highlight", _SLIDE[3], "Cierre — frase destacada", 80),
+    FieldSpec("s3_callout_tail", _SLIDE[3], "Cierre — continuación", 480, "paragraph"),
+    FieldSpec("s3_next", _SLIDE[3], "Enlace «Siguiente»", 80),
+    # Slide 4
+    FieldSpec("s4_nav", _SLIDE[4], "Nombre de la sección (etiqueta superior y riel)", 80),
+    FieldSpec("s4_title", _SLIDE[4], "Título", 160),
+    FieldSpec("s4_lead_1", _SLIDE[4], "Subtítulo — inicio", 300, "paragraph"),
+    FieldSpec("s4_lead_em_1", _SLIDE[4], "Subtítulo — primer énfasis", 80),
+    FieldSpec("s4_lead_2", _SLIDE[4], "Subtítulo — medio", 300, "paragraph"),
+    FieldSpec("s4_lead_em_2", _SLIDE[4], "Subtítulo — segundo énfasis", 80),
+    FieldSpec("s4_lead_3", _SLIDE[4], "Subtítulo — final", 300, "paragraph"),
+    FieldSpec("s4_diagram_label", _SLIDE[4], "Rótulo sobre el diagrama", 80),
+    FieldSpec("s4_callout_text", _SLIDE[4], "Cierre — texto", 580, "paragraph"),
+    FieldSpec("s4_callout_highlight", _SLIDE[4], "Cierre — frase destacada", 300, "paragraph"),
+    FieldSpec("s4_next", _SLIDE[4], "Enlace «Siguiente»", 80),
+    # Slide 5
+    FieldSpec("s5_nav", _SLIDE[5], "Nombre de la sección (etiqueta superior y riel)", 80),
+    FieldSpec("s5_title", _SLIDE[5], "Título", 160),
+    FieldSpec("s5_lead", _SLIDE[5], "Subtítulo", 520, "paragraph"),
+    FieldSpec("s5_cards_label", _SLIDE[5], "Rótulo sobre las tarjetas", 80),
+    FieldSpec("s5_card1_title", _SLIDE[5], "Tarjeta 1 — título", 160),
+    FieldSpec("s5_card1_body", _SLIDE[5], "Tarjeta 1 — texto", 300, "paragraph"),
+    FieldSpec("s5_card2_title", _SLIDE[5], "Tarjeta 2 — título", 160),
+    FieldSpec("s5_card2_body", _SLIDE[5], "Tarjeta 2 — texto", 300, "paragraph"),
+    FieldSpec("s5_card3_title", _SLIDE[5], "Tarjeta 3 — título", 160),
+    FieldSpec("s5_card3_body", _SLIDE[5], "Tarjeta 3 — texto", 300, "paragraph"),
+    FieldSpec("s5_next", _SLIDE[5], "Enlace «Siguiente»", 80),
+    # Slide 6
+    FieldSpec("s6_nav", _SLIDE[6], "Nombre de la sección (etiqueta superior y riel)", 80),
+    FieldSpec("s6_title", _SLIDE[6], "Título", 160),
+    FieldSpec("s6_lead", _SLIDE[6], "Subtítulo", 300, "paragraph"),
+    FieldSpec("s6_label", _SLIDE[6], "Rótulo sobre las solapas", 80),
+    FieldSpec("s6_cfo_tab", _SLIDE[6], "CFO — nombre de la solapa", 80),
+    FieldSpec("s6_coo_tab", _SLIDE[6], "COO — nombre de la solapa", 80),
+    FieldSpec("s6_chro_tab", _SLIDE[6], "CHRO — nombre de la solapa", 80),
+    FieldSpec("s6_cro_tab", _SLIDE[6], "CRO — nombre de la solapa", 80),
+    FieldSpec("s6_cpo_tab", _SLIDE[6], "CPO — nombre de la solapa", 80),
+    FieldSpec("s6_cfo_head", _SLIDE[6], "CFO — cabecera del panel", 90),
+    FieldSpec("s6_cfo_uc_label", _SLIDE[6], "CFO — rótulo de casos de uso", 80),
+    FieldSpec("s6_cfo_uc_1", _SLIDE[6], "CFO — caso de uso 1", 80),
+    FieldSpec("s6_cfo_uc_2", _SLIDE[6], "CFO — caso de uso 2", 80),
+    FieldSpec("s6_cfo_badge", _SLIDE[6], "CFO — insignia", 100),
+    FieldSpec("s6_cfo_products_label", _SLIDE[6], "CFO — rótulo de productos de datos", 80),
+    FieldSpec("s6_cfo_prod_1", _SLIDE[6], "CFO — producto de datos 1", 80),
+    FieldSpec("s6_cfo_prod_2", _SLIDE[6], "CFO — producto de datos 2", 80),
+    FieldSpec("s6_cfo_prod_3", _SLIDE[6], "CFO — producto de datos 3", 80),
+    FieldSpec("s6_cfo_prod_4", _SLIDE[6], "CFO — producto de datos 4", 80),
+    FieldSpec("s6_cfo_prod_5", _SLIDE[6], "CFO — producto de datos 5", 80),
+    FieldSpec("s6_cfo_prod_6", _SLIDE[6], "CFO — producto de datos 6", 80),
+    FieldSpec("s6_cfo_prod_7", _SLIDE[6], "CFO — producto de datos 7", 80),
+    FieldSpec("s6_coo_head", _SLIDE[6], "COO — cabecera del panel", 80),
+    FieldSpec("s6_coo_uc_label", _SLIDE[6], "COO — rótulo de casos de uso", 80),
+    FieldSpec("s6_coo_uc_1", _SLIDE[6], "COO — caso de uso 1", 80),
+    FieldSpec("s6_coo_uc_2", _SLIDE[6], "COO — caso de uso 2", 80),
+    FieldSpec("s6_coo_badge", _SLIDE[6], "COO — insignia", 80),
+    FieldSpec("s6_coo_products_label", _SLIDE[6], "COO — rótulo de productos de datos", 80),
+    FieldSpec("s6_coo_prod_1", _SLIDE[6], "COO — producto de datos 1", 80),
+    FieldSpec("s6_coo_prod_2", _SLIDE[6], "COO — producto de datos 2", 80),
+    FieldSpec("s6_coo_prod_3", _SLIDE[6], "COO — producto de datos 3", 80),
+    FieldSpec("s6_coo_prod_4", _SLIDE[6], "COO — producto de datos 4", 80),
+    FieldSpec("s6_chro_head", _SLIDE[6], "CHRO — cabecera del panel", 80),
+    FieldSpec("s6_chro_uc_label", _SLIDE[6], "CHRO — rótulo de casos de uso", 80),
+    FieldSpec("s6_chro_uc_1", _SLIDE[6], "CHRO — caso de uso 1", 80),
+    FieldSpec("s6_chro_uc_2", _SLIDE[6], "CHRO — caso de uso 2", 80),
+    FieldSpec("s6_chro_uc_3", _SLIDE[6], "CHRO — caso de uso 3", 80),
+    FieldSpec("s6_chro_uc_4", _SLIDE[6], "CHRO — caso de uso 4", 80),
+    FieldSpec("s6_chro_products_label", _SLIDE[6], "CHRO — rótulo de productos de datos", 80),
+    FieldSpec("s6_chro_prod_1", _SLIDE[6], "CHRO — producto de datos 1", 80),
+    FieldSpec("s6_chro_prod_2", _SLIDE[6], "CHRO — producto de datos 2", 80),
+    FieldSpec("s6_chro_prod_3", _SLIDE[6], "CHRO — producto de datos 3", 80),
+    FieldSpec("s6_chro_prod_4", _SLIDE[6], "CHRO — producto de datos 4", 80),
+    FieldSpec("s6_chro_prod_5", _SLIDE[6], "CHRO — producto de datos 5", 80),
+    FieldSpec("s6_cro_head", _SLIDE[6], "CRO — cabecera del panel", 80),
+    FieldSpec("s6_cro_uc_label", _SLIDE[6], "CRO — rótulo de casos de uso", 80),
+    FieldSpec("s6_cro_uc_1", _SLIDE[6], "CRO — caso de uso 1", 80),
+    FieldSpec("s6_cro_uc_2", _SLIDE[6], "CRO — caso de uso 2", 90),
+    FieldSpec("s6_cro_badge", _SLIDE[6], "CRO — insignia", 80),
+    FieldSpec("s6_cro_products_label", _SLIDE[6], "CRO — rótulo de productos de datos", 80),
+    FieldSpec("s6_cro_prod_1", _SLIDE[6], "CRO — producto de datos 1", 80),
+    FieldSpec("s6_cro_prod_2", _SLIDE[6], "CRO — producto de datos 2", 80),
+    FieldSpec("s6_cro_prod_3", _SLIDE[6], "CRO — producto de datos 3", 80),
+    FieldSpec("s6_cro_prod_4", _SLIDE[6], "CRO — producto de datos 4", 80),
+    FieldSpec("s6_cpo_head", _SLIDE[6], "CPO — cabecera del panel", 80),
+    FieldSpec("s6_cpo_uc_label", _SLIDE[6], "CPO — rótulo de casos de uso", 80),
+    FieldSpec("s6_cpo_uc_1", _SLIDE[6], "CPO — caso de uso 1", 80),
+    FieldSpec("s6_cpo_badge", _SLIDE[6], "CPO — insignia", 80),
+    FieldSpec("s6_cpo_products_label", _SLIDE[6], "CPO — rótulo de productos de datos", 80),
+    FieldSpec("s6_cpo_prod_1", _SLIDE[6], "CPO — producto de datos 1", 80),
+    FieldSpec("s6_cpo_prod_2", _SLIDE[6], "CPO — producto de datos 2", 80),
+    FieldSpec("s6_cpo_prod_3", _SLIDE[6], "CPO — producto de datos 3", 80),
+    FieldSpec("s6_cpo_prod_4", _SLIDE[6], "CPO — producto de datos 4", 80),
+    FieldSpec("s6_cpo_prod_5", _SLIDE[6], "CPO — producto de datos 5", 80),
+    FieldSpec("s6_card1_eyebrow", _SLIDE[6], "Tarjeta 1 — rótulo", 80),
+    FieldSpec("s6_card1_title", _SLIDE[6], "Tarjeta 1 — título", 160),
+    FieldSpec("s6_card1_body", _SLIDE[6], "Tarjeta 1 — texto", 520, "paragraph"),
+    FieldSpec("s6_card2_eyebrow", _SLIDE[6], "Tarjeta 2 — rótulo", 80),
+    FieldSpec("s6_card2_title", _SLIDE[6], "Tarjeta 2 — título", 160),
+    FieldSpec("s6_card2_body", _SLIDE[6], "Tarjeta 2 — texto", 510, "paragraph"),
+    FieldSpec("s6_card3_eyebrow", _SLIDE[6], "Tarjeta 3 — rótulo", 80),
+    FieldSpec("s6_card3_title", _SLIDE[6], "Tarjeta 3 — título", 160),
+    FieldSpec("s6_card3_body", _SLIDE[6], "Tarjeta 3 — texto", 500, "paragraph"),
+    FieldSpec("s6_next", _SLIDE[6], "Enlace «Siguiente»", 80),
+    # Slide 7
+    FieldSpec("s7_nav", _SLIDE[7], "Nombre de la sección (etiqueta superior y riel)", 80),
+    FieldSpec("s7_title", _SLIDE[7], "Título", 160),
+    FieldSpec("s7_lead", _SLIDE[7], "Subtítulo", 300, "paragraph"),
+    FieldSpec("s7_label", _SLIDE[7], "Rótulo sobre los pilares", 80),
+    FieldSpec("s7_hint", _SLIDE[7], "Indicación sobre los pilares", 110),
+    FieldSpec("s7_p1_title", _SLIDE[7], "Pilar 1 — título", 160),
+    FieldSpec("s7_p1_claim_1", _SLIDE[7], "Pilar 1 — afirmación 1", 80),
+    FieldSpec("s7_p1_claim_2", _SLIDE[7], "Pilar 1 — afirmación 2", 80),
+    FieldSpec("s7_p1_claim_3", _SLIDE[7], "Pilar 1 — afirmación 3", 180),
+    FieldSpec("s7_p1_claim_4", _SLIDE[7], "Pilar 1 — afirmación 4", 80),
+    FieldSpec("s7_p2_title", _SLIDE[7], "Pilar 2 — título", 160),
+    FieldSpec("s7_p2_claim_1", _SLIDE[7], "Pilar 2 — afirmación 1", 80),
+    FieldSpec("s7_p2_claim_2", _SLIDE[7], "Pilar 2 — afirmación 2", 130),
+    FieldSpec("s7_p2_claim_3", _SLIDE[7], "Pilar 2 — afirmación 3", 90),
+    FieldSpec("s7_p2_claim_4", _SLIDE[7], "Pilar 2 — afirmación 4", 80),
+    FieldSpec("s7_p3_title", _SLIDE[7], "Pilar 3 — título", 160),
+    FieldSpec("s7_p3_claim_1", _SLIDE[7], "Pilar 3 — afirmación 1", 80),
+    FieldSpec("s7_p3_claim_2", _SLIDE[7], "Pilar 3 — afirmación 2", 80),
+    FieldSpec("s7_p3_claim_3", _SLIDE[7], "Pilar 3 — afirmación 3", 110),
+    FieldSpec("s7_p3_claim_4", _SLIDE[7], "Pilar 3 — afirmación 4", 80),
+    FieldSpec("s7_p4_title", _SLIDE[7], "Pilar 4 — título", 160),
+    FieldSpec("s7_p4_claim_1", _SLIDE[7], "Pilar 4 — afirmación 1", 80),
+    FieldSpec("s7_p4_claim_2", _SLIDE[7], "Pilar 4 — afirmación 2", 90),
+    FieldSpec("s7_p4_claim_3", _SLIDE[7], "Pilar 4 — afirmación 3", 90),
+    FieldSpec("s7_p4_claim_4", _SLIDE[7], "Pilar 4 — afirmación 4", 90),
+    FieldSpec("s7_next", _SLIDE[7], "Enlace «Siguiente»", 80),
+    # Slide 8
+    FieldSpec("s8_nav", _SLIDE[8], "Nombre de la sección (etiqueta superior y riel)", 80),
+    FieldSpec("s8_title", _SLIDE[8], "Título", 160),
+    FieldSpec("s8_lead", _SLIDE[8], "Subtítulo", 300, "paragraph"),
+    FieldSpec("s8_label", _SLIDE[8], "Rótulo sobre los pasos", 80),
+    FieldSpec("s8_step1_title", _SLIDE[8], "Paso 1 — título", 160),
+    FieldSpec("s8_step1_body", _SLIDE[8], "Paso 1 — texto", 300, "paragraph"),
+    FieldSpec("s8_step2_title", _SLIDE[8], "Paso 2 — título", 160),
+    FieldSpec("s8_step2_body", _SLIDE[8], "Paso 2 — texto", 300, "paragraph"),
+    FieldSpec("s8_step3_title", _SLIDE[8], "Paso 3 — título", 160),
+    FieldSpec("s8_step3_body", _SLIDE[8], "Paso 3 — texto", 300, "paragraph"),
+    FieldSpec("s8_step4_title", _SLIDE[8], "Paso 4 — título", 160),
+    FieldSpec("s8_step4_body", _SLIDE[8], "Paso 4 — texto", 300, "paragraph"),
+    FieldSpec("s8_next", _SLIDE[8], "Enlace «Siguiente»", 80),
+    # Slide 9
+    FieldSpec("s9_nav", _SLIDE[9], "Nombre de la sección (etiqueta superior y riel)", 80),
+    FieldSpec("s9_title", _SLIDE[9], "Título", 160),
+    FieldSpec("s9_lead", _SLIDE[9], "Subtítulo", 360, "paragraph"),
+    FieldSpec("s9_label", _SLIDE[9], "Rótulo sobre los caminos", 100),
+    FieldSpec("s9_path1_eyebrow", _SLIDE[9], "Camino 1 — rótulo", 80),
+    FieldSpec("s9_path1_title", _SLIDE[9], "Camino 1 — título", 160),
+    FieldSpec("s9_path1_body", _SLIDE[9], "Camino 1 — texto", 390, "paragraph"),
+    FieldSpec("s9_path1_when_label", _SLIDE[9], "Camino 1 — rótulo «cuándo conviene»", 80),
+    FieldSpec("s9_path1_when", _SLIDE[9], "Camino 1 — cuándo conviene", 310, "paragraph"),
+    FieldSpec("s9_path2_eyebrow", _SLIDE[9], "Camino 2 — rótulo", 80),
+    FieldSpec("s9_path2_title", _SLIDE[9], "Camino 2 — título", 160),
+    FieldSpec("s9_path2_body", _SLIDE[9], "Camino 2 — texto", 300, "paragraph"),
+    FieldSpec("s9_path2_when_label", _SLIDE[9], "Camino 2 — rótulo «cuándo conviene»", 80),
+    FieldSpec("s9_path2_when", _SLIDE[9], "Camino 2 — cuándo conviene", 300, "paragraph"),
+    FieldSpec("s9_path3_eyebrow", _SLIDE[9], "Camino 3 — rótulo", 80),
+    FieldSpec("s9_path3_title", _SLIDE[9], "Camino 3 — título", 160),
+    FieldSpec("s9_path3_body", _SLIDE[9], "Camino 3 — texto", 340, "paragraph"),
+    FieldSpec("s9_path3_when_label", _SLIDE[9], "Camino 3 — rótulo «cuándo conviene»", 80),
+    FieldSpec("s9_path3_when", _SLIDE[9], "Camino 3 — cuándo conviene", 300, "paragraph"),
+    FieldSpec("s9_callout_intro", _SLIDE[9], "Cierre — inicio", 300, "paragraph"),
+    FieldSpec("s9_callout_highlight", _SLIDE[9], "Cierre — frase destacada", 300, "paragraph"),
+    FieldSpec("s9_callout_tail", _SLIDE[9], "Cierre — continuación", 300, "paragraph"),
+    FieldSpec("s9_next", _SLIDE[9], "Enlace «Siguiente»", 80),
+    # Slide 10
+    FieldSpec("s10_nav", _SLIDE[10], "Nombre de la sección (etiqueta superior y riel)", 80),
+    FieldSpec("s10_next", _SLIDE[10], "Enlace «Siguiente»", 90),
+    # Slide 11
+    FieldSpec("s11_nav", _SLIDE[11], "Nombre de la sección (etiqueta superior y riel)", 80),
+    FieldSpec("s11_title", _SLIDE[11], "Título", 160),
+    FieldSpec("recognition_title", _SLIDE[11], "Reconocimientos — rótulo", 160),
+    FieldSpec("s11_next", _SLIDE[11], "Enlace «Siguiente»", 80),
+    # Slide 12
+    FieldSpec("s12_nav", _SLIDE[12], "Nombre de la sección (etiqueta superior y riel)", 80),
+    FieldSpec("s12_title", _SLIDE[12], "Título", 160),
 )
+
+# Slides que una INSTANCIA puede quitar de su copia (todas menos la portada). La instancia guarda solo los ids (`removed_slides`), nunca markup: el template sigue siendo la fuente de la composición.
+# La numeración («NN / total»), el riel y los «Siguiente» se recalculan sobre las visibles.
+NUMBERED_SLIDES = tuple(f"s{i}" for i in range(2, 13))
 
 TEMPLATES: dict[str, TemplateSpec] = {
     "vanture-bdc": TemplateSpec(
@@ -217,6 +429,7 @@ def _seed_view(template_id: str) -> dict:
         "title": str(data.get("title") or spec.label), "revision": 1, "is_seed": True,
         "created_by_id": None, "created_by_label": "Danwor (institucional)", "owner_id": None, "copied_from": None,
         "created_at": None, "updated_at": None, "updated_by_id": None, "updated_by_label": None,
+        "removed_slides": [],
         "content": copy.deepcopy(data["content"]),
     }
 
@@ -240,6 +453,17 @@ def validate_title(value) -> str:
     return _text(value, max_len=MAX_TITLE, label="Título")
 
 
+def validate_removed_slides(value) -> list[str]:
+    """`removed_slides`: lista (posiblemente vacía) de ids de slide quitables, sin repetidos. Se normaliza al orden del documento. Rechazo atómico: nada se descarta en silencio."""
+    if not isinstance(value, list):
+        raise PresentationValidationError("Las slides eliminadas deben ser una lista")
+    if any(not isinstance(v, str) or v not in NUMBERED_SLIDES for v in value):
+        raise PresentationValidationError("Se indicó una slide que no se puede eliminar")
+    if len(set(value)) != len(value):
+        raise PresentationValidationError("Hay slides repetidas en la lista de eliminadas")
+    return [s for s in NUMBERED_SLIDES if s in value]
+
+
 def validate_fields(template_id: str, fields) -> dict:
     """Valida un SUBCONJUNTO de campos editables. Rechazo atómico: ante cualquier problema no se devuelve nada. Una clave que no es de la spec se rechaza (no se descarta en silencio) y su
     nombre no se refleja en el mensaje."""
@@ -253,7 +477,7 @@ def validate_fields(template_id: str, fields) -> dict:
         field = spec.field(key) if isinstance(key, str) else None
         if field is None:
             raise PresentationValidationError("Se envió un campo que no es editable")
-        out[key] = _text(value, max_len=field.max_len, label=field.label)
+        out[key] = _text(value, max_len=field.max_len, label=f"{field.section.split(' · ')[0]} · {field.label}")      # «Slide 6 · CFO — producto de datos 3»: el mismo rótulo «Título» existe en cada slide
     return out
 
 
@@ -512,6 +736,7 @@ def _instance_view(raw: dict) -> dict:
         "created_at": raw.get("created_at"), "updated_at": raw.get("updated_at"),
         "updated_by_id": raw.get("updated_by_id"), "updated_by_label": raw.get("updated_by_label"),
         "logo_sha": (raw.get("logo") or {}).get("sha256") if isinstance(raw.get("logo"), dict) else None,
+        "removed_slides": [s for s in NUMBERED_SLIDES if isinstance(raw.get("removed_slides"), list) and s in raw["removed_slides"]],      # tolerante: lo desconocido se ignora al leer
         "content": full_content(template_id, content),
     }
 
@@ -602,6 +827,8 @@ def copy_presentation(source_id: str, *, title, owner_id: str, owner_label: str,
         "created_at": now, "updated_at": now, "updated_by_id": owner_id, "updated_by_label": str(owner_label or owner_id),
         "content": {k: source["content"][k] for k in spec.field_keys},
     }
+    if source.get("removed_slides"):
+        payload["removed_slides"] = list(source["removed_slides"])               # la copia parte de la composición del origen (solo ids)
     _require_writable_mode()
     path = _path(new_id)
     logo_bytes = logo
@@ -698,8 +925,9 @@ def delete_presentation(presentation_id: str) -> None:
         raise DurablePushFailed()
 
 
-def save(presentation_id: str, fields, *, expected_revision: int, updated_by_id: str, updated_by_label: str) -> dict:
-    """Guarda un SUBCONJUNTO de campos de UNA instancia bajo revisión optimista. El seed no se edita nunca. Si el push a Spaces no se confirma, el local vuelve a la versión anterior (503)."""
+def save(presentation_id: str, fields, *, expected_revision: int, updated_by_id: str, updated_by_label: str, removed_slides=None) -> dict:
+    """Guarda un SUBCONJUNTO de campos y/o la lista de slides eliminadas de UNA instancia bajo revisión optimista (una sola revisión por guardado). `removed_slides=None` no la toca; una lista (aun vacía) la reemplaza.
+    El seed no se edita nunca. Si el push a Spaces no se confirma, el local vuelve a la versión anterior (503)."""
     if is_seed_id(presentation_id):
         raise SeedIsReadOnly()
     if not is_instance_id(presentation_id):
@@ -710,10 +938,16 @@ def save(presentation_id: str, fields, *, expected_revision: int, updated_by_id:
         view = _instance_view(raw)                                               # Unavailable si el template no existe o es de una versión mayor
         if view["revision"] != expected_revision:
             raise StaleRevision(view["revision"])
-        clean = validate_fields(view["template_id"], fields)
+        removed = validate_removed_slides(removed_slides) if removed_slides is not None else None
+        clean = validate_fields(view["template_id"], fields) if (fields or removed is None) else {}
         candidate = {**raw, "schema_version": SCHEMA_VERSION, "template_version": view["template_version"],
                      "content": {**view["content"], **clean}, "revision": expected_revision + 1,
                      "updated_at": _now_iso(), "updated_by_id": str(updated_by_id or ""), "updated_by_label": str(updated_by_label or updated_by_id or "")}
+        if removed is not None:
+            if removed:
+                candidate["removed_slides"] = removed
+            else:
+                candidate.pop("removed_slides", None)                            # sin slides eliminadas el archivo conserva la forma de siempre
         path = _path(presentation_id)
         previous_bytes = path.read_bytes()
         _write_atomic(path, candidate)
@@ -741,18 +975,20 @@ def can_read_shared_user(user: dict | None) -> bool:
 
 
 def can_edit_presentation_user(user: dict | None, presentation: dict) -> bool:
-    """EDITAR: Comercial Y no-seed Y (responsable de la instancia O `CONTENT_OWNER` O `APP_OWNER`). Copiar NO implica poder editar."""
+    """EDITAR: Comercial Y no-seed Y (responsable de la instancia O `CONTENT_OWNER`). Copiar NO implica poder editar, ni `APP_OWNER` es editor de contenido por ser administrador: es el mismo contrato de Estrategia
+    (`commercial_access.can_edit_strategy_user`: sin bypass de `APP_OWNER`; si el dueño de la app edita, su identidad está explícita en `CONTENT_OWNER`)."""
     if presentation.get("is_seed"):
         return False
     if not commercial_access.is_commercial_authorized_user(user):
         return False
     email = _email(user)
     owner = str(presentation.get("owner_id") or "").strip().lower()
-    return bool(email) and ((bool(owner) and email == owner) or auth_service.is_content_owner_user(email) or access.is_owner_user(user))
+    return bool(email) and ((bool(owner) and email == owner) or auth_service.is_content_owner_user(email))
 
 
 def can_delete_presentation_user(user: dict | None, presentation: dict) -> bool:
-    """ELIMINAR: Comercial Y no-seed Y (responsable de la instancia O `APP_OWNER`). Más estricto que editar a propósito: `CONTENT_OWNER` edita, pero no elimina lo ajeno."""
+    """ELIMINAR: Comercial Y no-seed Y (responsable de la instancia O `APP_OWNER`). Más estricto que editar para `CONTENT_OWNER` (edita, pero no elimina lo ajeno); y distinto de editar para `APP_OWNER`: eliminar es
+    administración del workspace (superusuario según `commercial_access`), no gobierno de contenido."""
     if presentation.get("is_seed"):
         return False
     if not commercial_access.is_commercial_authorized_user(user):
@@ -778,8 +1014,17 @@ def render_context(presentation: dict, *, embed: bool = False, theme: str = "lig
     template_id = presentation["template_id"]
     spec = TEMPLATES[template_id]
     asset_base = f"/pack-assets/{DEFAULT_PACK}/{spec.assets_dir}"
+    content = full_content(template_id, presentation.get("content"))
+    removed = [s for s in NUMBERED_SLIDES if s in (presentation.get("removed_slides") or [])]
+    visible = [s for s in NUMBERED_SLIDES if s not in removed]
     return {
-        "c": full_content(template_id, presentation.get("content")),
+        "c": content,
+        "removed_ids": set(removed),                                             # el modo lectura omite estas slides; el de edición las muestra colapsadas con «Restaurar»
+        "slide_no": {s: i for i, s in enumerate(visible, 1)},                    # numeración dinámica: «NN / total» sobre las visibles
+        "slide_total": len(visible),
+        "next_of": {s: (visible[i + 1] if i + 1 < len(visible) else None) for i, s in enumerate(visible)},
+        "nav_of": {s: content[f"{s}_nav"] for s in visible},
+        "first_slide": visible[0] if visible else None,
         "asset_base": asset_base,
         "institutional_logo_url": f"/pack-assets/{DEFAULT_PACK}/{_INSTITUTIONAL_LOGO}",
         "partner_logo_url": (f"/presentaciones/{presentation['presentation_id']}/logo?v={str(presentation['logo_sha'])[:10]}" if presentation.get("logo_sha") else f"{asset_base}/{_DEFAULT_PARTNER_LOGO}"),

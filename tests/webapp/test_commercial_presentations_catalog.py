@@ -129,13 +129,14 @@ def test_every_row_always_shows_the_six_actions_and_the_ones_that_do_not_apply_a
     assert owner[mine][4].name == "a" and owner[theirs][4].name == "a" and owner[SEED_ID][4].has_attr("disabled")      # CONTENT_OWNER edita cualquier copia…
     assert owner[mine][5].has_attr("disabled") and owner[theirs][5].has_attr("disabled")                              # …pero no elimina lo ajeno
     app_owner = {tr["data-presentation-id"]: tr.select(".dw-row-actions > *") for tr in _catalog(world, APP_OWNER).select("#cp-catalog-table tbody tr")}
-    assert all(not app_owner[p][i].has_attr("disabled") for p in (mine, theirs) for i in range(6))                    # APP_OWNER: cualquier acción
+    assert all(not app_owner[p][i].has_attr("disabled") for p in (mine, theirs) for i in (0, 1, 2, 3, 5))             # APP_OWNER: administra (elimina lo ajeno)…
+    assert app_owner[mine][4].has_attr("disabled") and app_owner[theirs][4].has_attr("disabled")                      # …pero NO edita contenido ajeno por ser administrador (solo el responsable o CONTENT_OWNER)
     assert app_owner[SEED_ID][4].has_attr("disabled") and app_owner[SEED_ID][5].has_attr("disabled")                  # …salvo editar/eliminar la semilla
 
 
 def test_the_detail_actions_use_the_native_segmented_control_and_edit_and_delete_are_always_there(world):
     mine = _copy(world, A, title="Mía")
-    for pid, email, editable, deletable in ((mine, A, True, True), (mine, B, False, False), (mine, OWNER_C, True, False), (mine, APP_OWNER, True, True), (SEED_ID, A, False, False)):
+    for pid, email, editable, deletable in ((mine, A, True, True), (mine, B, False, False), (mine, OWNER_C, True, False), (mine, APP_OWNER, False, True), (SEED_ID, A, False, False)):
         soup = BeautifulSoup(world.client(email).get(f"/comercial/presentaciones/{pid}").text, "html.parser")
         group = soup.select_one(".cp-toolbar > .dashboard-view-switch.dashboard-view-switch--scroll[role=group]")
         assert group is not None and not soup.select(".cp-toolbar .btn-primary, .cp-toolbar .btn-secondary")      # primitivo nativo, no botones sueltos que lo imiten

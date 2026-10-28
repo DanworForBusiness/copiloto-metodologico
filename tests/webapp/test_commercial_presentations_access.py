@@ -219,14 +219,20 @@ def test_content_owner_without_commercial_cannot_edit(world, monkeypatch):
     assert world.client(HUB_ONLY).get(f"/comercial/presentaciones/{a_id}/editar").status_code == 403
 
 
-def test_app_owner_enters_commercial_and_any_action_is_enabled_on_every_non_seed_presentation(world):
+def test_app_owner_administers_the_workspace_but_is_not_a_content_editor_by_being_the_administrator(world):
     a_id = _copy(world, A)
-    c_id = _copy(world, APP_OWNER, source=a_id)                                                # entra a Comercial y copia
-    assert _save(world, APP_OWNER, c_id, {"hero_lead": "lo mío"}, 1).status_code == 200        # edita lo suyo
-    assert world.client(APP_OWNER).get(f"/comercial/presentaciones/{a_id}/editar").status_code == 200      # y lo ajeno: APP_OWNER habilita cualquier acción
-    assert _save(world, APP_OWNER, a_id, {"hero_lead": "ajeno"}, 1).status_code == 200
-    assert _delete(world, APP_OWNER, a_id).status_code == 200                                  # elimina lo ajeno
+    c_id = _copy(world, APP_OWNER, source=a_id)                                                # entra a Comercial (superusuario del workspace) y copia
+    assert _save(world, APP_OWNER, c_id, {"hero_lead": "lo mío"}, 1).status_code == 200        # edita lo suyo (es el responsable)
+    assert world.client(APP_OWNER).get(f"/comercial/presentaciones/{a_id}/editar").status_code == 403      # contenido ajeno: NO por ser administrador (mismo contrato que Estrategia: sin bypass de APP_OWNER)
+    assert _save(world, APP_OWNER, a_id, {"hero_lead": "ajeno"}, 1).status_code == 403
+    assert _delete(world, APP_OWNER, a_id).status_code == 200                                  # eliminar SÍ: administración del workspace (commercial_access: APP_OWNER es su superusuario)
     assert _delete(world, APP_OWNER, SEED_ID).status_code == 403                               # …pero la semilla institucional nunca
+
+
+def test_an_app_owner_who_is_explicitly_a_content_owner_edits_foreign_content_through_that_identity(world, monkeypatch):
+    monkeypatch.setattr(auth_service, "CONTENT_OWNER", "owner-c,app-owner")                    # la capacidad se declara en CONTENT_OWNER, no se deduce de APP_OWNER
+    a_id = _copy(world, A)
+    assert _save(world, APP_OWNER, a_id, {"hero_lead": "editor de contenido"}, 1).status_code == 200
 
 
 def test_copying_does_not_imply_editing_and_a_commercial_user_cannot_edit_the_copy_of_someone_else(world):

@@ -3,7 +3,7 @@
 Presentaciones comerciales inmersivas gobernadas por el Hub: se **ven y presentan** por URL, se **copian** como instancias propias y se **editan** (campos de texto acotados) con control de revisiones.
 Primer template: `vanture-bdc` ("La empresa autónoma comienza con los datos", Danwor × Vanture).
 
-**Estrategia (extracción mínima).** El template conserva TODO el markup, CSS y JS del HTML original; solo 20 campos de texto plano pasan a contenido editable de la instancia. No hay renderer universal,
+**Estrategia (extracción mínima).** El template conserva TODO el markup, CSS y JS del HTML original; los textos de las 12 slides (206 campos de texto plano; los diagramas son bloques gobernados por el template) son el contenido editable de la instancia, más la lista de slides eliminadas. No hay renderer universal,
 bloques genéricos, SPA ni persistencia transversal nueva. Las composiciones especializadas (arquitecturas SAP BDC, flujo BDC Connect, pestañas por perfil, marquee) son markup del template.
 
 ## Rutas y autorización
@@ -15,12 +15,23 @@ bloques genéricos, SPA ni persistencia transversal nueva. Las composiciones esp
 | R3 | `GET /comercial/presentaciones/{id}` | Detalle: shell del Hub + iframe de R1 | Comercial |
 | R4 | `POST /comercial/presentaciones/{id}/copiar` | Copia como instancia propia | Comercial (cualquier presentación; sin requisito adicional) |
 | R5 | `GET /comercial/presentaciones/{id}/editar` | Editor INLINE: el documento real en modo edición + barra Cancelar · «Sin guardar» · Guardar | Comercial + poder editar esa instancia |
-| R6 | `POST /comercial/presentaciones/{id}` | Guarda campos (JSON `{revision, fields}`) | ídem R5 + `same_origin_guard` |
+| R6 | `POST /comercial/presentaciones/{id}` | Guarda campos y/o las slides eliminadas (JSON `{revision, fields?, removed_slides?}`; al menos uno) | ídem R5 + `same_origin_guard` |
 | R7 | `POST /comercial/presentaciones/{id}/eliminar` | Elimina la instancia (borrado real; el enlace compartido pasa a 404) | Comercial + poder eliminar esa instancia + `same_origin_guard` |
 | R8 | `GET /presentaciones/{id}/logo` | PNG del logo propio de una copia (404 si no tiene) | MISMO contrato de lectura que R1: sesión + `is_authorized`, **sin** exigir Comercial |
 
-* **Copiar no implica editar.** Editar = Comercial **y** no-seed **y** (`owner_id` == usuario **o** `CONTENT_OWNER` **o** `APP_OWNER`). `CONTENT_OWNER` es la capacidad transversal de gobierno de edición de contenidos del Hub (no se creó ninguna variable, rol ni allowlist nueva).
-* **Eliminar** = Comercial **y** no-seed **y** (`owner_id` == usuario **o** `APP_OWNER`). Es más estricto que editar a propósito: `CONTENT_OWNER` edita contenido ajeno pero no lo elimina. `APP_OWNER` (superusuario de los workspaces del Hub, `access.is_owner_user`) habilita **cualquier acción** sobre cualquier copia; la semilla institucional sigue siendo inmutable e imborrable para todos.
+* **Copiar no implica editar.** Editar = Comercial **y** no-seed **y** (`owner_id` == usuario **o** `CONTENT_OWNER`). `CONTENT_OWNER` es la capacidad transversal de gobierno de edición de contenidos del Hub (no se creó ninguna variable, rol ni allowlist nueva).
+  **`APP_OWNER` no edita contenido ajeno por ser administrador**: es el contrato que ya rige Estrategia (`commercial_access.can_edit_strategy_user`: «sin bypass de `APP_OWNER`; si el dueño de la app necesita editar, su identidad debe estar explícita en `CONTENT_OWNER`») y lo reitera `auth_service.is_content_owner_user`. Si el dueño de la app edita, lo hace porque también está en `CONTENT_OWNER`, o sobre sus propias copias (es su responsable).
+* **Eliminar** = Comercial **y** no-seed **y** (`owner_id` == usuario **o** `APP_OWNER`). Es más estricto que editar para `CONTENT_OWNER` (edita contenido ajeno pero no lo elimina). Para `APP_OWNER` la capacidad se apoya en el contrato vigente de `commercial_access` («CORRECTIVE post-#107: `APP_OWNER` SÍ es superusuario de este workspace»): eliminar una copia es **administración del workspace** (limpiar instancias), no gobierno de contenido; la semilla institucional sigue siendo inmutable e imborrable para todos.
+
+| Actor | Editar (texto / slides) | Eliminar la copia |
+|---|---|---|
+| Responsable de la copia (Comercial) | sí | sí |
+| Otro usuario Comercial | no (403) | no (403) |
+| `CONTENT_OWNER` (Comercial) | sí, cualquier copia | no, lo ajeno |
+| `APP_OWNER` (sin `CONTENT_OWNER`) | solo las suyas | sí, cualquier copia (superusuario del workspace) |
+| `APP_OWNER` que además está en `CONTENT_OWNER` | sí, cualquier copia | sí |
+| Usuario del Hub sin Comercial | no | no |
+| Semilla institucional | nadie | nadie |
 * Eliminar es un **borrado real** (no hay papelera): el archivo local se borra y, en `remote`, también el objeto en Spaces. Si el borrado remoto no se confirma tras un reintento, el archivo local se **restaura** y se informa 503 (nunca queda borrada en un lado y viva en el otro). Una instancia cuyo template no está disponible igual se puede eliminar (así se limpia). Evento de actividad: `presentation.deleted`.
 * **Botones siempre presentes:** el catálogo (6 acciones por fila: Ver, Presentar, Copiar enlace, Copiar como nueva, Editar, Eliminar) y el detalle (segmentado nativo `.dashboard-view-switch`: Presentar, Copiar enlace, Copiar como nueva, Editar, Eliminar) muestran siempre todas; la que no corresponde queda **inhabilitada** (grisada, con el motivo en el tooltip y en `aria-label`) para que la experiencia visual sea homogénea. Ocultar un botón nunca es la defensa: cada ruta valida en el servidor. La confirmación de Eliminar usa el diálogo nativo del Hub (`dwConfirm`).
 * Los **seeds son inmutables** para todos (también `CONTENT_OWNER`): se cambian solo por código/deploy. No existe ninguna ruta para administrar templates o seeds.
@@ -89,13 +100,63 @@ El documento deja de ser una «isla oscura» con diseño propio: consume la fuen
 
 ## Edición inline (como «02. Estrategia»)
 
-«Editar» ya no abre un formulario: abre **la presentación misma** (el documento real, en un iframe del mismo origen con `?embed=1&edit=1`) y los 20 textos habilitados son leaves `contenteditable` de **texto plano** en su lugar, con el contorno punteado discreto de Estrategia (`.dw-inline-edit`, content.css: mismo look que `.cs-inline`, que conserva su definición y su test; unificarlas queda como seguimiento). La barra vive en el Hub: **Cancelar** · badge «Sin guardar» (`.status-badge--tentativo`) · **Guardar** (deshabilitado sin cambios).
+«Editar» ya no abre un formulario: abre **la presentación misma** (el documento real, en un iframe del mismo origen con `?embed=1&edit=1`) y los textos habilitados (206, ver «Edición de las 12 slides») son leaves `contenteditable` de **texto plano** en su lugar, con el contorno punteado discreto de Estrategia (`.dw-inline-edit`, content.css: mismo look que `.cs-inline`, que conserva su definición y su test; unificarlas queda como seguimiento). La barra vive en el Hub: **Cancelar** · badge «Sin guardar» (`.status-badge--tentativo`) · **Guardar** (deshabilitado sin cambios).
 
-* **Autorización:** `edit=1` solo se honra en R1 si además viene `embed=1` y el usuario **puede editar esa instancia** (Comercial + responsable / `CONTENT_OWNER` / `APP_OWNER`; nunca la semilla). Para cualquier otro la URL con `edit=1` es la vista de siempre: leer por URL no habilita nada. El guardado sigue siendo R6, con las mismas validaciones y órdenes de enforcement.
+* **Autorización:** `edit=1` solo se honra en R1 si además viene `embed=1` y el usuario **puede editar esa instancia** (Comercial + responsable / `CONTENT_OWNER`; nunca la semilla). Para cualquier otro la URL con `edit=1` es la vista de siempre: leer por URL no habilita nada. El guardado sigue siendo R6, con las mismas validaciones y órdenes de enforcement.
 * **Guardado:** manda solo los campos cambiados bajo la revisión que cargó la página; el servidor valida obligatorios, longitudes (muestra el mensaje y se puede reintentar), caracteres y propiedad; `409` por revisión desactualizada.
 * **Texto plano de una sola línea:** el servidor no admite saltos de línea en ningún campo; por eso Enter no hace nada y pegar siempre inserta texto plano sin saltos (no entra HTML ni formato). `text-transform: none !important` evita que un texto en mayúsculas por CSS se guarde en mayúsculas.
 * **Descartar:** «Cancelar» con cambios pide confirmación con el diálogo del Hub (`dwConfirm`); también avisa el `beforeunload` nativo si se cierra la pestaña con cambios.
 * **El documento sigue siendo el mismo:** las diferencias en modo edición son solo el envoltorio de cada texto (`<span data-cp-field>`); el HTML de lectura no cambia.
+
+## Edición de las 12 slides (contenido textual completo)
+
+«Editar» personaliza el **contenido textual y los valores comerciales de las 12 slides**, no el DOM: cada texto editable es un campo de la spec (`VANTURE_FIELDS`, 206 en total: 20 de la v1 original + 186 agregados de forma aditiva, **sin subir `template_version`**).
+Clasificación por naturaleza (`FieldSpec.kind`): **`line`** (títulos, etiquetas, nombres: 161) y **`paragraph`** (texto corrido: 45). Hoy ambas son de una sola línea: ningún texto del seed contiene un salto (lo verifica un test), el servidor sigue prohibiendo los saltos y habilitar «saltos de línea controlados»
+sería un cambio local al validador y al render de los `paragraph` el día que haya un caso real (no se abrió la restricción de forma indiscriminada).
+
+| Slide | Campos (existentes + nuevos) | Textos gobernados por el template (no son campos) |
+|---|---|---|
+| 1 Portada | 4 (3 + **1**: etiqueta dorada «SAP Business Data Cloud») | cue «Ver la presentación» |
+| 2 El límite no es la IA | 13 (2 + 11): nombre, título, subtítulo, rótulo, 3 tarjetas (título + texto), dato, «Siguiente» | numeración 01–03 de las tarjetas |
+| 3 Qué es SAP BDC | 8 (0 + 8): nombre, título, subtítulo + frase destacada, cierre (3 tramos), «Siguiente» | **bloque `bdc-architecture`** (23 textos de la arquitectura) |
+| 4 Knowledge Core | 11 (0 + 11): nombre, título, subtítulo (5 tramos con 2 énfasis), rótulo, cierre (2 tramos), «Siguiente» | **bloque `knowledge-core-stack`** (16 textos) |
+| 5 Ecosistema abierto | 11 (0 + 11): nombre, título, subtítulo, rótulo, 3 tarjetas, «Siguiente» | **bloque `open-ecosystem-flow`** (12 textos) · íconos de las tarjetas |
+| 6 Casos de uso | 74 (0 + 74): nombre, título, subtítulo, rótulo, 5 solapas (nombre, cabecera, rótulos, casos de uso, insignia, productos de datos), 3 tarjetas, «Siguiente» | la estructura de solapas (cantidad de items por persona) |
+| 7 Por qué BDC | 26 (0 + 26): nombre, título, subtítulo, 2 rótulos, 4 pilares (título + 4 afirmaciones del detalle), «Siguiente» | numeración 01–04 · el detalle refleja el título del pilar (espejo) |
+| 8 Cómo empezar | 13 (0 + 13): nombre, título, subtítulo, rótulo, 4 pasos (título + texto), «Siguiente» | numeración 01–04 |
+| 9 Tu punto de partida | 23 (0 + 23): nombre, título, subtítulo, rótulo, 3 caminos (rótulo, título, texto, «cuándo conviene» + su rótulo), cierre (3 tramos), «Siguiente» | — |
+| 10 Conclusión y demo | 6 (4 + 2): nombre, título (2 tramos), bajada, texto del QR, «Siguiente» | imagen del QR |
+| 11 Por qué nuestra alianza | 15 (11 + 4): nombre, título, 4 propuestas, reconocimientos (rótulo + 3 tramos), «Siguiente» | íconos · imagen de sellos |
+| 12 Clientes y casos | 2 (0 + 2): nombre, título | **bloque `partner-logo-marquee`** (84 logos) |
+| Transversal | — | riel (espejo del nombre de cada sección), pie legal (3 textos), numeración «NN / total» |
+
+Ningún texto visible queda sin clasificar: `test_every_visible_text_is_editable_a_mirror_a_governed_block_the_legal_footer_or_declared_chrome` falla si aparece un texto nuevo que no sea campo, espejo, bloque, pie legal o cromo declarado.
+**Espejos:** el nombre de cada sección aparece en la etiqueta superior y en el riel (se edita en la etiqueta y el riel lo refleja en vivo); el título de cada pilar, también en su detalle; la etiqueta dorada de la portada, en el encabezado de la pestaña propia.
+**Edición:** los textos dentro de un enlace («Siguiente · …») se editan sin navegar; el de una solapa se edita sin que el `<label>` robe el foco (y activa la solapa); en el modo edición el detalle de cada pilar se apila bajo su título (al leer sigue siendo el revelado por hover).
+
+### Bloques gobernados (propuesta mínima, sin biblioteca)
+
+Las visualizaciones especializadas son **bloques gobernados**: el template los dibuja, sus cajas y conexiones **no son campos**, y quedan identificados con el atributo inerte `data-cp-block` (no cambia el render ni agrega comportamiento):
+
+| Bloque | Slide | Elemento hoy | Textos del bloque / narrativa editable alrededor |
+|---|---|---|---|
+| `bdc-architecture` | 3 | `div.arch` (cuatro capas + los dos laterales) | 23 / título, subtítulo y cierre de la slide |
+| `knowledge-core-stack` | 4 | contenedor del stack de 3 capas con sus conectores | 16 / título, subtítulo, cierre; el rótulo «KNOWLEDGE CORE» queda **fuera** del elemento |
+| `open-ecosystem-flow` | 5 | `div.flow-grid` (plataformas → BDC Connect → lo que se construye) | 12 / tarjetas y subtítulo; el espaciador de 44 px queda fuera |
+| `partner-logo-marquee` | 12 | `div.logo-marquee` | solo imágenes |
+
+*Precedentes en el Hub:* no existe ninguno de selección/sustitución de componentes **por instancia**. Los más cercanos son preferencias por usuario en el navegador (anchos de columna, versionadas por `layout.version`) y la **referencia por id** (`template_id` + `template_version` de esta misma entidad; packs gobernados en Contratos Gobernados): se reutiliza ese patrón, nunca HTML guardado.
+*Alternativa real compatible:* **ninguna hoy**. En el repositorio no hay otra arquitectura BDC con el mismo propósito (Academy tiene tarjetas narrativas, y los HTML `danwor-arquitectura-*` describen la arquitectura de Danwor, no la de SAP BDC). Por eso **no se implementó** un selector de reemplazo (sería vacío).
+*Ocultar:* verificado en el navegador sobre los cuatro bloques (`display:none` sobre el elemento): el ancla, el riel y los «Siguiente» siguen resolviendo y no hay errores. En `bdc-architecture` el layout queda limpio (título → subtítulo → cierre, 68 px y 56 px de separación, la sección pasa de 1259 a 723 px). En `knowledge-core-stack` y `open-ecosystem-flow` el elemento actual **no basta**: quedaría el rótulo huérfano / el espaciador; el límite de ocultación debe incluir su rótulo (slide 4) y su espaciador (slide 5), lo que requiere un envoltorio de markup (aditivo, sin subir `version`).
+*Contrato mínimo propuesto (slice posterior, no implementado):* en la instancia, `blocks: {"<block_id>": {"ref": "<variante>@<versión>", "hidden": false}}` — solo ids y versiones; el template resuelve el markup de cada variante registrada (`BLOCK_VARIANTS` en la `TemplateSpec`); `ref` ausente = la variante por defecto, así que las instancias actuales no cambian; validación contra el registro (rechazo atómico), autorización y revisión idénticas a las de los campos. Con una sola variante registrada, la UI se limita a «mostrar / ocultar»; el selector de reemplazo aparece recién cuando exista una segunda variante real. La arquitectura V1 no lo impide: el id del bloque ya está en el template, las instancias admiten claves opcionales (como `removed_slides`) y las copias heredan la composición.
+**Decisión de producto pendiente (solo esta):** *si ocultar un diagrama debe ser una acción a nivel bloque (propuesta) o alcanza con quitar la slide completa*, que hoy ya existe.
+
+### Eliminar slides de una copia
+
+En el modo edición cada slide (menos la portada) muestra una **✕ arriba a la derecha**. Al pulsarla la slide queda colapsada en una barra «Slide eliminada · Restaurar» (reversible hasta que se guarda y también después: al reabrir el editor siguen ahí para restaurarlas).
+* **Numeración dinámica:** el kicker «NN / total», el riel de puntos, los enlaces «Siguiente» y el cue de la portada se recalculan sobre las slides **visibles** (`01/09 … 09/09` si se quitan dos). Si el siguiente original ya no existe, «Siguiente» apunta a la siguiente visible y nombra **esa** slide; la última visible no ofrece «Siguiente». El servidor aplica la misma regla al renderizar la lectura (y el editor, en vivo).
+* **Persistencia:** `removed_slides` (lista de ids, opcional) dentro de la misma instancia; sin slides eliminadas el archivo conserva la forma de siempre. Se guarda con el mismo R6 (`removed_slides` en el payload, aun sin campos cambiados), con la misma revisión, validación atómica (lista, ids de slide quitable, sin repetidos; `s1` no) y autorización. «Sin guardar» también se activa por quitar/restaurar una slide.
+* **Lectura:** las slides eliminadas **no se renderizan**: su texto no viaja en el HTML. La copia de una copia hereda la composición del origen y es independiente después.
 
 ## Logo del cliente al copiar
 
@@ -141,7 +202,7 @@ Cada elemento se resolvió como *elemento actual → precedente del Hub → clas
 | Instancia con `template_version` mayor que la soportada | 409 claro (R1/R3); el catálogo la marca «Template no disponible». |
 | `template_id` desconocido | 404; no rompe el catálogo. |
 
-Candados en CI: fixture dorado `tests/fixtures/presentations/vanture_bdc_v1_instance.json` (debe validar y renderizar siempre), `PINNED_V1` (claves y límites de la v1 solo pueden crecer), y el test que exige un `upgrade()` explícito cuando `version > 1`.
+Candados en CI: fixture dorado `tests/fixtures/presentations/vanture_bdc_v1_instance.json` (debe validar y renderizar siempre), `PINNED_V1` y `vanture_bdc_v1_field_limits.json` (las 206 claves y sus límites solo pueden crecer), y el test que exige un `upgrade()` explícito cuando `version > 1`. La fixture dorada conserva sus 20 campos a propósito: es la prueba de una instancia creada con el esquema anterior (renderiza las 12 slides y se puede editar).
 
 ## Persistencia
 
@@ -166,5 +227,5 @@ y `restore`/`mirror_up`/`push_path` cubren los subdirectorios; **no se agregó n
 
 ## Cómo agregar un campo o un template
 
-* **Campo aditivo:** agregarlo a `VANTURE_FIELDS`, al seed YAML (valor no vacío) y al template (`{{ c.<clave> }}` en posición de texto). Sin subir `version`.
+* **Campo aditivo:** agregarlo a `VANTURE_FIELDS` (con `kind`), al seed YAML (valor no vacío) y al template (`{{ f('<clave>') }}` en posición de texto; el test de cobertura exige clasificar todo texto visible). Sin subir `version`; las instancias existentes toman el valor del seed. Para fijar su límite, regenerar `tests/fixtures/presentations/vanture_bdc_v1_field_limits.json`.
 * **Template nuevo:** entrada en `TEMPLATES`, seed, Jinja standalone (sin `extends`), assets bajo `assets/presentations/<id>/`, y su fixture dorado. Las superficies del Hub (catálogo, detalle, editor) no cambian.

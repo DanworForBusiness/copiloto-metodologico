@@ -216,8 +216,14 @@
       leaves().forEach(function (el) { var v = valueOf(el); if (v !== el.getAttribute("data-original")) out[el.getAttribute("data-cp-field")] = v; });
       return out;
     }
+    // Slides eliminadas de la copia: ids de las `section[data-cp-removed]` del documento. `originalRemoved` = lo que el servidor renderizó al abrir (o lo último guardado).
+    var originalRemoved = [];
+    function removedNow() {
+      return frame.contentDocument ? Array.prototype.slice.call(frame.contentDocument.querySelectorAll("section[data-cp-removed]")).map(function (s) { return s.id; }) : [];
+    }
+    function slidesChanged() { return removedNow().join(",") !== originalRemoved.join(","); }
     function refresh() {
-      var dirty = Object.keys(changed()).length > 0;
+      var dirty = Object.keys(changed()).length > 0 || slidesChanged();
       dirtyBadge.hidden = !dirty;
       saveBtn.disabled = saving || !dirty;
       return dirty;
@@ -227,6 +233,8 @@
     frame.addEventListener("load", function () {
       if (!frame.contentDocument) return;
       frame.contentDocument.addEventListener("input", refresh);
+      frame.contentDocument.addEventListener("cp:slides-changed", refresh);
+      originalRemoved = removedNow();
       refresh();
     });
 
@@ -249,7 +257,8 @@
     saveBtn.addEventListener("click", async function () {
       showError("");
       var delta = changed();
-      if (!Object.keys(delta).length) { toast("Sin cambios", "No hay cambios para guardar.", "note"); return; }
+      var slidesDirty = slidesChanged();
+      if (!Object.keys(delta).length && !slidesDirty) { toast("Sin cambios", "No hay cambios para guardar.", "note"); return; }
       saving = true;
       saveBtn.disabled = true;
       toast("Guardando…", "", "note");
@@ -257,11 +266,12 @@
         var res = await fetch(editor.getAttribute("data-save-url"), {
           method: "POST", credentials: "same-origin",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ revision: parseInt(editor.getAttribute("data-revision"), 10), fields: delta }),
+          body: JSON.stringify(Object.assign({ revision: parseInt(editor.getAttribute("data-revision"), 10), fields: delta }, slidesDirty ? { removed_slides: removedNow() } : {})),
         });
         var data = await readJson(res);
         if (res.ok && data.state === "ok") {
           editor.setAttribute("data-revision", String(data.revision));
+          if (Array.isArray(data.removed_slides)) originalRemoved = data.removed_slides.slice();
           leaves().forEach(function (el) {
             var key = el.getAttribute("data-cp-field");
             if (data.content && typeof data.content[key] === "string") el.setAttribute("data-original", data.content[key]);

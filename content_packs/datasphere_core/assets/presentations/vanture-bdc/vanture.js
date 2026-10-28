@@ -58,6 +58,58 @@
       });
       el.addEventListener('keydown', function(e){ if (e.key === 'Enter') e.preventDefault(); });
       el.addEventListener('drop', function(e){ e.preventDefault(); });
+      // Un texto dentro de un enlace («Siguiente · …») se edita sin navegar; dentro de la solapa de un caso de uso, se edita SIN que el <label> mueva el foco al radio (solo activa la solapa).
+      el.addEventListener('click', function(e){
+        if (el.closest('a')) e.preventDefault();
+        var label = el.closest('label');
+        if (label) { e.preventDefault(); if (label.control && label.control.type === 'radio') label.control.checked = true; }
+      });
+    });
+    // Eliminar / restaurar una slide de la copia. La numeración («NN / total»), el riel, los «Siguiente» y el cue de la portada se recalculan sobre las slides visibles (el servidor aplica la MISMA regla al
+    // renderizar la lectura). El editor del Hub escucha `cp:slides-changed` para marcar «Sin guardar».
+    function pad(n){ return (n < 10 ? '0' : '') + n; }
+    function renumber(){
+      var secs = Array.prototype.slice.call(document.querySelectorAll('section[id^="s"]')).filter(function(s){ return /^s([2-9]|1[0-2])$/.test(s.id); });
+      var vis = secs.filter(function(s){ return !s.hasAttribute('data-cp-removed'); });
+      var pos = {}; vis.forEach(function(s, i){ pos[s.id] = i; });
+      secs.forEach(function(s){
+        var gone = s.hasAttribute('data-cp-removed');
+        var kicker = s.querySelector('[data-cp-kicker-no]');
+        if (kicker && !gone) kicker.textContent = pad(pos[s.id] + 1) + ' / ' + pad(vis.length) + ' · ';
+        var rail = document.querySelector('nav.rail a[href="#' + s.id + '"]');
+        if (rail) rail.hidden = gone;
+        var link = s.querySelector('a.next-link[data-cp-next]');
+        if (link) {
+          var target = gone ? null : vis[pos[s.id] + 1];
+          link.hidden = !target;
+          if (target) {
+            link.setAttribute('href', '#' + target.id);
+            var own = link.querySelector('[data-cp-field]'), derived = link.querySelector('[data-cp-derived]');
+            var same = target.id === link.getAttribute('data-cp-orig');
+            own.hidden = !same; derived.hidden = same;
+            if (!same) { var nav = target.querySelector('.topic-kicker [data-cp-field]'); derived.textContent = nav ? nav.textContent : ''; }
+          }
+        }
+      });
+      var cue = document.querySelector('#s1 a.scroll-cue');
+      if (cue) { cue.hidden = !vis.length; if (vis.length) cue.setAttribute('href', '#' + vis[0].id); }
+    }
+    renumber();
+    document.addEventListener('input', renumber);
+    document.addEventListener('click', function(e){
+      var btn = e.target.closest && e.target.closest('[data-cp-remove], [data-cp-restore]');
+      if (!btn) return;
+      var sec = btn.closest('section');
+      if (btn.hasAttribute('data-cp-remove')) sec.setAttribute('data-cp-removed', ''); else sec.removeAttribute('data-cp-removed');
+      renumber();
+      document.dispatchEvent(new CustomEvent('cp:slides-changed'));
+    });
+    // El nombre de una sección aparece en dos lugares (etiqueta superior y riel; el título del pilar, también en su detalle): se edita en uno solo y el otro lo refleja en vivo.
+    document.addEventListener('input', function(e){
+      var src = e.target.closest && e.target.closest('[data-cp-field]');
+      if (!src) return;
+      var text = src.textContent.replace(/ /g, ' ');
+      document.querySelectorAll('[data-cp-mirror="' + src.getAttribute('data-cp-field') + '"]').forEach(function(m){ m.textContent = text; });
     });
   }
 
