@@ -347,6 +347,9 @@ HC_BULK_IMPORT_TEMPLATE_URL = "https://danwor.sharepoint.com/:x:/s/Comunicacione
 # fail-closed: ausente/vacío/"ALL" = NADIE puede editar, nunca un fallback a
 # "todo autorizado de Comercial" ni a APP_OWNER. Ejemplo:
 # CONTENT_OWNER=joconnor,bjawor
+# ALCANCE: es la capacidad TRANSVERSAL de gobierno de edición de contenidos del Hub, no una propiedad de Estrategia. Hoy protege Estrategia Comercial y las Presentaciones
+# (Comercial → Presentaciones: puede editar CUALQUIER instancia, sin importar quién la creó, siempre dentro de la autorización de Comercial; ver
+# webapp.services.commercial_presentations.can_edit_presentation_user). Los seeds/templates institucionales NO se editan desde la UI con esta capacidad: se gobiernan por código/deploy.
 CONTENT_OWNER = _env("CONTENT_OWNER", "")
 # Usage Metrics como capacidad de HUB (owner ticket "HUB METRICS — CENTRALIZE
 # ACCESS AND ENABLE BY VERTICAL"): DOS preguntas independientes — "¿puedo

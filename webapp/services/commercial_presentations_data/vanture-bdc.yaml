@@ -1,0 +1,27 @@
+presentation_id: vanture-bdc
+template_id: vanture-bdc
+template_version: 1
+title: Vanture · La empresa autónoma comienza con los datos
+content:
+  hero_title_prefix: La empresa autónoma comienza con los
+  hero_title_accent: datos
+  hero_lead: Descubre cómo SAP Business Data Cloud y Business AI están transformando la manera en que las organizaciones integran,
+    gobiernan y convierten sus datos en decisiones inteligentes.
+  s2_stat_value: 7 de 10
+  s2_stat_label: organizaciones quedan estancadas en modo piloto, sin un camino claro para escalar.
+  cta_title_prefix: El primer paso hacia la empresa autónoma
+  cta_title_accent: es el dato
+  cta_lead: Te ayudamos a evaluar tu punto de partida y a diseñar el primer caso de uso sobre SAP Business Data Cloud.
+  cta_qr_caption: Agendá una demo — escaneá el código
+  alliance_1_title: Partners tecnológicos líderes
+  alliance_1_body: Somos socios de las plataformas más reconocidas a nivel global — SAP, Google, Databricks, AWS.
+  alliance_2_title: Procesos de calidad certificados
+  alliance_2_body: Todos nuestros procesos están certificados bajo la norma ISO 9001.
+  alliance_3_title: Una cultura que potencia resultados
+  alliance_3_body: Reconocidos como Great Place to Work — la colaboración y la excelencia son el motor de Danwor.
+  alliance_4_title: Somos referentes de Analytics
+  alliance_4_body: Trabajando colaborativamente con otros implementadores, junto a clientes como Loma Negra, Danone y Ayudín.
+  recognition_intro: Algunos de nuestros casos de éxito fueron reconocidos por el
+  recognition_highlight: ASUG Innovation Award
+  recognition_tail: ', un premio que distingue los proyectos más innovadores, estratégicos y de alto impacto del ecosistema
+    SAP. Además expusimos el caso Danone en SAP NOW 2025 y el caso Simpa en SAP HOUSE 2026.'

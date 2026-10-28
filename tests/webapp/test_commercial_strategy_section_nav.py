@@ -80,12 +80,12 @@ def test_a_crm_has_no_subnav_wrapper():
     assert "module-subnav" not in response.text
 
 
-def test_n_crm_nav_markup_is_the_flat_two_link_list():
+def test_n_crm_nav_markup_is_the_flat_three_link_list():            # 01 CRM · 02 Estrategia · 03 Presentaciones (V1)
     response = client.get("/comercial")
     nav_start = response.text.index('<nav aria-label="Comercial">')
     nav_end = response.text.index("</nav>", nav_start)
     nav_block = response.text[nav_start:nav_end]
-    assert nav_block.count('class="module-link') == 2
+    assert nav_block.count('class="module-link') == 3
     assert "module-subnav" not in nav_block
 
 

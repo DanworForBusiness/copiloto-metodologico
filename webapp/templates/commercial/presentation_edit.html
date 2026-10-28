@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% from "partials/platform_topbar.html" import platform_topbar %}
+{% from "partials/workspace_shell.html" import sidebar_resize_handle %}
+{% block title %}Editar · {{ presentation.title }} · Presentaciones · Comercial · Danwor{% endblock %}
+{% block body %}
+<div
+  x-data="copilotLayout('commercial')"
+  x-init="init()"
+  class="app-shell no-copilot"
+>
+  {% set _identity_html %}<iframe src="/brand/dancing/{{ pack }}?title={{ config.COMMERCIAL_APP_TITLE | urlencode }}&subtitle={{ config.COMMERCIAL_APP_SUBTITLE | urlencode }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
+  {% call platform_topbar(current_workspace, available_workspaces, current_workspace.home_url, _identity_html, "Menú") %}
+    <select class="pack-select" aria-label="Área operativa" disabled>
+      <option selected>Comercial</option>
+    </select>
+  {% endcall %}
+
+  {% include "partials/commercial_nav.html" %}
+
+  {{ sidebar_resize_handle() }}
+
+  <main id="content" class="module-content">
+    <section class="module-hero">
+      <p class="eyebrow"><a href="/comercial/presentaciones/{{ presentation.presentation_id }}">{{ presentation.title }}</a></p>
+      <h1>Editar presentación</h1>
+      <p class="hero-lead full-page-subtitle">Editás solo los textos comerciales habilitados; el diseño, la narrativa y el resto del contenido los gobierna el template.</p>
+    </section>
+
+    <aside class="callout callout--punch"><div class="callout__body"><p>Esta presentación es visible para cualquier usuario del Hub que tenga el enlace.</p></div></aside>
+
+    <form class="tree-feedback-form cp-form" data-cp-edit-form data-save-url="/comercial/presentaciones/{{ presentation.presentation_id }}" data-revision="{{ presentation.revision }}" novalidate>
+      {% for section, fields in sections.items() %}
+      <details class="dashboard-section" open>
+        <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">{{ section }}</span></summary>
+        <div class="dashboard-section__body">
+        {% for f in fields %}
+        <div class="feedback-field">
+          <label for="cp-f-{{ f.key }}">{{ f.label }} <span>máx. {{ f.max_len }}</span></label>
+          {% if f.multiline %}
+          <textarea id="cp-f-{{ f.key }}" name="{{ f.key }}" rows="3" maxlength="{{ f.max_len }}" data-cp-field data-original="{{ f.value }}">{{ f.value }}</textarea>
+          {% else %}
+          <input id="cp-f-{{ f.key }}" name="{{ f.key }}" type="text" maxlength="{{ f.max_len }}" value="{{ f.value }}" autocomplete="off" data-cp-field data-original="{{ f.value }}">
+          {% endif %}
+        </div>
+        {% endfor %}
+        </div>
+      </details>
+      {% endfor %}
+      <aside class="callout callout--success" role="status" data-cp-status hidden><div class="callout__body"><p></p></div></aside>
+      <p class="feedback-error" role="alert" data-cp-error hidden></p>
+      <div class="cp-toolbar">
+        <button type="submit" class="btn-primary" data-cp-save>Guardar</button>
+        <a class="btn-secondary" href="/comercial/presentaciones/{{ presentation.presentation_id }}">Volver</a>
+      </div>
+    </form>
+  </main>
+</div>
+
+<link rel="stylesheet" href="{{ url_for('static', path='commercial.css') }}?v={{ static_version }}">
+<script src="{{ url_for('static', path='commercial_presentations.js') }}?v={{ static_version }}"></script>
+{% endblock %}

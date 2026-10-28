@@ -1,0 +1,142 @@
+/* commercial_presentations.js — Comercial → Presentaciones (V1): «Copiar enlace», «Copiar como nueva» y guardado del editor.
+   Sin estado de negocio en el navegador: la autoridad es SIEMPRE el servidor (sesión, Comercial, propiedad, revisión, validación). Los valores se escriben con `textContent`/`value`, nunca con innerHTML. */
+(function () {
+  "use strict";
+
+  function status(text, warn) {
+    var el = document.querySelector("[data-cp-status]");
+    if (!el) return;
+    var line = el.querySelector("p") || el;
+    line.textContent = text;
+    el.hidden = !text;
+    el.classList.toggle("callout--warn", !!warn);
+    el.classList.toggle("callout--success", !warn);
+  }
+
+  async function readJson(res) {
+    try { return await res.json(); } catch (e) { return {}; }
+  }
+
+  function messageOf(data, fallback) {
+    return (data && (data.message || data.detail)) || fallback;
+  }
+
+  // ── Copiar enlace (la URL de acceso autenticado; no es una credencial) ───────────────────────────────────────────────
+  document.addEventListener("click", async function (ev) {
+    var btn = ev.target.closest("[data-cp-copy-link]");
+    if (!btn) return;
+    var url = window.location.origin + btn.getAttribute("data-cp-copy-link");
+    try {
+      await navigator.clipboard.writeText(url);
+      status("Enlace copiado. Quien lo reciba lo abre con su propia sesión del Hub.", false);
+    } catch (e) {
+      window.prompt("Copiá el enlace:", url);
+    }
+  });
+
+  // ── Copiar como nueva ──────────────────────────────────────────────────────────────────────────────────────────────
+  var dialog = document.getElementById("cp-copy-dialog");
+  if (dialog) {
+    var titleInput = dialog.querySelector("[data-cp-title]");
+    var errorEl = dialog.querySelector("[data-cp-copy-error]");
+    var submitBtn = dialog.querySelector("[data-cp-copy-submit]");
+
+    document.addEventListener("click", function (ev) {
+      var opener = ev.target.closest("[data-cp-copy-open]");
+      if (!opener) return;
+      dialog.dataset.sourceId = opener.getAttribute("data-cp-id") || "";
+      titleInput.value = (opener.getAttribute("data-cp-title") || "").slice(0, titleInput.maxLength > 0 ? titleInput.maxLength : 120);
+      errorEl.hidden = true;
+      errorEl.textContent = "";
+      submitBtn.disabled = false;
+      dialog.showModal();
+      titleInput.focus();
+      titleInput.select();
+    });
+
+    async function createCopy() {
+      var title = titleInput.value.trim();
+      if (!title) {
+        errorEl.textContent = "Ingresá un título para la copia.";
+        errorEl.hidden = false;
+        return;
+      }
+      submitBtn.disabled = true;
+      try {
+        var res = await fetch("/comercial/presentaciones/" + encodeURIComponent(dialog.dataset.sourceId) + "/copiar", {
+          method: "POST", credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title: title }),
+        });
+        var data = await readJson(res);
+        if (res.ok && data.url) {
+          window.location.assign(data.url);
+          return;
+        }
+        errorEl.textContent = messageOf(data, "No se pudo crear la copia.");
+      } catch (e) {
+        errorEl.textContent = "No se pudo crear la copia. Verificá tu conexión y reintentá.";
+      }
+      errorEl.hidden = false;
+      submitBtn.disabled = false;
+    }
+
+    submitBtn.addEventListener("click", createCopy);
+    dialog.querySelector("form").addEventListener("keydown", function (ev) {
+      if (ev.key === "Enter" && ev.target === titleInput) { ev.preventDefault(); createCopy(); }
+    });
+  }
+
+  // ── Editor: guarda SOLO los campos que cambiaron, bajo la revisión que cargó la página ───────────────────────────────
+  var form = document.querySelector("[data-cp-edit-form]");
+  if (form) {
+    var saveBtn = form.querySelector("[data-cp-save]");
+    var errBox = form.querySelector("[data-cp-error]");
+    var fields = Array.prototype.slice.call(form.querySelectorAll("[data-cp-field]"));
+    var saving = false;
+
+    function changed() {
+      var out = {};
+      fields.forEach(function (f) { if (f.value !== f.getAttribute("data-original")) out[f.name] = f.value; });
+      return out;
+    }
+    function showError(text) { errBox.textContent = text; errBox.hidden = !text; }
+
+    window.addEventListener("beforeunload", function (ev) {
+      if (!saving && Object.keys(changed()).length) { ev.preventDefault(); ev.returnValue = ""; }
+    });
+
+    form.addEventListener("submit", async function (ev) {
+      ev.preventDefault();
+      showError("");
+      var delta = changed();
+      if (!Object.keys(delta).length) { status("No hay cambios para guardar.", false); return; }
+      saving = true;
+      saveBtn.disabled = true;
+      status("Guardando…", false);
+      try {
+        var res = await fetch(form.getAttribute("data-save-url"), {
+          method: "POST", credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ revision: parseInt(form.getAttribute("data-revision"), 10), fields: delta }),
+        });
+        var data = await readJson(res);
+        if (res.ok && data.state === "ok") {
+          form.setAttribute("data-revision", String(data.revision));
+          fields.forEach(function (f) {
+            if (data.content && typeof data.content[f.name] === "string") { f.value = data.content[f.name]; f.setAttribute("data-original", data.content[f.name]); }
+          });
+          status("Guardado (revisión " + data.revision + ").", false);
+        } else {
+          status("", false);
+          showError(messageOf(data, "No se pudo guardar."));
+        }
+      } catch (e) {
+        status("", false);
+        showError("No se pudo guardar. Verificá tu conexión y reintentá; tus cambios en pantalla no se perdieron.");
+      }
+      saving = false;
+      saveBtn.disabled = false;
+    });
+  }
+})();
