@@ -48,7 +48,38 @@ El criterio de aceptación es **paridad narrativa y funcional + homologación in
 | **Numeración** de los 10 encabezados narrativos (s2–s9, s11, s12) | ADAPT | El número dorado pasa de la izquierda a **encima** del título (convención de Academy `.stop-num` y del instructivo «Paso NN de MM»): misma fila, en columna; se conservan tipografía, color, secuencia y la animación `wipeIn`. |
 | Números dentro de tarjetas, pasos, pilares y el encabezado de s10 (ya iba encima) | KEEP | Son indicadores de composición/diagrama, no encabezados narrativos. |
 
-**Referencia visual de paridad** = HTML original + estas dos diferencias aprobadas (logo y numeración). El gate compara el seed renderizado contra esa referencia: 0,0 de diferencia en las 12 secciones, en escritorio y móvil.
+### Documento inmersivo (R1): theme y estilos institucionales
+
+El documento deja de ser una «isla oscura» con diseño propio: consume la fuente de verdad visual del Hub y cambia de tema de verdad (no solo el ícono).
+
+| Capacidad | Cómo se consume (no se duplica) |
+|---|---|
+| **Theme toggle** (pestaña independiente, extremo derecho del header) | `.theme-toggle` del Hub con los SVG sol/luna institucionales, definidos **una sola vez** en `partials/theme_icons.html` (el topbar del Hub los consume desde ahí). Preferencia `dw-content-theme` y cookie existentes; sin variables, cookies ni claves nuevas. |
+| **Contrato de theme único** | `static/hub_theme.js` (`window.dwTheme`: leer/aplicar/guardar/escuchar). `toggleTheme()` de app.js **delega** ahí en vez de reimplementarlo (extensión mínima: el Hub y la presentación comparten la misma implementación). |
+| **Viewer embebido** | No renderiza header ni toggle (sin controles duplicados): sigue el tema del Hub por `postMessage` `danwor-theme` (mecanismo existente de `iframe.content-embed`). Una pestaña independiente también se sincroniza con un cambio hecho en el Hub (evento `storage`). |
+| **Sin flash** | El servidor lee la cookie `dw-content-theme` y emite `class="content-theme-*"` en `<html>` y el ícono correcto; un usuario Hub **sin** Comercial ve exactamente lo mismo (R1 no exige Comercial). |
+| **Superficies, tinta, bordes, acento** | Tokens semánticos de tema en `content.css` (`--content-surface/canvas/tile/ink/ink-soft/ink-dim/line/line-strong/accent`; claro/oscuro). Los consumen el tile del Hub, Danwor Academy (`dw-academy.css`, vía `@import`) y la presentación. Un cambio ahí llega a los tres. `--gold` del Hub y de Academy apunta a `--content-accent`. |
+| **Fondo** | En **oscuro**, el canvas del Hub (`--content-canvas`, el tono de la landing y de Academy; la superficie del tile, `#181819`, se leía demasiado gris para una presentación). En **claro**, la superficie blanca (`--content-surface`). |
+| **Tipografía** | `var(--sans)`/`var(--mono)` del Hub (Inter, JetBrains Mono) con el `<link>` de fuentes del Hub (`hub_fonts_url`); se eliminaron Barlow/IBM Plex y las 33 fuentes `woff2` propias. |
+| **Numeración narrativa** | `.topic-num` (content.css; antes vivía en `dw-academy.css`, que lo sigue consumiendo por `@import`). Los números internos de tarjetas, pasos y diagramas quedan como están. |
+| **Punches / callouts** | `aside.callout.callout--punch` del Hub (s2, s3, s4, s9, s11), sin bloques paralelos con borde propio. |
+| **Entrar y saltar de sección** | «Ver la presentación» y los diez «Siguiente · título» usan el **cue de scroll** de la landing del Hub (`.scroll-cue`: etiqueta mono en mayúsculas + línea vertical animada, sin caja de botón), promovido a `content.css` con los valores de `brand-hero.css`. Sin desplazamiento magnético (se retiró el JS); el cue suma foco visible y realce al hover (la landing no los define). |
+| **Rail de secciones (puntos de la derecha)** | El `.rail` de Danwor Academy, promovido de `dw-academy.css` a `content.css` (Academy lo sigue consumiendo por `@import` y conserva solo su política de ocultar los textos bajo 1600px): puntos de 9px **sin glow**, activo en oro, y el texto de cada sección como **tooltip al pasar el mouse** (en la presentación el label de la sección activa no queda fijo). Se oculta bajo 900px, como en Academy. |
+
+**Evidencia de propagación** (`_handoffs/PRESENTACIONES_V1_20261028/homolog/propagation.json`): se editaron de forma temporal `content.css`, `app.css` y `tools.css` (restaurados por hash) y el cambio llegó, sin tocar el CSS de la presentación, a fondo, oro, fuente, `.topic-num`, `.callout--punch`, `.theme-toggle`, al cue de scroll, al rail (también el de Academy) y al viewer embebido.
+
+**Diferencias intencionales respecto del HTML original:** tipografía y superficies del Hub; dorado `--content-accent` (`#e7b008`) en lugar de `#EBBF08`; numeración con `.topic-num` (encima del título); cue de scroll de la landing en lugar de botones; rail de Academy en lugar de los puntos con glow; fondo oscuro = canvas del Hub; punches como callouts; logo de Danwor de Academy; tema claro disponible. Se preservan composición, storytelling, arquitectura BDC, tabs, diagramas, marquee, scrollspy y las animaciones narrativas.
+
+**Excepciones y límites documentados (no resueltos aquí a propósito):**
+* `.btn-secondary` del Hub no tiene variante para tema claro (cada vertical lo parchea; p. ej. `human_capital.css`): dentro de las secciones del documento `--line`/`--soft` se remapean una vez a sus equivalentes por tema.
+* Danwor Academy sigue declarando su propia tipografía (`--sans` y un `<link>` propio): su fuente no se centraliza en este ticket.
+* Los valores oscuros de `content.css` coinciden con la paleta de `app.css :root` por diseño, no por derivación (esos tokens son invariantes al tema).
+* El dorado de acento sobre fondo blanco es la convención del propio Hub (eyebrows, `.topic-num` aparte); se usa para énfasis, nunca como único portador de información.
+* `brand-hero.css` (la landing, una hoja autónoma que no carga el CSS del Hub) conserva su copia `.hero-scroll` del cue: mismos valores, pero no es el mismo selector. Unificarla exige que la landing cargue `content.css`.
+* El toast `.cp-toast` repite el posicionamiento del aviso de CCHH: promoverlo a `tools.css` es la corrección real y queda como decisión pendiente.
+* Con el cue y el rail el documento ya no contiene `.btn-primary`/`.btn-secondary`; los botones institucionales que consume son el toggle de tema (`.theme-toggle`) y, en las pantallas del Hub, los de catálogo, detalle y editor.
+
+**Paridad.** Narrativa y funcional (contenido, secciones, tabs, scrollspy, marquee, animaciones, modo presentar), **no** igualdad de píxeles en lo homologado a propósito (tipografía, superficies, acento, numeración, botones, callouts, logo, tema). La comparación píxel a píxel contra el HTML original de la primera entrega (0,0 en las 12 secciones, con solo logo y numeración adaptados) quedó superada por esta homologación; la sustituyen los gates de estilo, theme y narrativa descritos arriba.
 
 ## Catálogo (`/comercial/presentaciones`): homologación con el Hub
 
@@ -99,7 +130,7 @@ y `restore`/`mirror_up`/`push_path` cubren los subdirectorios; **no se agregó n
 
 * El revelado por hover de «¿Por qué SAP BDC?» depende del foco en pantallas táctiles (limitación del original).
 * Usa `animation-timeline` (animaciones ligadas al scroll): sin soporte fuera de navegadores Chromium actuales el contenido se muestra sin esa animación (heredado del original).
-* Experiencia solo oscura (isla oscura dentro de un Hub claro); tipografía propia (Barlow, IBM Plex Mono) y dorado `#EBBF08` del original.
+* Barra superior y pie siguen siendo oscuros en ambos temas (co-branding con logos pensados para fondo oscuro); el cuerpo del documento sí cambia de tema.
 * QR estático; marca Vanture y logos de clientes heredados por todas las copias (sin neutralidad de marca ni personalización irrestricta).
 * «Copiar enlace» es el único sharing de V1 (sin permisos individuales, publicación anónima ni envío externo).
 * Tope de 200 instancias (`MAX_INSTANCES`).

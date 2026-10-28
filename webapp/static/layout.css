@@ -191,7 +191,7 @@
 .is-resizing iframe { pointer-events: none; }
 
 /* El tema se limita deliberadamente al panel editorial central. */
-.content-theme-light .module-content { background: #f7f7f4; color: #19191b; }
+.content-theme-light .module-content { background: #f7f7f4; color: var(--content-ink); }
 .content-theme-light .module-hero,
 .content-theme-light .section-index,
 .content-theme-light .content-section { border-color: #d9d9d3; }

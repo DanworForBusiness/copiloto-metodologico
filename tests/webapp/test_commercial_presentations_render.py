@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+from urllib.parse import urlparse
 
 import pytest
 from bs4 import BeautifulSoup
@@ -57,11 +58,14 @@ def test_the_document_is_standalone_with_external_shared_assets_and_no_base64(wo
     html = _page(world)
     assert "base64" not in html
     soup = _soup(html)
-    assert soup.find("link", rel="stylesheet")["href"].startswith("/pack-assets/datasphere_core/presentations/vanture-bdc/vanture.css?v=")
-    assert soup.find("script", src=True)["src"].startswith("/pack-assets/datasphere_core/presentations/vanture-bdc/vanture.js?v=")
+    sheets = [urlparse(l["href"]).path for l in soup.find_all("link", rel="stylesheet")]
+    assert sheets[-1] == "/pack-assets/datasphere_core/presentations/vanture-bdc/vanture.css"
+    assert sheets[-5:-1] == ["/static/app.css", "/static/content.css", "/static/layout.css", "/static/tools.css"], "las hojas del Hub, en el MISMO orden que base.html, y la de la presentación al final (gana la cascada)"
+    assert soup.find("script", src=re.compile("vanture.js"))["src"].startswith("/pack-assets/datasphere_core/presentations/vanture-bdc/vanture.js?v=")
+    assert [urlparse(s["src"]).path for s in soup.find_all("script", src=True)] == ["/static/hub_theme.js", "/pack-assets/datasphere_core/presentations/vanture-bdc/vanture.js"]
     assert not [s for s in soup.find_all("script") if not s.get("src")], "el template no trae JS en línea"
     assert not soup.find_all("style"), "el template no trae <style> en línea (el CSS es un archivo compartido)"
-    assert len(html.encode()) < 120_000                                                         # antes: 3 MB con fuentes e imágenes en base64
+    assert len(html.encode()) < 120_000
     assert soup.find("meta", attrs={"name": "robots"})["content"] == "noindex,nofollow"
 
 
@@ -115,11 +119,16 @@ def test_jinja_autoescape_is_active_for_the_hub_templates():
 
 def test_the_template_source_has_no_unsafe_constructs_and_uses_exactly_the_spec_keys():
     source = TEMPLATE_PATH.read_text(encoding="utf-8")
-    for forbidden in ("|safe", "| safe", "Markup", "autoescape", "{% raw", "|tojson", "{% include", "{% extends", "{% import", "{% from"):
+    for forbidden in ("|safe", "| safe", "Markup", "autoescape", "{% raw", "|tojson", "{% include", "{% extends"):
         assert forbidden not in source, forbidden
+    assert re.findall(r"\{%-?\s*(?:from|import)[^%]*-?%\}", source) == ['{%- from "partials/theme_icons.html" import theme_icon -%}'], "el único import permitido es la macro compartida de íconos de tema"
     used = set(re.findall(r"\bc\.([a-z0-9_]+)\b", source))
     assert used == set(SPEC.field_keys)                                                         # ni claves de más ni campos sin usar
-    assert sorted(set(re.findall(r"\{\{\s*([^}]+?)\s*\}\}", source))) == sorted({f"c.{k}" for k in SPEC.field_keys} | {"css_url", "js_url", "asset_base", "institutional_logo_url"})
+    expressions = {e.strip() for e in re.findall(r"\{\{\s*([^}]+?)\s*\}\}", source)}
+    non_content = expressions - {f"c.{k}" for k in SPEC.field_keys}
+    assert non_content == {"css_url", "js_url", "asset_base", "institutional_logo_url", "theme", "hub_fonts_url", "static_version",
+                           "url_for('static', path='app.css')", "url_for('static', path='content.css')", "url_for('static', path='layout.css')", "url_for('static', path='tools.css')",
+                           "url_for('static', path='hub_theme.js')", 'theme_icon("light", \'style="display:none"\' if theme != "light" else "")', 'theme_icon("dark", \'style="display:none"\' if theme != "dark" else "")'}, non_content
 
 
 def test_there_are_no_editable_attribute_or_url_contexts_in_v1():
@@ -164,13 +173,12 @@ def test_editing_a_copy_leaves_the_seed_render_byte_identical(world):
 
 def test_the_asset_directory_contains_only_brand_files_and_everything_referenced_exists():
     files = [p for p in ASSETS.rglob("*") if p.is_file()]
-    assert {p.suffix for p in files} <= {".css", ".js", ".woff2", ".png", ".jpg"}, "solo fuentes, CSS, JS e imágenes de marca bajo /pack-assets"
-    assert len([p for p in files if p.suffix == ".woff2"]) == 33 and len([p for p in files if p.parent.name == "img"]) == 45     # 46 menos la variante de wordmark oscuro del logo Danwor: se usa el asset de Academy
+    assert {p.suffix for p in files} <= {".css", ".js", ".png", ".jpg"}, "solo CSS, JS e imágenes de marca bajo /pack-assets: las fuentes ya no son propias (salen del Hub)"
+    assert len([p for p in files if p.parent.name == "img"]) == 45
+    assert not (ASSETS / "fonts").exists(), "sin fuentes propias: Inter y JetBrains Mono son las institucionales del Hub"
     assert (ASSETS / "vanture.css").is_file() and (ASSETS / "vanture.js").is_file()
     css = (ASSETS / "vanture.css").read_text(encoding="utf-8")
-    assert "base64" not in css
-    for ref in re.findall(r"url\((fonts/[0-9a-f]+\.woff2)\)", css):
-        assert (ASSETS / ref).is_file(), ref
+    assert "base64" not in css and "@font-face" not in css and "url(fonts/" not in css
     template = TEMPLATE_PATH.read_text(encoding="utf-8")
     for ref in re.findall(r"\{\{ asset_base \}\}/(img/[0-9a-f]+\.(?:png|jpg))", template):
         assert (ASSETS / ref).is_file(), ref
@@ -181,10 +189,10 @@ def test_the_shared_assets_are_served_under_the_hub_read_contract_without_commer
     for name in ("vanture.css", "vanture.js"):
         r = world.client(HUB_ONLY).get(f"{base}/{name}")
         assert r.status_code == 200 and len(r.content) > 1000, name
-    font = sorted((ASSETS / "fonts").iterdir())[0].name
-    assert world.client(HUB_ONLY).get(f"{base}/fonts/{font}").status_code == 200
+    img = sorted((ASSETS / "img").iterdir())[0].name
+    assert world.client(HUB_ONLY).get(f"{base}/img/{img}").status_code == 200
     anonymous = world.client(None).get(f"{base}/vanture.css", follow_redirects=False)
-    assert anonymous.status_code in (303, 307) and "font-face" not in anonymous.text             # sin sesión no hay lectura: redirige a login
+    assert anonymous.status_code in (303, 307) and "var(--" not in anonymous.text               # sin sesión no hay lectura: redirige a login
 
 
 def test_the_document_urls_all_resolve_for_a_hub_user(world):
@@ -327,19 +335,20 @@ def test_the_ten_narrative_section_numbers_sit_above_their_titles_and_keep_the_s
         h2 = soup.find(id=section).find("h2")
         row, num = h2.parent, h2.find_previous_sibling("span")
         assert num.get_text(strip=True) == number, section
+        assert num["class"] == ["topic-num"] and not num.has_attr("style"), section                 # tratamiento institucional compartido: ni tipografía ni color propios
         style = re.sub(r"\s+", "", row["style"])
-        assert "flex-direction:column" in style and "align-items:flex-start" in style, section   # el número queda ENCIMA del título
+        assert "flex-direction:column" in style and "align-items:flex-start" in style, section     # el número queda ENCIMA del título
         assert "align-items:baseline" not in style and "animation:wipeIn" in style, section        # la animación de entrada se conserva
-        assert "color:#EBBF08" in num["style"] and "IBMPlexMono" in re.sub(r"[\s']", "", num["style"]), section
     assert "align-items:baseline;gap:20px" not in _page(world)
 
 
-def test_diagram_and_card_indicators_and_the_s10_header_are_kept_as_they_were(world):
+def test_diagram_and_card_indicators_are_kept_and_the_s10_narrative_number_adopts_the_shared_treatment(world):
     soup = _soup(_page(world))
-    s10 = soup.find(id="s10").find("h2")
-    assert s10.parent.find("div").get_text(strip=True).startswith("09")                          # ya iba encima: sin cambios
+    s10 = soup.find(id="s10").find("h2").parent.find(class_="topic-num")
+    assert s10.get_text(strip=True).startswith("09") and not s10.has_attr("style")               # número narrativo (ya iba encima): mismo tratamiento institucional
     assert [d.get_text(strip=True) for d in soup.find(id="s2").find_all("div", string=re.compile(r"^0[1-3]$"))] == ["01", "02", "03"]
     assert [d.get_text(strip=True) for d in soup.find(id="s8").find_all("div", string=re.compile(r"^0[1-4]$"))] == ["01", "02", "03", "04"]
+    assert len(soup.select(".topic-num")) == 11, "10 encabezados narrativos + s10; los números de tarjetas, pasos y pilares NO se tocan"
 
 
 def test_the_shared_url_document_carries_no_commercial_navigation_and_no_back_button(world):
@@ -401,3 +410,152 @@ def test_the_status_script_reuses_the_hub_primitive_builds_the_callout_with_text
     assert "setTimeout" not in js, "el temporizador es el del primitivo Hub-wide (`data-dw-auto-dismiss`), no uno propio"
     app = (REPO / "webapp" / "static" / "app.js").read_text(encoding="utf-8")
     assert "function initAutoDismissFeedback" in app and "[data-dw-auto-dismiss]" in app
+
+
+# ── Homologación REAL con el design system del Hub: nada institucional hardcodeado, todo consume la fuente compartida ──────────────────────────
+
+VANTURE_CSS = ASSETS / "vanture.css"
+STATIC = REPO / "webapp" / "static"
+ACADEMY_CSS = REPO / "content_packs" / "datasphere_core" / "assets" / "academy" / "dw-academy.css"
+
+
+def _doc_source() -> str:
+    return TEMPLATE_PATH.read_text(encoding="utf-8") + VANTURE_CSS.read_text(encoding="utf-8")
+
+
+def test_no_institutional_value_is_hardcoded_in_the_presentation_only_semantic_and_decorative_ones_remain():
+    src = _doc_source()
+    for institutional in ("Barlow", "IBM Plex", "#EBBF08", "#0A0A0A", "rgba(235,191,8", "rgba(255,255,255", "#A3A3A6", "color:#fff"):
+        assert institutional.lower() not in src.lower().replace(" ", "") if institutional.startswith(("rgba", "color")) else institutional.lower() not in src.lower(), institutional
+    colors = {c.upper() for c in re.findall(r"#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{3}\b", src)}
+    assert colors == {"#000", "#FFF", "#F4F4F4", "#FFF6CF", "#5BB5F0", "#0D2447"}, colors
+    # clasificación: #000 = tinta sobre acento dorado y máscaras (semántico/técnico) · #FFF/#F4F4F4 = tiles blancos de logos y QR (legibilidad de la marca) · #FFF6CF = brillo del
+    # degradé del título (decorativo) · #5BB5F0 = acento de plataformas · #0D2447 = fondo del tile de un logo (semánticos)
+    assert len(re.findall(r"font-family:", src)) == len(re.findall(r"font-family:var\(--(?:sans|mono)\)", src)), "toda familia tipográfica sale de los tokens del Hub"
+
+
+def test_the_presentation_consumes_the_hub_tokens_for_family_ink_surface_and_accent():
+    src = _doc_source()
+    for token in ("var(--sans)", "var(--mono)", "var(--gold)", "var(--content-ink)", "var(--content-ink-soft)", "var(--content-surface)", "var(--bg)", "var(--ink)"):
+        assert token in src, token
+    css = VANTURE_CSS.read_text(encoding="utf-8")
+    assert re.search(r"body\s*\{[^}]*background:var\(--content-canvas\)[^}]*color:var\(--content-ink\)[^}]*font-family:var\(--sans\)", css)
+    assert re.search(r'html\.content-theme-light body, html\[data-dw-theme="light"\] body \{ background:var\(--content-surface\); \}', css), "en claro, la superficie blanca"
+    assert not re.search(r"(?m)^\s*a(?::hover)?\s*\{", css), "los enlaces no redefinen color (lo gobierna el Hub)"
+
+
+def test_entry_and_section_jumps_use_the_shared_scroll_cue_and_callouts_and_numbers_the_shared_components(world):
+    soup = _soup(_page(world))
+    hero = soup.select("#s1 a[href='#s2']")
+    assert len(hero) == 1 and hero[0]["class"] == ["scroll-cue"] and hero[0].select_one("span:first-child").text == "Ver la presentación" and hero[0].select_one(".scroll-cue__line")
+    nxt = soup.select("a.next-link")
+    assert len(nxt) == 10 and all("scroll-cue" in a["class"] and "btn-secondary" not in a["class"] and a.select_one(".scroll-cue__line") for a in nxt)
+    assert [a["href"] for a in nxt] == [f"#s{i}" for i in range(3, 13)] and all(a.select_one("span:first-child").text.startswith("Siguiente · ") for a in nxt)
+    assert not soup.select("a.btn-primary, a.btn-secondary, .side-nav"), "el documento no tiene botones propios: el cue (landing) y el rail (Academy) son los primitivos"
+    for a in nxt + hero:
+        assert not re.search(r"border-radius|font-family|font-size|font-weight|letter-spacing|text-transform|padding:|border:|color:|transition", a["style"]), a["style"]   # la apariencia es del primitivo
+    assert len(soup.select("aside.callout.callout--punch")) == 5          # s2 (dato), s3 y s4 (cierres), s9 (cierre), s11 (reconocimientos)
+    assert not re.search(r"border-left:\s*\d+px solid", TEMPLATE_PATH.read_text(encoding="utf-8")), "ningún punch es un bloque paralelo con borde propio"
+    js = re.sub(r"/\*.*?\*/|//[^\n]*", "", (ASSETS / "vanture.js").read_text(encoding="utf-8"), flags=re.S)
+    assert "lastMagnet" not in js and "translate(" not in js, "sin efecto magnético en los controles"
+    assert "tilt" in js.lower() and "spotlight" in js, "los efectos NARRATIVOS (tilt, foco de luz) se conservan"
+
+
+def test_the_shared_tokens_live_in_one_place_and_every_consumer_reads_them():
+    content = (STATIC / "content.css").read_text(encoding="utf-8")
+    block = re.search(r":root \{\s*--content-surface:.*?\}", content, re.S).group(0)
+    light = re.search(r'html\.content-theme-light,\s*html\[data-dw-theme="light"\] \{.*?\}', content, re.S).group(0)
+    for token in ("surface", "canvas", "tile", "ink", "ink-soft", "ink-dim", "line"):
+        assert f"--content-{token}:" in block and f"--content-{token}:" in light, token
+    assert "--content-accent:" in block and "--content-accent" not in light, "el acento es invariante al tema"
+    tools = (STATIC / "tools.css").read_text(encoding="utf-8")
+    assert not re.search(r"--content-surface:\s*#", tools), "tools.css ya no declara su propia copia de la superficie (consume la compartida)"
+    assert "var(--content-canvas)" in tools and "var(--content-ink)" in (STATIC / "layout.css").read_text(encoding="utf-8")
+    assert "--gold:var(--content-accent)" in (STATIC / "app.css").read_text(encoding="utf-8")
+    academy = ACADEMY_CSS.read_text(encoding="utf-8")
+    assert '@import url("/static/content.css");' in academy
+    for legacy, token in (("--bg-card", "--content-tile"), ("--ink", "--content-ink"), ("--ink-soft", "--content-ink-soft"), ("--ink-dim", "--content-ink-dim"), ("--line", "--content-line"), ("--gold", "--content-accent")):
+        assert re.search(rf"(?m)^\s*{re.escape(legacy)}:\s*var\({re.escape(token)}\);", academy), legacy
+    assert ".topic-num{" not in academy.replace(" ", ""), ".topic-num se define UNA vez (content.css), no en Academy"
+    assert content.count(".topic-num {") == 1
+
+
+def test_the_theme_contract_has_a_single_implementation_shared_by_the_hub_and_the_presentation():
+    theme = (STATIC / "hub_theme.js").read_text(encoding="utf-8")
+    for must in ('"dw-content-theme"', "content-theme-", '"danwor-theme"', "iframe.content-embed", "localStorage", "document.cookie"):
+        assert must in theme, must
+    app = (STATIC / "app.js").read_text(encoding="utf-8")
+    assert "window.dwTheme.set(this.contentTheme)" in app
+    toggle = re.sub(r"//[^\n]*", "", re.search(r"toggleTheme\(\) \{.*?\n    \},", app, re.S).group(0))      # sin comentarios: solo el código
+    assert "localStorage" not in toggle and "document.cookie" not in toggle and "postMessage" not in toggle, "toggleTheme() delega: no reimplementa el contrato"
+    base = (REPO / "webapp" / "templates" / "base.html").read_text(encoding="utf-8")
+    assert base.index("hub_theme.js") < base.index("path='app.js'")
+    icons = [str(t.relative_to(REPO)) for t in (REPO / "webapp" / "templates").rglob("*.html") if "M20.5 15.5A9 9 0 0 1 8.5 3.5" in t.read_text(encoding="utf-8")]
+    assert icons == [str(Path("webapp/templates/partials/theme_icons.html"))], icons          # los SVG del toggle existen UNA sola vez
+    assert 'theme_icon("light"' in (REPO / "webapp" / "templates" / "partials" / "platform_topbar.html").read_text(encoding="utf-8") or "theme_icon(\"light\"" in (REPO / "webapp" / "templates" / "partials" / "platform_topbar.html").read_text(encoding="utf-8")
+
+
+def test_the_fonts_url_has_one_definition_used_by_the_hub_and_the_presentation(world):
+    from webapp.templating import templates as t
+    url = t.env.globals["hub_fonts_url"]
+    assert "family=Inter" in url and "JetBrains+Mono" in url
+    assert (REPO / "webapp" / "templates" / "base.html").read_text(encoding="utf-8").count("{{ hub_fonts_url }}") == 1
+    assert "fonts.googleapis.com/css2" not in (REPO / "webapp" / "templates" / "base.html").read_text(encoding="utf-8").replace("{{ hub_fonts_url }}", "").split("preconnect")[-1]
+    assert _soup(_page(world)).find("link", href=url) is not None
+    hub = world.client(A).get("/comercial/presentaciones").text
+    assert f'href="{url}"'.replace("&", "&amp;") in hub or f'href="{url}"' in hub                 # el Hub sigue cargando exactamente la misma URL de siempre
+
+
+@pytest.mark.parametrize("cookie, expected", [("dark", "content-theme-dark"), ("light", "content-theme-light"), (None, "content-theme-light"), ("basura", "content-theme-light")])
+def test_the_theme_comes_from_the_hub_cookie_on_the_server_so_there_is_no_flash(world, cookie, expected):
+    c = world.client(HUB_ONLY)
+    if cookie:
+        c.cookies.set("dw-content-theme", cookie)
+    html = c.get(f"/presentaciones/{SEED_ID}").text
+    assert re.search(r'<html lang="es" class="%s">' % expected, html)
+    visible = re.findall(r'<svg (style="display:none" )?data-dw-theme-icon="(light|dark)"', html)
+    assert [(hidden == "", icon) for hidden, icon in visible] == [(icon == expected.split("-")[-1], icon) for _, icon in visible], "el ícono del tema actual llega visible desde el servidor"
+
+
+def test_the_standalone_header_shows_the_toggle_and_the_embedded_viewer_does_not_duplicate_controls(world):
+    standalone = _soup(_page(world))
+    toggle = standalone.select_one("[data-dw-theme-toggle].theme-toggle")
+    assert toggle and toggle.parent.find("span") is not None and len(toggle.find_all("svg")) == 2
+    assert not _soup(_page(world, embed=True)).select("[data-dw-theme-toggle]")
+
+
+def test_the_shared_primitive_buttons_keep_an_accessible_focus_ring():
+    for css in ("app.css", "layout.css", "tools.css"):
+        text = (STATIC / css).read_text(encoding="utf-8")
+        for rule in re.findall(r"([^{}]*\.btn-(?:primary|secondary)[^{}]*)\{([^}]*)\}", text):
+            assert not re.search(r"outline\s*:\s*(?:none|0)\b", rule[1]), (css, rule[0].strip())     # ninguna regla elimina el foco visible de la primitiva
+
+
+def test_the_section_rail_is_the_shared_academy_primitive_without_glow_and_with_hover_tooltips(world):
+    soup = _soup(_page(world))
+    rail = soup.select_one("nav.rail[aria-label]")
+    assert rail is not None and not soup.select(".side-nav, .nav-dot")
+    dots = rail.select("a[href^='#s'] > span")
+    assert [d.parent["href"] for d in dots] == [f"#s{i}" for i in range(1, 13)] and dots[3].text == "Knowledge Core"     # el texto de cada sección es el tooltip
+    assert all(not a.get("style") and not a.get("title") for a in rail.select("a"))                                       # sin estilos inline ni title nativo: lo da el primitivo
+    css = VANTURE_CSS.read_text(encoding="utf-8")
+    js = (ASSETS / "vanture.js").read_text(encoding="utf-8")
+    assert ".nav-dot" not in css and not re.search(r"\.rail[^{]*\{[^}]*box-shadow", css)                                      # el glow ya no existe
+    assert not re.search(r"\.rail[^{]*\{[^}]*box-shadow", (STATIC / "content.css").read_text(encoding="utf-8"))
+    assert "classList.toggle('active'" in js and "nav-dot" not in js and "is-active" not in js
+    shared = (STATIC / "content.css").read_text(encoding="utf-8")
+    assert ".rail a.active { background: var(--content-accent); transform: scale(1.3); }" in shared and ".rail a:hover span, .rail a.active span { opacity: 1; }" in shared
+    academy = (REPO / "content_packs" / "datasphere_core" / "assets" / "academy" / "dw-academy.css").read_text(encoding="utf-8")
+    assert ".rail a{" not in academy and ".rail{position" not in academy and "@media (max-width:1600px){ .rail a span{ display:none; } }" in academy   # Academy conserva solo su política de labels
+    assert re.search(r"--line-2:\s*var\(--content-line-strong\)", academy)
+
+
+def test_the_scroll_cue_is_one_shared_primitive_with_the_landing_values():
+    shared = (STATIC / "content.css").read_text(encoding="utf-8")
+    landing = (STATIC / "brand-hero.css").read_text(encoding="utf-8")
+    for token in ("font-size: .62rem; text-transform: uppercase; letter-spacing: .3em", "width: 1px; height: 48px", "gap: .55rem", "opacity: .4"):
+        assert token in shared, token
+    for token in (".hero-scroll span{font-size:.62rem;text-transform:uppercase;letter-spacing:.3em}", "width:1px;height:48px", "gap:.55rem", "opacity:.4"):
+        assert token in landing, token                                                                                       # mismos valores que la landing de la que se tomó
+    assert sum(1 for t in (REPO / "webapp" / "templates").rglob("*.html") if "scroll-cue" in t.read_text(encoding="utf-8")) == 1
+

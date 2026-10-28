@@ -571,7 +571,7 @@ def _asset_hash(template_id: str, name: str) -> str:
         return "0"
 
 
-def render_context(presentation: dict, *, embed: bool = False) -> dict:
+def render_context(presentation: dict, *, embed: bool = False, theme: str = "light") -> dict:
     """Contexto del documento inmersivo: `c` = contenido completo (solo claves de la spec), URLs de assets COMPARTIDAS (idénticas para toda instancia del template) con cache-busting por contenido."""
     template_id = presentation["template_id"]
     spec = TEMPLATES[template_id]
@@ -583,4 +583,5 @@ def render_context(presentation: dict, *, embed: bool = False) -> dict:
         "css_url": f"{asset_base}/{spec.css}?v={_asset_hash(template_id, spec.css)}",
         "js_url": f"{asset_base}/{spec.js}?v={_asset_hash(template_id, spec.js)}",
         "embed": bool(embed),
+        "theme": "dark" if theme == "dark" else "light",
     }

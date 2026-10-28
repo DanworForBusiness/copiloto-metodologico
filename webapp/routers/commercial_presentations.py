@@ -131,7 +131,8 @@ def presentation_shared_view(request: Request, presentation_id: str, embed: str 
     if not embedded:                                                             # el detalle (iframe embed=1) ya registró la vista
         log_activity(EVENT_MODULE_VIEWED, user=user, scope=SCOPE_COMMERCIAL, area=AREA_PRESENTATIONS, module=CM03_MODULE_ID)
     spec = presentations.template_spec(view["template_id"])
-    return templates.TemplateResponse(request=request, name=spec.jinja, context=presentations.render_context(view, embed=embedded), headers=_NO_STORE)
+    theme = "dark" if request.cookies.get("dw-content-theme") == "dark" else "light"            # preferencia del Hub (cookie `dw-content-theme`), como /pack-assets: sin flash
+    return templates.TemplateResponse(request=request, name=spec.jinja, context=presentations.render_context(view, embed=embedded, theme=theme), headers=_NO_STORE)
 
 
 # ── R2 — catálogo ─────────────────────────────────────────────────────────────────────────────────────────────────────

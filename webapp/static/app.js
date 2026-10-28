@@ -203,19 +203,10 @@ function copilotLayout(activeGroup = "core", readonly = false, initialTab = "", 
     },
     toggleTheme() {
       this.contentTheme = this.contentTheme === "light" ? "dark" : "light";
-      localStorage.setItem("dw-content-theme", this.contentTheme);
       dwBeacon("theme_change", { theme: this.contentTheme });
-      // El tema vive en <html> (lo aplica un script síncrono del <head> para
-      // evitar el flash en cada navegación SSR); acá solo lo conmutamos.
-      document.cookie = "dw-content-theme=" + this.contentTheme + ";path=/;max-age=31536000;samesite=lax";
-      const root = document.documentElement.classList;
-      root.remove("content-theme-light", "content-theme-dark");
-      root.add("content-theme-" + this.contentTheme);
-      // Avisar a los HTML embebidos (iframes) para que ajusten su fondo en vivo,
-      // sin recargar. El asset escucha message {type:'danwor-theme', theme}.
-      document.querySelectorAll("iframe.content-embed").forEach(frame => {
-        try { frame.contentWindow.postMessage({ type: "danwor-theme", theme: this.contentTheme }, "*"); } catch (e) {}
-      });
+      // Contrato ÚNICO del tema (hub_theme.js): preferencia en localStorage + cookie, clase `content-theme-*` en <html> (la aplica también un script síncrono del <head> para evitar el flash en
+      // cada navegación SSR) y aviso `danwor-theme` a los HTML embebidos (iframes), que ajustan su tema en vivo sin recargar.
+      window.dwTheme.set(this.contentTheme);
     },
     openSection() {
       if (!this.activeSection) return;

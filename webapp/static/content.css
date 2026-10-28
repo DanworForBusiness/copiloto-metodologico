@@ -57,6 +57,39 @@
 .content-theme-dark .content-collapsible__summary:hover { background: rgba(255,255,255,.05); }
 .content-theme-dark .content-collapsible__body { border-top-color: var(--line); }
 
+/* ── Tokens SEMÁNTICOS de tema: fuente de verdad visual compartida (superficies, tinta, texto secundario, bordes) ────────────────────────────────
+   Los tokens de `app.css :root` (--bg/--card/--ink/--soft/--dim/--line) son SIEMPRE oscuros (panel lateral/topbar: invariantes al tema). Estos, en cambio, SÍ cambian con el tema del
+   contenido, y los consumen el tile del Hub (`.module-content`/`.academy-stage`), Danwor Academy (`dw-academy.css`, vía @import) y Presentaciones (R1). Un cambio acá alcanza a todos.
+   `--content-surface` ya existía (tools.css lo definía por tema solo dentro de `.module-content`): se promovió acá, con el MISMO nombre y los MISMOS valores, para que no exista otra copia.
+   El tema se detecta por las dos señales que ya existen: la clase `content-theme-*` de <html> (Hub; base.html/hub_theme.js) y el atributo `data-dw-theme` que /pack-assets inyecta en los HTML
+   embebidos. Sin ninguna de las dos rige el oscuro. Los valores oscuros coinciden hoy con la paleta de `app.css :root` por diseño, no por derivación: son semánticas distintas. */
+:root {
+  --content-surface:   #181819;   /* superficie del contenido (tile) */
+  --content-canvas:    #0c0c0d;   /* canvas detrás del tile / fondo de página a pantalla completa */
+  --content-tile:      #181819;   /* tarjeta dentro del contenido */
+  --content-ink:       #e4e4ec;   /* texto principal */
+  --content-ink-soft:  #8b8b96;   /* texto secundario */
+  --content-ink-dim:   #50505a;   /* texto terciario / metadatos */
+  --content-line:      rgba(226, 232, 245, .09);
+  --content-line-strong: rgba(226, 232, 245, .16);   /* borde/relleno de indicadores discretos (puntos del rail) */
+  --content-accent:    #e7b008;   /* acento institucional (oro): invariante al tema; `--gold` del Hub y de Academy lo consumen */
+}
+html.content-theme-light,
+html[data-dw-theme="light"] {
+  --content-surface:   #fff;
+  --content-canvas:    #F6F7F9;
+  --content-tile:      #f6f7f9;
+  --content-ink:       #19191b;
+  --content-ink-soft:  #55555f;
+  --content-ink-dim:   #8a8f98;
+  --content-line:      rgba(20, 22, 28, .10);
+  --content-line-strong: rgba(20, 22, 28, .16);
+}
+
+/* Numeración NARRATIVA de un paso/sección ("Paso 01 de 06", "01"): tratamiento institucional compartido por el instructivo del Copiloto, Danwor Academy y Presentaciones.
+   Vivía en dw-academy.css; se promovió acá (Academy lo sigue consumiendo, vía @import). NO aplica a números internos de tarjetas, diagramas, indicadores ni pasos especializados. */
+.topic-num { font-family: var(--mono); font-size: .85rem; color: var(--content-ink-dim); display: block; margin-bottom: .5rem; }
+
 /* Tokens compartidos por los DOS índices de módulo — el plano (.section-index,
    "En este módulo") y el agrupado (.module-roadmap, "Recorrido del módulo"). Son
    clases distintas con estilos espejados; centralizar acá las medidas evita que
@@ -247,3 +280,24 @@
   color: var(--gold);
   text-decoration: underline;
 }
+
+/* ── Rail de secciones (indicador lateral de recorrido): el de Danwor Academy, promovido para que lo consuma también Presentaciones ───────────────────────────────────────────────────────────────
+   Puntos de 9px sin glow; el activo en oro y apenas más grande; el texto de la sección aparece como tooltip al pasar el mouse. Vivía en dw-academy.css (que sigue consumiéndolo por `@import`; `--line-2` es su variable local por tema y, si existe, manda: sin ella rige `--content-line-strong`).
+   Qué hace Academy aparte (ocultar los textos debajo de 1600px, porque ahí el label pisaba el contenido) sigue en su hoja: es una política de ese layout, no del primitivo. Debajo de 900px el rail se oculta. */
+.rail { position: fixed; right: clamp(1rem, 3vw, 2.5rem); top: 50%; transform: translateY(-50%); z-index: 90; display: flex; flex-direction: column; gap: .85rem; }
+.rail a { width: 9px; height: 9px; border-radius: 50%; background: var(--line-2, var(--content-line-strong)); border: 1px solid transparent; transition: background .3s, transform .3s; position: relative; }
+.rail a.active { background: var(--content-accent); transform: scale(1.3); }
+.rail a span { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); white-space: nowrap; font-family: var(--mono); font-size: .68rem; color: var(--content-ink-soft); opacity: 0; transition: opacity .2s; }
+.rail a:hover span, .rail a.active span { opacity: 1; }
+@media (max-width: 900px) { .rail { display: none; } }
+
+/* ── Cue de scroll (el «scroll para ingresar» de la landing del Hub): etiqueta mono en mayúsculas + línea vertical animada, sin caja de botón ─────────────────────────────────────────────────
+   Lo usa Presentaciones para entrar a la presentación y para saltar de una sección a la siguiente. brand-hero.css (la landing, hoja autónoma que no carga el CSS del Hub) conserva su copia
+   `.hero-scroll`; mismos valores. Se agregó solo el foco visible y el realce al hover (la landing no los define) por accesibilidad. */
+.scroll-cue { display: inline-flex; flex-direction: column; align-items: center; gap: .55rem; opacity: .4; cursor: pointer; background: none; border: 0; padding: 0; color: var(--content-ink); font-family: var(--mono); text-decoration: none; text-align: center; transition: opacity .2s; }
+.scroll-cue:hover, .scroll-cue:focus-visible { opacity: .85; }
+.scroll-cue:focus-visible { outline: 2px solid var(--content-accent); outline-offset: 6px; }
+.scroll-cue > span:first-child { font-size: .62rem; text-transform: uppercase; letter-spacing: .3em; }
+.scroll-cue__line { width: 1px; height: 48px; background: linear-gradient(to bottom, currentColor, transparent); animation: scroll-cue-line 2s ease-in-out infinite; }
+@keyframes scroll-cue-line { 0% { transform: scaleY(0); transform-origin: top; } 50% { transform: scaleY(1); transform-origin: top; } 51% { transform: scaleY(1); transform-origin: bottom; } 100% { transform: scaleY(0); transform-origin: bottom; } }
+@media (prefers-reduced-motion: reduce) { .scroll-cue__line { animation: none; } }

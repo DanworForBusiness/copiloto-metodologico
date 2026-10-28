@@ -1,22 +1,25 @@
 /* Danwor Academy — hoja de estilos compartida (paradigmas / datasphere / sac / databricks) */
 
+/* Fuente de verdad visual compartida con el Hub (tokens `--content-*` de tema + `.topic-num`): superficies, tinta, texto secundario y bordes salen de ahí, no de copias locales. */
+@import url("/static/content.css");
+
 :root{
-  --bg:        #0c0c0d;
+  --bg:        var(--content-canvas);
   --bg-2:      #111113;
-  --bg-card:   #17171a;
+  --bg-card:   var(--content-tile);
   --bg-card-2: #141416;
-  --ink:       #e4e4ec;
-  --ink-soft:  #9494a0;
-  --ink-dim:   #55555f;
+  --ink:       var(--content-ink);
+  --ink-soft:  var(--content-ink-soft);
+  --ink-dim:   var(--content-ink-dim);
   /* Gold sincronizado con el --gold del copiloto (#e7b008) para que el efecto
      dorado del branding danwor (hero-title em, acentos) coincida con dw-gold. */
-  --gold:      #e7b008;
+  --gold:      var(--content-accent);
   --gold-2:    #c99806;
   --gold-glow: #ffcf2e;
   --gold-rgb:  231,176,8;
   --gold-dim:  rgba(231,176,8,0.14);
-  --line:      rgba(226,232,245,0.08);
-  --line-2:    rgba(226,232,245,0.16);
+  --line:      var(--content-line);
+  --line-2:    var(--content-line-strong);
   --ease-out:  cubic-bezier(0.16, 1, 0.3, 1);
   --sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   --mono: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
@@ -55,16 +58,12 @@ html:not(.branding-danwor){
    inyecta data-dw-theme (light/dark) en el <html> del iframe vía /pack-assets y
    lo actualiza en vivo por postMessage. En oscuro se usa :root (default danwor).
    Mantiene el gold danwor; alinea fondos/texto al content-theme-light del copiloto. */
-html.branding-danwor[data-dw-theme="light"]{
-  --bg:        #ffffff;   /* superficie de contenido blanca, como el copiloto en claro */
-  --bg-2:      #f6f7f9;   /* canvas gris del copiloto (#F6F7F9) */
-  --bg-card:   #f6f7f9;   /* tiles en gris sutil: contrastan sobre el blanco (mismo criterio que el copiloto: superficie blanca + tile gris + borde) */
-  --bg-card-2: #eef0f3;   /* tiles anidados, un paso más de gris */
-  --ink:       #19191b;
-  --ink-soft:  #55555f;
-  --ink-dim:   #8a8f98;
-  --line:      rgba(20,22,28,0.10);
-  --line-2:    rgba(20,22,28,0.16);
+html.branding-danwor[data-dw-theme="light"],
+html.branding-danwor.content-theme-light{
+  --bg:        var(--content-surface);   /* en claro la página es la superficie blanca del contenido (en oscuro, el canvas) */
+  --bg-2:      var(--content-canvas);    /* canvas gris del Hub */
+  --bg-card-2: #eef0f3;                  /* tiles anidados, un paso más de gris (local: sin equivalente compartido) */
+  --line-2:    var(--content-line-strong);
 }
 
 *{box-sizing:border-box; margin:0; padding:0;}
@@ -87,12 +86,7 @@ html.branding-danwor .topbar-logo{display:block;}
 .topbar-back:hover{color:var(--gold);}
 .topbar-tag{font-family:var(--mono); font-size:.72rem; letter-spacing:.06em; color:var(--ink-dim); text-transform:uppercase;}
 
-/* rail (desktop stop indicator) */
-.rail{position:fixed; right:clamp(1rem,3vw,2.5rem); top:50%; transform:translateY(-50%); z-index:90; display:flex; flex-direction:column; gap:.85rem;}
-.rail a{width:9px; height:9px; border-radius:50%; background:var(--line-2); border:1px solid transparent; transition:background .3s, transform .3s; position:relative;}
-.rail a.active{background:var(--gold); transform:scale(1.3);}
-.rail a span{position:absolute; right:16px; top:50%; transform:translateY(-50%); white-space:nowrap; font-family:var(--mono); font-size:.68rem; color:var(--ink-soft); opacity:0; transition:opacity .2s;}
-.rail a:hover span, .rail a.active span{opacity:1;}
+/* rail (desktop stop indicator): el primitivo vive en content.css (compartido con Presentaciones, se importa arriba); acá queda solo la política de este layout. */
 /* El label on-hover se despliega hacia el contenido (izquierda del punto). Con
    el contenido centrado a 1180px, solo hay margen para el label sin solaparlo en
    pantallas muy anchas; en anchos menores (típico embebido en el copiloto) se
@@ -100,7 +94,6 @@ html.branding-danwor .topbar-logo{display:block;}
    debajo de 900px se oculta el rail completo. La media query responde al ancho
    del iframe, así que se adapta al espacio real del embed. */
 @media (max-width:1600px){ .rail a span{ display:none; } }
-@media (max-width:900px){ .rail{display:none;} }
 
 /* spot illustrations por sección — SVG inline, colores via variables del theme */
 .section-art{margin:0 0 1.6rem;}
@@ -158,7 +151,7 @@ html.branding-danwor .hero-eyebrow .eyebrow-plain{display:none;}
 /* topic sections — full-viewport slides (equivalente a .stop de paradigmas.html) */
 .topic{min-height:100svh; display:flex; flex-direction:column; justify-content:center; padding:clamp(5rem,10vw,7rem) 0; border-bottom:1px solid var(--line);}
 .topic:last-of-type{border-bottom:none;}
-.topic-num{font-family:var(--mono); font-size:.85rem; color:var(--ink-dim); display:block; margin-bottom:.5rem;}
+/* .topic-num: ahora en content.css (tratamiento de numeración compartido con el Hub y Presentaciones; se importa arriba). */
 .topic-kicker{display:inline-flex; align-items:center; gap:.5rem; font-family:var(--mono); font-size:.78rem; letter-spacing:.08em; text-transform:uppercase; color:var(--gold); margin-bottom:1.1rem;}
 .topic-title{font-size:clamp(1.9rem,3.2vw,2.9rem); font-weight:800; line-height:1.12; letter-spacing:-.01em; margin-bottom:1.6rem; max-width:none;}
 .topic-title em{font-style:normal; color:var(--gold);}

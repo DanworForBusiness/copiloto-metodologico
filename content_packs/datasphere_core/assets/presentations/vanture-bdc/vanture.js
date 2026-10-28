@@ -13,9 +13,8 @@
       if (dist < bestDist) { bestDist = dist; current = s; }
     });
     if (current) {
-      document.querySelectorAll('nav a[href^="#s"]').forEach(function(a){
-        a.classList.add('nav-dot');
-        a.classList.toggle('is-active', a.getAttribute('href') === '#' + current.id);
+      document.querySelectorAll('nav.rail a[href^="#s"]').forEach(function(a){
+        a.classList.toggle('active', a.getAttribute('href') === '#' + current.id);
       });
     }
   }
@@ -50,20 +49,6 @@
       el.style.setProperty('--rx', clamp((0.5 - py) * 8).toFixed(2) + 'deg');
     });
 
-    var lastMagnet = null;
-    document.addEventListener('mousemove', function(e){
-      var el = e.target.closest ? e.target.closest('a') : null;
-      if (el && parseFloat(getComputedStyle(el).borderRadius) < 100) el = null;
-      if (lastMagnet && lastMagnet !== el) lastMagnet.style.transform = '';
-      lastMagnet = el;
-      if (!el) return;
-      var rect = el.getBoundingClientRect();
-      if (!rect.width || !rect.height) return;
-      var mx = Math.max(-40, Math.min(40, e.clientX - rect.left - rect.width / 2));
-      var my = Math.max(-40, Math.min(40, e.clientY - rect.top - rect.height / 2));
-      el.style.transform = 'translate(' + (mx * 0.16).toFixed(1) + 'px,' + (my * 0.3).toFixed(1) + 'px)';
-    });
-
     var lastHero = null;
     document.addEventListener('mousemove', function(e){
       var hero = e.target.closest ? e.target.closest('#s1') : null;
@@ -86,6 +71,17 @@
       spot.style.setProperty('--mx', (e.clientX - rect.left) + 'px');
       spot.style.setProperty('--my', (e.clientY - rect.top) + 'px');
       spot.style.opacity = '1';
+    });
+  }
+
+  // Tema: contrato ÚNICO del Hub (hub_theme.js: preferencia `dw-content-theme`, clase `content-theme-*` en <html>). La presentación SIGUE al Hub (mensaje `danwor-theme` del visor embebido
+  // y evento `storage` entre pestañas) y, abierta en pestaña propia, muestra el toggle en el extremo derecho del header. Embebida el header no se renderiza: el toggle es el del Hub.
+  if (window.dwTheme) {
+    window.dwTheme.apply(window.dwTheme.current());
+    window.dwTheme.listen();
+    var themeToggle = document.querySelector('[data-dw-theme-toggle]');
+    if (themeToggle) themeToggle.addEventListener('click', function(){
+      window.dwTheme.set(window.dwTheme.current() === 'light' ? 'dark' : 'light');
     });
   }
 

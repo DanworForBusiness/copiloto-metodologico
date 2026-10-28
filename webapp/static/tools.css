@@ -210,19 +210,18 @@
 /* Canvas + tiles cambian con el tema:
    claro -> canvas #F6F7F9 + tiles blancos;
    oscuro -> canvas negro + tiles #181819. */
-.content-theme-light .app-shell { background: #F6F7F9; }
-.content-theme-dark .app-shell  { background: #0c0c0d; }
+.content-theme-light .app-shell { background: var(--content-canvas); }
+.content-theme-dark .app-shell  { background: var(--content-canvas); }
 
 .content-theme-light .module-content,
 .content-theme-light .academy-stage {
-  --content-surface: #fff;                       /* superficie de contenido: la consumen las cabeceras fijas (`.dashboard-sticky-header`, `.matrix-scroll--contained`) */
+  /* `--content-surface` (superficie que consumen las cabeceras fijas `.dashboard-sticky-header`, `.matrix-scroll--contained`): definida por tema en content.css (tokens compartidos) */
   background: var(--content-surface);
   border-color: #e4e4e0;
   box-shadow: 0 2px 10px rgba(20,22,28,.04);     /* casi imperceptible; separa el borde */
 }
 .content-theme-dark .module-content,
 .content-theme-dark .academy-stage {
-  --content-surface: #181819;
   background: var(--content-surface);             /* card elevado sobre el canvas negro */
 }
 .copilot-panel { background: var(--card); }       /* #fff en claro, #181819 en oscuro */
