@@ -704,6 +704,22 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 .hc-profile-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
 .hc-profile-filters .feedback-field { margin-top: 0; min-width: 150px; flex: 1 1 150px; }
 .hc-profile-filters > button, .hc-profile-filters > a.btn-secondary { flex: 0 0 auto; height: 40px; }
+/* LOOK de los controles de la barra (padding/borde/tipografía/foco). Vivía en human_capital.css; se movió acá SIN cambiar reglas ni valores para que cualquier vertical que use la barra
+   (CCHH, Operaciones, Comercial → Presentaciones) la vea igual sin cargar la hoja de otra vertical. El ANCHO sigue siendo del flex item `.feedback-field` y de `width:100%` (abajo): esta
+   regla es solo apariencia (un `min-width` acá desbordó una vez la celda compacta de `<select>`). */
+.hc-profile-filters input[type="text"],
+.hc-profile-filters select {
+  padding: 8px 11px; border: 1px solid rgba(128,128,128,.35);
+  border-radius: 8px; background: transparent; color: #1f1f24; font: .8rem var(--sans);
+}
+.content-theme-dark .hc-profile-filters input[type="text"],
+.content-theme-dark .hc-profile-filters select { color: #e4e4ec; }
+.hc-profile-filters input:focus, .hc-profile-filters select:focus {
+  outline: none; border-color: var(--gold); box-shadow: 0 0 0 3px rgba(231,176,8,.18);
+}
+.hc-profile-filters .btn-primary, .hc-profile-filters .btn-secondary {
+  height: 38px; padding: 0 16px; border-radius: 8px;
+}
 /* ROOT CAUSE del solape visual reportado por el owner (real, no un artefacto
    de captura): `.feedback-field` es un grid container (`display:grid`,
    tools.css) -- por default sus hijos (el propio `<select>`/`<input>`)

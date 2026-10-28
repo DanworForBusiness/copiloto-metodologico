@@ -986,11 +986,13 @@ table.dashboard-table.commercial-creadas-table td:nth-child(4) { width: auto; }
    1. `.cp-catalog`: piso de ancho de la tabla (con `table-layout:fixed` + `.matrix-scroll` la tabla scrollea en vez de aplastar las columnas en pantallas angostas).
    2. `.cp-toolbar`: fila de acciones que envuelve (el `.hero-lead-row > div` no envuelve y desbordaba en móvil).
    3. `.cp-form` en tema CLARO: `.tree-feedback-form` es un primitivo de panel oscuro (tokens --card/--ink) y no trae variante clara fuera de CCHH; sin esto los campos quedan negros sobre
-      el panel claro. Solo cambia fondo/borde y hereda el color de texto del contenedor (sin literales: el par de tinta neutra de Comercial es una variable con consumidores fijos); el foco (anillo dorado) lo sigue dando el primitivo. */
+      el panel claro. Solo cambia fondo/borde y hereda el color de texto del contenedor (sin literales: el par de tinta neutra de Comercial es una variable con consumidores fijos); el foco (anillo dorado) lo sigue dando el primitivo.
    4. `.cp-toast`: confirmación TRANSITORIA. Reusa el primitivo Hub-wide `data-dw-auto-dismiss` (app.js `initAutoDismissFeedback`: se vacía solo por timeout o al click afuera, y cada nuevo
       contenido reinicia el temporizador) y el markup `.callout`; solo repite el POSICIONAMIENTO de `.hc-catalog-refresh-feedback--topbar` (human_capital.css, no se carga acá).
    5. `.cp-notice` / `.cp-toast`: escala compacta de título y cuerpo de un `.callout` chico (mismas medidas que ese toast: `.callout__body p` hereda 1rem y se ve sobredimensionado en un aviso). */
 .dashboard-table.cp-catalog { min-width: 820px; }
+.module-hero + #cp-catalog-panel { margin-top: 24px; }   /* respiro hero → primer bloque: MISMA regla por-panel que CCHH/Operaciones (`.module-hero + #hc-…-panel`) */
+#cp-catalog-panel .dashboard-sections { margin-top: 26px; }   /* respiro filtro → agrupador: los 26px de `#hc-profiles-panel > * + *` (CCHH Base de CVs) */
 .cp-toast:not(:empty) { position: fixed; top: 84px; left: 50%; transform: translateX(-50%); z-index: 100; width: min(650px, calc(100vw - 32px)); }
 .cp-toast .callout__title, .cp-notice .callout__title { font-size: .85rem; }
 .cp-toast .callout__body, .cp-notice .callout__body { font-size: .78rem; line-height: 1.5; }

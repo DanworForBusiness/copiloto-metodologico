@@ -41,6 +41,35 @@
     return (data && (data.message || data.detail)) || fallback;
   }
 
+  // ── Buscar (catálogo): filtro 100% cliente sobre las filas ya renderizadas ────────────────────────────────────
+  // Sin endpoint ni preferencias persistidas. Compara en minúsculas, con espacios recortados y colapsados, contra `data-cp-search` (título + responsable). El contador del agrupador muestra el total con la
+  // búsqueda vacía y los coincidentes con búsqueda activa; sin coincidencias se muestra el estado vacío del Hub en lugar de la tabla.
+  (function () {
+    var input = document.querySelector("[data-cp-search-input]");
+    if (!input) return;
+    var rows = Array.prototype.slice.call(document.querySelectorAll("#cp-catalog-table tbody tr[data-cp-search]"));
+    var count = document.querySelector("[data-cp-count]");
+    var empty = document.querySelector("[data-cp-empty]");
+    var wrap = document.querySelector("[data-cp-table-wrap]");
+    function norm(s) { return (s || "").toLowerCase().replace(/\s+/g, " ").trim(); }
+    var haystacks = rows.map(function (tr) { return norm(tr.getAttribute("data-cp-search")); });
+    function apply() {
+      var q = norm(input.value);
+      var shown = 0;
+      rows.forEach(function (tr, i) {
+        var hit = !q || haystacks[i].indexOf(q) !== -1;
+        tr.hidden = !hit;
+        if (hit) shown += 1;
+      });
+      if (count) count.textContent = shown + " presentaci" + (shown === 1 ? "ón" : "ones");
+      if (wrap) wrap.hidden = shown === 0;
+      if (empty) empty.hidden = shown !== 0;
+    }
+    input.addEventListener("input", apply);
+    input.closest("form").addEventListener("submit", function (ev) { ev.preventDefault(); });
+    apply();
+  })();
+
   // ── Copiar enlace (la URL de acceso autenticado; no es una credencial) ───────────────────────────────────────────────
   document.addEventListener("click", async function (ev) {
     var btn = ev.target.closest("[data-cp-copy-link]");

@@ -47,6 +47,22 @@ El criterio de aceptación es **paridad narrativa y funcional + homologación in
 
 **Referencia visual de paridad** = HTML original + estas dos diferencias aprobadas (logo y numeración). El gate compara el seed renderizado contra esa referencia: 0,0 de diferencia en las 12 secciones, en escritorio y móvil.
 
+## Catálogo (`/comercial/presentaciones`): homologación con el Hub
+
+Cada elemento se resolvió como *elemento actual → precedente del Hub → clase reutilizada → ajuste mínimo*. No hay primitivos nuevos: lo único propio es el filtro en el cliente.
+
+| Elemento | Precedente | Reutiliza | Ajuste |
+|---|---|---|---|
+| Cabecera / subtítulo | Dashboard CRM (`crm.html`) | `.module-hero` > `.hero-lead-row` > `p.hero-lead.full-page-subtitle` | Solo markup (antes el `<p>` era hijo directo del hero y lo tomaba `.module-hero > p:not(.eyebrow)`, más chico y apagado). Sin CSS. |
+| Filtro | CCHH → Base de CVs | `form.hc-profile-filters.filter-toolbar-card` + `.feedback-field--wide`, *antes* del agrupador | Solo «Buscar» (`Título, descripción, autor...`). El *look* de los controles pasó de `human_capital.css` a `tools.css`, junto a su layout, **sin cambiar reglas** (226 controles de CCHH comparados antes/después: 0 diferencias). Cargar `human_capital.css` no era opción: redefine el `h1` del hero y rompe la paridad con el CRM. |
+| Agrupador y contador | CCHH → Candidatos | `details.dashboard-section` (+ `__head`, `__caret`, `__title`, `__count`, `__body`) con la tabla adentro | Ninguno. El contador usa el primitivo de `tools.css` tal cual (como Staffing); Candidatos lo afina en su propia hoja (peso 600 y tono más claro en oscuro): diferencia residual mínima. |
+| Sin resultados | CCHH → Candidatos (`no_matches`) | `.dashboard-empty` | Oculto de entrada; reemplaza a la tabla dentro del agrupador. |
+| Respiro hero → filtro y filtro → agrupador | `.module-hero + #hc-…-panel` (24px) y `#hc-profiles-panel > * + *` (26px) | Misma convención por-panel | `#cp-catalog-panel` + 2 reglas en `commercial.css`. |
+
+**Búsqueda.** 100 % cliente (`commercial_presentations.js`): sin endpoint, parámetros ni preferencias persistidas. Compara en minúsculas, con espacios recortados y colapsados, contra `data-cp-search` de cada fila (**título + responsable**, el mismo texto de la columna «Responsable»); nunca contra el HTML ni la narrativa del documento. El modelo no tiene descripción, por eso el placeholder acordado la nombra pero hoy solo matchean título y responsable. El contador muestra el total (semilla + copias) con la búsqueda vacía y los coincidentes con búsqueda activa («1 presentación» / «N presentaciones»).
+
+**Propagación.** Un cambio en `.hero-lead`, `.dashboard-section__*` o `.hc-profile-filters` de `tools.css` llega a CRM/CCHH **y** a Presentaciones sin tocar `commercial.css` (verificado editando `tools.css` de forma temporal y restaurándolo por hash).
+
 ## Seguridad de salida
 
 * Todo campo es un `str` validado (strip, largo máximo, sin caracteres de control, U+2028/2029 ni controles bidi); las claves desconocidas dan 422 (sin reflejar su nombre).

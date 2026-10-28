@@ -23,14 +23,37 @@
     <section class="module-hero">
       <p class="eyebrow">Comercial</p>
       <h1>Presentaciones</h1>
-      <p class="hero-lead full-page-subtitle">Presentaciones comerciales gobernadas por el Hub. Abrí una para presentarla, o copiala como nueva para personalizar sus textos comerciales.</p>
+      {# Subtítulo: MISMO contrato de markup que el Dashboard CRM (`crm.html`: `.hero-lead-row` > `.hero-lead.full-page-subtitle`), nunca CSS equivalente. #}
+      <div class="hero-lead-row">
+        <p class="hero-lead full-page-subtitle">Presentaciones comerciales gobernadas por el Hub. Abrí una para presentarla, o copiala como nueva para personalizar sus textos comerciales.</p>
+      </div>
     </section>
 
+    {# `#cp-catalog-panel`: wrapper con id, ancla de `.module-hero + #cp-catalog-panel { margin-top: 24px }` (commercial.css) — MISMA convención por-panel que CCHH (`.module-hero + #hc-…-panel`) y Operaciones: el respiro entre el divisor del hero y el primer bloque. #}
+    <div id="cp-catalog-panel">
     {% if error_state %}
     <aside class="callout callout--warn" role="alert"><div class="callout__body"><p>El catálogo no está disponible en este momento. Reintentá en unos minutos.</p></div></aside>
     {% else %}
     <div class="cp-toast" aria-live="polite" data-dw-auto-dismiss="6000" data-cp-status></div>
-    <div class="matrix-scroll">
+    {# Filtro de PÁGINA, ANTES del agrupador (misma regla de composición que CCHH → Base de CVs y Staffing): `.hc-profile-filters.filter-toolbar-card` + `.feedback-field` (tools.css). Solo «Buscar»: filtra en el
+       cliente (`commercial_presentations.js`) por título y responsable sobre `data-cp-search` de cada fila; no hay endpoint ni parámetros nuevos. #}
+    <form class="hc-profile-filters filter-toolbar-card" role="search" data-cp-filter>
+      <div class="feedback-field feedback-field--wide">
+        <label for="cp-search-q">Buscar</label>
+        <input id="cp-search-q" name="q" type="text" autocomplete="off" placeholder="Título, descripción, autor..." data-cp-search-input>
+      </div>
+    </form>
+
+    {# Agrupador del Hub (`.dashboard-section`, tools.css) con el MISMO encabezado que CCHH → Candidatos: caret + título + contador `.dashboard-section__count` a la derecha. Tabla dentro del cuerpo. #}
+    <div class="dashboard-sections">
+    <details class="dashboard-section" data-section-id="presentaciones" open>
+      <summary class="dashboard-section__head">
+        <span class="dashboard-section__caret"></span>
+        <span class="dashboard-section__title">Presentaciones</span>
+        <span class="dashboard-section__count" role="status" aria-live="polite" data-cp-count>{{ rows | length }} presentaci{{ 'ón' if rows | length == 1 else 'ones' }}</span>
+      </summary>
+      <div class="dashboard-section__body">
+    <div class="matrix-scroll" data-cp-table-wrap>
     <table class="dashboard-table cp-catalog" id="cp-catalog-table">
       {# Anchos explícitos por columna (MISMO criterio que las tablas de CCHH/Comercial: `%` para las columnas de negocio, `px` fijo para Acciones): sin esto `table-layout:fixed` recorta Acciones. #}
       <colgroup>
@@ -51,7 +74,7 @@
       </thead>
       <tbody>
         {% for row in rows %}
-        <tr data-presentation-id="{{ row.presentation_id }}">
+        <tr data-presentation-id="{{ row.presentation_id }}" data-cp-search="{{ row.title }} {{ row.created_by_label or row.owner_id or '' }}">
           <td class="left">
             <a href="/comercial/presentaciones/{{ row.presentation_id }}" title="{{ row.title }}"><strong>{{ row.title }}</strong></a>
             {% if row.is_seed %}<span class="status-badge status-badge--activo">Institucional</span>{% endif %}
@@ -93,7 +116,16 @@
       </tbody>
     </table>
     </div>
+    {# Sin coincidencias: estado vacío del Hub (`.dashboard-empty`, MISMO copy/estructura que CCHH → Candidatos «no_matches»). Oculto hasta que el filtro no deja filas. #}
+    <div class="dashboard-empty" data-empty-kind="no_matches" data-cp-empty hidden>
+      <span class="dashboard-empty__label">Sin resultados</span>
+      <p>No se encontraron presentaciones para la búsqueda.</p>
+    </div>
+      </div>
+    </details>
+    </div>
     {% endif %}
+    </div>
   </main>
 </div>
 
