@@ -78,17 +78,29 @@
   html[data-cp-edit] .reveal-fade{min-height:0!important}
   /* Regiones de componentes: las nuevas nacen vacías y NO emiten nada al leer; separación de 56 px (la de párrafo → contenido) solo cuando tienen un componente. */
   .cp-region-gap{margin-top:56px}
-  /* Edición de componentes por región (Quitar · Reemplazar · Agregar) y del QR: barras discretas que no existen en la lectura. */
-  html[data-cp-edit] .cp-region-tools{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:0 0 34px;padding:10px 14px;border:1px dashed color-mix(in srgb, var(--content-ink) 28%, transparent);font:600 11.5px/1.2 var(--mono);letter-spacing:.1em;color:var(--content-ink-soft)}
-  html[data-cp-edit] .cp-region-title{text-transform:uppercase;color:var(--gold)}
-  html[data-cp-edit] .cp-region-pick-label::before{content:"Agregar:"}
-  html[data-cp-edit] [data-cp-region]:not([data-cp-occupant=""]) .cp-region-pick-label::before{content:"Reemplazar por:"}
-  html[data-cp-edit] .cp-region-pick button[aria-pressed="true"]{background:var(--gold);color:#000}
-  html[data-cp-edit] .cp-region-btn{cursor:pointer;font:600 11.5px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;padding:9px 13px;color:var(--content-ink-soft);background:transparent;border:1px solid color-mix(in srgb, var(--content-ink) 24%, transparent);transition:color .15s ease,border-color .15s ease}
-  html[data-cp-edit] .cp-region-btn:hover,html[data-cp-edit] .cp-region-btn:focus-visible{color:var(--gold);border-color:var(--gold);outline:none}
-  html[data-cp-edit] .cp-region-note{flex:1 0 100%;font:500 11.5px/1.4 var(--mono);letter-spacing:.04em;text-transform:none;color:var(--content-ink-soft)}
+  /* Edición de componentes por región: el bloque queda dentro de un borde punteado discreto (outline: no toca el layout) con una ✕ contextual en su esquina que ABRE el diálogo del componente (no elimina la
+     slide); la región vacía muestra solo «+ Agregar componente». El selector es el <dialog> del Hub (`.dw-confirm`), con la vista previa renderizada por el MISMO componente. */
+  html[data-cp-edit] [data-cp-region]{position:relative}
+  html[data-cp-edit] [data-cp-region]:not([data-cp-occupant=""]){outline:1px dashed color-mix(in srgb, var(--content-ink) 28%, transparent);outline-offset:8px;border-radius:4px;transition:outline-color .15s ease}
+  html[data-cp-edit] [data-cp-region][data-cp-region-type="bleed"]:not([data-cp-occupant=""]){outline-offset:-2px}
+  html[data-cp-edit] [data-cp-region]:not([data-cp-occupant=""]):hover,html[data-cp-edit] [data-cp-region]:not([data-cp-occupant=""]):focus-within{outline:1px solid var(--gold)}
+  html[data-cp-edit] .cp-region-tools{display:contents}
+  html[data-cp-edit] .cp-region-x{position:absolute;top:-18px;right:-14px;z-index:15;width:32px;height:32px;border-radius:50%;display:grid;place-items:center;padding:0;cursor:pointer;font:600 13px/1 var(--mono);color:var(--content-ink-soft);background:var(--content-surface,#fff);border:1px solid color-mix(in srgb, var(--content-ink) 24%, transparent);transition:color .15s ease,border-color .15s ease,background .15s ease}
+  html[data-cp-edit] [data-cp-region][data-cp-region-type="bleed"] .cp-region-x{top:10px;right:20px}
+  html[data-cp-edit] .cp-region-x:hover,html[data-cp-edit] .cp-region-x:focus-visible{color:var(--gold);border-color:var(--gold);background:color-mix(in srgb, var(--gold) 12%, transparent);outline:none}
   html[data-cp-edit] [data-cp-region][data-cp-occupant=""] > :not(.cp-region-tools){display:none!important}
-  html[data-cp-edit] [data-cp-region][data-cp-occupant=""] [data-cp-region-remove]{display:none}
+  html[data-cp-edit] [data-cp-region][data-cp-occupant=""] .cp-region-x{display:none}
+  html[data-cp-edit] [data-cp-region]:not([data-cp-occupant=""]) .cp-region-empty{display:none}
+  html[data-cp-edit] .cp-region-empty{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+  html[data-cp-edit] .cp-region-btn{cursor:pointer;font:600 11.5px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;padding:9px 13px;color:var(--content-ink-soft);background:transparent;border:1px dashed color-mix(in srgb, var(--content-ink) 32%, transparent);transition:color .15s ease,border-color .15s ease}
+  html[data-cp-edit] .cp-region-btn:hover,html[data-cp-edit] .cp-region-btn:focus-visible{color:var(--gold);border-color:var(--gold);outline:none}
+  /* Vista previa del diálogo: el componente REAL clonado, reducido para entrar; los reveals por scroll se desactivan (no hay scroll de página dentro del diálogo), los puntos animados siguen. */
+  .cp-addon-preview{margin-top:14px;max-height:min(300px,38vh);overflow:auto;padding:12px;border:1px dashed color-mix(in srgb, var(--content-ink) 28%, transparent);background:var(--content-canvas);color:var(--content-ink)}
+  .cp-addon-sizer{overflow:hidden}
+  .cp-addon-stage{width:1100px;transform-origin:0 0}
+  .cp-addon-preview [style*="animation-timeline"]{animation:none!important;opacity:1!important;transform:none!important}
+  .cp-addon-preview:empty::before{content:"Elegí un componente para ver su vista previa.";font:500 12px/1.4 var(--mono);color:var(--content-ink-soft)}
+  .cp-addon-tag{margin-left:8px;font:600 10.5px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--gold)}
   html[data-cp-edit] .cp-asset-tools{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:center}
   html[data-cp-edit] .cp-asset-hint{font:500 11.5px/1.4 var(--mono);color:var(--content-ink-soft)}
   /* Eliminar una slide de la copia (solo edición): X arriba a la derecha de cada slide; la eliminada queda colapsada en una barra con «Restaurar». */

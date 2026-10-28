@@ -1257,6 +1257,10 @@ button.star-rating__star:focus-visible { outline: 2px solid var(--gold); outline
 .dw-confirm__hint { margin: 8px 0 0 25px; font-size: .74rem; line-height: 1.55; color: #55555c; white-space: pre-line; }
 .content-theme-dark .dw-confirm__hint { color: #b2b2bc; }
 .dw-confirm__actions { display: flex; justify-content: flex-end; gap: 10px; padding: 18px 24px 22px; }
+/* Diálogo ancho con una zona de selección que scrollea («Agregar candidato desde el Banco» de CCHH; «Componente de la región» de Presentaciones): promovido desde human_capital.css para que lo consuman ambos.
+   Va DESPUÉS de `.dw-confirm` (mismo peso) para pisar su ancho; los refinamientos propios de CCHH (`.busqueda-picker--search`, tabla, grupo de casillas) siguen en human_capital.css, que carga después. */
+.busqueda-dialog { max-width: 640px; width: calc(100% - 32px); }
+.busqueda-picker { max-height: 52vh; overflow: auto; padding: 0 24px; }
 /* Acciones de fila (Editar + Eliminar) lado a lado, centradas en su celda. */
 .dw-row-actions { display: inline-flex; align-items: center; gap: 4px; }
 /* Form envoltura de una acción destructiva dentro de una botonera flex: el

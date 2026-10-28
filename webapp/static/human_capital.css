@@ -644,7 +644,6 @@
 /* La fila de controles es: etapa → contactar → [entrevista] → quitar. El selector de etapa cede ancho (base 0) para que todo entre en UNA fila sin desbordar la tarjeta; el «Resultado» de Finalizados (select extra) va debajo, a todo el ancho. */
 .busqueda-cand__actions select[name="resultado_final"] { flex-basis: 100%; order: 1; }
 
-.busqueda-dialog { max-width: 640px; width: calc(100% - 32px); }
 /* Diálogo «Contactar»: datos de contacto con «Copiar», situación/canal en dos columnas (una en angosto), asunto/mensaje editables y acciones que se acomodan en filas. */
 .busqueda-contact__context { margin: 0 0 12px; }
 .busqueda-contact__data { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid rgba(128,128,128,.28); border-radius: 8px; }
@@ -663,7 +662,6 @@
 /* Las acciones quedan siempre a la vista aunque el diálogo scrollee (pantallas angostas). */
 .busqueda-contact__actions { flex-wrap: wrap; position: sticky; bottom: 0; background: #fff; border-radius: 0 0 14px 14px; }
 .content-theme-dark .busqueda-contact__actions { background: #181819; }
-.busqueda-picker { max-height: 52vh; overflow: auto; padding: 0 24px; }
 .busqueda-picker .dashboard-table { font-size: .78rem; }
 /* Buscador del diálogo: sin scroll propio (no recorta el aro de foco del campo) y con un respiro antes del listado. */
 .busqueda-picker--search { overflow: visible; padding-bottom: 12px; }

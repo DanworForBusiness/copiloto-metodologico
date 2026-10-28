@@ -76,7 +76,7 @@ def test_every_visible_text_is_editable_a_mirror_a_governed_block_the_legal_foot
         text = re.sub(r"\s+", " ", str(node)).strip()
         if not text:
             continue
-        if node.find_parent(class_=["cp-slide-tools", "cp-region-tools", "cp-asset-tools"]) or node.find_parent(attrs={"data-cp-kicker-no": True}) or node.find_parent(attrs={"data-cp-derived": True}):
+        if node.find_parent(class_=["cp-slide-tools", "cp-region-tools", "cp-asset-tools"]) or node.find_parent("dialog") or node.find_parent(attrs={"data-cp-kicker-no": True}) or node.find_parent(attrs={"data-cp-derived": True}):
             continue                                                                             # herramientas de edición (X / Restaurar), numeración dinámica y texto derivado: cromo del editor
         if node.find_parent(attrs={"data-cp-field": True}) or node.find_parent(attrs={"data-cp-mirror": True}) or node.find_parent(attrs={"data-cp-block": True}) or node.find_parent("footer"):
             continue

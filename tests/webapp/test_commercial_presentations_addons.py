@@ -260,22 +260,31 @@ def test_composition_coexists_with_removed_slides_and_their_regions_disappear_wi
     assert edit.find(id="s7").select_one("[data-cp-region]")["data-cp-occupant"] == "ecosystem-flow:open-ecosystem-flow"
 
 
-def test_the_edit_document_offers_only_compatible_registered_components_per_region_and_keeps_the_library_inert(world):
+def test_the_edit_document_has_a_contextual_x_per_region_and_one_hub_dialog_with_the_registered_library(world):
     pid = _copy(world, A)
     soup = _read(world, pid, edit=True)
     regions = {r["data-cp-region"]: r for r in soup.select("[data-cp-region]")}
-    assert list(regions) == list(cp.REGIONS) and all(r.select_one(":scope > .cp-region-tools[contenteditable=false]") for r in regions.values())
-    body_options = {"layer-stack:bdc-architecture", "layer-stack:knowledge-core-stack", "ecosystem-flow:open-ecosystem-flow"}
+    assert list(regions) == list(cp.REGIONS)
     for rid, r in regions.items():
-        offered = {b["data-cp-pick"] for b in r.select("[data-cp-pick]")}
-        assert offered == (body_options if rid.endswith(".body") else {"logo-marquee:partner-logo-marquee"}), rid     # solo registrados y compatibles con el TIPO de región
+        tools = r.select_one(":scope > .cp-region-tools[contenteditable=false]")
+        assert tools and tools.select_one("button.cp-region-x[data-cp-region-manage]")["aria-label"] == "Administrar este componente"      # la ✕ ABRE el diálogo: no es «quitar»
+        assert tools.select_one(".cp-region-empty [data-cp-region-manage]").get_text(strip=True) == "+ Agregar componente"
         assert r["data-cp-region-type"] == ("body" if rid.endswith(".body") else "bleed")
+        assert not r.select("[data-cp-pick], .dashboard-view-switch")                                         # ya no hay barra permanente ni botones segmentados
     assert regions["s2.body"]["data-cp-occupant"] == "" and regions["s2.body"]["data-cp-default"] == "" and not regions["s2.body"].select("[data-cp-block]")
     assert regions["s3.body"]["data-cp-occupant"] == regions["s3.body"]["data-cp-default"] == "layer-stack:bdc-architecture"
-    assert all(n.has_attr("hidden") for n in soup.select("[data-cp-note]"))                                  # el aviso de texto desalineado aparece solo tras agregar/reemplazar
-    assert {t["data-cp-component"] for t in soup.select("template[data-cp-component]")} == {f"{o['component']}:{o['variant']}" for o in cp.component_library()}
-    assert "cp-region-tools" not in str(_read(world, SEED_ID))                                               # nada de esto llega a la lectura
-    assert not _read(world, SEED_ID, edit=True).select("[data-cp-region] .cp-region-tools, template")        # ni el seed expone herramientas
+    dialogs = soup.select("dialog")
+    assert len(dialogs) == 1 and dialogs[0]["id"] == "cp-addon-dialog" and "dw-confirm" in dialogs[0]["class"] and "busqueda-dialog" in dialogs[0]["class"]      # MISMO primitivo del Hub que «Agregar candidato…» de CCHH
+    options = {o.select_one("input")["value"]: o["data-cp-opt-type"] for o in dialogs[0].select("[data-cp-opt]")}
+    assert options == {f"{o['component']}:{o['variant']}": o["region"] for o in cp.component_library()}      # exactamente la biblioteca registrada, con el tipo de región al que calza (la compatibilidad la filtra por tipo)
+    assert sorted(set(options.values())) == ["bleed", "body"] and list(options.values()).count("bleed") == 1
+    assert dialogs[0].select_one("[data-cp-addon-preview]") is not None and dialogs[0].select_one("[data-cp-addon-preview]").get_text(strip=True) == ""      # la vista previa la pinta el componente real clonado
+    assert [b.get_text(strip=True) for b in dialogs[0].select(".dw-confirm__actions button")] == ["Cancelar", "Quitar componente", "Reemplazar"]
+    assert "no se actualizan automáticamente" in dialogs[0].get_text()                                      # aviso discreto, sin bloquear
+    assert {t["data-cp-component"] for t in soup.select("template[data-cp-component]")} == set(options)
+    assert not _read(world, pid).select("dialog, .cp-region-tools, template")                                 # nada de esto llega a la lectura
+    assert not _read(world, SEED_ID, edit=True).select("dialog, [data-cp-region] .cp-region-tools, template")      # ni el seed expone herramientas
+    assert not _read(world, pid, email=HUB_ONLY, edit=True).select("dialog, .cp-region-tools, template")         # quien no puede editar nunca ve estas acciones
 
 
 # ── Copias ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -553,7 +562,8 @@ def test_add_ons_introduce_no_environment_variables_roles_allowlists_or_dependen
 def test_the_script_and_style_changes_for_add_ons_are_confined_to_edit_mode_and_wire_the_editor():
     js = (REPO / "content_packs/datasphere_core/assets/presentations/vanture-bdc/vanture.js").read_text(encoding="utf-8")
     assert "cp:composition-changed" in js and "data-cp-component" in js and "cloneNode(true)" in js and "innerHTML" not in js        # se clona lo que ya está: nunca se arma markup
+    assert "showModal()" in js and "data-cp-region-manage" in js and "data-cp-addon-apply" in js and "data-cp-addon-remove" in js      # la ✕ abre el diálogo; solo Aplicar/Quitar modifican
     css = (REPO / "content_packs/datasphere_core/assets/presentations/vanture-bdc/vanture.css").read_text(encoding="utf-8")
-    assert ".cp-region-gap{margin-top:56px}" in css and "html[data-cp-edit] .cp-region-tools" in css
+    assert ".cp-region-gap{margin-top:56px}" in css and "html[data-cp-edit] .cp-region-x" in css and "outline:1px dashed" in css
     hub = (REPO / "webapp/static/commercial_presentations.js").read_text(encoding="utf-8")
     assert "cp:composition-changed" in hub and "blocks: blocksNow()" in hub and "data-qr-url" in hub and "QR_MAX" in hub

@@ -65,34 +65,79 @@
         if (label) { e.preventDefault(); if (label.control && label.control.type === 'radio') label.control.checked = true; }
       });
     });
-    // Componentes por región. La biblioteca son las <template data-cp-component> que el servidor renderiza (solo composiciones REALES y registradas, cada una una sola vez); acá nunca se arma markup: se clona
-    // el que ya está. El servidor revalida todo al guardar (región, componente, variante y compatibilidad de tipo).
+    // Componentes por región. La biblioteca son las <template data-cp-component> que el servidor renderiza (solo composiciones REALES y registradas, cada una una sola vez): de ahí salen tanto el componente que se
+    // inserta como su vista previa en el diálogo; acá nunca se arma markup, solo se clona el que ya está. La ✕ del bloque ABRE el diálogo (no quita nada); recién «Reemplazar/Agregar/Quitar» modifican la
+    // composición, y el servidor revalida todo al guardar (región, componente, variante y compatibilidad de tipo).
     var tpl = {};
     document.querySelectorAll('template[data-cp-component]').forEach(function(t){ tpl[t.getAttribute('data-cp-component')] = t; });
+    var dlg = document.getElementById('cp-addon-dialog'), current = null;
     function syncRegion(reg){
       var occ = reg.getAttribute('data-cp-occupant'), def = reg.getAttribute('data-cp-default');
-      reg.querySelectorAll('[data-cp-pick]').forEach(function(b){ b.setAttribute('aria-pressed', b.getAttribute('data-cp-pick') === occ ? 'true' : 'false'); });
       var restore = reg.querySelector('[data-cp-restore-default]'); if (restore) restore.hidden = !def || occ === def;
-      var title = reg.querySelector('[data-cp-region-title]');
-      var current = occ && reg.querySelector('[data-cp-pick="' + occ + '"]');
-      if (title) title.textContent = current ? current.textContent : 'Región vacía';
     }
     function setOccupant(reg, ref){
       var root = reg.querySelector(':scope > [data-cp-block]'); if (root) root.remove();
       if (ref && tpl[ref]) reg.appendChild(tpl[ref].content.firstElementChild.cloneNode(true));
       reg.setAttribute('data-cp-occupant', ref && tpl[ref] ? ref : '');
-      var note = reg.querySelector('[data-cp-note]'); if (note) note.hidden = !ref;       // aviso discreto: el texto de la slide no se reescribe solo
       syncRegion(reg);
       document.dispatchEvent(new CustomEvent('cp:composition-changed'));
     }
+    function selectedRef(){ var r = dlg.querySelector('input[name="cp-addon-ref"]:checked'); return r ? r.value : ''; }
+    var STAGE_W = 1100;                                                                // ancho natural con el que se maqueta el componente en la vista previa (el real vive en un contenedor de 1180)
+    function renderPreview(ref){
+      var box = dlg.querySelector('[data-cp-addon-preview]');
+      box.replaceChildren();
+      if (!ref || !tpl[ref]) return;
+      var sizer = document.createElement('div'), stage = document.createElement('div');
+      sizer.className = 'cp-addon-sizer'; stage.className = 'cp-addon-stage';
+      stage.appendChild(tpl[ref].content.firstElementChild.cloneNode(true));
+      sizer.appendChild(stage); box.appendChild(sizer);
+      var k = Math.min(1, (box.clientWidth - 26) / STAGE_W);                              // se reduce para entrar; el layout es el real a 1100 px
+      stage.style.transform = 'scale(' + k + ')';
+      sizer.style.width = Math.ceil(STAGE_W * k) + 'px'; sizer.style.height = Math.ceil(stage.offsetHeight * k) + 'px';
+    }
+    function syncDialog(){
+      var occ = current.getAttribute('data-cp-occupant'), ref = selectedRef();
+      var apply = dlg.querySelector('[data-cp-addon-apply]');
+      apply.textContent = occ ? 'Reemplazar' : 'Agregar';
+      apply.disabled = !ref || ref === occ;
+    }
+    function openDialog(reg){
+      current = reg;
+      var occ = reg.getAttribute('data-cp-occupant'), def = reg.getAttribute('data-cp-default'), type = reg.getAttribute('data-cp-region-type');
+      dlg.querySelector('[data-cp-addon-title]').textContent = occ ? 'Componente de esta región' : 'Agregar componente';
+      dlg.querySelectorAll('[data-cp-opt]').forEach(function(o){
+        var input = o.querySelector('input');
+        o.hidden = o.getAttribute('data-cp-opt-type') !== type;                           // solo las composiciones compatibles con el TIPO de región
+        input.checked = !!occ && input.value === occ;
+        o.querySelector('[data-cp-opt-original]').hidden = !def || input.value !== def;
+      });
+      dlg.querySelector('[data-cp-addon-remove]').hidden = !occ;
+      syncDialog();
+      dlg.showModal();
+      renderPreview(occ);                                                                  // con el diálogo abierto: hace falta su ancho para escalar
+    }
     document.querySelectorAll('[data-cp-region]').forEach(syncRegion);
+    if (dlg) {
+      dlg.addEventListener('change', function(e){
+        if (!e.target.closest || !e.target.closest('input[name="cp-addon-ref"]')) return;
+        renderPreview(selectedRef());                                                      // seleccionar solo cambia la vista previa
+        syncDialog();
+      });
+      dlg.querySelector('[data-cp-addon-apply]').addEventListener('click', function(){
+        var ref = selectedRef();
+        if (ref) setOccupant(current, ref);
+        dlg.close();
+      });
+      dlg.querySelector('[data-cp-addon-remove]').addEventListener('click', function(){ setOccupant(current, ''); dlg.close(); });
+      dlg.addEventListener('close', function(){ dlg.querySelector('[data-cp-addon-preview]').replaceChildren(); current = null; });
+    }
     document.addEventListener('click', function(e){
-      var t = e.target.closest && e.target.closest('[data-cp-pick], [data-cp-region-remove], [data-cp-restore-default]');
+      var t = e.target.closest && e.target.closest('[data-cp-region-manage], [data-cp-restore-default]');
       if (!t) return;
       var reg = t.closest('[data-cp-region]');
-      if (t.hasAttribute('data-cp-pick')) setOccupant(reg, t.getAttribute('data-cp-pick'));
-      else if (t.hasAttribute('data-cp-region-remove')) setOccupant(reg, '');
-      else setOccupant(reg, reg.getAttribute('data-cp-default'));
+      if (t.hasAttribute('data-cp-restore-default')) setOccupant(reg, reg.getAttribute('data-cp-default'));
+      else openDialog(reg);
     });
     // Eliminar / restaurar una slide de la copia. La numeración («NN / total»), el riel, los «Siguiente» y el cue de la portada se recalculan sobre las slides visibles (el servidor aplica la MISMA regla al
     // renderizar la lectura). El editor del Hub escucha `cp:slides-changed` para marcar «Sin guardar».
