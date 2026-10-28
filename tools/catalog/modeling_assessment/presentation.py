@@ -16,14 +16,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from . import naming_rules as _nr
 from . import render_md as _md
 
 __all__ = [
     "area_title", "macro_dimension_title", "assessability_text", "assessability_plural_text", "execution_state_text",
     "confidence_level_text", "finding_kind_text", "rule_result_text", "unit_label", "is_artifact_name",
     "percent_text", "plural", "value_text", "occurrence_text", "row_key_text", "evidence_not_acquired", "view_composition_text",
-    "has_structural_membership", "review_required_text", "context_open_text", "summary_relation_text", "reason_text", "highlight_label", "display_doc", "display_title", "structural_views_caveat", "canonical_signal_id", "boundary_breakdown", "naming_violation_family",
+    "has_structural_membership", "review_required_text", "context_open_text", "summary_relation_text", "reason_text", "highlight_label", "display_doc", "display_title", "structural_views_caveat", "canonical_signal_id", "boundary_breakdown",
 ]
 
 
@@ -173,10 +172,3 @@ def boundary_breakdown(doc: dict, original: list[dict]) -> list[dict] | None:
     """Reparto de las hojas de frontera de Ingesta con la procedencia resuelta por la evidencia canónica del documento (misma función que el Markdown); ``None`` si el
     documento no la trae o no permite una partición exacta (se conserva el desglose persistido)."""
     return _md.projected_boundary_breakdown(doc, original)
-
-
-def naming_violation_family(reason_text: str) -> str:
-    """Código de la FAMILIA de incumplimiento de la convención de nombres (``MISSING_LAYER_PREFIX``…) que corresponde al texto de motivo persistido por el motor
-    (``violation_reason_histogram[].key``). Delega en el clasificador del propio paquete (``naming_rules.violation_family``): los consumidores externos NO duplican ni importan esa
-    regla. Un motivo que el clasificador no conoce devuelve ``UNMAPPED_ISSUE`` (nunca lanza)."""
-    return _nr.violation_family(reason_text).value

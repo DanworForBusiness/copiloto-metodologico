@@ -239,7 +239,7 @@ def governance_findings(profile: dict | None) -> list[dict] | None:
     if s28:                                                      # motivos persistidos con ordinales históricos («§29: …») → sin ordinal (compatibilidad de lectura)
         s28 = {**s28, "violation_reason_histogram": [{**r, "key": MR.strip_ordinals(r.get("key"))} for r in s28.get("violation_reason_histogram") or []]}
     ref = MR.resolve_ref(MR.NAMING_CONVENTION)                   # módulo/sección por CLAVE; el número se resuelve acá, contra la estructura VIGENTE del módulo
-    return AE.governed_findings(groups, s28, ref, AL.naming_view(doc, P.naming_violation_family))
+    return AE.governed_findings(groups, s28, ref, AL.naming_view(doc))
 
 
 def tile_grade(status: svc.AssessmentStatus) -> dict:
@@ -938,7 +938,7 @@ def _area_extras(a: dict, doc: dict) -> dict | None:
         hide = AQ.ingestion_hidden(doc) if AQ._leaves(doc) is not None else set()
         return {**load, "breakdown": breakdown, "hide": hide} if (load or breakdown or hide) else None
     if a["id"] == "NAMING":
-        nv = AL.naming_view(doc, P.naming_violation_family)
+        nv = AL.naming_view(doc)
         return {"naming": nv} if nv else None
     return None
 

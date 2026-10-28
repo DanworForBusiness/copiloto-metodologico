@@ -23,12 +23,6 @@ from webapp.main import templates
 from webapp.services import assessment_labels as AL
 from webapp.services import assessment_presenter as presenter
 from webapp.services import assessment_service as svc
-from tools.catalog.modeling_assessment.presentation import naming_violation_family as _FAMILY_OF
-
-def NV(doc):
-    """`assessment_labels.naming_view` con el clasificador de la API pública (como lo inyecta el presenter)."""
-    return AL.naming_view(doc, _FAMILY_OF)
-
 
 REPO = Path(__file__).resolve().parents[2]
 TEMPLATE = "partials/catalog_assessment_report.html"
@@ -84,7 +78,7 @@ def test_a_single_family_group_with_a_matching_count_attributes_all_its_artifact
     doc = _doc([{"identity": "A", "non_compliant_artifacts": ["x1", "x2"], "violation_family_histogram": [{"key": "MISSING_LAYER_PREFIX", "count": 2}], "distinct_violation_families": 1},
                 {"identity": "B", "non_compliant_artifacts": ["y1"], "violation_family_histogram": [{"key": "NO_RECOGNIZED_PATTERN", "count": 1}], "distinct_violation_families": 1}],
                [{"key": "MISSING_LAYER_PREFIX", "count": 2}, {"key": "NO_RECOGNIZED_PATTERN", "count": 1}], ["x1", "x2", "y1"])
-    nv = NV(doc)
+    nv = AL.naming_view(doc)
     assert nv["all_attributed"] and nv["unattributed"] == []
     assert {f["code"]: f["artifacts"] for f in nv["families"]} == {"MISSING_LAYER_PREFIX": ["x1", "x2"], "NO_RECOGNIZED_PATTERN": ["y1"]}
 
@@ -93,7 +87,7 @@ def test_a_mixed_family_group_is_never_split_by_guessing():
     doc = _doc([{"identity": "A", "non_compliant_artifacts": ["x1", "x2", "y1"],
                  "violation_family_histogram": [{"key": "MISSING_LAYER_PREFIX", "count": 2}, {"key": "NO_RECOGNIZED_PATTERN", "count": 1}], "distinct_violation_families": 2}],
                [{"key": "MISSING_LAYER_PREFIX", "count": 2}, {"key": "NO_RECOGNIZED_PATTERN", "count": 1}], ["x1", "x2", "y1"])
-    nv = NV(doc)
+    nv = AL.naming_view(doc)
     assert not nv["all_attributed"] and all(f["artifacts"] is None for f in nv["families"])        # solo el agregado: la plantilla lo dice
     assert nv["unattributed"] == ["x1", "x2", "y1"]
 
@@ -101,11 +95,11 @@ def test_a_mixed_family_group_is_never_split_by_guessing():
 def test_a_count_that_does_not_match_the_group_is_not_attributed():
     doc = _doc([{"identity": "A", "non_compliant_artifacts": ["x1", "x2"], "violation_family_histogram": [{"key": "MISSING_LAYER_PREFIX", "count": 5}], "distinct_violation_families": 1}],
                [{"key": "MISSING_LAYER_PREFIX", "count": 5}], ["x1", "x2"])
-    assert NV(doc)["families"][0]["artifacts"] is None
+    assert AL.naming_view(doc)["families"][0]["artifacts"] is None
 
 
 def test_profiles_without_section_28_keep_the_previous_reading():
-    assert NV({}) is None and NV({"canonical_evidence": {}}) is None and NV(None) is None
+    assert AL.naming_view({}) is None and AL.naming_view({"canonical_evidence": {}}) is None and AL.naming_view(None) is None
 
 
 # ═══════════════════════════ fundamento de «no cambia el nivel» ═══════════════════════════
@@ -179,7 +173,7 @@ def test_real_assessment_reading_is_complete_navigable_and_free_of_engine_codes(
                     assert name in html
             assert g["scope_note"] is None or "solo existe el conteo agregado" in g["scope_note"]
     # convención de nombres: las familias muestran su universo completo cuando está atribuido
-    nv = NV(prof)
+    nv = AL.naming_view(prof)
     if nv and nv["all_attributed"]:
         assert sum(f["count"] for f in nv["families"]) == nv["non_compliant"]
         listed = [a for f in nv["families"] for a in f["artifacts"]]
@@ -208,7 +202,7 @@ def test_the_analisis_vencimiento_acceptance_case():
     path = next(p for p in CORPUS if "AM_ANALISIS_VENCIMIENTO" in p)
     d, prof, judgment = _load(path)
     view, html = _render(d, prof, judgment)
-    nv = NV(prof)
+    nv = AL.naming_view(prof)
     fam = {f["code"]: f for f in nv["families"]}
     assert nv["applicable"] == 28 and nv["non_compliant"] == 24 and nv["compliant"] == 4
     assert len(fam["MISSING_LAYER_PREFIX"]["artifacts"]) == 12 and len(fam["NO_RECOGNIZED_PATTERN"]["artifacts"]) == 12      # los 12 de cada familia, identificados
@@ -261,7 +255,7 @@ def test_a_partially_attributed_naming_view_never_claims_to_list_everything():
     doc = _doc([{"identity": "A", "non_compliant_artifacts": ["x1", "x2", "y1"],
                  "violation_family_histogram": [{"key": "MISSING_LAYER_PREFIX", "count": 2}, {"key": "NO_RECOGNIZED_PATTERN", "count": 1}], "distinct_violation_families": 2}],
                [{"key": "MISSING_LAYER_PREFIX", "count": 2}, {"key": "NO_RECOGNIZED_PATTERN", "count": 1}], ["x1", "x2", "y1"])
-    nv = NV(doc)
+    nv = AL.naming_view(doc)
     s28 = doc["canonical_evidence"]["naming_evidence"]["hygiene"]["artifact_name_populations"]["section_28"]
     row = AE.governed_findings([], s28, None, nv)[0]
     assert "por familia" not in row["link"]["text"] and "familia" not in row["evidence"].split(":")[-1]          # ni el enlace ni el texto prometen el reparto por familia
@@ -270,14 +264,41 @@ def test_a_partially_attributed_naming_view_never_claims_to_list_everything():
     assert "Sin atribución por familia" in html and "x1" in html and "y1" in html                               # los artefactos se listan, sin repartirlos
 
 
-# ═══════════════════════════ frontera del paquete del motor (RI2 / RI2b) ═══════════════════════════
-def test_the_labels_registry_does_not_import_the_engine_package_and_the_classifier_comes_through_the_public_api():
+# ═══════════════════════════ frontera del paquete del motor (RI2 / RI2b / presentation) ═══════════════════════════
+def test_the_labels_registry_imports_nothing_from_the_engine_package():
     import ast
     tree = ast.parse((REPO / "webapp" / "services" / "assessment_labels.py").read_text(encoding="utf-8"))
-    imported = [n.module if isinstance(n, ast.ImportFrom) else a.name for n in ast.walk(tree) if isinstance(n, (ast.Import, ast.ImportFrom)) for a in (getattr(n, "names", None) or [None])]
-    assert not any("modeling_assessment" in str(m) or "tools" in str(m).split(".")[:1] for m in imported), imported       # solo el presenter/servicio consumen el paquete
-    from tools.catalog.modeling_assessment import naming_rules as NR, presentation as P
-    assert "naming_violation_family" in P.__all__
-    for text in ("tabla/vista sin prefijo de capa (§28: <Capa><Artefacto><Uso>_)", "no sigue §28 <Capa><Artefacto><Uso>_ ni un artefacto homologado (DF/RF/FT/AM/…)", "motivo desconocido"):
-        assert P.naming_violation_family(text) == NR.violation_family(text).value                                      # delega, no duplica la regla
-    assert P.naming_violation_family("motivo desconocido") == "UNMAPPED_ISSUE"
+    imported = [n.module if isinstance(n, ast.ImportFrom) else a.name for n in ast.walk(tree) if isinstance(n, (ast.Import, ast.ImportFrom)) for a in n.names[:1]]
+    assert not [m for m in imported if m and (m.startswith("tools") or "modeling_assessment" in m)], imported       # solo el presenter/servicio consumen el paquete
+
+
+def test_the_family_rule_text_comes_only_from_the_evidence_that_pairs_it_with_the_family():
+    one = {"identity": "A", "non_compliant_artifacts": ["x1", "x2"], "violation_family_histogram": [{"key": "MISSING_LAYER_PREFIX", "count": 2}], "distinct_violation_families": 1,
+           "violation_reason_histogram": [{"key": "tabla/vista sin prefijo de capa (§28: <Capa><Artefacto><Uso>_)", "count": 2}]}
+    nv = AL.naming_view(_doc([one], [{"key": "MISSING_LAYER_PREFIX", "count": 2}], ["x1", "x2"]))
+    assert nv["families"][0]["reason"] == "tabla/vista sin prefijo de capa (<Capa><Artefacto><Uso>_)"           # emparejada por la evidencia, sin ordinal histórico
+    mixed = {**one, "non_compliant_artifacts": ["x1", "x2", "y1"], "violation_family_histogram": [{"key": "MISSING_LAYER_PREFIX", "count": 2}, {"key": "NO_RECOGNIZED_PATTERN", "count": 1}],
+             "distinct_violation_families": 2, "violation_reason_histogram": [{"key": "tabla/vista sin prefijo de capa (§28: <Capa><Artefacto><Uso>_)", "count": 2},
+                                                                             {"key": "no sigue §28 <Capa><Artefacto><Uso>_ ni un artefacto homologado (DF/RF/FT/AM/…)", "count": 1}]}
+    nv = AL.naming_view(_doc([mixed], mixed["violation_family_histogram"], ["x1", "x2", "y1"]))
+    assert all(f["reason"] is None and f["artifacts"] is None for f in nv["families"])                          # grupo mixto: ni artefactos ni motivo por familia (no se infiere)
+    wrong_count = {**one, "violation_reason_histogram": [{"key": "tabla/vista sin prefijo de capa (§28: <Capa><Artefacto><Uso>_)", "count": 9}]}
+    assert AL.naming_view(_doc([wrong_count], [{"key": "MISSING_LAYER_PREFIX", "count": 2}], ["x1", "x2"]))["families"][0]["reason"] is None
+
+
+@needs_corpus
+@pytest.mark.parametrize("path", CORPUS, ids=lambda p: Path(p).stem[:48])
+def test_evidence_paired_reasons_agree_with_the_engines_own_classifier_on_real_profiles(path):
+    """La verificación contra el clasificador del motor vive SOLO en las pruebas (el runtime no lo importa): cada motivo emparejado por la evidencia pertenece a su familia."""
+    from tools.catalog.modeling_assessment import naming_rules as NR
+    from webapp.services import module_reference as MR
+    d, prof, _j = _load(path)
+    nv = AL.naming_view(prof) if prof else None
+    for f in (nv or {}).get("families", []):
+        if f["reason"] is not None:
+            raw = next(r["key"] for g in _hygiene_groups(prof) for r in g.get("violation_reason_histogram") or [] if MR.strip_ordinals(str(r["key"])) == f["reason"])
+            assert NR.violation_family(raw).value == f["code"], (f["code"], raw)
+
+
+def _hygiene_groups(prof):
+    return (((prof.get("canonical_evidence") or {}).get("naming_evidence") or {}).get("hygiene") or {}).get("artifact_name_populations", {}).get("by_identity") or []

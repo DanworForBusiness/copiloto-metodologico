@@ -139,12 +139,14 @@ def _hygiene(doc: dict | None) -> dict:
     return ((((doc or {}).get("canonical_evidence") or {}).get("naming_evidence") or {}).get("hygiene") or {}).get("artifact_name_populations") or {}
 
 
-def naming_view(doc: dict | None, family_of) -> dict | None:
+def naming_view(doc: dict | None) -> dict | None:
     """Familias de incumplimiento de la sección 28 con los artefactos de cada una, SOLO si la evidencia canónica los atribuye de forma demostrable.
 
     Regla de atribución (verificable, sin inferir): el perfil conserva, por procedencia del nombre (``by_identity``), la lista de artefactos que no cumplen y el histograma de familias de
     ESE grupo. Si el grupo tiene UNA sola familia y su conteo coincide con la cantidad de artefactos del grupo, todos pertenecen a esa familia. Un grupo con varias familias no permite
     repartir sus artefactos: se informan aparte como «sin atribución por familia» (la evidencia solo guarda el agregado). Nunca se reparte por nombre ni por patrón.
+    La «regla evaluada» de una familia se muestra solo cuando la MISMA evidencia la demuestra: el grupo atribuido tiene una única familia y un único motivo persistido cuyo conteo coincide con el de
+    sus artefactos. No hay clasificador ni reglas del motor en este módulo (la frontera del paquete es del presenter): si la evidencia no empareja motivo y familia, no se muestra motivo.
     Devuelve ``None`` si el perfil no trae la sección 28 (perfiles anteriores): la lectura vigente queda como estaba."""
     pop = _hygiene(doc)
     s28 = pop.get("section_28") or {}
@@ -153,9 +155,6 @@ def naming_view(doc: dict | None, family_of) -> dict | None:
     non = [str(a) for a in s28.get("non_compliant_artifacts") or []]
     comp = [str(a) for a in s28.get("compliant_artifacts") or []]
     reason_by_family: dict[str, str] = {}
-    for r in s28.get("violation_reason_histogram") or []:
-        key = str(r.get("key") or "")
-        reason_by_family.setdefault(family_of(key), MR.strip_ordinals(key))      # sin el ordinal histórico de la sección; ``family_of`` = clasificador del motor (lo inyecta el presenter)
     members: dict[str, list[str]] = {}
     attributed: set[str] = set()
     for grp in pop.get("by_identity") or []:
@@ -164,6 +163,9 @@ def naming_view(doc: dict | None, family_of) -> dict | None:
         if arts and len(fams) == 1 and int(fams[0].get("count") or 0) == len(arts) and int(grp.get("distinct_violation_families") or 0) == 1:
             members.setdefault(str(fams[0]["key"]), []).extend(arts)
             attributed.update(arts)
+            reasons = grp.get("violation_reason_histogram") or []
+            if len(reasons) == 1 and int(reasons[0].get("count") or 0) == len(arts) and reasons[0].get("key"):
+                reason_by_family.setdefault(str(fams[0]["key"]), MR.strip_ordinals(str(reasons[0]["key"])))      # sin el ordinal histórico de la sección
     families = []
     for f in s28.get("violation_family_histogram") or []:
         code = str(f["key"])
