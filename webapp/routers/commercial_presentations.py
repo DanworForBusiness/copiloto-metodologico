@@ -22,7 +22,7 @@ import json
 import logging
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from core.content_registry import DEFAULT_PACK
 from webapp import commercial_access, same_origin_guard, workspaces
@@ -135,6 +135,25 @@ def presentation_shared_view(request: Request, presentation_id: str, embed: str 
     return templates.TemplateResponse(request=request, name=spec.jinja, context=presentations.render_context(view, embed=embedded, theme=theme), headers=_NO_STORE)
 
 
+# ── R8 — logo propio de una instancia (mismo contrato de lectura que R1) ───────────────────────────────────────────────
+
+@router.get("/presentaciones/{presentation_id}/logo", include_in_schema=False)
+def presentation_logo(request: Request, presentation_id: str):
+    user = auth_service.session_user(request)
+    if not user:
+        return workspaces.platform_login_redirect(request)
+    if not presentations.can_read_shared_user(user):
+        raise HTTPException(403, "No autorizado")
+    _load(presentation_id)
+    try:
+        data = presentations.read_logo(presentation_id)
+    except presentations.PresentationNotFound:
+        raise HTTPException(404, "Esta presentación no tiene logo propio")
+    except presentations.PresentationStorageError:
+        raise HTTPException(503, "Presentaciones no disponibles")
+    return Response(content=data, media_type="image/png", headers={**_NO_STORE, "Content-Security-Policy": "default-src 'none'; sandbox"})
+
+
 # ── R2 — catálogo ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
 @router.get("/comercial/presentaciones", response_class=HTMLResponse, include_in_schema=False)
@@ -207,11 +226,24 @@ async def presentation_copy(request: Request, presentation_id: str):
     _load(presentation_id)                                                       # 404 / 409 antes de cualquier otra cosa
     if not same_origin_guard.is_same_origin_write(request):
         raise HTTPException(403, "Origen del request no verificado")
-    body = await _json_body(request)
+    logo = None
+    if request.headers.get("content-type", "").lower().startswith("multipart/form-data"):      # el diálogo envía título + logo opcional; el JSON `{title}` sigue siendo válido
+        declared = request.headers.get("content-length", "")
+        if declared.isdigit() and int(declared) > presentations.MAX_LOGO_BYTES + 64 * 1024:
+            raise HTTPException(413, "El logo supera 1 MB: exportalo más liviano.")
+        form = await request.form()
+        body = {"title": form.get("title")}
+        upload = form.get("logo")
+        if upload is not None and getattr(upload, "filename", "") and hasattr(upload, "read"):
+            logo = await upload.read(presentations.MAX_LOGO_BYTES + 1)
+            if not logo:
+                raise HTTPException(422, "El archivo de logo está vacío.")
+    else:
+        body = await _json_body(request)
     owner_id = str(user.get("sub") or "")
     owner_label = str(user.get("name") or user.get("username") or user.get("email") or owner_id)
     try:
-        created = presentations.copy_presentation(presentation_id, title=body.get("title"), owner_id=owner_id, owner_label=owner_label)
+        created = presentations.copy_presentation(presentation_id, title=body.get("title"), owner_id=owner_id, owner_label=owner_label, logo=logo)
     except presentations.PresentationValidationError as exc:
         raise HTTPException(422, str(exc))
     except presentations.QuotaExceeded:

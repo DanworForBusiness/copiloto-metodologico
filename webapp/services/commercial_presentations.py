@@ -27,6 +27,8 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import struct
+import zlib
 import logging
 import os
 import re
@@ -57,6 +59,10 @@ _RESTORE_WAIT_TIMEOUT_S = 15.0
 _INSTITUTIONAL_LOGO = "academy/assets/img/danwor-logo.png"
 MAX_INSTANCES = 200                                   # tope global (V1): evita crecimiento sin control del directorio
 MAX_TITLE = 120
+MAX_LOGO_BYTES = 1024 * 1024                          # logo del cliente: PNG con fondo transparente, hasta 1 MB
+MAX_LOGO_PIXELS = 1_500_000
+_PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+_DEFAULT_PARTNER_LOGO = "img/718d5d28e4.png"           # logo de Vanture del template (header y pie): es el que reemplaza el logo del cliente
 
 _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 # Caracteres de control, separadores de línea/párrafo y controles bidi: ningún campo editable los admite (no son texto de negocio; los bidi permiten disfrazar el orden visual).
@@ -80,6 +86,10 @@ class PresentationUnavailable(Exception):
 
 class PresentationValidationError(Exception):
     """Payload rechazado — mensaje SEGURO para mostrar al usuario (nunca refleja el valor recibido)."""
+
+
+class LogoValidationError(PresentationValidationError):
+    """El archivo de logo no cumple el contrato (PNG, tamaño, transparencia). El mensaje es apto para mostrar."""
 
 
 class SeedIsReadOnly(Exception):
@@ -268,6 +278,135 @@ def _path(presentation_id: str) -> Path:
     return _dir() / f"{presentation_id}.json"
 
 
+def _logo_path(presentation_id: str) -> Path:
+    return _dir() / f"{presentation_id}.logo.png"
+
+
+def _paeth(a: int, b: int, c: int) -> int:
+    p = a + b - c
+    pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
+    return a if pa <= pb and pa <= pc else (b if pb <= pc else c)
+
+
+def _has_transparent_pixel(width: int, height: int, color_type: int, depth: int, idat: bytes, trns: bytes | None) -> bool | None:
+    """True/False si pudo decodificar y buscar un píxel con alfa < 255 (se detiene en el primero: un logo con fondo transparente lo trae en la primera fila); None si el formato no se decodifica (se acepta por su canal/`tRNS`)."""
+    if color_type == 6 and depth in (8, 16):
+        bpp, alpha = (4, 3) if depth == 8 else (8, 6)
+        full = 255 if depth == 8 else None
+    elif color_type == 4 and depth in (8, 16):
+        bpp, alpha = (2, 1) if depth == 8 else (4, 2)
+        full = 255 if depth == 8 else None
+    elif color_type == 3 and depth == 8 and trns is not None:
+        bpp, alpha, full = 1, None, 255
+    else:
+        return None
+    row_len = width * bpp
+    expected = height * (row_len + 1)
+    try:
+        raw = zlib.decompressobj().decompress(idat, expected + 1)
+    except zlib.error:
+        raise LogoValidationError("El PNG está dañado (los datos de imagen no se pueden leer).")
+    if len(raw) != expected:
+        raise LogoValidationError("El PNG está dañado (los datos de imagen están incompletos).")
+    prev = bytearray(row_len)
+    for y in range(height):
+        base = y * (row_len + 1)
+        ftype, line = raw[base], bytearray(raw[base + 1: base + 1 + row_len])
+        if ftype == 1:
+            for i in range(bpp, row_len):
+                line[i] = (line[i] + line[i - bpp]) & 255
+        elif ftype == 2:
+            for i in range(row_len):
+                line[i] = (line[i] + prev[i]) & 255
+        elif ftype == 3:
+            for i in range(row_len):
+                line[i] = (line[i] + (((line[i - bpp] if i >= bpp else 0) + prev[i]) >> 1)) & 255
+        elif ftype == 4:
+            for i in range(row_len):
+                line[i] = (line[i] + _paeth(line[i - bpp] if i >= bpp else 0, prev[i], prev[i - bpp] if i >= bpp else 0)) & 255
+        elif ftype != 0:
+            raise LogoValidationError("El PNG está dañado (filtro de imagen inválido).")
+        if alpha is not None:
+            if depth == 8:
+                if any(a != 255 for a in line[alpha::bpp]):
+                    return True
+            elif any(line[i] != 255 or line[i + 1] != 255 for i in range(alpha, row_len, bpp)):
+                return True
+        else:                                         # paleta con tRNS: alfa por índice (los índices fuera de `tRNS` son opacos)
+            if any(i < len(trns) and trns[i] != 255 for i in set(line)):
+                return True
+        prev = line
+    return False
+
+
+def validate_logo_png(data) -> dict:
+    """Valida el logo subido: PNG íntegro (firma, CRC de cada bloque, IEND), ≤ 1 MB, ≤ 1,5 M de píxeles, no animado y CON TRANSPARENCIA real (canal alfa o `tRNS`, y al menos un píxel transparente cuando se puede decodificar).
+    Devuelve `{width, height, sha256, bytes}`. No re-codifica nada: se guarda tal cual se subió. Lanza `LogoValidationError` con un mensaje apto para mostrar."""
+    if not isinstance(data, (bytes, bytearray)) or not data:
+        raise LogoValidationError("Elegí un archivo PNG para el logo.")
+    data = bytes(data)
+    if len(data) > MAX_LOGO_BYTES:
+        raise LogoValidationError("El logo supera 1 MB: exportalo más liviano.")
+    if not data.startswith(_PNG_SIGNATURE):
+        raise LogoValidationError("El logo debe ser un archivo .png.")
+    pos, first, ihdr, idat, trns, seen_end = len(_PNG_SIGNATURE), True, None, bytearray(), None, False
+    while pos + 12 <= len(data):
+        length = struct.unpack(">I", data[pos:pos + 4])[0]
+        ctype = data[pos + 4:pos + 8]
+        end = pos + 8 + length
+        if end + 4 > len(data):
+            raise LogoValidationError("El PNG está incompleto o dañado.")
+        body = data[pos + 8:end]
+        if zlib.crc32(ctype + body) & 0xFFFFFFFF != struct.unpack(">I", data[end:end + 4])[0]:
+            raise LogoValidationError("El PNG está dañado (falla la verificación de integridad).")
+        if first and ctype != b"IHDR":
+            raise LogoValidationError("El archivo no es un PNG válido.")
+        first = False
+        if ctype == b"IHDR":
+            if length != 13:
+                raise LogoValidationError("El archivo no es un PNG válido.")
+            ihdr = struct.unpack(">IIBBBBB", body)
+        elif ctype == b"IDAT":
+            idat += body
+        elif ctype == b"tRNS":
+            trns = body
+        elif ctype == b"acTL":
+            raise LogoValidationError("No se admiten PNG animados: subí un PNG estático.")
+        elif ctype == b"IEND":
+            seen_end = True
+            break
+        pos = end + 4
+    if ihdr is None or not seen_end or not idat:
+        raise LogoValidationError("El PNG está incompleto o dañado.")
+    width, height, depth, color_type, _compression, _filter, interlace = ihdr
+    if not (width and height) or width * height > MAX_LOGO_PIXELS:
+        raise LogoValidationError("El logo es demasiado grande en píxeles (máximo 1,5 millones, por ejemplo 1200 × 1200).")
+    if color_type not in (0, 2, 3, 4, 6):
+        raise LogoValidationError("El archivo no es un PNG válido.")
+    if color_type not in (4, 6) and trns is None:
+        raise LogoValidationError("El PNG no tiene transparencia: exportalo como PNG con fondo transparente.")
+    if interlace == 0:
+        found = _has_transparent_pixel(width, height, color_type, depth, bytes(idat), trns)
+        if found is False:
+            raise LogoValidationError("El PNG no tiene ningún píxel transparente: exportalo con fondo transparente.")
+    return {"width": width, "height": height, "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
+
+
+def read_logo(presentation_id: str) -> bytes:
+    """Bytes del logo propio de una instancia (NotFound si no tiene)."""
+    if not is_instance_id(presentation_id):
+        raise PresentationNotFound(presentation_id)
+    raw = _read_raw(presentation_id)
+    if not (raw.get("logo") or {}).get("sha256"):
+        raise PresentationNotFound(presentation_id)
+    try:
+        return _logo_path(presentation_id).read_bytes()
+    except FileNotFoundError as exc:
+        raise PresentationNotFound(presentation_id) from exc
+    except OSError as exc:
+        raise PresentationStorageError(f"No se pudo leer el logo: {exc}") from exc
+
+
 def _persistence_mode() -> str:
     return str(getattr(config, "PERSISTENCE_MODE", "local"))
 
@@ -305,6 +444,27 @@ def _write_atomic(path: Path, payload: dict) -> None:
         tmp_name = None
     except OSError as exc:
         raise PresentationStorageError(f"No se pudo escribir la presentación en disco: {exc}") from exc
+    finally:
+        if tmp_name is not None:
+            try:
+                os.remove(tmp_name)
+            except OSError:
+                pass
+
+
+def _write_bytes_atomic(path: Path, data: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_name: str | None = None
+    try:
+        fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=".tmp-", suffix=".png")
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_name, path)
+        tmp_name = None
+    except OSError as exc:
+        raise PresentationStorageError(f"No se pudo escribir el logo en disco: {exc}") from exc
     finally:
         if tmp_name is not None:
             try:
@@ -351,6 +511,7 @@ def _instance_view(raw: dict) -> dict:
         "owner_id": raw.get("owner_id"), "copied_from": raw.get("copied_from"),
         "created_at": raw.get("created_at"), "updated_at": raw.get("updated_at"),
         "updated_by_id": raw.get("updated_by_id"), "updated_by_label": raw.get("updated_by_label"),
+        "logo_sha": (raw.get("logo") or {}).get("sha256") if isinstance(raw.get("logo"), dict) else None,
         "content": full_content(template_id, content),
     }
 
@@ -420,10 +581,12 @@ def list_presentations() -> list[dict]:
     return items + instances
 
 
-def copy_presentation(source_id: str, *, title, owner_id: str, owner_label: str) -> dict:
+def copy_presentation(source_id: str, *, title, owner_id: str, owner_label: str, logo: bytes | None = None) -> dict:
     """Copia INDEPENDIENTE de un seed o de una instancia: uuid4 nuevo, creador y responsable = quien copia, `copied_from` = procedencia, contenido snapshot (las claves de la spec, sin
-    referencias al origen). Cualquier usuario de Comercial puede copiar cualquier presentación: la autorización la aplica el router; acá no se decide quién."""
+    referencias al origen). Cualquier usuario de Comercial puede copiar cualquier presentación: la autorización la aplica el router; acá no se decide quién.
+    `logo` (opcional): PNG con fondo transparente que reemplaza el logo de Vanture del template; se valida ANTES de escribir nada. Sin `logo`, la copia hereda el del origen si lo tiene."""
     clean_title = validate_title(title)
+    logo_meta = validate_logo_png(logo) if logo else None
     source = get(source_id)                                                      # NotFound / Unavailable propagan
     spec = TEMPLATES[source["template_id"]]
     owner_id = str(owner_id or "").strip().lower()
@@ -441,20 +604,46 @@ def copy_presentation(source_id: str, *, title, owner_id: str, owner_label: str)
     }
     _require_writable_mode()
     path = _path(new_id)
+    logo_bytes = logo
+    if logo_bytes is None and not is_seed_id(source_id):
+        try:
+            logo_bytes = read_logo(source_id)                                    # hereda el logo propio del origen (si lo tiene)
+        except PresentationNotFound:
+            logo_bytes = None
+    if logo_bytes:
+        meta = logo_meta if (logo and logo_meta) else validate_logo_png(logo_bytes)
+        payload["logo"] = {k: meta[k] for k in ("sha256", "bytes", "width", "height")}
+    logo_file = _logo_path(new_id)
+
+    def _discard() -> None:
+        _cleanup_failed_write(path)
+        if logo_bytes:
+            _cleanup_failed_write(logo_file)
+
+    def _push_all() -> bool:
+        return (not logo_bytes or remote_store.push_path(logo_file)) and remote_store.push_path(path)    # el logo primero: la instancia nunca aparece remotamente sin su logo
+
     with _write_lock:
         if len(_instance_ids()) >= MAX_INSTANCES:
             raise QuotaExceeded()
-        _write_atomic(path, payload)
+        if logo_bytes:
+            _write_bytes_atomic(logo_file, logo_bytes)
+        try:
+            _write_atomic(path, payload)
+        except PresentationStorageError:
+            if logo_bytes:
+                _cleanup_failed_write(logo_file)
+            raise
         if _local_only():
             return _instance_view(payload)
-        if remote_store.push_path(path):
+        if _push_all():
             return _instance_view(payload)
         if not remote_store.enabled():                                           # determinístico: ni este intento ni un reintento pueden confirmar en este entorno
-            _cleanup_failed_write(path)
+            _discard()
             raise PresentationConfigIncomplete("Las presentaciones todavía no están configuradas para este entorno.")
-        if remote_store.push_path(path):
+        if _push_all():
             return _instance_view(payload)
-        _cleanup_failed_write(path)
+        _discard()
         raise RemoteOutcomeUnknown("No pudimos confirmar si la copia se guardó. Antes de reintentar, revisá el catálogo — si ya aparece, no la vuelvas a crear.")
 
 
@@ -480,18 +669,31 @@ def delete_presentation(presentation_id: str) -> None:
         _read_raw(presentation_id)                                               # NotFound si no existe
         path = _path(presentation_id)
         previous_bytes = path.read_bytes()
+        logo_file = _logo_path(presentation_id)
+        previous_logo = logo_file.read_bytes() if logo_file.exists() else None
+
+        def _restore() -> None:
+            _restore_previous(path, previous_bytes)
+            if previous_logo is not None:
+                _restore_previous(logo_file, previous_logo)
+
         try:
             path.unlink()
+            if previous_logo is not None:
+                logo_file.unlink()
         except OSError as exc:
+            _restore()
             raise PresentationStorageError(f"No se pudo eliminar la presentación del disco: {exc}") from exc
         if _local_only():
             return
         if not remote_store.enabled():                                           # determinístico: ni este intento ni un reintento pueden confirmar en este entorno
-            _restore_previous(path, previous_bytes)
+            _restore()
             raise PresentationConfigIncomplete("Las presentaciones todavía no están configuradas para este entorno.")
         if remote_store.delete_path(path) or remote_store.delete_path(path):
+            if previous_logo is not None and not remote_store.delete_path(logo_file):
+                _logger.warning("commercial_presentations.delete: logo remoto huérfano (id=%s)", presentation_id)   # sin la instancia el logo no es alcanzable ni listable
             return
-        _restore_previous(path, previous_bytes)
+        _restore()
         _logger.error("commercial_presentations.delete: el borrado en Spaces no se confirmó — local restaurado (id=%s)", presentation_id)
         raise DurablePushFailed()
 
@@ -580,6 +782,8 @@ def render_context(presentation: dict, *, embed: bool = False, theme: str = "lig
         "c": full_content(template_id, presentation.get("content")),
         "asset_base": asset_base,
         "institutional_logo_url": f"/pack-assets/{DEFAULT_PACK}/{_INSTITUTIONAL_LOGO}",
+        "partner_logo_url": (f"/presentaciones/{presentation['presentation_id']}/logo?v={str(presentation['logo_sha'])[:10]}" if presentation.get("logo_sha") else f"{asset_base}/{_DEFAULT_PARTNER_LOGO}"),
+        "partner_logo_alt": "Logo del cliente" if presentation.get("logo_sha") else "Vanture — a Knowmad Mood company",
         "css_url": f"{asset_base}/{spec.css}?v={_asset_hash(template_id, spec.css)}",
         "js_url": f"{asset_base}/{spec.js}?v={_asset_hash(template_id, spec.js)}",
         "embed": bool(embed),

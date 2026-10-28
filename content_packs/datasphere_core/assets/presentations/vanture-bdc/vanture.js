@@ -30,48 +30,21 @@
   setTimeout(scheduleTick, 500);
   setTimeout(scheduleTick, 1500);
 
-  if (!reduceMotion) {
-    var lastTilt = null;
-    document.addEventListener('mousemove', function(e){
-      var el = e.target.closest ? e.target.closest('[data-tilt]') : null;
-      if (lastTilt && lastTilt !== el) {
-        lastTilt.style.setProperty('--rx', '0deg');
-        lastTilt.style.setProperty('--ry', '0deg');
-      }
-      lastTilt = el;
-      if (!el) return;
-      var rect = el.getBoundingClientRect();
-      if (!rect.width || !rect.height) return;
-      var px = (e.clientX - rect.left) / rect.width;
-      var py = (e.clientY - rect.top) / rect.height;
-      var clamp = function(v){ return Math.max(-8, Math.min(8, v)); };
-      el.style.setProperty('--ry', clamp((px - 0.5) * 8).toFixed(2) + 'deg');
-      el.style.setProperty('--rx', clamp((0.5 - py) * 8).toFixed(2) + 'deg');
-    });
-
-    var lastHero = null;
-    document.addEventListener('mousemove', function(e){
-      var hero = e.target.closest ? e.target.closest('#s1') : null;
-      if (!hero) {
-        if (lastHero) {
-          var oldSpot = lastHero.querySelector(':scope > .spotlight');
-          if (oldSpot) oldSpot.style.opacity = '0';
-        }
-        lastHero = null;
-        return;
-      }
-      lastHero = hero;
-      var spot = hero.querySelector(':scope > .spotlight');
-      if (!spot) {
-        spot = document.createElement('div');
-        spot.className = 'spotlight';
-        hero.insertBefore(spot, hero.firstChild);
-      }
-      var rect = hero.getBoundingClientRect();
-      spot.style.setProperty('--mx', (e.clientX - rect.left) + 'px');
-      spot.style.setProperty('--my', (e.clientY - rect.top) + 'px');
-      spot.style.opacity = '1';
-    });
+  // Glow del puntero de la portada: el MISMO de la landing/login del Hub (brand-hero.css `.hero-gradient` + brand-hero.js `initMouseGradient`): un resplandor dorado enorme y muy suave que sigue
+  // al puntero y queda donde lo dejó (no se apaga al salir). Solo con puntero fino (en táctil queda en su posición por defecto, como en la landing).
+  var hero = document.getElementById('s1');
+  if (hero) {
+    var spot = document.createElement('div');
+    spot.className = 'spotlight';
+    hero.insertBefore(spot, hero.firstChild);
+    if (window.matchMedia('(hover: hover) and (pointer: fine)').matches) {
+      document.addEventListener('mousemove', function(e){
+        if (!e.target.closest || !e.target.closest('#s1')) return;
+        var rect = hero.getBoundingClientRect();
+        spot.style.setProperty('--mx', (e.clientX - rect.left) + 'px');
+        spot.style.setProperty('--my', (e.clientY - rect.top) + 'px');
+      });
+    }
   }
 
   // Tema: contrato ÚNICO del Hub (hub_theme.js: preferencia `dw-content-theme`, clase `content-theme-*` en <html>). La presentación SIGUE al Hub (mensaje `danwor-theme` del visor embebido

@@ -133,6 +133,8 @@
     var titleInput = dialog.querySelector("[data-cp-title]");
     var errorEl = dialog.querySelector("[data-cp-copy-error]");
     var submitBtn = dialog.querySelector("[data-cp-copy-submit]");
+    var logoInput = dialog.querySelector("[data-cp-logo]");
+    var LOGO_MAX = 1024 * 1024;
 
     document.addEventListener("click", function (ev) {
       var opener = ev.target.closest("[data-cp-copy-open]");
@@ -141,6 +143,7 @@
       titleInput.value = (opener.getAttribute("data-cp-title") || "").slice(0, titleInput.maxLength > 0 ? titleInput.maxLength : 120);
       errorEl.hidden = true;
       errorEl.textContent = "";
+      if (logoInput) logoInput.value = "";
       submitBtn.disabled = false;
       dialog.showModal();
       titleInput.focus();
@@ -154,12 +157,25 @@
         errorEl.hidden = false;
         return;
       }
+      // Logo opcional: chequeo rápido de tipo y tamaño (el servidor valida de nuevo: firma PNG, integridad y transparencia real).
+      var logo = logoInput && logoInput.files && logoInput.files[0];
+      if (logo && !(logo.type === "image/png" || /\.png$/i.test(logo.name))) {
+        errorEl.textContent = "El logo debe ser un archivo .png con fondo transparente.";
+        errorEl.hidden = false;
+        return;
+      }
+      if (logo && logo.size > LOGO_MAX) {
+        errorEl.textContent = "El logo supera 1 MB: exportalo más liviano.";
+        errorEl.hidden = false;
+        return;
+      }
+      var form = new FormData();                                                 // sin Content-Type propio: el navegador arma el boundary
+      form.append("title", title);
+      if (logo) form.append("logo", logo, logo.name);
       submitBtn.disabled = true;
       try {
         var res = await fetch("/comercial/presentaciones/" + encodeURIComponent(dialog.dataset.sourceId) + "/copiar", {
-          method: "POST", credentials: "same-origin",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ title: title }),
+          method: "POST", credentials: "same-origin", body: form,
         });
         var data = await readJson(res);
         if (res.ok && data.url) {

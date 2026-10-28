@@ -402,6 +402,10 @@
 .feedback-form-header strong { display: block; font-size: .88rem; color: var(--ink); }
 .feedback-form-header p { margin: 3px 0 0; color: var(--soft); font-size: .74rem; line-height: 1.45; }
 .feedback-field { display: grid; gap: 6px; margin-top: 14px; }
+/* Selector de archivo del Hub: el MISMO look que Capital Humano ya definía por formulario (`.hc-profile-form`, `.hc-document-upload-form`, `.hc-document-retry-form`, human_capital.css; valores idénticos), promovido al
+   campo genérico para que cualquier vertical lo use sin cargar la hoja de otra (Comercial → Presentaciones: logo del cliente). Borde fino, radio 8px, tipografía .8rem. */
+.feedback-field input[type="file"] { padding: 7px 10px; border: 1px solid rgba(128,128,128,.35); border-radius: 8px; background: transparent; color: #1f1f24; font: .8rem var(--sans); }
+.content-theme-dark .feedback-field input[type="file"] { color: #e4e4ec; }
 .feedback-field label { color: var(--ink); font-size: .74rem; font-weight: 650; line-height: 1.35; letter-spacing: 0; text-transform: none; }
 /* `:not(.chart-tooltip):not(.chart-tooltip-anchor)` (owner corrective, CCHH
    Entrevistas "Fecha de entrevista" (i)): el tooltip transversal del Hub

@@ -119,6 +119,7 @@
   "GET /pack-resources/{pack_name}/{kind}/{resource_path:path}",
   "GET /platform",
   "GET /presentaciones/{presentation_id}",
+  "GET /presentaciones/{presentation_id}/logo",
   "GET /whats-new",
   "POST /academy/{stem}/feedback",
   "POST /academy/{stem}/feedback/cancel",

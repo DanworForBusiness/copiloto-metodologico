@@ -126,7 +126,7 @@ def test_the_template_source_has_no_unsafe_constructs_and_uses_exactly_the_spec_
     assert used == set(SPEC.field_keys)                                                         # ni claves de más ni campos sin usar
     expressions = {e.strip() for e in re.findall(r"\{\{\s*([^}]+?)\s*\}\}", source)}
     non_content = expressions - {f"c.{k}" for k in SPEC.field_keys}
-    assert non_content == {"css_url", "js_url", "asset_base", "institutional_logo_url", "theme", "hub_fonts_url", "static_version",
+    assert non_content == {"css_url", "js_url", "asset_base", "institutional_logo_url", "partner_logo_url", "partner_logo_alt", "theme", "hub_fonts_url", "static_version",
                            "url_for('static', path='app.css')", "url_for('static', path='content.css')", "url_for('static', path='layout.css')", "url_for('static', path='tools.css')",
                            "url_for('static', path='hub_theme.js')", 'theme_icon("light", \'style="display:none"\' if theme != "light" else "")', 'theme_icon("dark", \'style="display:none"\' if theme != "dark" else "")'}, non_content
 
@@ -328,27 +328,57 @@ def test_the_vanture_cobranding_next_to_the_danwor_logo_is_preserved(world):
     assert [i["alt"] for i in header.find_all("img")] == ["Danwor — Data & AI for Business", "Vanture — a Knowmad Mood company"]
 
 
-def test_the_ten_narrative_section_numbers_sit_above_their_titles_and_keep_the_sequence(world):
+def test_the_narrative_section_numbers_are_the_academy_kicker_above_their_titles_and_keep_the_sequence(world):
     soup = _soup(_page(world))
+    rail = {a["href"][1:]: a.get_text(strip=True) for a in soup.select("nav.rail a")}
     expected = {"s2": "01", "s3": "02", "s4": "03", "s5": "04", "s6": "05", "s7": "06", "s8": "07", "s9": "08", "s11": "10", "s12": "11"}
     for section, number in expected.items():
         h2 = soup.find(id=section).find("h2")
-        row, num = h2.parent, h2.find_previous_sibling("span")
-        assert num.get_text(strip=True) == number, section
-        assert num["class"] == ["topic-num"] and not num.has_attr("style"), section                 # tratamiento institucional compartido: ni tipografía ni color propios
+        row, kick = h2.parent, h2.find_previous_sibling("span")
+        assert kick.get_text(strip=True) == f"{number} / 11 · {rail[section]}", section              # «09 / 10 · Donde todo esto converge» de Academy: número / total · sección
+        assert kick["class"] == ["topic-kicker"] and not kick.has_attr("style"), section             # tratamiento institucional compartido: ni tipografía ni color propios
         style = re.sub(r"\s+", "", row["style"])
-        assert "flex-direction:column" in style and "align-items:flex-start" in style, section     # el número queda ENCIMA del título
+        assert "flex-direction:column" in style and "align-items:flex-start" in style, section     # el kicker queda ENCIMA del título
         assert "align-items:baseline" not in style and "animation:wipeIn" in style, section        # la animación de entrada se conserva
     assert "align-items:baseline;gap:20px" not in _page(world)
+    assert not soup.select(".topic-num"), "el documento ya no usa la numeración mínima (.topic-num): usa el kicker de Academy"
 
 
-def test_diagram_and_card_indicators_are_kept_and_the_s10_narrative_number_adopts_the_shared_treatment(world):
+def test_diagram_and_card_indicators_are_kept_and_the_s10_kicker_adopts_the_shared_treatment(world):
     soup = _soup(_page(world))
-    s10 = soup.find(id="s10").find("h2").parent.find(class_="topic-num")
-    assert s10.get_text(strip=True).startswith("09") and not s10.has_attr("style")               # número narrativo (ya iba encima): mismo tratamiento institucional
+    s10 = soup.find(id="s10").find("h2").parent.find(class_="topic-kicker")
+    assert s10.get_text(strip=True) == "09 / 11 · Conclusión y demo" and not s10.has_attr("style")
     assert [d.get_text(strip=True) for d in soup.find(id="s2").find_all("div", string=re.compile(r"^0[1-3]$"))] == ["01", "02", "03"]
     assert [d.get_text(strip=True) for d in soup.find(id="s8").find_all("div", string=re.compile(r"^0[1-4]$"))] == ["01", "02", "03", "04"]
-    assert len(soup.select(".topic-num")) == 11, "10 encabezados narrativos + s10; los números de tarjetas, pasos y pilares NO se tocan"
+    assert len(soup.select(".topic-kicker")) == 11, "10 encabezados narrativos + s10; los números de tarjetas, pasos y pilares NO se tocan"
+
+
+def test_the_blocks_are_separate_bordered_dw_cards_with_the_academy_hover_and_no_forced_glow(world):
+    soup = _soup(_page(world))
+    cards = soup.select(".dw-card")
+    assert len(cards) == 24 and not soup.select("[data-tilt]")
+    for c in cards:
+        assert "box-shadow" not in c.get("style", "") and "perspective" not in c.get("style", "")
+        assert "background:var(--content-surface)" not in c.get("style", "").replace(" ", "")             # el fondo lo da la tarjeta compartida
+    grids = [d for d in soup.find_all("div", style=True) if "grid-template-columns:repeat(auto-fit" in d["style"] and d.select_one(".dw-card")]
+    assert len(grids) >= 5 and all("gap:1px" not in g["style"] and not re.search(r"(?<!-)background:", g["style"]) for g in grids), "las tarjetas ya no son un bloque unido por una línea de 1px"
+    css, js = VANTURE_CSS.read_text(encoding="utf-8"), (ASSETS / "vanture.js").read_text(encoding="utf-8")
+    assert "data-tilt" not in css and "perspective(" not in css and "tilt" not in js.lower()
+    shared = (STATIC / "content.css").read_text(encoding="utf-8")
+    assert ".dw-card, .finale-card { background: var(--bg-card, var(--content-tile)); border: 1px solid var(--line, var(--content-line)); border-radius: 14px; }" in shared
+    hover = re.search(r"\.dw-card:hover, \.finale-card-link:hover \{([^}]*)\}", shared).group(1)
+    assert "border-color" in hover and "translateY(-2px)" in hover and "box-shadow" not in hover, "el hover de Academy: borde de acento y 2px hacia arriba"
+    academy = (REPO / "content_packs" / "datasphere_core" / "assets" / "academy" / "dw-academy.css").read_text(encoding="utf-8")
+    assert "finale-card-link:hover" not in academy and ".topic-kicker{" not in academy, "una sola definición (content.css)"
+
+
+def test_the_title_accent_is_the_plain_hub_gold_and_the_entry_animations_do_not_keep_a_composited_layer(world):
+    html = _page(world)
+    css = VANTURE_CSS.read_text(encoding="utf-8")
+    assert "shimmerText" not in css and "background-clip" not in css and "text-fill-color" not in css, "«datos» en oro pleno, sin degradé ni brillo"
+    assert re.search(r'<span style="color:var\(--gold\)">datos</span>', html), "el acento del título es var(--gold) (#E7B008, el del helper {dw-gold})"
+    # un `animation-fill-mode: both` deja la capa compuesta con transform identidad y el texto se rasteriza borroso; `backwards` devuelve el estilo base al terminar
+    assert not re.search(r"animation:(?:riseIn|fadeIn|wipeIn) [^;\"]*\bboth\b", html), "las animaciones de entrada no retienen el relleno final"
 
 
 def test_the_shared_url_document_carries_no_commercial_navigation_and_no_back_button(world):
@@ -428,8 +458,8 @@ def test_no_institutional_value_is_hardcoded_in_the_presentation_only_semantic_a
     for institutional in ("Barlow", "IBM Plex", "#EBBF08", "#0A0A0A", "rgba(235,191,8", "rgba(255,255,255", "#A3A3A6", "color:#fff"):
         assert institutional.lower() not in src.lower().replace(" ", "") if institutional.startswith(("rgba", "color")) else institutional.lower() not in src.lower(), institutional
     colors = {c.upper() for c in re.findall(r"#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{3}\b", src)}
-    assert colors == {"#000", "#FFF", "#F4F4F4", "#FFF6CF", "#5BB5F0", "#0D2447"}, colors
-    # clasificación: #000 = tinta sobre acento dorado y máscaras (semántico/técnico) · #FFF/#F4F4F4 = tiles blancos de logos y QR (legibilidad de la marca) · #FFF6CF = brillo del
+    assert colors == {"#000", "#FFF", "#F4F4F4", "#5BB5F0", "#0D2447"}, colors
+    # clasificación: #000 = tinta sobre acento dorado y máscaras (semántico/técnico) · #FFF/#F4F4F4 = tiles blancos de logos y QR (legibilidad de la marca) · (el degradé del título se retiró) brillo del
     # degradé del título (decorativo) · #5BB5F0 = acento de plataformas · #0D2447 = fondo del tile de un logo (semánticos)
     assert len(re.findall(r"font-family:", src)) == len(re.findall(r"font-family:var\(--(?:sans|mono)\)", src)), "toda familia tipográfica sale de los tokens del Hub"
 
@@ -458,7 +488,7 @@ def test_entry_and_section_jumps_use_the_shared_scroll_cue_and_callouts_and_numb
     assert not re.search(r"border-left:\s*\d+px solid", TEMPLATE_PATH.read_text(encoding="utf-8")), "ningún punch es un bloque paralelo con borde propio"
     js = re.sub(r"/\*.*?\*/|//[^\n]*", "", (ASSETS / "vanture.js").read_text(encoding="utf-8"), flags=re.S)
     assert "lastMagnet" not in js and "translate(" not in js, "sin efecto magnético en los controles"
-    assert "tilt" in js.lower() and "spotlight" in js, "los efectos NARRATIVOS (tilt, foco de luz) se conservan"
+    assert "spotlight" in js, "el foco de luz del héroe se conserva (la inclinación 3D de las tarjetas se retiró: hover de Academy)"
 
 
 def test_the_shared_tokens_live_in_one_place_and_every_consumer_reads_them():
@@ -544,7 +574,7 @@ def test_the_section_rail_is_the_shared_academy_primitive_without_glow_and_with_
     assert not re.search(r"\.rail[^{]*\{[^}]*box-shadow", (STATIC / "content.css").read_text(encoding="utf-8"))
     assert "classList.toggle('active'" in js and "nav-dot" not in js and "is-active" not in js
     shared = (STATIC / "content.css").read_text(encoding="utf-8")
-    assert ".rail a.active { background: var(--content-accent); transform: scale(1.3); }" in shared and ".rail a:hover span, .rail a.active span { opacity: 1; }" in shared
+    assert ".rail a.active { background: var(--gold, var(--content-accent)); transform: scale(1.3); }" in shared and ".rail a:hover span, .rail a.active span { opacity: 1; }" in shared
     academy = (REPO / "content_packs" / "datasphere_core" / "assets" / "academy" / "dw-academy.css").read_text(encoding="utf-8")
     assert ".rail a{" not in academy and ".rail{position" not in academy and "@media (max-width:1600px){ .rail a span{ display:none; } }" in academy   # Academy conserva solo su política de labels
     assert re.search(r"--line-2:\s*var\(--content-line-strong\)", academy)
@@ -559,3 +589,37 @@ def test_the_scroll_cue_is_one_shared_primitive_with_the_landing_values():
         assert token in landing, token                                                                                       # mismos valores que la landing de la que se tomó
     assert sum(1 for t in (REPO / "webapp" / "templates").rglob("*.html") if "scroll-cue" in t.read_text(encoding="utf-8")) == 1
 
+
+def test_the_cover_pointer_glow_is_the_one_of_the_hub_landing():
+    css = VANTURE_CSS.read_text(encoding="utf-8")
+    landing = (STATIC / "brand-hero.css").read_text(encoding="utf-8")
+    js = (ASSETS / "vanture.js").read_text(encoding="utf-8")
+    spot = re.search(r"\.spotlight\{([^}]*)\}", css).group(1)
+    assert "radial-gradient(circle 1300px at var(--mx,30%) var(--my,40%)" in spot and "var(--gold) 5%, transparent) 0%" in spot and "var(--gold) 2%, transparent) 45%" in spot and "transparent 70%)" in spot
+    assert "radial-gradient(circle 1300px at var(--mx,30%) var(--my,40%),rgba(231,176,8,.05) 0%,rgba(231,176,8,.02) 45%,transparent 70%)" in landing       # los mismos valores que la landing (oro 5% → 2% → nada)
+    assert "opacity:0" not in spot.replace(" ", "") and "transition" not in spot, "siempre visible, como en la landing (no se enciende ni se apaga)"
+    assert "matchMedia('(hover: hover) and (pointer: fine)')" in js and "mousemove" in js and "spot.style.opacity" not in js
+
+
+def test_the_cover_is_exactly_one_screen_and_the_entry_cue_is_anchored_to_its_bottom_like_the_landing(world):
+    soup = _soup(_page(world))
+    hero = soup.find(id="s1")
+    style = re.sub(r"\s+", "", hero["style"])
+    assert "box-sizing:border-box" in style and "min-height:100svh" in style and "min-height:100vh" in style, "la portada mide la pantalla (el padding no se suma), como `.screen` de la landing"
+    cue = hero.select_one("a.scroll-cue")
+    assert cue.parent is hero, "el cue cuelga de la portada (no del bloque de texto): se ancla al pie de la pantalla, no al final del contenido"
+    cue_style = re.sub(r"\s+", "", cue["style"])
+    assert "position:absolute" in cue_style and "bottom:2.5rem" in cue_style, "mismo anclaje que `.hero-scroll` de la landing (2,5rem sobre el borde inferior)"
+    landing = (STATIC / "brand-hero.css").read_text(encoding="utf-8")
+    assert ".hero-scroll{position:absolute;bottom:2.5rem;" in landing and "min-height:100svh" in landing
+    pad_bottom = int(re.search(r"padding:\d+px\s*\d+px\s*(\d+)px", hero["style"]).group(1))
+    assert pad_bottom >= 110, "el padding inferior reserva el alto del cue: el contenido nunca lo pisa"
+
+
+def test_the_section_jump_cue_flows_with_the_content_and_never_floats_over_it(world):
+    soup = _soup(_page(world))
+    nxt = soup.select("a.next-link")
+    assert len(nxt) == 10 and all("scroll-cue" in a["class"] and "scroll-cue--sticky" not in a["class"] for a in nxt)
+    assert not any(re.search(r"position:\s*(sticky|fixed|absolute)", a["style"]) for a in nxt), "el cue de cada sección va en el flujo: si cae fuera de la pantalla se corta, nunca se superpone al contenido ni se arrastra"
+    shared = (STATIC / "content.css").read_text(encoding="utf-8")
+    assert "sticky" not in shared.split("scroll-cue")[-1] and ".scroll-cue--sticky" not in shared

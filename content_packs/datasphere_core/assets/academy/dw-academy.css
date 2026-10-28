@@ -152,7 +152,7 @@ html.branding-danwor .hero-eyebrow .eyebrow-plain{display:none;}
 .topic{min-height:100svh; display:flex; flex-direction:column; justify-content:center; padding:clamp(5rem,10vw,7rem) 0; border-bottom:1px solid var(--line);}
 .topic:last-of-type{border-bottom:none;}
 /* .topic-num: ahora en content.css (tratamiento de numeración compartido con el Hub y Presentaciones; se importa arriba). */
-.topic-kicker{display:inline-flex; align-items:center; gap:.5rem; font-family:var(--mono); font-size:.78rem; letter-spacing:.08em; text-transform:uppercase; color:var(--gold); margin-bottom:1.1rem;}
+/* .topic-kicker: ahora en content.css (kicker de sección compartido con Presentaciones; se importa arriba). */
 .topic-title{font-size:clamp(1.9rem,3.2vw,2.9rem); font-weight:800; line-height:1.12; letter-spacing:-.01em; margin-bottom:1.6rem; max-width:none;}
 .topic-title em{font-style:normal; color:var(--gold);}
 .topic-grid{display:grid; grid-template-columns:1.1fr .9fr; gap:clamp(1.5rem,4vw,3rem); align-items:start;}
@@ -221,7 +221,8 @@ html.in-copiloto .rosetta-cta{display:inline-block;}
 /* tiles de cierre (finale-card) — usadas por paradigmas.html y disponibles para otras páginas */
 .finale-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:1rem;}
 @media (max-width:700px){ .finale-grid{grid-template-columns:1fr;} }
-.finale-card{background:var(--bg-card); border:1px solid var(--line); border-radius:14px; padding:1.4rem 1.3rem; display:flex; flex-direction:column;}
+/* fondo/borde/radio de `.finale-card` y su hover de enlace: content.css (base compartida con `.dw-card`). */
+.finale-card{padding:1.4rem 1.3rem; display:flex; flex-direction:column;}
 .finale-card .fc-role{font-family:var(--mono); font-size:.68rem; letter-spacing:.06em; text-transform:uppercase; color:var(--gold); margin-bottom:.5rem;}
 .finale-card h3{font-size:1.02rem; font-weight:700; margin-bottom:.5rem;}
 .finale-card p{font-size:.86rem; color:var(--ink-soft);}
@@ -232,7 +233,6 @@ html.in-copiloto .rosetta-cta{display:inline-block;}
 .finale-card-link h3, .finale-card-link p{color:inherit;}
 .finale-card-link .fc-role{color:var(--gold);}
 .finale-card-link p{color:var(--ink-soft);}
-.finale-card-link:hover{border-color:var(--gold); transform:translateY(-2px);}
 .finale-card-cta{margin-top:auto; padding-top:1rem; font-family:var(--mono); font-size:.75rem; color:var(--gold);}
 
 footer{display:none; padding:3rem 0 4rem; border-top:1px solid var(--line); text-align:center;}

@@ -286,8 +286,8 @@ html[data-dw-theme="light"] {
    Qué hace Academy aparte (ocultar los textos debajo de 1600px, porque ahí el label pisaba el contenido) sigue en su hoja: es una política de ese layout, no del primitivo. Debajo de 900px el rail se oculta. */
 .rail { position: fixed; right: clamp(1rem, 3vw, 2.5rem); top: 50%; transform: translateY(-50%); z-index: 90; display: flex; flex-direction: column; gap: .85rem; }
 .rail a { width: 9px; height: 9px; border-radius: 50%; background: var(--line-2, var(--content-line-strong)); border: 1px solid transparent; transition: background .3s, transform .3s; position: relative; }
-.rail a.active { background: var(--content-accent); transform: scale(1.3); }
-.rail a span { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); white-space: nowrap; font-family: var(--mono); font-size: .68rem; color: var(--content-ink-soft); opacity: 0; transition: opacity .2s; }
+.rail a.active { background: var(--gold, var(--content-accent)); transform: scale(1.3); }
+.rail a span { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); white-space: nowrap; font-family: var(--mono); font-size: .68rem; color: var(--ink-soft, var(--content-ink-soft)); opacity: 0; transition: opacity .2s; }
 .rail a:hover span, .rail a.active span { opacity: 1; }
 @media (max-width: 900px) { .rail { display: none; } }
 
@@ -301,3 +301,14 @@ html[data-dw-theme="light"] {
 .scroll-cue__line { width: 1px; height: 48px; background: linear-gradient(to bottom, currentColor, transparent); animation: scroll-cue-line 2s ease-in-out infinite; }
 @keyframes scroll-cue-line { 0% { transform: scaleY(0); transform-origin: top; } 50% { transform: scaleY(1); transform-origin: top; } 51% { transform: scaleY(1); transform-origin: bottom; } 100% { transform: scaleY(0); transform-origin: bottom; } }
 @media (prefers-reduced-motion: reduce) { .scroll-cue__line { animation: none; } }
+
+/* ── Kicker de sección ("09 / 10 · Donde todo esto converge"): el de Danwor Academy (`.kicker` de paradigmas, `.topic-kicker` de sus temas), promovido para que lo consuma también Presentaciones ───────────────
+   Mono, en mayúsculas, color de acento. Usa `--gold`/`--mono` (Academy los redefine por branding; en el Hub apuntan a `--content-accent`). Vivía en dw-academy.css, que sigue consumiéndolo por `@import`. */
+.topic-kicker { display: inline-flex; align-items: center; gap: .5rem; font-family: var(--mono); font-size: .78rem; letter-spacing: .08em; text-transform: uppercase; color: var(--gold, var(--content-accent)); margin-bottom: 1.1rem; }
+
+/* ── Tarjeta de contenido: borde fino, radio 14px, fondo de tarjeta y el hover de Academy (borde de acento + 2px hacia arriba, sin sombra ni glow) ───────────────────────────────────────────────────────────
+   `.dw-card` es el nombre genérico; `.finale-card` (tiles de cierre de Academy) comparte exactamente la misma base y el mismo hover (`.finale-card-link:hover`): una sola definición. Respeta `--bg-card`/`--line`/`--gold` de Academy
+   cuando existen (su branding sin `danwor` los redefine). */
+.dw-card, .finale-card { background: var(--bg-card, var(--content-tile)); border: 1px solid var(--line, var(--content-line)); border-radius: 14px; }
+.dw-card { transition: border-color .2s, transform .2s; }
+.dw-card:hover, .finale-card-link:hover { border-color: var(--gold, var(--content-accent)); transform: translateY(-2px); }

@@ -88,6 +88,7 @@ def _all_routes(pid):
         "R4": ("POST", f"/comercial/presentaciones/{pid}/copiar"),
         "R6": ("POST", f"/comercial/presentaciones/{pid}"),
         "R7": ("POST", f"/comercial/presentaciones/{pid}/eliminar"),
+        "R8": ("GET", f"/presentaciones/{pid}/logo"),
     }
 
 
@@ -247,7 +248,7 @@ def test_t7_the_seed_is_immutable_for_everyone_including_the_content_owner(world
     assert world.files() == {}                                                                 # ni siquiera apareció un archivo de runtime
 
 
-def test_t7_the_router_exposes_exactly_the_seven_contract_routes_and_none_to_administer_templates_or_seeds():
+def test_t7_the_router_exposes_exactly_the_eight_contract_routes_and_none_to_administer_templates_or_seeds():
     from webapp.routers import commercial_presentations as router_module
     exposed = {(m, r.path) for r in router_module.router.routes for m in r.methods if m != "HEAD"}
     assert exposed == {
@@ -258,6 +259,7 @@ def test_t7_the_router_exposes_exactly_the_seven_contract_routes_and_none_to_adm
         ("POST", "/comercial/presentaciones/{presentation_id}/copiar"),
         ("POST", "/comercial/presentaciones/{presentation_id}"),
         ("POST", "/comercial/presentaciones/{presentation_id}/eliminar"),
+        ("GET", "/presentaciones/{presentation_id}/logo"),
     }
     assert not any(m in {"PUT", "PATCH", "DELETE"} for m, _ in exposed)
 
