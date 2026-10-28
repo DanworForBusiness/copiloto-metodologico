@@ -20,10 +20,10 @@
     <span class="asr-generate__label">{{ v.action.label }}</span>
   </button>
 </div>{% endif %}{% endmacro %}
-{% from "partials/assessment_report_macros.html" import heading, callout, kpi_tile, contracts_evaluated, tile_grid, evaluation_table, compatibility_block %}
+{% from "partials/assessment_report_macros.html" import heading, callout, kpi_tile, contracts_evaluated, tile_grid, evaluation_table, compatibility_block, artifact_list, text_list, naming_families, occurrence_detail, info_parts %}
 {% from "partials/table_action_macros.html" import table_action_link, panel_close %}
 {% macro n_occ(n) %}{{ n }} ocurrencia{{ "s" if n != 1 }}{% endmacro %}
-{% macro table(columns, rows) %}<table><thead><tr>{% for c in columns %}<th>{{ c }}</th>{% endfor %}</tr></thead><tbody>{% for r in rows %}<tr>{% for cell in r %}<td>{{ cell }}</td>{% endfor %}</tr>{% endfor %}</tbody></table>{% endmacro %}
+{% macro table(columns, rows) %}<table><thead><tr>{% for c in columns %}<th>{{ c }}</th>{% endfor %}</tr></thead><tbody>{% for r in rows %}<tr>{% for cell in r %}<td>{% if cell is mapping %}<span title="Código técnico: {{ cell.code }}">{{ cell.text }}</span>{% else %}{{ cell }}{% endif %}</td>{% endfor %}</tr>{% endfor %}</tbody></table>{% endmacro %}
 {# Hallazgo = FILA de disclosure del Hub (la misma gramática que las subáreas de Arquitectura): izquierda el título de negocio; derecha la metadata legible
    (categoría · ocurrencias · artefactos); el cuerpo abre el «por qué aparece» y el detalle como TABLAS. El id interno de la regla (`g.id`) NO se muestra en la
    lectura funcional: queda en el detalle técnico del cuerpo. Presentación únicamente: ningún dato se recalcula. #}
@@ -32,6 +32,7 @@
   <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">{{ g.title }}</span><span class="dashboard-section__count">{{ g.area_title }} · {{ n_occ(g.occurrence_count) }} · {{ g.artifacts|length }} artefacto{{ "s" if g.artifacts|length != 1 }}</span>{{ panel_close("Cerrar el detalle del hallazgo «" ~ g.title ~ "»") }}</summary>
   <div class="dashboard-section__body">
     <p>{{ g.why_shown }}</p>
+    {% if g.scope_note %}<p class="catalog-note__ev" data-block="evidence-scope">{{ g.scope_note }}</p>{% endif %}
     <table>
       <thead><tr><th>Aspecto</th><th>Detalle</th></tr></thead>
       <tbody>
@@ -41,7 +42,7 @@
         {% if g.interpretation_limits %}<tr><td>Cómo NO leerlo</td><td>{{ g.interpretation_limits|join("; ") }}</td></tr>{% endif %}
         {% if g.evidence_limit %}<tr><td>Límite de evidencia</td><td>{{ g.evidence_limit }}</td></tr>{% endif %}
         <tr><td>Unidad de cada ocurrencia</td><td>{{ g.occurrence_unit }}</td></tr>
-        <tr><td>Artefactos involucrados ({{ g.artifacts|length }})</td><td>{% for a in g.artifacts[:12] %}<code>{{ a }}</code> {% endfor %}{% if g.artifacts|length > 12 %}… (+{{ g.artifacts|length - 12 }}){% endif %} {{ lineage_link(g.lineage_url) }}</td></tr>
+        <tr><td>Artefactos involucrados ({{ g.artifacts|length }})</td><td>{{ artifact_list(g.artifacts, 12) }} {{ lineage_link(g.lineage_url) }}</td></tr>
         <tr><td>Identificador de la regla (trazabilidad)</td><td><span class="catalog-note__ev">{{ g.id }}</span></td></tr>
       </tbody>
     </table>
@@ -50,7 +51,7 @@
       <thead><tr><th>Artefactos</th><th>Detalle</th><th>Acción</th></tr></thead>
       <tbody>
         {% for o in g.occurrences %}
-        <tr><td>{% for a in o.artifacts[:6] %}<code>{{ a }}</code> {% endfor %}{% if o.artifacts|length > 6 %}… (+{{ o.artifacts|length - 6 }}){% endif %}</td><td>{{ o.text }}</td><td>{{ lineage_link(o.lineage_url) }}</td></tr>
+        <tr><td>{{ artifact_list(o.artifacts, 6) }}</td><td>{{ o.text }}{{ occurrence_detail(o.detail) }}</td><td>{{ lineage_link(o.lineage_url) }}</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -75,6 +76,10 @@
   </div>
   {% endif %}
   {% for n in a.facts.notes %}<p>{{ n }}</p>{% endfor %}
+  {% if a.facts.naming %}
+  <h{{ lvl }}>Familias de incumplimiento de la convención de nombres</h{{ lvl }}>
+  {{ naming_families(a.facts.naming, lvl + 1) }}
+  {% endif %}
   {% for g in a.facts.groups %}
   <h{{ lvl }}>{{ g.title }}</h{{ lvl }}>
   {% if g.properties %}
@@ -184,6 +189,18 @@
    [05] Portabilidad & preparación BDC · [06] Casos a revisar y preguntas abiertas · [07] Cierre. Tres lecturas INDEPENDIENTES (no se consumen
    entre sí): Gobierno (hallazgos, sin nota global), Portabilidad (capacidad técnica) y Adopción (el único grado metodológico). #}
 {% set ns = namespace(n=0) %}
+{% set rg = v.reading_guide %}
+{# Guía de lectura: enlaces SOLO a secciones que existen en este informe (el JS del informe abre los disclosures de destino). Texto breve: no duplica el informe. #}
+<details class="dashboard-section" id="asr-guia">
+  <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">¿Cómo leer este Assessment?</span><span class="dashboard-section__count">Guía de lectura</span></summary>
+  <div class="dashboard-section__body">
+    <table data-block="reading-guide">
+      <thead><tr><th>Pregunta</th><th>Ir a</th></tr></thead>
+      <tbody>{% for w in rg.where %}<tr><td>{{ w.question }}</td><td><a href="{{ w.href }}"><code>{{ w.section }}</code></a>{% if w.help %} <span class="chart-tooltip-anchor">{{ info_parts(w.section, [w.help]) }}</span>{% endif %}</td></tr>{% endfor %}</tbody>
+    </table>
+    <p><strong>Las observaciones de gobierno no necesariamente cambian el nivel metodológico.</strong></p>
+  </div>
+</details>
 {# Áreas de una dimensión: un disclosure del CRM por subárea (cerrados al cargar). El estado por fila solo aparece cuando NO es «Evaluado»
    (si todas están evaluadas, repetirlo en cada fila no informa; el subtítulo de la sección lo dice una vez). #}
 {% macro area_rows(mg) %}
@@ -225,11 +242,11 @@
   {{ tile_grid(j.tiles) }}
   {% if j.strengths_grouped %}
   <h3>Evidencias favorables</h3>
-  <table><thead><tr><th>Contrato</th><th>Evidencia</th></tr></thead><tbody>{% for grp in j.strengths_grouped %}{% for it in grp.rows %}<tr>{% if loop.first %}<td rowspan="{{ grp.count }}">{{ grp.dimension }}</td>{% endif %}<td>{{ it.text }}</td></tr>{% endfor %}{% endfor %}</tbody></table>
+  <table><thead><tr><th>Contrato</th><th>Evidencia</th></tr></thead><tbody>{% for grp in j.strengths_grouped %}{% for it in grp.rows %}<tr>{% if loop.first %}<td rowspan="{{ grp.count }}">{{ grp.dimension }}</td>{% endif %}<td>{{ it.text }}{% if it.artifacts %}<br><span class="catalog-note__ev">Artefactos:</span> {{ artifact_list(it.artifacts, 6) }}{% endif %}</td></tr>{% endfor %}{% endfor %}</tbody></table>
   {% endif %}
   {% if j.reasons_grouped %}
   <h3>Puntos de atención</h3>
-  <table><thead><tr><th>Contrato</th><th>Tipo</th><th>Evidencia</th></tr></thead><tbody>{% for grp in j.reasons_grouped %}{% for it in grp.rows %}<tr>{% if loop.first %}<td rowspan="{{ grp.count }}">{{ grp.dimension }}</td>{% endif %}<td>{{ it.kind }}</td><td>{{ it.text }}</td></tr>{% endfor %}{% endfor %}</tbody></table>
+  <table><thead><tr><th>Contrato</th><th>Tipo</th><th>Evidencia</th></tr></thead><tbody>{% for grp in j.reasons_grouped %}{% for it in grp.rows %}<tr>{% if loop.first %}<td rowspan="{{ grp.count }}">{{ grp.dimension }}</td>{% endif %}<td>{{ it.kind }}</td><td>{{ it.text }}{% if it.artifacts %}<br><span class="catalog-note__ev">Artefactos:</span> {{ artifact_list(it.artifacts, 6) }}{% endif %}</td></tr>{% endfor %}{% endfor %}</tbody></table>
   {% endif %}
   {# T2 — «No determinable» sigue siendo el valor oficial; esta tabla EXPLICA la causa real desde hechos del Juicio (``presenter.nd_explanation``), por contrato. #}
   {% if j.nd and j.nd.dimensions %}
@@ -266,7 +283,7 @@
   {{ tile_grid(gov.tiles) }}
   <details class="dashboard-section" id="asr-gobierno-hallazgos"{% if gov.rows %} open{% endif %}>
     <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Observaciones de gobierno</span><span class="dashboard-section__count">{{ gov.summary }}</span></summary>
-    <div class="dashboard-section__body">{% if gov.rows %}{{ evaluation_table(gov.rows, ["Tipo", "Observación", "Evidencia"]) }}{% else %}{{ not_detected("El Assessment no detectó observaciones de gobierno.") }}{% endif %}</div>
+    <div class="dashboard-section__body">{% if gov.rows %}{{ evaluation_table(gov.rows, ["Tipo", "Observación", "Evidencia"], true) }}{% else %}{{ not_detected("El Assessment no detectó observaciones de gobierno.") }}{% endif %}</div>
   </details>
   {% endif %}
   {% if gma %}{{ area_rows(gma) }}{% endif %}
@@ -347,7 +364,7 @@
     <thead><tr><th>Evidencia</th><th>Área</th><th>Estado</th><th>Motivo</th><th>¿Cuenta?</th></tr></thead>
     <tbody>{% for l in v.limitations %}
       <tr><td>{{ l.title }}<br><span class="catalog-note__ev">{{ l.surface_id }}</span></td><td>{{ l.area }}</td><td><span class="catalog-card__verdict catalog-card__verdict--neutra">{{ l.state }}</span></td>
-          <td>{{ l.reason }} <span class="catalog-note__ev">{{ l.reason_code }}</span>{% if l.units %}<br>Unidades: {{ l.units[:8]|join(", ") }}{% if l.units|length > 8 %}, … (+{{ l.units|length - 8 }}){% endif %}{% endif %}</td>
+          <td>{{ l.reason }} <span class="catalog-note__ev">{{ l.reason_code }}</span>{% if l.units %}<br>Unidades: {{ text_list(l.units, 8, "Ver todas las unidades") }}{% endif %}</td>
           <td>{{ "cuenta" if l.counts else "no cuenta" }}</td></tr>{% endfor %}
     </tbody>
   </table>
@@ -383,6 +400,12 @@
     {% if v.deduplicated_questions %}
     <h4>Preguntas de contexto no repetidas (ya formuladas por un hallazgo)</h4>
     <ul>{% for q in v.deduplicated_questions %}<li><code>{{ q.id }}</code> → ya la formula el grupo <code>{{ q.covered_by }}</code></li>{% endfor %}</ul>
+    {% endif %}
+    {% if v.code_glossary %}
+    <h4>Glosario de códigos del motor presentes en este informe</h4>
+    <table data-block="code-glossary"><thead><tr><th>Código</th><th>Se muestra como</th><th>Significado documentado</th><th>Fuente</th></tr></thead><tbody>
+      {% for c in v.code_glossary %}<tr><td><code>{{ c.code }}</code></td><td>{{ c.label }}</td><td>{{ c.meaning }}</td><td><code>{{ c.source }}</code></td></tr>{% endfor %}
+    </tbody></table>
     {% endif %}
     <h4>Resultados por regla</h4>
     <table><thead><tr><th>Regla</th><th>Resultado</th><th>Hallazgos</th></tr></thead><tbody>

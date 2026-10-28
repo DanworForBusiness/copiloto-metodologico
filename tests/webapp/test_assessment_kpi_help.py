@@ -91,7 +91,7 @@ def test_the_canonical_json_and_markdown_are_unchanged_by_the_help(_doc):
 
 def test_the_rendered_individual_report_shows_four_info_icons_and_the_portfolio_is_untouched(_report_view):
     html = templates.get_template("partials/catalog_assessment_report.html").render(v=_report_view)
-    top = html[:html.index('id="asr-resumen"')]                                                    # los 4 indicadores superiores (las áreas tienen los suyos)
+    top = html[:html.index('id="asr-guia"')]                                                       # los 4 indicadores superiores (la guía «¿Cómo leer…?» y las áreas tienen los suyos)
     assert top.count('class="activity-kpi__info"') == 4 and top.count('<span class="chart-tooltip">') == 4 and "<p>" not in "".join(re.findall(r'<span class="chart-tooltip">.*?</span>', top))
     for k in _report_view["kpis"]:
         assert f'<span class="activity-kpi__label">{k["label"]}</span>' in html
