@@ -120,7 +120,7 @@ def _storage_response(exc: Exception) -> JSONResponse:
 # ── R1 — ver / presentar por URL (NO exige Comercial) ─────────────────────────────────────────────────────────────────────
 
 @router.get("/presentaciones/{presentation_id}", response_class=HTMLResponse, include_in_schema=False)
-def presentation_shared_view(request: Request, presentation_id: str, embed: str = ""):
+def presentation_shared_view(request: Request, presentation_id: str, embed: str = "", edit: str = ""):
     user = auth_service.session_user(request)
     if not user:
         return workspaces.platform_login_redirect(request)
@@ -132,7 +132,9 @@ def presentation_shared_view(request: Request, presentation_id: str, embed: str 
         log_activity(EVENT_MODULE_VIEWED, user=user, scope=SCOPE_COMMERCIAL, area=AREA_PRESENTATIONS, module=CM03_MODULE_ID)
     spec = presentations.template_spec(view["template_id"])
     theme = "dark" if request.cookies.get("dw-content-theme") == "dark" else "light"            # preferencia del Hub (cookie `dw-content-theme`), como /pack-assets: sin flash
-    return templates.TemplateResponse(request=request, name=spec.jinja, context=presentations.render_context(view, embed=embedded, theme=theme), headers=_NO_STORE)
+    # Edición inline: `?edit=1` solo se honra si el usuario PUEDE editar esta instancia (Comercial + responsable / CONTENT_OWNER / APP_OWNER; nunca la semilla). Para cualquier otro es la vista de siempre: leer por URL no habilita nada.
+    edit_mode = edit == "1" and embedded and presentations.can_edit_presentation_user(user, view)
+    return templates.TemplateResponse(request=request, name=spec.jinja, context=presentations.render_context(view, embed=embedded, theme=theme, edit=edit_mode), headers=_NO_STORE)
 
 
 # ── R8 — logo propio de una instancia (mismo contrato de lectura que R1) ───────────────────────────────────────────────
@@ -208,13 +210,9 @@ def presentation_edit_form(request: Request, presentation_id: str):
     view = _load(presentation_id)
     if not presentations.can_edit_presentation_user(user, view):
         raise HTTPException(403, "No autorizado para editar esta presentación")
-    spec = presentations.template_spec(view["template_id"])
-    sections: dict[str, list[dict]] = {}
-    for field in spec.fields:
-        sections.setdefault(field.section, []).append({"key": field.key, "label": field.label, "max_len": field.max_len, "multiline": field.multiline, "value": view["content"][field.key]})
     return templates.TemplateResponse(
         request=request, name="commercial/presentation_edit.html",
-        context=_shell_context(request, user, presentation=view, sections=sections, share_path=_share_path(presentation_id)), headers=_NO_STORE,
+        context=_shell_context(request, user, presentation=view, share_path=_share_path(presentation_id)), headers=_NO_STORE,
     )
 
 

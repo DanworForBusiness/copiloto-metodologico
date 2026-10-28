@@ -14,7 +14,7 @@ bloques genéricos, SPA ni persistencia transversal nueva. Las composiciones esp
 | R2 | `GET /comercial/presentaciones` | Catálogo (seed + instancias) | Comercial |
 | R3 | `GET /comercial/presentaciones/{id}` | Detalle: shell del Hub + iframe de R1 | Comercial |
 | R4 | `POST /comercial/presentaciones/{id}/copiar` | Copia como instancia propia | Comercial (cualquier presentación; sin requisito adicional) |
-| R5 | `GET /comercial/presentaciones/{id}/editar` | Formulario de edición | Comercial + poder editar esa instancia |
+| R5 | `GET /comercial/presentaciones/{id}/editar` | Editor INLINE: el documento real en modo edición + barra Cancelar · «Sin guardar» · Guardar | Comercial + poder editar esa instancia |
 | R6 | `POST /comercial/presentaciones/{id}` | Guarda campos (JSON `{revision, fields}`) | ídem R5 + `same_origin_guard` |
 | R7 | `POST /comercial/presentaciones/{id}/eliminar` | Elimina la instancia (borrado real; el enlace compartido pasa a 404) | Comercial + poder eliminar esa instancia + `same_origin_guard` |
 | R8 | `GET /presentaciones/{id}/logo` | PNG del logo propio de una copia (404 si no tiene) | MISMO contrato de lectura que R1: sesión + `is_authorized`, **sin** exigir Comercial |
@@ -86,6 +86,16 @@ El documento deja de ser una «isla oscura» con diseño propio: consume la fuen
 * Con el cue y el rail el documento ya no contiene `.btn-primary`/`.btn-secondary`; los botones institucionales que consume son el toggle de tema (`.theme-toggle`) y, en las pantallas del Hub, los de catálogo, detalle y editor.
 
 **Paridad.** Narrativa y funcional (contenido, secciones, tabs, scrollspy, marquee, animaciones, modo presentar), **no** igualdad de píxeles en lo homologado a propósito (tipografía, superficies, acento, numeración, botones, callouts, logo, tema). La comparación píxel a píxel contra el HTML original de la primera entrega (0,0 en las 12 secciones, con solo logo y numeración adaptados) quedó superada por esta homologación; la sustituyen los gates de estilo, theme y narrativa descritos arriba.
+
+## Edición inline (como «02. Estrategia»)
+
+«Editar» ya no abre un formulario: abre **la presentación misma** (el documento real, en un iframe del mismo origen con `?embed=1&edit=1`) y los 20 textos habilitados son leaves `contenteditable` de **texto plano** en su lugar, con el contorno punteado discreto de Estrategia (`.dw-inline-edit`, content.css: mismo look que `.cs-inline`, que conserva su definición y su test; unificarlas queda como seguimiento). La barra vive en el Hub: **Cancelar** · badge «Sin guardar» (`.status-badge--tentativo`) · **Guardar** (deshabilitado sin cambios).
+
+* **Autorización:** `edit=1` solo se honra en R1 si además viene `embed=1` y el usuario **puede editar esa instancia** (Comercial + responsable / `CONTENT_OWNER` / `APP_OWNER`; nunca la semilla). Para cualquier otro la URL con `edit=1` es la vista de siempre: leer por URL no habilita nada. El guardado sigue siendo R6, con las mismas validaciones y órdenes de enforcement.
+* **Guardado:** manda solo los campos cambiados bajo la revisión que cargó la página; el servidor valida obligatorios, longitudes (muestra el mensaje y se puede reintentar), caracteres y propiedad; `409` por revisión desactualizada.
+* **Texto plano de una sola línea:** el servidor no admite saltos de línea en ningún campo; por eso Enter no hace nada y pegar siempre inserta texto plano sin saltos (no entra HTML ni formato). `text-transform: none !important` evita que un texto en mayúsculas por CSS se guarde en mayúsculas.
+* **Descartar:** «Cancelar» con cambios pide confirmación con el diálogo del Hub (`dwConfirm`); también avisa el `beforeunload` nativo si se cierra la pestaña con cambios.
+* **El documento sigue siendo el mismo:** las diferencias en modo edición son solo el envoltorio de cada texto (`<span data-cp-field>`); el HTML de lectura no cambia.
 
 ## Logo del cliente al copiar
 

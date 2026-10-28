@@ -47,6 +47,20 @@
     }
   }
 
+  // Edición inline (solo cuando el servidor renderizó el documento con `data-cp-edit`, es decir, para quien PUEDE editar): los textos habilitados son leaves `contenteditable` de TEXTO PLANO. El guardado lo hace el editor del
+  // Hub (commercial_presentations.js, sobre el mismo origen). Acá solo el comportamiento de cada leaf: pegar siempre como texto plano y sin saltos de línea (el servidor no admite saltos en ningún campo).
+  if (document.documentElement.hasAttribute('data-cp-edit')) {
+    document.querySelectorAll('[data-cp-field]').forEach(function(el){
+      el.addEventListener('paste', function(e){
+        e.preventDefault();
+        var text = (e.clipboardData || window.clipboardData).getData('text/plain').replace(/\s*[\r\n]+\s*/g, ' ');
+        document.execCommand('insertText', false, text);
+      });
+      el.addEventListener('keydown', function(e){ if (e.key === 'Enter') e.preventDefault(); });
+      el.addEventListener('drop', function(e){ e.preventDefault(); });
+    });
+  }
+
   // Tema: contrato ÚNICO del Hub (hub_theme.js: preferencia `dw-content-theme`, clase `content-theme-*` en <html>). La presentación SIGUE al Hub (mensaje `danwor-theme` del visor embebido
   // y evento `storage` entre pestañas) y, abierta en pestaña propia, muestra el toggle en el extremo derecho del header. Embebida el header no se renderiza: el toggle es el del Hub.
   if (window.dwTheme) {

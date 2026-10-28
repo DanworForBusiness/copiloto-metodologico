@@ -312,3 +312,10 @@ html[data-dw-theme="light"] {
 .dw-card, .finale-card { background: var(--bg-card, var(--content-tile)); border: 1px solid var(--line, var(--content-line)); border-radius: 14px; }
 .dw-card { transition: border-color .2s, transform .2s; }
 .dw-card:hover, .finale-card-link:hover { border-color: var(--gold, var(--content-accent)); transform: translateY(-2px); }
+
+/* ── Edición inline («02. Estrategia» → leaves `contenteditable`): el texto se edita EN su lugar, con un contorno discreto que se enciende al pasar o enfocar ───────────────────────────────────────────────────
+   Mismo look que `.cs-inline` de Estrategia (commercial_strategy.css, que conserva su definición y su test); `.dw-inline-edit` es el nombre genérico para otros consumidores (Presentaciones). `text-transform: none !important`:
+   un contenteditable captura vía `innerText` el texto YA transformado por CSS; sin este reset editar un texto en mayúsculas lo guardaría en mayúsculas. */
+.dw-inline-edit { outline: 1px dashed var(--line, var(--content-line)); outline-offset: 3px; border-radius: 4px; cursor: text; transition: outline-color .15s ease; text-transform: none !important; }
+.dw-inline-edit:hover, .dw-inline-edit:focus { outline-color: var(--gold, var(--content-accent)); outline-style: solid; }
+.dw-inline-edit:empty:before { content: attr(data-placeholder); color: var(--dim, var(--content-ink-dim)); }

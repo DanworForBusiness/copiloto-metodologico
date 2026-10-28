@@ -196,27 +196,57 @@
     });
   }
 
-  // ── Editor: guarda SOLO los campos que cambiaron, bajo la revisión que cargó la página ───────────────────────────────
-  var form = document.querySelector("[data-cp-edit-form]");
-  if (form) {
-    var saveBtn = form.querySelector("[data-cp-save]");
-    var errBox = form.querySelector("[data-cp-error]");
-    var fields = Array.prototype.slice.call(form.querySelectorAll("[data-cp-field]"));
+  // ── Editor INLINE (como «02. Estrategia»): los textos son leaves `contenteditable` del propio documento (iframe del mismo origen, `?embed=1&edit=1`); acá viven la barra y el guardado ────────────────────────────────
+  // Guarda SOLO los campos que cambiaron, bajo la revisión que cargó la página (R6: el servidor valida longitudes, obligatorios y propiedad). Texto plano de una sola línea (`textContent`).
+  var editor = document.querySelector("[data-cp-editor]");
+  if (editor) {
+    var frame = editor.querySelector("[data-cp-frame]");
+    var saveBtn = editor.querySelector("[data-cp-save]");
+    var cancelBtn = editor.querySelector("[data-cp-cancel]");
+    var dirtyBadge = editor.querySelector("[data-cp-dirty]");
+    var errBox = editor.querySelector("[data-cp-error]");
     var saving = false;
 
+    function leaves() { return frame.contentDocument ? Array.prototype.slice.call(frame.contentDocument.querySelectorAll("[data-cp-field]")) : []; }
+    function valueOf(el) {
+      return el.textContent.replace(/\u00a0/g, " ").replace(/[\r\n]+/g, " ");
+    }
     function changed() {
       var out = {};
-      fields.forEach(function (f) { if (f.value !== f.getAttribute("data-original")) out[f.name] = f.value; });
+      leaves().forEach(function (el) { var v = valueOf(el); if (v !== el.getAttribute("data-original")) out[el.getAttribute("data-cp-field")] = v; });
       return out;
+    }
+    function refresh() {
+      var dirty = Object.keys(changed()).length > 0;
+      dirtyBadge.hidden = !dirty;
+      saveBtn.disabled = saving || !dirty;
+      return dirty;
     }
     function showError(text) { errBox.textContent = text; errBox.hidden = !text; }
 
-    window.addEventListener("beforeunload", function (ev) {
-      if (!saving && Object.keys(changed()).length) { ev.preventDefault(); ev.returnValue = ""; }
+    frame.addEventListener("load", function () {
+      if (!frame.contentDocument) return;
+      frame.contentDocument.addEventListener("input", refresh);
+      refresh();
     });
 
-    form.addEventListener("submit", async function (ev) {
-      ev.preventDefault();
+    window.addEventListener("beforeunload", function (ev) {
+      if (!saving && refresh()) { ev.preventDefault(); ev.returnValue = ""; }
+    });
+
+    cancelBtn.addEventListener("click", async function () {
+      var back = editor.getAttribute("data-back-url");
+      if (refresh()) {
+        var ok = typeof dwConfirm === "function"
+          ? await dwConfirm({ title: "Descartar cambios", message: "Tenés cambios sin guardar. Si salís ahora se pierden.", confirmLabel: "Descartar" })
+          : window.confirm("Tenés cambios sin guardar. Si salís ahora se pierden.");
+        if (!ok) return;
+      }
+      saving = true;                                                             // evita el aviso nativo de beforeunload: ya se confirmó
+      window.location.assign(back);
+    });
+
+    saveBtn.addEventListener("click", async function () {
       showError("");
       var delta = changed();
       if (!Object.keys(delta).length) { toast("Sin cambios", "No hay cambios para guardar.", "note"); return; }
@@ -224,16 +254,17 @@
       saveBtn.disabled = true;
       toast("Guardando…", "", "note");
       try {
-        var res = await fetch(form.getAttribute("data-save-url"), {
+        var res = await fetch(editor.getAttribute("data-save-url"), {
           method: "POST", credentials: "same-origin",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ revision: parseInt(form.getAttribute("data-revision"), 10), fields: delta }),
+          body: JSON.stringify({ revision: parseInt(editor.getAttribute("data-revision"), 10), fields: delta }),
         });
         var data = await readJson(res);
         if (res.ok && data.state === "ok") {
-          form.setAttribute("data-revision", String(data.revision));
-          fields.forEach(function (f) {
-            if (data.content && typeof data.content[f.name] === "string") { f.value = data.content[f.name]; f.setAttribute("data-original", data.content[f.name]); }
+          editor.setAttribute("data-revision", String(data.revision));
+          leaves().forEach(function (el) {
+            var key = el.getAttribute("data-cp-field");
+            if (data.content && typeof data.content[key] === "string") el.setAttribute("data-original", data.content[key]);
           });
           toast("Guardado", "Revisión " + data.revision + ".", "success");
         } else {
@@ -245,7 +276,7 @@
         showError("No se pudo guardar. Verificá tu conexión y reintentá; tus cambios en pantalla no se perdieron.");
       }
       saving = false;
-      saveBtn.disabled = false;
+      refresh();
     });
   }
 })();

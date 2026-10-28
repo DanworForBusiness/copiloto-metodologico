@@ -17,7 +17,7 @@ import pytest
 from bs4 import BeautifulSoup
 
 from tests.webapp.test_commercial_presentations_access import (  # noqa: F401  (fixtures y helpers compartidos)
-    A, HUB_ONLY, ORIGIN, SEED_ID, SEED_YAML, _copy, _save, world,
+    A, APP_OWNER, B, HUB_ONLY, ORIGIN, OWNER_C, SEED_ID, SEED_YAML, _copy, _save, world,
 )
 from webapp.services import commercial_presentations as cp
 from webapp.templating import templates
@@ -122,11 +122,12 @@ def test_the_template_source_has_no_unsafe_constructs_and_uses_exactly_the_spec_
     for forbidden in ("|safe", "| safe", "Markup", "autoescape", "{% raw", "|tojson", "{% include", "{% extends"):
         assert forbidden not in source, forbidden
     assert re.findall(r"\{%-?\s*(?:from|import)[^%]*-?%\}", source) == ['{%- from "partials/theme_icons.html" import theme_icon -%}'], "el único import permitido es la macro compartida de íconos de tema"
-    used = set(re.findall(r"\bc\.([a-z0-9_]+)\b", source))
-    assert used == set(SPEC.field_keys)                                                         # ni claves de más ni campos sin usar
+    used = re.findall(r"\{\{\s*f\('([a-z0-9_]+)'\)\s*\}\}", source)
+    assert sorted(used) == sorted(set(SPEC.field_keys)) and len(used) == len(set(used))         # ni claves de más ni campos sin usar, cada uno exactamente una vez (siempre vía la macro `f`)
+    assert not re.search(r"\bc\.[a-z0-9_]+", source), "el contenido solo se lee a través de la macro `f` (que escapa y, en edición, envuelve el leaf)"
     expressions = {e.strip() for e in re.findall(r"\{\{\s*([^}]+?)\s*\}\}", source)}
-    non_content = expressions - {f"c.{k}" for k in SPEC.field_keys}
-    assert non_content == {"css_url", "js_url", "asset_base", "institutional_logo_url", "partner_logo_url", "partner_logo_alt", "theme", "hub_fonts_url", "static_version",
+    non_content = expressions - {f"f('{k}')" for k in SPEC.field_keys}
+    assert non_content == {"key", "c[key]", '" data-cp-edit" if edit_mode else ""', "css_url", "js_url", "asset_base", "institutional_logo_url", "partner_logo_url", "partner_logo_alt", "theme", "hub_fonts_url", "static_version",
                            "url_for('static', path='app.css')", "url_for('static', path='content.css')", "url_for('static', path='layout.css')", "url_for('static', path='tools.css')",
                            "url_for('static', path='hub_theme.js')", 'theme_icon("light", \'style="display:none"\' if theme != "light" else "")', 'theme_icon("dark", \'style="display:none"\' if theme != "dark" else "")'}, non_content
 
@@ -134,7 +135,7 @@ def test_the_template_source_has_no_unsafe_constructs_and_uses_exactly_the_spec_
 def test_there_are_no_editable_attribute_or_url_contexts_in_v1():
     source = TEMPLATE_PATH.read_text(encoding="utf-8")
     for key in SPEC.field_keys:
-        for m in re.finditer(r"\{\{\s*c\." + key + r"\s*\}\}", source):
+        for m in re.finditer(r"\{\{\s*f\('" + key + r"'\)\s*\}\}", source):
             before = source[:m.start()]
             assert before.rfind(">") > before.rfind("<"), key                                   # el campo cae FUERA de cualquier tag (texto de elemento)
 
@@ -623,3 +624,88 @@ def test_the_section_jump_cue_flows_with_the_content_and_never_floats_over_it(wo
     assert not any(re.search(r"position:\s*(sticky|fixed|absolute)", a["style"]) for a in nxt), "el cue de cada sección va en el flujo: si cae fuera de la pantalla se corta, nunca se superpone al contenido ni se arrastra"
     shared = (STATIC / "content.css").read_text(encoding="utf-8")
     assert "sticky" not in shared.split("scroll-cue")[-1] and ".scroll-cue--sticky" not in shared
+
+
+# ── Edición INLINE (como «02. Estrategia») ───────────────────────────────────────────────────────────────────────────
+
+def _edit_doc(world, pid, email, query="?embed=1&edit=1"):
+    return _soup(world.client(email).get(f"/presentaciones/{pid}{query}").text)
+
+
+def test_the_owner_gets_every_editable_text_as_a_plain_text_contenteditable_leaf_in_its_place(world):
+    pid = _copy(world, A)
+    soup = _edit_doc(world, pid, A)
+    assert soup.html.has_attr("data-cp-edit")
+    leaves = soup.select("[data-cp-field]")
+    assert sorted(l["data-cp-field"] for l in leaves) == sorted(SPEC.field_keys) and len(leaves) == 20
+    for l in leaves:
+        assert l.name == "span" and l["contenteditable"] == "true" and "dw-inline-edit" in l["class"]
+        assert l.get_text() == l["data-original"] == cp.full_content("vanture-bdc", cp.get(pid)["content"])[l["data-cp-field"]]      # el valor de siempre, en su lugar
+    assert not any(l.has_attr("data-cp-multiline") for l in leaves)                              # el servidor no admite saltos de línea en ningún campo: todos son de una línea
+
+
+def test_the_edit_mode_document_is_otherwise_the_same_document(world):
+    pid = _copy(world, A)
+    plain = _soup(world.client(A).get(f"/presentaciones/{pid}?embed=1").text)
+    edit = _edit_doc(world, pid, A)
+    for soup in (plain, edit):
+        for leaf in soup.select("[data-cp-field]"):
+            leaf.unwrap()
+        for el in soup.select("[data-cp-edit]"):
+            del el["data-cp-edit"]
+    assert plain.get_text(" ", strip=True) == edit.get_text(" ", strip=True)                    # mismo texto, mismas secciones: solo cambia que los leaves son editables
+
+
+@pytest.mark.parametrize("who, query", [(HUB_ONLY, "?embed=1&edit=1"), (B, "?embed=1&edit=1"), (A, "?edit=1"), (A, "?embed=1")], ids=["hub-user", "commercial-not-owner", "owner-without-embed", "owner-without-edit"])
+def test_edit_mode_is_never_granted_by_the_query_alone(world, who, query):
+    pid = _copy(world, A)
+    soup = _edit_doc(world, pid, who, query)
+    assert not soup.html.has_attr("data-cp-edit") and not soup.select("[data-cp-field], [contenteditable]")
+
+
+def test_the_seed_is_never_editable_and_the_administrators_are(world):
+    assert not _edit_doc(world, SEED_ID, A).select("[contenteditable]") and not _edit_doc(world, SEED_ID, OWNER_C).select("[contenteditable]")
+    pid = _copy(world, A)
+    assert len(_edit_doc(world, pid, OWNER_C).select("[data-cp-field]")) == 20      # CONTENT_OWNER edita copias ajenas (APP_OWNER también, ver `can_edit_presentation_user`; su lectura por URL depende de ALLOWED_USERS)
+
+
+def test_edited_values_are_emitted_escaped_inside_the_leaf_and_in_the_original_attribute(world):
+    pid = _copy(world, A)
+    hostile = '<img src=x onerror=alert(1)> & "comillas"'
+    assert _save(world, A, pid, {"hero_lead": hostile}, 1).status_code == 200
+    html = world.client(A).get(f"/presentaciones/{pid}?embed=1&edit=1").text
+    assert "<img src=x onerror" not in html
+    leaf = _soup(html).select_one('[data-cp-field="hero_lead"]')
+    assert leaf.get_text() == hostile and leaf["data-original"] == hostile                      # el texto sigue siendo texto; el navegador lo ve igual al guardado
+
+
+def test_the_editor_page_embeds_the_live_document_with_the_estrategia_style_toolbar_and_no_form_fields(world):
+    pid = _copy(world, A)
+    soup = _soup(world.client(A).get(f"/comercial/presentaciones/{pid}/editar").text)
+    ed = soup.select_one("[data-cp-editor]")
+    assert ed["data-save-url"] == f"/comercial/presentaciones/{pid}" and ed["data-revision"] == "1" and ed["data-back-url"] == f"/comercial/presentaciones/{pid}"
+    assert ed.select_one("iframe[data-cp-frame]")["src"] == f"/presentaciones/{pid}?embed=1&edit=1"
+    bar = ed.select_one(".cp-toolbar")
+    assert [(b.name, b.get("class"), b.text.strip()) for b in bar.find_all(["button", "span"], recursive=False)] == [
+        ("button", ["btn-secondary"], "Cancelar"), ("span", ["status-badge", "status-badge--tentativo"], "Sin guardar"), ("button", ["btn-primary"], "Guardar")]
+    assert bar.select_one("[data-cp-dirty]").has_attr("hidden") and bar.select_one("[data-cp-save]").has_attr("disabled")      # sin cambios no hay nada que guardar
+    assert not soup.select_one("main").select("form, textarea, input, [data-cp-edit-form]"), "ya no es un formulario: se edita sobre el documento"
+    assert soup.select_one("a.catalog-back") is not None and soup.select_one("aside.callout--punch.cp-notice") is not None
+
+
+def test_the_inline_editor_saves_only_changed_fields_with_plain_text_and_the_loaded_revision():
+    js = (REPO / "webapp" / "static" / "commercial_presentations.js").read_text(encoding="utf-8")
+    block = js.split("// ── Editor INLINE", 1)[1]
+    assert "el.textContent.replace(" in block and "u00a0" in block and "innerText" not in block      # texto plano de una línea; el NBSP del contenteditable se normaliza
+    assert "JSON.stringify({ revision: parseInt(editor.getAttribute(\"data-revision\"), 10), fields: delta })" in block
+    assert "innerHTML" not in block and "eval(" not in block
+    assert "dwConfirm" in block and "beforeunload" in block                                    # confirma antes de descartar cambios
+    doc = (ASSETS / "vanture.js").read_text(encoding="utf-8")
+    assert "hasAttribute('data-cp-edit')" in doc and "text/plain" in doc and "insertText" in doc and "e.key === 'Enter'" in doc
+
+
+def test_the_shared_inline_edit_look_mirrors_the_estrategia_leaf():
+    shared = (STATIC / "content.css").read_text(encoding="utf-8")
+    assert ".dw-inline-edit { outline: 1px dashed var(--line, var(--content-line)); outline-offset: 3px; border-radius: 4px; cursor: text;" in shared and "text-transform: none !important;" in shared
+    strategy = (STATIC / "commercial_strategy.css").read_text(encoding="utf-8")
+    assert "outline: 1px dashed var(--line); outline-offset: 3px; border-radius: 4px;" in strategy        # el valor de referencia que se copia
