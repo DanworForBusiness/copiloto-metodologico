@@ -27,6 +27,16 @@
   window.addEventListener('scroll', scheduleTick, { passive: true });
   window.addEventListener('resize', scheduleTick);
   scheduleTick();
+
+  // Encabezado fijo (solo en la vista standalone): transparente arriba; al scrollear pasa a pleno con el fade del CSS (1 s). La transición se habilita recién tras el primer frame (`is-ready`): si el documento ya carga
+  // scrolleado (ancla, recarga) el encabezado entra pleno de una, sin fade.
+  var topbar = document.querySelector('.cp-topbar');
+  if (topbar) {
+    var syncTopbar = function(){ topbar.classList.toggle('is-solid', (window.scrollY || document.documentElement.scrollTop || 0) > 4); };
+    syncTopbar();
+    window.addEventListener('scroll', syncTopbar, { passive: true });
+    requestAnimationFrame(function(){ requestAnimationFrame(function(){ topbar.classList.add('is-ready'); }); });
+  }
   setTimeout(scheduleTick, 500);
   setTimeout(scheduleTick, 1500);
 

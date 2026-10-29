@@ -121,7 +121,7 @@
 </nav>
 
 {% if not embed %}
-<div style="position:fixed;top:0;left:0;right:0;z-index:50;display:flex;align-items:center;justify-content:space-between;padding:18px 40px;background:var(--bg);border-bottom:1px solid var(--line)">
+<div class="cp-topbar" style="position:fixed;top:0;left:0;right:0;z-index:50;display:flex;align-items:center;justify-content:space-between;padding:18px 40px">
   <div style="display:flex;align-items:center;gap:16px"><img src="{{ institutional_logo_url }}" alt="Danwor — Data &amp; AI for Business" style="height:30px;width:auto"><span style="width:1px;height:26px;background:color-mix(in srgb, var(--ink) 28%, transparent)"></span><img src="{{ partner_logo_url }}" alt="{{ partner_logo_alt }}" style="height:34px;width:auto;max-width:220px;object-fit:contain;display:block"></div>
   <div style="display:flex;align-items:center;gap:18px;font-family:var(--mono);font-size:11.5px;letter-spacing:.22em;color:var(--soft);text-transform:uppercase">
     <span style="color:var(--gold)">{{ m('hero_kicker') }}</span>
@@ -168,7 +168,7 @@
 {%- endif -%}
 
 {%- if edit_mode or 's3' not in removed_ids -%}
-<section id="s3"{{ ' data-cp-removed' if 's3' in removed_ids else '' }} style="position:relative;padding:120px 40px;border-top:1px solid color-mix(in srgb, var(--content-ink) 7%, transparent);background:radial-gradient(ellipse 60% 50% at 80% 10%,color-mix(in srgb, var(--gold) 6%, transparent),transparent 70%)">{{ slide_tools('s3') if edit_mode else '' }}
+<section id="s3"{{ ' data-cp-removed' if 's3' in removed_ids else '' }} style="position:relative;padding:120px 40px;border-top:1px solid color-mix(in srgb, var(--content-ink) 7%, transparent)">{{ slide_tools('s3') if edit_mode else '' }}
   <div style="max-width:1180px;margin:0 auto">
     <div style="display:flex;flex-direction:column;align-items:flex-start;animation:wipeIn .8s backwards;animation-timeline:view();animation-range:entry 0% cover 20%">
       <span class="topic-kicker">{{ kno('s3') }}{{ f('s3_nav') }}</span>
@@ -213,7 +213,7 @@
 {%- endif -%}
 
 {%- if edit_mode or 's6' not in removed_ids -%}
-<section id="s6"{{ ' data-cp-removed' if 's6' in removed_ids else '' }} style="position:relative;padding:120px 40px;border-top:1px solid color-mix(in srgb, var(--content-ink) 7%, transparent);background:radial-gradient(ellipse 70% 50% at 20% 0%,color-mix(in srgb, var(--gold) 7%, transparent),transparent 65%)">{{ slide_tools('s6') if edit_mode else '' }}
+<section id="s6"{{ ' data-cp-removed' if 's6' in removed_ids else '' }} style="position:relative;padding:120px 40px;border-top:1px solid color-mix(in srgb, var(--content-ink) 7%, transparent)">{{ slide_tools('s6') if edit_mode else '' }}
   <div style="max-width:1180px;margin:0 auto">
     <div style="display:flex;flex-direction:column;align-items:flex-start;animation:wipeIn .8s backwards;animation-timeline:view();animation-range:entry 0% cover 20%">
       <span class="topic-kicker">{{ kno('s6') }}{{ f('s6_nav') }}</span>
@@ -258,7 +258,7 @@
 {%- endif -%}
 
 {%- if edit_mode or 's9' not in removed_ids -%}
-<section id="s9"{{ ' data-cp-removed' if 's9' in removed_ids else '' }} style="position:relative;padding:120px 40px;border-top:1px solid color-mix(in srgb, var(--content-ink) 7%, transparent);background:radial-gradient(ellipse 60% 50% at 80% 10%,color-mix(in srgb, var(--gold) 6%, transparent),transparent 70%)">{{ slide_tools('s9') if edit_mode else '' }}
+<section id="s9"{{ ' data-cp-removed' if 's9' in removed_ids else '' }} style="position:relative;padding:120px 40px;border-top:1px solid color-mix(in srgb, var(--content-ink) 7%, transparent)">{{ slide_tools('s9') if edit_mode else '' }}
   <div style="max-width:1180px;margin:0 auto">
     <div style="display:flex;flex-direction:column;align-items:flex-start;animation:wipeIn .8s backwards;animation-timeline:view();animation-range:entry 0% cover 20%">
       <span class="topic-kicker">{{ kno('s9') }}{{ f('s9_nav') }}</span>
@@ -273,7 +273,7 @@
 {%- endif -%}
 
 {%- if edit_mode or 's10' not in removed_ids -%}
-<section id="s10"{{ ' data-cp-removed' if 's10' in removed_ids else '' }} style="position:relative;padding:120px 40px;border-top:1px solid color-mix(in srgb, var(--content-ink) 7%, transparent);background:radial-gradient(ellipse 60% 50% at 50% 100%,color-mix(in srgb, var(--gold) 10%, transparent),transparent 70%)">{{ slide_tools('s10') if edit_mode else '' }}
+<section id="s10"{{ ' data-cp-removed' if 's10' in removed_ids else '' }} style="position:relative;padding:120px 40px;border-top:1px solid color-mix(in srgb, var(--content-ink) 7%, transparent)">{{ slide_tools('s10') if edit_mode else '' }}
   <div style="max-width:980px;margin:0 auto">
     <div style="text-align:center;animation:riseIn .9s backwards;animation-timeline:view();animation-range:entry 0% cover 22%">
       <div class="topic-kicker">{{ kno('s10') }}{{ f('s10_nav') }}</div>
@@ -291,7 +291,7 @@
 {%- endif -%}
 
 {%- if edit_mode or 's11' not in removed_ids -%}
-<section id="s11"{{ ' data-cp-removed' if 's11' in removed_ids else '' }} style="position:relative;padding:120px 40px;border-top:1px solid color-mix(in srgb, var(--content-ink) 7%, transparent);background:radial-gradient(ellipse 60% 50% at 30% 10%,color-mix(in srgb, var(--gold) 7%, transparent),transparent 70%)">{{ slide_tools('s11') if edit_mode else '' }}
+<section id="s11"{{ ' data-cp-removed' if 's11' in removed_ids else '' }} style="position:relative;padding:120px 40px;border-top:1px solid color-mix(in srgb, var(--content-ink) 7%, transparent)">{{ slide_tools('s11') if edit_mode else '' }}
   <div style="max-width:1180px;margin:0 auto">
     <div style="display:flex;flex-direction:column;align-items:flex-start;animation:wipeIn .8s backwards;animation-timeline:view();animation-range:entry 0% cover 20%">
       <span class="topic-kicker">{{ kno('s11') }}{{ f('s11_nav') }}</span>

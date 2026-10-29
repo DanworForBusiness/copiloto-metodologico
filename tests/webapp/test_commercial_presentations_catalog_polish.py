@@ -158,3 +158,29 @@ def test_the_scroll_reveal_reuses_the_presentation_timeline_mechanism_without_a_
     assert re.search(r"@media \(prefers-reduced-motion: reduce\)\{[^@]*?\[style\*=\"animation-timeline:view\(\)\"\]\{animation:none!important\}", VANTURE_CSS.replace("\n", ""))
     assert re.search(r"html\[data-cp-edit\] \[style\*=\"animation-timeline:view\(\)\"\]\{animation:none!important\}", VANTURE_CSS)
     assert 'animation-timeline:scroll(root)' in doc and "scroll(root)" not in VANTURE_CSS                         # la barra de progreso (timeline de scroll del documento) no la apaga ninguna de las dos reglas
+
+
+def test_only_the_cover_keeps_a_gold_background_glow_and_every_other_slide_has_a_clean_background(world):
+    soup = BeautifulSoup(_seed_doc(world), "html.parser")
+    sections = soup.select("section[id^=s]")
+    assert [s["id"] for s in sections] == [f"s{i}" for i in range(1, 13)]
+    for sec in sections[1:]:
+        assert "background" not in sec.get("style", "") and not [e for e in [sec, *sec.find_all(True)] if "radial-gradient" in e.get("style", "")], sec["id"]     # fondo limpio, sin glow dorado
+    cover = sections[0]
+    assert [e for e in cover.find_all(True) if "radial-gradient" in e.get("style", "")]                                                                      # la portada conserva su glow
+    assert ".spotlight" in VANTURE_CSS and "spotlight" in (VANTURE / "vanture.js").read_text(encoding="utf-8")                                                # y el glow del puntero de la portada
+
+
+def test_the_fixed_header_starts_transparent_and_fades_its_background_and_border_in_together_on_scroll(world):
+    page = world.client(A).get(f"/presentaciones/{SEED_ID}").text
+    bar = BeautifulSoup(page, "html.parser").select_one(".cp-topbar")
+    assert bar and "background" not in bar["style"] and "border" not in bar["style"]                                  # sin fondo ni línea propios: los pone la capa que hace el fade
+    layer = re.search(r"\.cp-topbar::before\{([^}]*)\}", VANTURE_CSS).group(1)
+    assert "background:var(--bg)" in layer and "border-bottom:1px solid var(--line)" in layer and "opacity:var(--cp-topbar-rest)" in layer       # UNA capa: fondo pleno + línea, ambos con el MISMO fade
+    assert "--cp-topbar-rest:0}" in VANTURE_CSS and ".content-theme-light .cp-topbar{--cp-topbar-rest:.8}" in VANTURE_CSS                  # reposo: transparente en oscuro; 80 % en claro (los logos son para fondo oscuro)
+    assert ".content-theme-light .cp-topbar .theme-toggle{background:transparent}" in VANTURE_CSS                                   # el botón de tema toma el tono de la capa (solo en claro; el oscuro no cambia)
+    assert "transition" not in layer and re.search(r"\.cp-topbar\.is-ready::before\{transition:opacity 1s ease\}", VANTURE_CSS)  # 1 s, y solo tras el primer frame (carga scrolleada = pleno de una)
+    assert ".cp-topbar.is-solid::before{opacity:1}" in VANTURE_CSS and "isolation:isolate" in VANTURE_CSS
+    js = (VANTURE / "vanture.js").read_text(encoding="utf-8")
+    assert "classList.toggle('is-solid'" in js and "> 4" in js and "classList.add('is-ready')" in js and "{ passive: true }" in js
+    assert not BeautifulSoup(world.client(A).get(f"/presentaciones/{SEED_ID}?embed=1").text, "html.parser").select_one(".cp-topbar")   # el documento embebido en el Hub no trae encabezado

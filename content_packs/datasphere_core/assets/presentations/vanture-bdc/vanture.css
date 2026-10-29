@@ -31,6 +31,15 @@
   }
 
   /* «datos» del título: oro pleno del Hub (var(--gold), el mismo del helper {dw-gold}); sin degradé ni brillo animado. */
+  /* Encabezado fijo: en reposo (arriba) la capa de fondo + línea inferior está en `--cp-topbar-rest` (transparente en oscuro, la portada y su glow no se cortan; 80 % en claro, porque los logos y el botón de tema son
+     para fondo oscuro y sobre una portada blanca desaparecen); al empezar a scrollear el fondo pleno y la línea hacen fade-in JUNTOS (una sola capa, `.is-solid` la pone vanture.js) y completan en 1 s (la transición
+     se habilita tras el primer frame: `.is-ready`). Sin JS queda en reposo (el documento ya depende de JS para tema, riel y edición). */
+  .cp-topbar{isolation:isolate;--cp-topbar-rest:0}
+  .content-theme-light .cp-topbar{--cp-topbar-rest:.8}
+  .content-theme-light .cp-topbar .theme-toggle{background:transparent}   /* el botón de tema toma el MISMO tono que la capa del encabezado (no un negro pleno encima) */
+  .cp-topbar::before{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;background:var(--bg);border-bottom:1px solid var(--line);opacity:var(--cp-topbar-rest)}
+  .cp-topbar.is-ready::before{transition:opacity 1s ease}
+  .cp-topbar.is-solid::before{opacity:1}
   /* Rail (content.css, el de Academy): acá el texto de la sección aparece SOLO al pasar el mouse (el contenido llega al borde derecho: la sección activa no deja un label fijo encima). */
   .rail a.active:not(:hover) span { opacity:0; }
   /* Tarjetas: `.dw-card` (content.css, la de Academy): borde fino y hover con borde de acento; sin inclinación 3D ni glow por detrás. */
