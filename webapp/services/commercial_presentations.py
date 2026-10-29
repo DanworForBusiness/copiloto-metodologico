@@ -443,7 +443,10 @@ def validate_blocks(value) -> dict:
         spec = COMPONENTS.get(component)
         own = _OWN_VARIANT_RE.match(variant)
         if own:                                                                  # componente PROPIO: la instancia guarda un SNAPSHOT independiente de sus parámetros (nunca el HTML)
-            if set(occupant) != {"component", "variant", "params", "from"} or spec is None or component not in PARAM_CONTRACTS:
+            if set(occupant) != {"component", "variant", "params", "from"} or spec is None:
+                raise PresentationValidationError("El componente indicado no es válido")
+            contract = PARAM_CONTRACTS.get(component)
+            if contract is None and occupant["params"] is not None:               # cerrado: ningún parámetro se acepta ni se guarda
                 raise PresentationValidationError("El componente indicado no es válido")
             origin = occupant["from"]
             if (not isinstance(origin, dict) or set(origin) != {"id", "revision", "name"} or origin["id"] != own.group(1) or origin["revision"] != int(own.group(2))
@@ -451,7 +454,7 @@ def validate_blocks(value) -> dict:
                 raise PresentationValidationError("El componente indicado no es válido")
             if spec["region"] != rtype:
                 raise PresentationValidationError("Ese componente no es compatible con la región elegida")
-            out[region_id] = {"component": component, "variant": variant, "params": PARAM_CONTRACTS[component]["validate"](occupant["params"]),
+            out[region_id] = {"component": component, "variant": variant, "params": contract["validate"](occupant["params"]) if contract else None,
                               "from": {"id": origin["id"], "revision": origin["revision"], "name": origin["name"].strip()}}
             continue
         if set(occupant) != {"component", "variant"}:
@@ -543,7 +546,8 @@ def _stack_shape(params: dict) -> tuple:
             tuple((layer["reveal"], "sub" in layer, tuple("note" in b for b in layer["boxes"])) for layer in params["layers"]))
 
 
-# componentes cuyo renderer admite parámetros editables (el resto se ve y se usa, pero no se duplica ni se edita)
+# componentes cuyo renderer admite parámetros editables. El resto son componentes CERRADOS (contenido fijo del renderer): se ven, se usan y SE DUPLICAN (la copia propia guarda `params: null`: identidad, nombre,
+# descripción, responsable y procedencia propios, pero sigue la definición institucional: NO congela el contenido visual), y de la copia solo se edita nombre y descripción.
 PARAM_CONTRACTS = {"layer-stack": {"validate": validate_layer_stack_params, "shape": _stack_shape}}
 
 
@@ -1318,12 +1322,17 @@ def _is_component_id(value: str) -> bool:
 def _component_view(raw: dict) -> dict:
     cid, component = str(raw.get("component_id") or ""), str(raw.get("component") or "")
     contract = PARAM_CONTRACTS.get(component)
-    if not _is_component_id(cid) or contract is None:
+    if not _is_component_id(cid) or component not in COMPONENTS:
         raise PresentationUnavailable("Componente no disponible", "unknown_template")
-    try:
-        params = contract["validate"](raw.get("params"))
-    except PresentationValidationError as exc:
-        raise PresentationUnavailable("Componente con parámetros inválidos", "seed") from exc
+    if contract is None:                                                         # cerrado: sin parámetros (cualquier valor guardado es ilegible, no se interpreta)
+        if raw.get("params") is not None:
+            raise PresentationUnavailable("Componente con parámetros inválidos", "seed")
+        params = None
+    else:
+        try:
+            params = contract["validate"](raw.get("params"))
+        except PresentationValidationError as exc:
+            raise PresentationUnavailable("Componente con parámetros inválidos", "seed") from exc
     revision = int(raw.get("revision") or 1)
     return {"component_id": cid, "component": component, "name": str(raw.get("name") or ""), "description": str(raw.get("description") or ""), "params": params, "revision": revision,
             "owner_id": raw.get("owner_id"), "created_by_id": raw.get("created_by_id"), "created_by_label": raw.get("created_by_label"), "created_at": raw.get("created_at"),
@@ -1413,10 +1422,9 @@ def catalog_components(user: dict | None) -> list[dict]:
     rows = []
     for o in component_library():
         spec = COMPONENTS[o["component"]]
-        editable = o["component"] in PARAM_CONTRACTS
         rows.append({"kind": "institutional", "ref": o["ref"], "component": o["component"], "component_label": spec["label"], "region": spec["region"], "name": o["label"], "description": "",
                      "owner_label": "Danwor", "based_on_label": "", "updated_at": None, "component_id": None, "revision": None, "params": None,
-                     "can_duplicate": editable, "duplicate_reason": "" if editable else "este componente no tiene parámetros editables",
+                     "can_duplicate": True, "duplicate_reason": "",
                      "can_edit": False, "edit_reason": "los componentes institucionales son de solo lectura", "can_delete": False, "delete_reason": "los componentes institucionales no se eliminan"})
     for entry in visible_components(user):
         spec = COMPONENTS[entry["component"]]
@@ -1438,7 +1446,7 @@ def library_for(user: dict | None, blocks: dict | None) -> list[dict]:
         lib.append({"component": entry["component"], "variant": entry["variant"], "label": entry["name"], "region": COMPONENTS[entry["component"]]["region"], "ref": entry["ref"], "tag": "propio", "params": entry["params"]})
         seen.add(entry["ref"])
     for occ in (blocks or {}).values():
-        if occ and occ.get("params") is not None and _ref(occ["component"], occ["variant"]) not in seen:
+        if occ and (occ.get("params") is not None or _OWN_VARIANT_RE.match(occ["variant"])) and _ref(occ["component"], occ["variant"]) not in seen:
             ref = _ref(occ["component"], occ["variant"])
             lib.append({"component": occ["component"], "variant": occ["variant"], "label": occ["from"]["name"], "region": COMPONENTS[occ["component"]]["region"], "ref": ref, "tag": f"en uso · rev. {occ['from']['revision']}", "params": occ["params"]})
             seen.add(ref)
@@ -1509,8 +1517,8 @@ def duplicate_component(source_ref: str, *, name, description=None, user: dict |
     """Duplica un componente (institucional o propio visible) como PROPIO del usuario: identidad nueva, responsable = quien duplica, procedencia (`based_on`), parámetros independientes, revisión 1."""
     clean_name, clean_desc = _validate_component_meta(name, description)
     source = resolve_component_ref(source_ref, user)                              # NotFound si no existe / no es visible
-    if source["component"] not in PARAM_CONTRACTS or source["params"] is None:
-        raise PresentationValidationError("Este componente no tiene parámetros editables")
+    if (source["component"] in PARAM_CONTRACTS) != (source["params"] is not None):          # coherencia: con contrato hay parámetros; cerrado, no
+        raise PresentationValidationError("El componente indicado no es válido")
     owner_id = _email(user)
     if not owner_id:
         raise PresentationValidationError("No se pudo identificar al usuario")
@@ -1553,7 +1561,9 @@ def update_component(component_id: str, *, expected_revision: int, name=None, de
         if name is not None or description is not None:
             candidate["name"], candidate["description"] = _validate_component_meta(view["name"] if name is None else name, view["description"] if description is None else description)
         if params is not None:
-            contract = PARAM_CONTRACTS[view["component"]]
+            contract = PARAM_CONTRACTS.get(view["component"])
+            if contract is None:
+                raise PresentationValidationError("Este componente no tiene parámetros editables: solo se puede cambiar su nombre y su descripción")
             clean = contract["validate"](params)
             if contract["shape"](clean) != contract["shape"](view["params"]):
                 raise PresentationValidationError("Solo se pueden editar textos y tonos: la estructura del componente (capas y cajas) no cambia en esta entrega")

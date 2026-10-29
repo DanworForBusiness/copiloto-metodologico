@@ -140,9 +140,7 @@ def test_the_catalog_has_two_collections_with_the_same_hub_patterns_and_the_inst
         assert not buttons[0].has_attr("disabled") and buttons[2].has_attr("disabled") and buttons[3].has_attr("disabled")       # institucional: se ve y se duplica; nunca se edita ni se elimina
         assert "solo lectura" in buttons[2]["aria-label"] and "no se eliminan" in buttons[3]["aria-label"]
     dup = {r["data-cc-ref"]: r.select(".dw-row-actions > *")[1] for r in rows}
-    assert not dup[BDC_REF].has_attr("disabled") and not dup[KC_REF].has_attr("disabled")
-    assert dup[FLOW_REF].has_attr("disabled") and "sin parámetros" in dup[FLOW_REF]["aria-label"] or "no tiene parámetros editables" in dup[FLOW_REF]["aria-label"]
-    assert dup[MARQUEE_REF].has_attr("disabled")                                                          # sin contrato de parámetros: se ve y se usa, pero no se duplica ni se edita
+    assert not any(d.has_attr("disabled") for d in dup.values())                                          # los CUATRO se duplican: Duplicar no depende de que el renderer sea editable (los cerrados guardan `params: null`)
 
 
 def test_a_duplicated_component_shows_up_in_the_collection_with_identity_ownership_and_origin(world):
@@ -200,8 +198,8 @@ def test_duplicating_an_own_component_keeps_the_provenance_chain(world):
     assert based == {"ref": f"layer-stack:own:{first}@1", "name": "Primero", "revision": 1, "origin": "own"}
 
 
-@pytest.mark.parametrize("ref, status", [(FLOW_REF, 422), (MARQUEE_REF, 422), ("layer-stack:inventada", 404), ("html:x", 404), ("own:00000000-0000-4000-8000-000000000000", 404), ("", 404), ("../etc", 404)])
-def test_only_components_with_a_parameter_contract_can_be_duplicated_and_the_ref_must_exist(world, ref, status):
+@pytest.mark.parametrize("ref, status", [("layer-stack:inventada", 404), ("html:x", 404), ("own:00000000-0000-4000-8000-000000000000", 404), ("", 404), ("../etc", 404)])
+def test_duplicating_requires_an_existing_visible_ref(world, ref, status):
     before = world.files()
     assert _dup(world, A, ref).status_code == status
     assert not (world.directory / "components").exists() or not list((world.directory / "components").glob("*.json")) and world.files() == before

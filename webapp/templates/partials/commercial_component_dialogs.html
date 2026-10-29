@@ -19,7 +19,7 @@
   <form method="dialog" class="tree-feedback-form cp-form" data-cc-dup-form>
     <div class="dw-confirm__body">
       <h2 class="dw-confirm__title" id="cc-dup-title">Duplicar como componente propio</h2>
-      <p class="dw-confirm__msg">Se crea un componente tuyo, independiente del original: podés editar sus textos y tonos sin afectarlo. Queda privado para vos (y para quien gobierna los contenidos).</p>
+      <p class="dw-confirm__msg">Se crea un componente tuyo, con nombre, descripción y responsable propios, sin afectar al original. Si el componente tiene textos y tonos configurables, también podés editarlos; si es de contenido fijo, la copia sigue usando el diseño institucional vigente. Queda privado para vos (y para quien gobierna los contenidos).</p>
       <div class="feedback-field">
         <label for="cc-dup-name">Nombre</label>
         <input id="cc-dup-name" type="text" maxlength="{{ max_title }}" autocomplete="off" required data-cc-name-input>
@@ -41,7 +41,8 @@
   <form method="dialog" class="tree-feedback-form cp-form" data-cc-edit-form>
     <div class="dw-confirm__body">
       <h2 class="dw-confirm__title" id="cc-edit-title">Editar componente</h2>
-      <p class="dw-confirm__msg">Podés cambiar los textos y los tonos; la estructura (capas y cajas) no cambia. Las presentaciones donde ya lo usaste conservan su propia copia: no se alteran.</p>
+      <p class="dw-confirm__msg" data-cc-edit-msg-params>Podés cambiar los textos y los tonos; la estructura (capas y cajas) no cambia. Las presentaciones donde ya lo usaste conservan su propia copia: no se alteran.</p>
+      <p class="dw-confirm__msg" data-cc-edit-msg-fixed hidden>Este componente es de contenido fijo: solo podés cambiar su nombre y su descripción. Su diseño sigue la definición institucional vigente. Las presentaciones donde ya lo usaste no se alteran.</p>
     </div>
     <div class="busqueda-picker">
       <div class="feedback-field">

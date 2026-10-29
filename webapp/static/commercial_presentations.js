@@ -160,6 +160,7 @@
   }
   function buildParamsForm(host, params) {
     host.replaceChildren();
+    if (!params) return;                                                         // componente CERRADO (contenido fijo, `params: null`): solo nombre y descripción
     if (params.sides.length) {
       var sides = document.createElement("fieldset");
       sides.className = "cc-edit-layer";
@@ -243,6 +244,8 @@
       editDialog.querySelector("[data-cc-name-input]").value = edit.getAttribute("data-cc-name") || "";
       editDialog.querySelector("[data-cc-desc-input]").value = edit.getAttribute("data-cc-desc") || "";
       buildParamsForm(editDialog.querySelector("[data-cc-edit-fields]"), params);
+      editDialog.querySelector("[data-cc-edit-msg-params]").hidden = !params;
+      editDialog.querySelector("[data-cc-edit-msg-fixed]").hidden = !!params;
       ccShowError(editDialog, "");
       editDialog.querySelector("[data-cc-edit-submit]").disabled = false;
       editDialog.showModal();
@@ -297,8 +300,8 @@
       if (!form.reportValidity()) return;                                        // campos vacíos: el navegador lo marca (el servidor valida de nuevo)
       editBtn.disabled = true;
       try {
-        var payload = { revision: ccEditing.revision, name: editDialog.querySelector("[data-cc-name-input]").value.trim(), description: editDialog.querySelector("[data-cc-desc-input]").value.trim(),
-                        params: readParamsForm(editDialog.querySelector("[data-cc-edit-fields]"), ccEditing.params) };
+        var payload = { revision: ccEditing.revision, name: editDialog.querySelector("[data-cc-name-input]").value.trim(), description: editDialog.querySelector("[data-cc-desc-input]").value.trim() };
+        if (ccEditing.params) payload.params = readParamsForm(editDialog.querySelector("[data-cc-edit-fields]"), ccEditing.params);      // un cerrado nunca manda parámetros
         var r = await ccPost("/comercial/componentes/" + encodeURIComponent(ccEditing.id), payload);
         if (r.ok) { ccReload("Componente guardado", "Revisión " + r.data.revision + ". Lo ya insertado en presentaciones no cambia."); return; }
         ccShowError(editDialog, messageOf(r.data, "No se pudo guardar el componente."));
