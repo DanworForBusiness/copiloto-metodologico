@@ -59,6 +59,7 @@ _PERSIST_SUBDIR = "presentations"
 _RESTORE_WAIT_TIMEOUT_S = 15.0
 # Logo institucional Danwor: el MISMO asset que Danwor Academy muestra a pantalla completa (variante de wordmark BLANCO, para fondo oscuro). Se referencia por `/pack-assets`; no se copia.
 _INSTITUTIONAL_LOGO = "academy/assets/img/danwor-logo.png"
+RELEASE_DATE_LABEL = "29-10-2026"                      # «Última edición» de lo que no tiene fecha propia (semilla y componentes institucionales): la fecha en que se liberó la funcionalidad; se ajusta si hay nuevos cambios
 MAX_INSTANCES = 200                                   # tope global (V1): evita crecimiento sin control del directorio
 MAX_TITLE = 120
 MAX_LOGO_BYTES = 1024 * 1024                          # logo del cliente: PNG con fondo transparente, hasta 1 MB
@@ -607,7 +608,7 @@ def _seed_view(template_id: str) -> dict:
     return {
         "presentation_id": template_id, "template_id": template_id, "template_version": spec.version,
         "title": str(data.get("title") or spec.label), "revision": 1, "is_seed": True,
-        "created_by_id": None, "created_by_label": "Danwor (institucional)", "owner_id": None, "copied_from": None,
+        "created_by_id": None, "created_by_label": "Juan Manuel Melgarejo", "owner_id": None, "copied_from": None,
         "created_at": None, "updated_at": None, "updated_by_id": None, "updated_by_label": None,
         "removed_slides": [], "blocks": {}, "qr_sha": None,
         "content": copy.deepcopy(data["content"]),
@@ -1414,7 +1415,7 @@ def catalog_components(user: dict | None) -> list[dict]:
         spec = COMPONENTS[o["component"]]
         editable = o["component"] in PARAM_CONTRACTS
         rows.append({"kind": "institutional", "ref": o["ref"], "component": o["component"], "component_label": spec["label"], "region": spec["region"], "name": o["label"], "description": "",
-                     "owner_label": "Danwor (institucional)", "based_on_label": "", "updated_at": None, "component_id": None, "revision": None, "params": None,
+                     "owner_label": "Danwor", "based_on_label": "", "updated_at": None, "component_id": None, "revision": None, "params": None,
                      "can_duplicate": editable, "duplicate_reason": "" if editable else "este componente no tiene parámetros editables",
                      "can_edit": False, "edit_reason": "los componentes institucionales son de solo lectura", "can_delete": False, "delete_reason": "los componentes institucionales no se eliminan"})
     for entry in visible_components(user):

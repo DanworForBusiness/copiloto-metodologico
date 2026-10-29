@@ -218,7 +218,8 @@
     if (view && viewDialog) {
       viewDialog.querySelector("[data-cc-view-title]").textContent = view.getAttribute("data-cc-name") || "Componente";
       viewDialog.querySelector("[data-cc-view-meta]").textContent = view.getAttribute("data-cc-meta") || "";
-      viewDialog.querySelector("[data-cc-view-frame]").src = "/comercial/componentes/vista?ref=" + encodeURIComponent(view.getAttribute("data-cc-view"));
+      var viewFrame = viewDialog.querySelector("[data-cc-view-frame]");
+      viewFrame.src = "/comercial/componentes/vista?ref=" + encodeURIComponent(view.getAttribute("data-cc-view"));
       viewDialog.showModal();
       return;
     }
@@ -247,7 +248,27 @@
       editDialog.showModal();
     }
   });
-  if (viewDialog) viewDialog.addEventListener("close", function () { viewDialog.querySelector("[data-cc-view-frame]").removeAttribute("src"); });
+  if (viewDialog) {
+    // Vista previa a escala proporcional: el iframe (renderer REAL) se maqueta al ancho de referencia de la presentación (su ancho CSS) y se escala al ancho disponible; la caja toma la altura escalada. Así el
+    // responsive del renderer (que depende del ancho del viewport) nunca reorganiza capas, cajas ni conectores. No se toca el responsive de la presentación real.
+    var vFrame = viewDialog.querySelector("[data-cc-view-frame]"), vBox = viewDialog.querySelector("[data-cc-view-box]");
+    var fitPreview = function () {
+      if (!viewDialog.open || !vFrame.getAttribute("src")) return;
+      var doc = vFrame.contentDocument;
+      var h = doc && doc.documentElement ? Math.max(doc.documentElement.scrollHeight, 120) : 640;
+      vFrame.style.height = h + "px";
+      var k = Math.min(1, vBox.clientWidth / vFrame.offsetWidth);
+      vFrame.style.transform = "scale(" + k + ")";
+      vBox.style.height = Math.ceil(h * k) + "px";
+    };
+    vFrame.addEventListener("load", function () {
+      fitPreview();
+      var fonts = vFrame.contentDocument && vFrame.contentDocument.fonts;
+      if (fonts && fonts.ready) fonts.ready.then(fitPreview);                                                   // segunda pasada con las fuentes ya aplicadas (altura final)
+    });
+    window.addEventListener("resize", fitPreview);
+    viewDialog.addEventListener("close", function () { vFrame.removeAttribute("src"); vFrame.style.transform = ""; vBox.style.height = ""; });
+  }
 
   if (dupDialog) {
     var dupBtn = dupDialog.querySelector("[data-cc-dup-submit]");

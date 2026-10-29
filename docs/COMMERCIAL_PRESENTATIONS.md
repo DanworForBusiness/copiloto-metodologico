@@ -235,6 +235,17 @@ Cada elemento se resolvió como *elemento actual → precedente del Hub → clas
 
 **Propagación.** Un cambio en `.hero-lead`, `.dashboard-section__*` o `.hc-profile-filters` de `tools.css` llega a CRM/CCHH **y** a Presentaciones sin tocar `commercial.css` (verificado editando `tools.css` de forma temporal y restaurándolo por hash).
 
+## Pulido final (catálogo, componentes, portada, pie y reveal)
+
+* **Fechas sin valor:** «Última edición» de lo que no tiene fecha propia (la semilla y los componentes institucionales) muestra `RELEASE_DATE_LABEL` (`29-10-2026`, fecha de liberación; se ajusta si hay nuevos cambios). Solo se muestra: no se escribe nada.
+* **Dos tablas, un contrato:** Presentaciones y Componentes reutilizables comparten `.dashboard-table.cp-catalog` (anchos 34/22/16/12 % + Acciones 252 px, alineación y tipografía) y las mismas cinco columnas; Componentes ya no tiene «Procedencia» (el «Basado en …» va como rótulo bajo el nombre). «Componentes reutilizables» arranca **colapsado**; «Presentaciones» abierto (`<details class="dashboard-section">` nativo).
+* **Etiquetas:** responsable de la presentación institucional = «Juan Manuel Melgarejo»; de los componentes institucionales = «Danwor». Son solo rótulos (ownership y autorización intactos; los componentes propios conservan su metadata). Sin badge «Institucional» en ninguna colección; la inmutabilidad se ve en las acciones deshabilitadas.
+* **Vista previa de componentes a escala:** el documento de vista previa se maqueta al ancho de referencia de la slide (1260 px) dentro de un iframe del mismo ancho y se escala proporcionalmente al ancho disponible (`fitPreview`). El responsive de la presentación real no se toca; el renderer es el mismo.
+* **Scrollbar del documento embebido:** lo que scrollea en el editor es el viewport del iframe; `html.content-doc` se suma al selector de la regla de scrollbar del Hub (`tools.css`), sin colores propios.
+* **Portada:** en tema claro la órbita del hero usa el gris suave del token de los indicadores laterales (`.content-theme-light .hero-orbit`, solo el color); punto dorado, geometría, grosor y movimiento intactos; el tema oscuro no cambia. El punch «7 de 10» baja ×0,83 (`clamp(46px,6.64vw,86px)`).
+* **Pie:** sin la frase «Data & AI for Business.» bajo los logos; el aviso ocupa el resto de la fila (`flex:1 1 560px`, sin alto mínimo) y los logos quedan centrados respecto de su caja; en móvil la caja baja debajo de los logos.
+* **Reveal por scroll (sin segundo motor):** la presentación ya revela por scroll con `animation-timeline:view()` inline en títulos, párrafos, bloques y add-ons (el hero conserva su entrada inmediata). Se reutiliza tal cual y solo se cierran dos brechas, ambas en `vanture.css`: con `prefers-reduced-motion` y en modo edición esos elementos quedan en su estado natural (`animation:none`), de modo que nada se oculta ni se desplaza y las acciones/selección no se ven afectadas. Las vistas previas del catálogo ya lo desactivaban; las animaciones internas (órbitas, conectores, marquee) y la barra de progreso (`scroll(root)`) no se tocan. El reveal es ligado al scroll (reversible), el mismo contrato que el Copiloto; las guías prácticas animan una sola vez, pero eso exigiría JS propio.
+
 ## Seguridad de salida
 
 * Todo campo es un `str` validado (strip, largo máximo, sin caracteres de control, U+2028/2029 ni controles bidi); las claves desconocidas dan 422 (sin reflejar su nombre).
@@ -266,7 +277,7 @@ y `restore`/`mirror_up`/`push_path` cubren los subdirectorios; **no se agregó n
 ## Limitaciones conocidas (heredadas del original o de V1)
 
 * El revelado por hover de «¿Por qué SAP BDC?» depende del foco en pantallas táctiles (limitación del original).
-* Usa `animation-timeline` (animaciones ligadas al scroll): sin soporte fuera de navegadores Chromium actuales el contenido se muestra sin esa animación (heredado del original).
+* Usa `animation-timeline` (animaciones ligadas al scroll): sin soporte fuera de navegadores Chromium actuales el contenido se muestra sin esa animación (heredado del original). Con `prefers-reduced-motion` y en modo edición se muestra siempre sin ella.
 * Barra superior y pie siguen siendo oscuros en ambos temas (co-branding con logos pensados para fondo oscuro); el cuerpo del documento sí cambia de tema.
 * QR estático; marca Vanture y logos de clientes heredados por todas las copias (sin neutralidad de marca ni personalización irrestricta).
 * «Copiar enlace» es el único sharing de V1 (sin permisos individuales, publicación anónima ni envío externo).

@@ -558,7 +558,7 @@ def test_the_theme_comes_from_the_hub_cookie_on_the_server_so_there_is_no_flash(
     if cookie:
         c.cookies.set("dw-content-theme", cookie)
     html = c.get(f"/presentaciones/{SEED_ID}").text
-    assert re.search(r'<html lang="es" class="%s">' % expected, html)
+    assert re.search(r'<html lang="es" class="%s content-doc">' % expected, html)
     visible = re.findall(r'<svg (style="display:none" )?data-dw-theme-icon="(light|dark)"', html)
     assert [(hidden == "", icon) for hidden, icon in visible] == [(icon == expected.split("-")[-1], icon) for _, icon in visible], "el ícono del tema actual llega visible desde el servidor"
 

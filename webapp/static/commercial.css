@@ -991,8 +991,15 @@ table.dashboard-table.commercial-creadas-table td:nth-child(4) { width: auto; }
       contenido reinicia el temporizador) y el markup `.callout`; solo repite el POSICIONAMIENTO de `.hc-catalog-refresh-feedback--topbar` (human_capital.css, no se carga acá).
    5. `.cp-notice` / `.cp-toast`: escala compacta de título y cuerpo de un `.callout` chico (mismas medidas que ese toast: `.callout__body p` hereda 1rem y se ve sobredimensionado en un aviso). */
 .dashboard-table.cp-catalog { min-width: 820px; }
+/* CONTRATO de columnas de las tablas del catálogo (Presentaciones y Componentes reutilizables): mismo ancho, alineación y distribución; solo cambian los campos semánticos de cada colección. */
+.dashboard-table.cp-catalog col:nth-child(1) { width: 34%; }
+.dashboard-table.cp-catalog col:nth-child(2) { width: 22%; }
+.dashboard-table.cp-catalog col:nth-child(3) { width: 16%; }
+.dashboard-table.cp-catalog col:nth-child(4) { width: 12%; }
+.dashboard-table.cp-catalog col:nth-child(5) { width: 252px; }
 /* Vista previa de un componente (diálogo «Ver»): iframe del renderer real; sin borde propio de tarjeta, mismo trazo discontinuo que las demás zonas de vista previa. */
-.cc-preview-frame { display: block; width: 100%; height: min(380px, 48vh); border: 1px dashed rgba(128,128,128,.4); border-radius: 8px; background: transparent; }
+.cc-preview-box { position: relative; overflow: hidden; width: 100%; min-height: 120px; border: 1px dashed rgba(128,128,128,.4); border-radius: 8px; }
+.cc-preview-frame { display: block; width: 1260px; height: 640px; border: 0; background: transparent; transform-origin: 0 0; }   /* 1260 = ancho de referencia: el de la slide de la presentación (contenedor de 1180 + 40 de margen a cada lado) */
 .cc-edit-layer { margin: 14px 0 0; padding: 12px 14px; border: 1px solid rgba(128,128,128,.28); border-radius: 8px; }
 .cc-edit-layer > legend { padding: 0 6px; font-weight: 700; font-size: .78rem; }
 .cc-edit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }

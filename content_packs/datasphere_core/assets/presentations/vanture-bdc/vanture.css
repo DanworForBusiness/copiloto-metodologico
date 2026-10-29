@@ -40,6 +40,8 @@
   .spotlight{position:absolute;inset:0;pointer-events:none;z-index:0;
     background:radial-gradient(circle 1300px at var(--mx,30%) var(--my,40%),color-mix(in srgb, var(--gold) 5%, transparent) 0%,color-mix(in srgb, var(--gold) 2%, transparent) 45%,transparent 70%)}
 
+  /* Órbita del hero en tema CLARO: el dorado al 14 % casi no se ve sobre blanco. Solo el color de la trayectoria pasa al gris suave de los indicadores laterales (el token del riel); el punto, la geometría, el grosor y el movimiento no cambian, y el tema oscuro queda como está. */
+  .content-theme-light .hero-orbit{border-color:var(--line-2,var(--content-line-strong))!important}
   .logo-marquee{position:relative;overflow:hidden;background:color-mix(in srgb, var(--content-ink) 9%, transparent);
     -webkit-mask-image:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent);
     mask-image:linear-gradient(90deg,transparent,#000 6%,#000 94%,transparent)}
@@ -152,5 +154,9 @@
     *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important;scroll-behavior:auto!important}
     .logo-marquee{overflow-x:auto}
     .logo-marquee__track{animation:none!important;width:max-content}
+    /* el reveal por scroll es un timeline (la duración no lo apaga): sin movimiento, el contenido queda en su estado natural */
+    [style*="animation-timeline:view()"]{animation:none!important}
   }
+  /* edición: el reveal no oculta ni desplaza el blanco de selección/acciones (✕ de bloques y slides, leaves editables, diálogo de add-ons) */
+  html[data-cp-edit] [style*="animation-timeline:view()"]{animation:none!important}
   @media (max-width: 720px){ nav.side-nav{display:none} }

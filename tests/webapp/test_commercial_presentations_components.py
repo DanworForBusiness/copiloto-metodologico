@@ -125,7 +125,7 @@ def test_only_texts_and_tones_are_editable_so_the_structure_signature_ignores_th
 def test_the_catalog_has_two_collections_with_the_same_hub_patterns_and_the_institutional_components(world):
     soup = _catalog(world)
     sections = soup.select("details.dashboard-section")
-    assert [s["data-section-id"] for s in sections] == ["presentaciones", "componentes"] and all(s.has_attr("open") for s in sections)
+    assert [s["data-section-id"] for s in sections] == ["presentaciones", "componentes"] and sections[0].has_attr("open") and not sections[1].has_attr("open")      # «Componentes reutilizables» entra colapsado
     comp = sections[1]
     assert [c["class"][0] for c in comp.select("summary.dashboard-section__head > *")] == ["dashboard-section__caret", "dashboard-section__title", "dashboard-section__count"]
     count = comp.select_one("[data-cp-count]")
@@ -134,7 +134,7 @@ def test_the_catalog_has_two_collections_with_the_same_hub_patterns_and_the_inst
     rows = comp.select("#cc-catalog-table tbody tr")
     assert [r["data-cc-ref"] for r in rows] == [BDC_REF, KC_REF, FLOW_REF, MARQUEE_REF]
     for r in rows:
-        assert r.select_one(".status-badge--activo").text.strip() == "Institucional" and r.has_attr("data-cp-search")
+        assert not r.select(".status-badge") and r.has_attr("data-cp-search")                              # sin badge «Institucional»: el tratamiento diferencial lo dan las acciones
         buttons = r.select(".dw-row-actions > *")
         assert len(buttons) == 4 and [b.name for b in buttons] == ["button"] * 4                         # Ver · Duplicar · Editar · Eliminar: siempre las cuatro
         assert not buttons[0].has_attr("disabled") and buttons[2].has_attr("disabled") and buttons[3].has_attr("disabled")       # institucional: se ve y se duplica; nunca se edita ni se elimina
@@ -153,7 +153,7 @@ def test_a_duplicated_component_shows_up_in_the_collection_with_identity_ownersh
     row = soup.select_one(f'#cc-catalog-table tr[data-cc-ref="own:{cid}"]')
     assert row and row.select_one("strong").text == "Arquitectura para Acme" and row.select_one(".status-badge--tentativo").text.strip() == "Propio"
     cells = [td.get_text(" ", strip=True) for td in row.select("td")]
-    assert "Basado en «Arquitectura SAP BDC»" in cells[2] and "Cuerpo de la slide" in cells[1] and cells[3] and re.fullmatch(r"\d\d-\d\d-\d{4}", cells[4])
+    assert len(cells) == 5 and "Basado en «Arquitectura SAP BDC»" in cells[0] and "Cuerpo de la slide" in cells[1] and cells[2] and re.fullmatch(r"\d\d-\d\d-\d{4}", cells[3])
     buttons = row.select(".dw-row-actions > *")
     assert all(not b.has_attr("disabled") for b in buttons) and buttons[2]["data-cc-edit"] == cid and buttons[3]["data-cc-delete"] == cid
     assert json.loads(buttons[2]["data-cc-params"]) == _bdc_params() and buttons[2]["data-cc-rev"] == "1"

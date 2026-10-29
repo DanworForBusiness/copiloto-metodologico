@@ -199,10 +199,10 @@ def presentations_catalog(request: Request):
         items, error_state = [], "unavailable"
     titles = {item["presentation_id"]: item["title"] for item in items}
     rows = [{**item, "can_edit": presentations.can_edit_presentation_user(user, item), "can_delete": presentations.can_delete_presentation_user(user, item), "share_path": _share_path(item["presentation_id"]),
-             "updated_label": _date_dmy(item.get("updated_at")),
+             "updated_label": _date_dmy(item.get("updated_at")) or presentations.RELEASE_DATE_LABEL,
              "copied_from_title": titles.get((item.get("copied_from") or {}).get("presentation_id"), "")} for item in items]
     try:
-        components = [{**c, "updated_label": _date_dmy(c.get("updated_at"))} for c in presentations.catalog_components(user)]
+        components = [{**c, "updated_label": _date_dmy(c.get("updated_at")) or presentations.RELEASE_DATE_LABEL} for c in presentations.catalog_components(user)]
     except presentations.PresentationStorageError:
         components = []
     return templates.TemplateResponse(

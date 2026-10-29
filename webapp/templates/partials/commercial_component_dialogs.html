@@ -7,7 +7,8 @@
   </div>
   <div class="busqueda-picker">
     {# Vista previa con el renderer REAL: el mismo documento y el mismo macro de la presentación (sin el resto de la slide), en un iframe del mismo origen. #}
-    <iframe class="cc-preview-frame" title="Vista previa del componente" data-cc-view-frame></iframe>
+    {# Se maqueta al ANCHO DE REFERENCIA de la presentación (el del iframe, `commercial.css`) y se escala proporcionalmente al ancho disponible: el responsive del renderer nunca reorganiza la composición. #}
+    <div class="cc-preview-box" data-cc-view-box><iframe class="cc-preview-frame" title="Vista previa del componente" data-cc-view-frame></iframe></div>
   </div>
   <div class="dw-confirm__actions">
     <form method="dialog"><button type="submit" class="btn-secondary" autofocus>Cerrar</button></form>
