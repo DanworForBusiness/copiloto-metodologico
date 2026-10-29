@@ -1010,6 +1010,30 @@ table.dashboard-table.commercial-creadas-table td:nth-child(4) { width: auto; }
 .cp-toast .callout__title, .cp-notice .callout__title { font-size: .85rem; }
 .cp-toast .callout__body, .cp-notice .callout__body { font-size: .78rem; line-height: 1.5; }
 .cp-toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; }
+/* ═══ Presentaciones V2.0 — workspace dedicado de edición ═══
+   Sin la navegación lateral del Hub (la plantilla no incluye `commercial_nav` ni su handle): la grilla queda de UNA columna y la tarjeta de contenido toma TODO el ancho y el alto restante bajo la barra superior (que se
+   conserva). Dentro: encabezado compacto (`.catalog-actionbar`, la barra de acciones transversal) + el iframe del documento, que llena el resto. Solo la página del editor lleva `.cp-workspace`. */
+.app-shell.cp-workspace { --cp-topbar-h: 74px; grid-template-columns: minmax(0, 1fr); }
+.app-shell.cp-workspace .module-content { grid-column: 1; display: flex; flex-direction: column; padding: 0; overflow: hidden; scrollbar-gutter: auto; position: sticky; top: 88px; height: calc(100dvh - var(--cp-topbar-h) - 34px); }
+@media (max-width: 1180px) { .app-shell.cp-workspace .module-content { position: static; height: calc(100dvh - var(--cp-topbar-h) - 24px); } }
+@media (max-width: 900px) { .app-shell.cp-workspace { --cp-topbar-h: 66px; } }
+.cp-workspace .mobile-menu { display: none; }                                   /* no hay menú lateral que abrir */
+.cp-workspace__editor { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+.cp-wsheader { margin: 0; padding: 10px 16px; gap: 8px 16px; border-bottom: 1px solid var(--line); }
+.cp-wsheader__id { display: flex; align-items: center; gap: 8px; flex: 1 1 220px; min-width: 0; }
+.cp-wsheader__eyebrow { flex: none; font: 600 .62rem var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--gold); }
+.cp-wsheader__title { margin: 0; min-width: 0; font-size: 1rem; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cp-wsheader .cp-toolbar { margin: 0; align-items: center; }
+.cp-wsheader .chart-tooltip-anchor { flex: none; display: inline-flex; align-items: center; }
+.cp-wsheader .chart-tooltip { bottom: auto; top: calc(100% + 8px); left: 0; transform: none; width: max-content; max-width: min(340px, 72vw); }   /* abre hacia abajo y hacia adentro: nunca se sale del viewport */
+.cp-wsheader .activity-kpi__info svg { width: 15px; height: 15px; }
+.cp-workspace__editor .cp-workspace__frame { flex: 1 1 auto; min-height: 0; height: auto; margin: 0; }
+@media (max-width: 640px) {
+  .cp-wsheader { position: relative; padding: 8px 12px; }
+  .cp-wsheader__eyebrow { display: none; }
+  .cp-wsheader .chart-tooltip-anchor { position: static; }                       /* el (i) se ancla al ENCABEZADO, no al ícono: la explicación ocupa su ancho y nunca se sale del viewport */
+  .cp-wsheader .chart-tooltip { top: calc(100% + 4px); left: 12px; right: 12px; width: auto; max-width: none; }
+}
 .content-theme-light .cp-form input[type="text"],
 .content-theme-light .cp-form select,
 .content-theme-light .cp-form textarea { background: #fff; color: inherit; border-color: rgba(0, 0, 0, .18); }

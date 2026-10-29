@@ -427,7 +427,7 @@
   if (editor) {
     var frame = editor.querySelector("[data-cp-frame]");
     var saveBtn = editor.querySelector("[data-cp-save]");
-    var cancelBtn = editor.querySelector("[data-cp-cancel]");
+    var leaveBtns = Array.prototype.slice.call(editor.querySelectorAll("[data-cp-cancel], [data-cp-back]"));       // «Cancelar» y «← Volver» (enlace real) salen por el mismo camino
     var dirtyBadge = editor.querySelector("[data-cp-dirty]");
     var errBox = editor.querySelector("[data-cp-error]");
     var saving = false;
@@ -530,16 +530,19 @@
       if (!saving && refresh()) { ev.preventDefault(); ev.returnValue = ""; }
     });
 
-    cancelBtn.addEventListener("click", async function () {
-      var back = editor.getAttribute("data-back-url");
-      if (refresh()) {
-        var ok = typeof dwConfirm === "function"
-          ? await dwConfirm({ title: "Descartar cambios", message: "Tenés cambios sin guardar. Si salís ahora se pierden.", confirmLabel: "Descartar" })
-          : window.confirm("Tenés cambios sin guardar. Si salís ahora se pierden.");
-        if (!ok) return;
-      }
-      saving = true;                                                             // evita el aviso nativo de beforeunload: ya se confirmó
-      window.location.assign(back);
+    leaveBtns.forEach(function (btn) {
+      btn.addEventListener("click", async function (ev) {
+        ev.preventDefault();                                                     // «Volver» es un enlace real (funciona sin JS); con JS pasa por la confirmación
+        var back = btn.getAttribute("href") || editor.getAttribute("data-back-url");
+        if (refresh()) {
+          var ok = typeof dwConfirm === "function"
+            ? await dwConfirm({ title: "Descartar cambios", message: "Tenés cambios sin guardar. Si salís ahora se pierden.", confirmLabel: "Descartar" })
+            : window.confirm("Tenés cambios sin guardar. Si salís ahora se pierden.");
+          if (!ok) return;
+        }
+        saving = true;                                                           // evita el aviso nativo de beforeunload: ya se confirmó
+        window.location.assign(back);
+      });
     });
 
     saveBtn.addEventListener("click", async function () {

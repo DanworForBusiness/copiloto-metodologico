@@ -114,6 +114,18 @@ El documento deja de ser una «isla oscura» con diseño propio: consume la fuen
 * **Descartar:** «Cancelar» con cambios pide confirmación con el diálogo del Hub (`dwConfirm`); también avisa el `beforeunload` nativo si se cierra la pestaña con cambios.
 * **El documento sigue siendo el mismo:** las diferencias en modo edición son solo el envoltorio de cada texto (`<span data-cp-field>`); el HTML de lectura no cambia.
 
+## Workspace de edición (V2.0)
+
+Al entrar en **Editar presentación** (`/comercial/presentaciones/{id}/editar`, R5) la página es un workspace dedicado:
+
+* **Sin menú lateral.** La plantilla no incluye `commercial_nav` ni su handle y el shell lleva `.cp-workspace`: la grilla (`.app-shell.cp-workspace`) queda de **una** columna y la tarjeta de contenido toma todo el ancho y el alto restante bajo la barra superior (`calc(100dvh − topbar − márgenes)`, sin scroll de página; el documento scrollea dentro del iframe). El botón «Menú» móvil se oculta porque no hay menú que abrir.
+* **Se conserva** la barra superior (`platform_topbar`: marca, workspace, tema claro/oscuro del Hub, sesión), los diálogos, los permisos, el guardado (R6, `data-save-url`/`data-revision`) y el documento (`?embed=1&edit=1`). El catálogo, el detalle y el modo lectura/presentación mantienen su shell normal; **no hay rutas nuevas**.
+* **Encabezado compacto** (`.catalog-actionbar`, la barra de acciones transversal del Hub): `← Volver a Presentaciones` · «Editando» + título + (i) · Cancelar · «Sin guardar» · Guardar. Reemplaza al hero y al callout extenso.
+* **Visibilidad del enlace:** el callout se reemplazó por el (i) contextual del Hub (`.chart-tooltip-anchor` + `.activity-kpi__info` + `.chart-tooltip`, el mismo de CCHH/Entrevistas), que muestra la explicación completa con hover y con foco de teclado (también en `aria-label`): «visible para cualquier usuario autorizado del Hub que tenga la URL, aunque no tenga acceso a Comercial». En móvil la explicación se ancla al encabezado y ocupa su ancho.
+* **Navegación:** «← Volver» es un enlace real al landing `/comercial/presentaciones` (`data-back-url` pasó del detalle al landing). Con JS, «Volver» y «Cancelar» salen por la **misma** confirmación «Descartar cambios» si hay cambios sin guardar (`dwConfirm`, más el aviso nativo ante cierre de pestaña); sin cambios navegan directo.
+* **Responsive:** el contenedor apila a ≤ 1180 px (márgenes de 12 px) y el topbar baja a 66 px a ≤ 900 px; en ambos tramos el documento sigue llenando el alto restante. En móvil el encabezado envuelve en dos filas.
+* **No incluye** (etapas siguientes): panel de miniaturas, estilos Galaxia/Classic ni slides nuevas.
+
 ## Edición de las 12 slides (contenido textual completo)
 
 «Editar» personaliza el **contenido textual y los valores comerciales de las 12 slides**, no el DOM: cada texto editable es un campo de la spec (`VANTURE_FIELDS`, 206 en total: 20 de la v1 original + 186 agregados de forma aditiva, **sin subir `template_version`**).

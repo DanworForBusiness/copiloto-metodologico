@@ -411,15 +411,17 @@ def _hub_page(world, path):
     return _soup(r.text)
 
 
-def test_the_detail_and_the_editor_use_the_shared_back_primitive_as_first_child_of_main(world):
+def test_the_detail_uses_the_shared_back_primitive_as_first_child_of_main_and_the_editor_workspace_header_reuses_it(world):
     pid = _copy(world, A)
     detail = _hub_page(world, f"/comercial/presentaciones/{pid}")
     back = detail.find("main", id="content").find(True, recursive=False)
     assert back.name == "a" and back["class"] == ["catalog-back"] and back["href"] == "/comercial/presentaciones"
     assert back.get_text(strip=True) == "← Volver a Presentaciones"
     edit = _hub_page(world, f"/comercial/presentaciones/{pid}/editar")
-    back = edit.find("main", id="content").find(True, recursive=False)
-    assert back["class"] == ["catalog-back"] and back["href"] == f"/comercial/presentaciones/{pid}"
+    header = edit.find("main", id="content").select_one("[data-cp-editor] > header.catalog-actionbar.cp-wsheader")      # el encabezado compacto del workspace reutiliza la barra de acciones transversal
+    back = header.find("a", class_="catalog-back")
+    assert back["class"] == ["catalog-back"] and back["href"] == "/comercial/presentaciones" and back.has_attr("data-cp-back")      # «Volver» regresa DIRECTO al landing
+    assert back.get_text(strip=True) == "← Volver a Presentaciones" and len(edit.select("a.catalog-back")) == 1
     assert not [a for a in edit.find_all("a") if a.get_text(strip=True) == "Volver"], "sin un segundo «Volver» redundante"
     assert not detail.select("p.eyebrow a") and not edit.select("p.eyebrow a"), "ningún eyebrow dorado hecho enlace"
 
@@ -431,8 +433,11 @@ def test_the_link_visibility_notices_use_the_hub_note_callout_with_compact_scale
     assert note and not note.has_attr("style") and not note.find(style=True)
     assert "URL" in note.get_text() and "Comercial" in note.get_text()
     edit = _hub_page(world, f"/comercial/presentaciones/{pid}/editar")
-    warn = edit.select_one(".callout.callout--punch.cp-notice")
-    assert warn and not warn.find(style=True) and "cualquier usuario autorizado del Hub" in warn.get_text()
+    assert not edit.select(".cp-notice, .callout"), "el editor ya no tiene el callout extenso: la visibilidad del enlace es un (i) contextual del encabezado"
+    info = edit.select_one(".cp-wsheader .chart-tooltip-anchor")                                                         # el MISMO primitivo (i) del Hub (CCHH/Entrevistas), con el copy completo
+    assert info and not info.find(style=True) and info.select_one("button.activity-kpi__info[data-cp-link-info]")
+    assert "cualquier usuario autorizado del Hub" in info.select_one(".chart-tooltip").get_text() and "aunque no tenga acceso a Comercial" in info.select_one(".chart-tooltip").get_text()
+    assert "cualquier usuario autorizado del Hub" in info.select_one("button")["aria-label"]                           # también para lectores de pantalla y teclado
     css = (REPO / "webapp" / "static" / "commercial.css").read_text(encoding="utf-8")
     assert ".cp-notice .callout__body" in css and ".cp-toast .callout__body" in css
 
@@ -702,14 +707,14 @@ def test_the_editor_page_embeds_the_live_document_with_the_estrategia_style_tool
     pid = _copy(world, A)
     soup = _soup(world.client(A).get(f"/comercial/presentaciones/{pid}/editar").text)
     ed = soup.select_one("[data-cp-editor]")
-    assert ed["data-save-url"] == f"/comercial/presentaciones/{pid}" and ed["data-revision"] == "1" and ed["data-back-url"] == f"/comercial/presentaciones/{pid}"
+    assert ed["data-save-url"] == f"/comercial/presentaciones/{pid}" and ed["data-revision"] == "1" and ed["data-back-url"] == "/comercial/presentaciones"
     assert ed.select_one("iframe[data-cp-frame]")["src"] == f"/presentaciones/{pid}?embed=1&edit=1"
     bar = ed.select_one(".cp-toolbar")
     assert [(b.name, b.get("class"), b.text.strip()) for b in bar.find_all(["button", "span"], recursive=False)] == [
         ("button", ["btn-secondary"], "Cancelar"), ("span", ["status-badge", "status-badge--tentativo"], "Sin guardar"), ("button", ["btn-primary"], "Guardar")]
     assert bar.select_one("[data-cp-dirty]").has_attr("hidden") and bar.select_one("[data-cp-save]").has_attr("disabled")      # sin cambios no hay nada que guardar
     assert not soup.select_one("main").select("form, textarea, input, [data-cp-edit-form]"), "ya no es un formulario: se edita sobre el documento"
-    assert soup.select_one("a.catalog-back") is not None and soup.select_one("aside.callout--punch.cp-notice") is not None
+    assert soup.select_one("a.catalog-back") is not None and soup.select_one("aside.callout--punch.cp-notice") is None and soup.select_one(".cp-wsheader .activity-kpi__info") is not None
 
 
 def test_the_inline_editor_saves_only_changed_fields_with_plain_text_and_the_loaded_revision():
