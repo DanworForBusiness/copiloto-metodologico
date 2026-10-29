@@ -87,7 +87,7 @@
         <div class="logo-marquee__item" aria-hidden="true" style="background:#0d2447"><img src="{{ asset_base }}/img/d13dea5480.jpg" alt="" style="max-height:none;width:100%"></div>
       </div>
     </div>{%- endmacro -%}{%- macro component(comp, variant, params=none) -%}{%- if comp == 'layer-stack' -%}{{ layer_stack(variant, params) }}{%- elif comp == 'ecosystem-flow' -%}{{ flow(variant) }}{%- elif comp == 'logo-marquee' -%}{{ marquee(variant) }}{%- endif -%}{%- endmacro -%}{%- macro region_tools(rid, r) -%}<div class="cp-region-tools" contenteditable="false"><button type="button" class="cp-region-x" data-cp-region-manage title="Administrar este componente" aria-label="Administrar este componente">✕</button><div class="cp-region-empty"><button type="button" class="cp-region-btn" data-cp-region-manage>+ Agregar componente</button><button type="button" class="cp-region-btn" data-cp-restore-default hidden>Restaurar original</button></div></div>{%- endmacro -%}{%- macro addon_dialog() -%}<dialog class="dw-confirm busqueda-dialog cp-addon-dialog" id="cp-addon-dialog" aria-labelledby="cp-addon-title"><form method="dialog"><div class="dw-confirm__body"><h2 class="dw-confirm__title" id="cp-addon-title" data-cp-addon-title>Componente de la región</h2><p class="dw-confirm__msg">Elegí una alternativa compatible con esta región y revisá su vista previa antes de aplicarla. Los títulos y textos de la slide no se actualizan automáticamente.</p></div><div class="busqueda-picker"><div class="feedback-field"><label id="cp-addon-label">Componente</label><div class="dashboard-checkbox-group" role="radiogroup" aria-labelledby="cp-addon-label">{% for o in library %}<label class="dashboard-checkbox-option" data-cp-opt data-cp-opt-type="{{ o.region }}"><input type="radio" name="cp-addon-ref" value="{{ o.ref }}"><span>{{ o.label }}</span>{% if o.tag %}<span class="cp-addon-tag">{{ o.tag }}</span>{% endif %}<span class="cp-addon-tag" data-cp-opt-original hidden>original</span></label>{% endfor %}</div></div><div class="cp-addon-preview" data-cp-addon-preview aria-label="Vista previa del componente" aria-live="polite"></div></div><div class="dw-confirm__actions"><button type="submit" class="btn-secondary" value="cancel" formnovalidate>Cancelar</button><button type="button" class="btn-secondary" data-cp-addon-remove>Quitar componente</button><button type="button" class="btn-primary" data-cp-addon-apply disabled>Reemplazar</button></div></form></dialog>{%- endmacro -%}{%- macro region(rid, style='', gap=False) -%}{%- set r = regions[rid] -%}{%- if r.occupant or edit_mode -%}<div data-cp-region="{{ rid }}"{% if gap %} class="cp-region-gap"{% endif %}{% if edit_mode %} data-cp-region-type="{{ r.type }}" data-cp-default="{{ (r.default[0] ~ ':' ~ r.default[1]) if r.default else '' }}" data-cp-occupant="{{ (r.occupant[0] ~ ':' ~ r.occupant[1]) if r.occupant else '' }}"{% endif %}{% if style %} style="{{ style }}"{% endif %}>{%- if edit_mode -%}{{ region_tools(rid, r) }}{%- endif -%}{%- if caller is defined -%}{{ caller() }}{%- endif -%}{%- if r.occupant -%}{{ component(r.occupant[0], r.occupant[1], r.params) }}{%- endif -%}</div>{%- endif -%}{%- endmacro -%}{%- macro qr_tools() -%}<div class="cp-asset-tools" contenteditable="false"><button type="button" class="cp-region-btn" data-cp-qr-replace>Reemplazar QR</button><button type="button" class="cp-region-btn" data-cp-qr-reset{% if not qr_custom %} hidden{% endif %}>Volver al QR institucional</button><span class="cp-asset-hint">PNG cuadrado, hasta 1 MB. Solo cambia el QR de esta copia.</span><input type="file" accept="image/png,.png" hidden data-cp-qr-file></div>{%- endmacro -%}{%- macro slide_tools(sid) -%}<div class="cp-slide-tools" contenteditable="false"><button type="button" class="cp-slide-remove" data-cp-remove="{{ sid }}" title="Eliminar esta slide de la presentación" aria-label="Eliminar esta slide">✕</button><button type="button" class="cp-slide-restore" data-cp-restore="{{ sid }}">Slide eliminada · Restaurar</button></div>{%- endmacro -%}{%- macro nextlink(sid, orig, key) -%}{%- set nx = next_of.get(sid) -%}{%- if edit_mode or nx -%}<a href="#{{ nx or orig }}" class="next-link scroll-cue" data-cp-next="{{ sid }}" data-cp-orig="{{ orig }}" style="display:flex;width:fit-content;margin:74px auto 0;animation:riseIn .8s backwards;animation-timeline:view();animation-range:entry 0% cover 32%"><span>Siguiente · {% if edit_mode %}{{ f(key) }}<span data-cp-derived hidden></span>{% elif nx == orig %}{{ c[key] }}{% else %}{{ nav_of[nx] }}{% endif %}</span><span class="scroll-cue__line" aria-hidden="true"></span></a>{%- endif -%}{%- endmacro -%}<!DOCTYPE html>
-<html lang="es" class="content-theme-{{ theme }} content-doc"{{ " data-cp-edit" if edit_mode else "" }}>
+<html lang="es" class="content-theme-{{ theme }} content-doc"{{ " data-cp-edit" if edit_mode else "" }}{{ " data-cp-thumbs" if thumbs else "" }}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -107,17 +107,17 @@
 
 <nav class="rail" aria-label="Recorrido">
     <a href="#s1"><span>Portada</span></a>
-    {%- if edit_mode or 's2' not in removed_ids -%}<a href="#s2"{{ ' hidden' if 's2' in removed_ids else '' }}><span>{{ m('s2_nav') }}</span></a>{%- endif -%}
-    {%- if edit_mode or 's3' not in removed_ids -%}<a href="#s3"{{ ' hidden' if 's3' in removed_ids else '' }}><span>{{ m('s3_nav') }}</span></a>{%- endif -%}
-    {%- if edit_mode or 's4' not in removed_ids -%}<a href="#s4"{{ ' hidden' if 's4' in removed_ids else '' }}><span>{{ m('s4_nav') }}</span></a>{%- endif -%}
-    {%- if edit_mode or 's5' not in removed_ids -%}<a href="#s5"{{ ' hidden' if 's5' in removed_ids else '' }}><span>{{ m('s5_nav') }}</span></a>{%- endif -%}
-    {%- if edit_mode or 's6' not in removed_ids -%}<a href="#s6"{{ ' hidden' if 's6' in removed_ids else '' }}><span>{{ m('s6_nav') }}</span></a>{%- endif -%}
-    {%- if edit_mode or 's7' not in removed_ids -%}<a href="#s7"{{ ' hidden' if 's7' in removed_ids else '' }}><span>{{ m('s7_nav') }}</span></a>{%- endif -%}
-    {%- if edit_mode or 's8' not in removed_ids -%}<a href="#s8"{{ ' hidden' if 's8' in removed_ids else '' }}><span>{{ m('s8_nav') }}</span></a>{%- endif -%}
-    {%- if edit_mode or 's9' not in removed_ids -%}<a href="#s9"{{ ' hidden' if 's9' in removed_ids else '' }}><span>{{ m('s9_nav') }}</span></a>{%- endif -%}
-    {%- if edit_mode or 's10' not in removed_ids -%}<a href="#s10"{{ ' hidden' if 's10' in removed_ids else '' }}><span>{{ m('s10_nav') }}</span></a>{%- endif -%}
-    {%- if edit_mode or 's11' not in removed_ids -%}<a href="#s11"{{ ' hidden' if 's11' in removed_ids else '' }}><span>{{ m('s11_nav') }}</span></a>{%- endif -%}
-    {%- if edit_mode or 's12' not in removed_ids -%}<a href="#s12"{{ ' hidden' if 's12' in removed_ids else '' }}><span>{{ m('s12_nav') }}</span></a>{%- endif -%}
+    {%- if edit_mode or thumbs or 's2' not in removed_ids -%}<a href="#s2"{{ ' hidden' if 's2' in removed_ids else '' }}><span>{{ m('s2_nav') }}</span></a>{%- endif -%}
+    {%- if edit_mode or thumbs or 's3' not in removed_ids -%}<a href="#s3"{{ ' hidden' if 's3' in removed_ids else '' }}><span>{{ m('s3_nav') }}</span></a>{%- endif -%}
+    {%- if edit_mode or thumbs or 's4' not in removed_ids -%}<a href="#s4"{{ ' hidden' if 's4' in removed_ids else '' }}><span>{{ m('s4_nav') }}</span></a>{%- endif -%}
+    {%- if edit_mode or thumbs or 's5' not in removed_ids -%}<a href="#s5"{{ ' hidden' if 's5' in removed_ids else '' }}><span>{{ m('s5_nav') }}</span></a>{%- endif -%}
+    {%- if edit_mode or thumbs or 's6' not in removed_ids -%}<a href="#s6"{{ ' hidden' if 's6' in removed_ids else '' }}><span>{{ m('s6_nav') }}</span></a>{%- endif -%}
+    {%- if edit_mode or thumbs or 's7' not in removed_ids -%}<a href="#s7"{{ ' hidden' if 's7' in removed_ids else '' }}><span>{{ m('s7_nav') }}</span></a>{%- endif -%}
+    {%- if edit_mode or thumbs or 's8' not in removed_ids -%}<a href="#s8"{{ ' hidden' if 's8' in removed_ids else '' }}><span>{{ m('s8_nav') }}</span></a>{%- endif -%}
+    {%- if edit_mode or thumbs or 's9' not in removed_ids -%}<a href="#s9"{{ ' hidden' if 's9' in removed_ids else '' }}><span>{{ m('s9_nav') }}</span></a>{%- endif -%}
+    {%- if edit_mode or thumbs or 's10' not in removed_ids -%}<a href="#s10"{{ ' hidden' if 's10' in removed_ids else '' }}><span>{{ m('s10_nav') }}</span></a>{%- endif -%}
+    {%- if edit_mode or thumbs or 's11' not in removed_ids -%}<a href="#s11"{{ ' hidden' if 's11' in removed_ids else '' }}><span>{{ m('s11_nav') }}</span></a>{%- endif -%}
+    {%- if edit_mode or thumbs or 's12' not in removed_ids -%}<a href="#s12"{{ ' hidden' if 's12' in removed_ids else '' }}><span>{{ m('s12_nav') }}</span></a>{%- endif -%}
 </nav>
 
 {% if not embed %}
@@ -152,7 +152,7 @@
   
 </section>
 
-{%- if edit_mode or 's2' not in removed_ids -%}
+{%- if edit_mode or thumbs or 's2' not in removed_ids -%}
 <section id="s2"{{ ' data-cp-removed' if 's2' in removed_ids else '' }} style="position:relative;padding:120px 40px;border-top:1px solid color-mix(in srgb, var(--content-ink) 7%, transparent)">{{ slide_tools('s2') if edit_mode else '' }}
   <div style="max-width:1180px;margin:0 auto">
     <div style="display:flex;flex-direction:column;align-items:flex-start;animation:wipeIn .8s backwards;animation-timeline:view();animation-range:entry 0% cover 20%">
@@ -167,7 +167,7 @@
 </section>
 {%- endif -%}
 
-{%- if edit_mode or 's3' not in removed_ids -%}
+{%- if edit_mode or thumbs or 's3' not in removed_ids -%}
 <section id="s3"{{ ' data-cp-removed' if 's3' in removed_ids else '' }} style="position:relative;padding:120px 40px;border-top:1px solid color-mix(in srgb, var(--content-ink) 7%, transparent)">{{ slide_tools('s3') if edit_mode else '' }}
   <div style="max-width:1180px;margin:0 auto">
     <div style="display:flex;flex-direction:column;align-items:flex-start;animation:wipeIn .8s backwards;animation-timeline:view();animation-range:entry 0% cover 20%">
@@ -182,7 +182,7 @@
 </section>
 {%- endif -%}
 
-{%- if edit_mode or 's4' not in removed_ids -%}
+{%- if edit_mode or thumbs or 's4' not in removed_ids -%}
 <section id="s4"{{ ' data-cp-removed' if 's4' in removed_ids else '' }} style="position:relative;padding:120px 40px;border-top:1px solid color-mix(in srgb, var(--content-ink) 7%, transparent)">{{ slide_tools('s4') if edit_mode else '' }}
   <div style="max-width:1180px;margin:0 auto">
     <div style="display:flex;flex-direction:column;align-items:flex-start;animation:wipeIn .8s backwards;animation-timeline:view();animation-range:entry 0% cover 20%">
@@ -197,7 +197,7 @@
 </section>
 {%- endif -%}
 
-{%- if edit_mode or 's5' not in removed_ids -%}
+{%- if edit_mode or thumbs or 's5' not in removed_ids -%}
 <section id="s5"{{ ' data-cp-removed' if 's5' in removed_ids else '' }} style="position:relative;padding:120px 40px;border-top:1px solid color-mix(in srgb, var(--content-ink) 7%, transparent)">{{ slide_tools('s5') if edit_mode else '' }}
   <div style="max-width:1180px;margin:0 auto">
     <div style="display:flex;flex-direction:column;align-items:flex-start;animation:wipeIn .8s backwards;animation-timeline:view();animation-range:entry 0% cover 20%">
@@ -212,7 +212,7 @@
 </section>
 {%- endif -%}
 
-{%- if edit_mode or 's6' not in removed_ids -%}
+{%- if edit_mode or thumbs or 's6' not in removed_ids -%}
 <section id="s6"{{ ' data-cp-removed' if 's6' in removed_ids else '' }} style="position:relative;padding:120px 40px;border-top:1px solid color-mix(in srgb, var(--content-ink) 7%, transparent)">{{ slide_tools('s6') if edit_mode else '' }}
   <div style="max-width:1180px;margin:0 auto">
     <div style="display:flex;flex-direction:column;align-items:flex-start;animation:wipeIn .8s backwards;animation-timeline:view();animation-range:entry 0% cover 20%">
@@ -227,7 +227,7 @@
 </section>
 {%- endif -%}
 
-{%- if edit_mode or 's7' not in removed_ids -%}
+{%- if edit_mode or thumbs or 's7' not in removed_ids -%}
 <section id="s7"{{ ' data-cp-removed' if 's7' in removed_ids else '' }} style="position:relative;padding:120px 40px;border-top:1px solid color-mix(in srgb, var(--content-ink) 7%, transparent)">{{ slide_tools('s7') if edit_mode else '' }}
   <div style="max-width:1180px;margin:0 auto">
     <div style="display:flex;flex-direction:column;align-items:flex-start;animation:wipeIn .8s backwards;animation-timeline:view();animation-range:entry 0% cover 20%">
@@ -242,7 +242,7 @@
 </section>
 {%- endif -%}
 
-{%- if edit_mode or 's8' not in removed_ids -%}
+{%- if edit_mode or thumbs or 's8' not in removed_ids -%}
 <section id="s8"{{ ' data-cp-removed' if 's8' in removed_ids else '' }} style="position:relative;padding:120px 40px;border-top:1px solid color-mix(in srgb, var(--content-ink) 7%, transparent)">{{ slide_tools('s8') if edit_mode else '' }}
   <div style="max-width:1180px;margin:0 auto">
     <div style="display:flex;flex-direction:column;align-items:flex-start;animation:wipeIn .8s backwards;animation-timeline:view();animation-range:entry 0% cover 20%">
@@ -257,7 +257,7 @@
 </section>
 {%- endif -%}
 
-{%- if edit_mode or 's9' not in removed_ids -%}
+{%- if edit_mode or thumbs or 's9' not in removed_ids -%}
 <section id="s9"{{ ' data-cp-removed' if 's9' in removed_ids else '' }} style="position:relative;padding:120px 40px;border-top:1px solid color-mix(in srgb, var(--content-ink) 7%, transparent)">{{ slide_tools('s9') if edit_mode else '' }}
   <div style="max-width:1180px;margin:0 auto">
     <div style="display:flex;flex-direction:column;align-items:flex-start;animation:wipeIn .8s backwards;animation-timeline:view();animation-range:entry 0% cover 20%">
@@ -272,7 +272,7 @@
 </section>
 {%- endif -%}
 
-{%- if edit_mode or 's10' not in removed_ids -%}
+{%- if edit_mode or thumbs or 's10' not in removed_ids -%}
 <section id="s10"{{ ' data-cp-removed' if 's10' in removed_ids else '' }} style="position:relative;padding:120px 40px;border-top:1px solid color-mix(in srgb, var(--content-ink) 7%, transparent)">{{ slide_tools('s10') if edit_mode else '' }}
   <div style="max-width:980px;margin:0 auto">
     <div style="text-align:center;animation:riseIn .9s backwards;animation-timeline:view();animation-range:entry 0% cover 22%">
@@ -290,7 +290,7 @@
 </section>
 {%- endif -%}
 
-{%- if edit_mode or 's11' not in removed_ids -%}
+{%- if edit_mode or thumbs or 's11' not in removed_ids -%}
 <section id="s11"{{ ' data-cp-removed' if 's11' in removed_ids else '' }} style="position:relative;padding:120px 40px;border-top:1px solid color-mix(in srgb, var(--content-ink) 7%, transparent)">{{ slide_tools('s11') if edit_mode else '' }}
   <div style="max-width:1180px;margin:0 auto">
     <div style="display:flex;flex-direction:column;align-items:flex-start;animation:wipeIn .8s backwards;animation-timeline:view();animation-range:entry 0% cover 20%">
@@ -330,7 +330,7 @@
 </section>
 {%- endif -%}
 
-{%- if edit_mode or 's12' not in removed_ids -%}
+{%- if edit_mode or thumbs or 's12' not in removed_ids -%}
 <section id="s12"{{ ' data-cp-removed' if 's12' in removed_ids else '' }} style="position:relative;padding:120px 40px;border-top:1px solid color-mix(in srgb, var(--content-ink) 7%, transparent)">{{ slide_tools('s12') if edit_mode else '' }}
   <div style="max-width:1180px;margin:0 auto">
     <div style="display:flex;flex-direction:column;align-items:flex-start;animation:wipeIn .8s backwards;animation-timeline:view();animation-range:entry 0% cover 20%">
@@ -356,6 +356,6 @@
 </footer>
 {% endif %}{% if edit_mode %}{% for o in library %}<template data-cp-component="{{ o.ref }}">{{ component(o.component, o.variant, o.params) }}</template>{% endfor %}{{ addon_dialog() }}{% endif %}
 <script src="{{ url_for('static', path='hub_theme.js') }}?v={{ static_version }}"></script>
-<script src="{{ js_url }}"></script>
+{% if not thumbs %}<script src="{{ js_url }}"></script>{% endif %}
 </body>
 </html>

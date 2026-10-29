@@ -43,8 +43,23 @@
       </header>
       <div class="cp-toast" aria-live="polite" data-dw-auto-dismiss="6000" data-cp-status></div>
       <p class="feedback-error" role="alert" data-cp-error hidden></p>
-      <div class="html-embed-shell cp-workspace__frame">
-        <iframe class="content-embed" src="{{ share_path }}?embed=1&edit=1" title="Editar {{ presentation.title }}" data-cp-frame></iframe>
+      <div class="cp-workspace__body">
+        {# Panel de diapositivas (V2.1): miniaturas REALES del mismo renderer en UN solo iframe adicional (`?embed=1&thumbs=1`: sin JS ni animaciones, cargado después del editor y solo en pantallas anchas), escalado y alineado con
+           las tarjetas; sin miniaturas (móvil, carga fallida) cada tarjeta es texto. La lista sale del DOM del editor (orden, títulos, eliminadas, activa por scroll); `commercial_presentations.js`. #}
+        <aside class="cp-slides" data-cp-slides aria-label="Diapositivas">
+          <div class="cp-slides__head"><span class="cp-slides__title">Presentación</span><span class="cp-slides__count" data-cp-slides-count></span></div>
+          <div class="cp-slides__scroll">
+            <div class="cp-slides__stage" aria-hidden="true"><iframe class="content-embed cp-slides__thumbs" title="Miniaturas de las diapositivas" tabindex="-1" data-cp-thumbs-frame data-src="{{ share_path }}?embed=1&thumbs=1"></iframe></div>
+            <ol class="cp-slides__list" data-cp-slides-list></ol>
+          </div>
+          <div class="cp-slides__add chart-tooltip-anchor">
+            <button type="button" class="cp-slide-new" disabled aria-disabled="true" aria-label="Nueva diapositiva (disponible en una próxima etapa)"><span class="cp-slide-new__plus" aria-hidden="true">+</span><span class="cp-slide-new__label">Nueva diapositiva</span></button>
+            <span class="chart-tooltip"><p>Disponible en una próxima etapa.</p></span>
+          </div>
+        </aside>
+        <div class="html-embed-shell cp-workspace__frame">
+          <iframe class="content-embed" src="{{ share_path }}?embed=1&edit=1" title="Editar {{ presentation.title }}" data-cp-frame></iframe>
+        </div>
       </div>
     </div>
   </main>

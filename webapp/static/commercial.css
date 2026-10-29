@@ -1019,7 +1019,7 @@ table.dashboard-table.commercial-creadas-table td:nth-child(4) { width: auto; }
 @media (max-width: 900px) { .app-shell.cp-workspace { --cp-topbar-h: 66px; } }
 .cp-workspace .mobile-menu { display: none; }                                   /* no hay menú lateral que abrir */
 .cp-workspace__editor { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
-.cp-wsheader { margin: 0; padding: 10px 16px; gap: 8px 16px; border-bottom: 1px solid var(--line); }
+.cp-wsheader { margin: 0; padding: 10px 16px; gap: 8px 16px; border-bottom: 1px solid var(--content-line); }   /* `--content-line` cambia con el tema; `--line` es del panel oscuro y en claro casi no se veía */
 .cp-wsheader__id { display: flex; align-items: center; gap: 8px; flex: 1 1 220px; min-width: 0; }
 .cp-wsheader__eyebrow { flex: none; font: 600 .62rem var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--gold); }
 .cp-wsheader__title { margin: 0; min-width: 0; font-size: 1rem; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1028,6 +1028,48 @@ table.dashboard-table.commercial-creadas-table td:nth-child(4) { width: auto; }
 .cp-wsheader .chart-tooltip { bottom: auto; top: calc(100% + 8px); left: 0; transform: none; width: max-content; max-width: min(340px, 72vw); }   /* abre hacia abajo y hacia adentro: nunca se sale del viewport */
 .cp-wsheader .activity-kpi__info svg { width: 15px; height: 15px; }
 .cp-workspace__editor .cp-workspace__frame { flex: 1 1 auto; min-height: 0; height: auto; margin: 0; }
+/* V2.1 — panel izquierdo de diapositivas: columna angosta de miniaturas (la activa con borde dorado) con el número SUPERPUESTO en su esquina superior izquierda, y una tarjeta punteada «+». Las miniaturas son UN iframe (`?embed=1&thumbs=1`) a 1440 px escalado por `--cp-k`; cada
+   fila mide el paso fijo del documento (810 + 120 px) × `--cp-k`, de modo que la tarjeta i queda exactamente sobre su slide. Sin iframe (móvil / carga fallida) la tarjeta es texto. */
+.cp-workspace__body { display: grid; grid-template-columns: var(--cp-panel-w, 178px) minmax(0, 1fr); flex: 1 1 auto; min-height: 0; }
+.cp-workspace__body > .cp-workspace__frame { height: 100%; min-width: 0; }
+.cp-slides { --cp-k: .1083333; --cp-thumb-w: calc(1440px * var(--cp-k)); --cp-n: 12; position: relative; display: flex; flex-direction: column; min-height: 0; padding: 0 10px; overflow-x: hidden; overflow-y: auto; scrollbar-gutter: stable; border-right: 1px solid var(--content-line); }   /* el PANEL entero es el contenedor con scroll: su barra corre de borde a borde (encabezado y «+» quedan fijos) y la reserva SIEMPRE: `--cp-k` se ajusta al área útil (vía JS), nunca a un ancho supuesto */
+.cp-slides__head { position: sticky; top: 0; z-index: 3; display: flex; flex: none; align-items: baseline; justify-content: space-between; padding: 10px 2px 8px; background: var(--content-surface); font: 600 .62rem var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--soft); }
+.cp-slides__scroll { position: relative; flex: 1 0 auto; }   /* la barra reserva SIEMPRE su ancho: `--cp-k` se ajusta al área útil (vía JS), nunca a un ancho supuesto */
+.cp-slides__list { position: relative; z-index: 1; margin: 0; padding: 0; list-style: none; }
+.cp-slides__list > li { height: calc(var(--cp-thumb-w) * 930 / 1440); }
+.cp-slide { display: block; width: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.cp-slide__no { position: absolute; top: 2px; left: 2px; z-index: 2; height: 13px; padding: 0 4px; border-radius: 3px; text-align: center; font: 700 .53rem/13px var(--mono); background: color-mix(in srgb, var(--bg) 82%, transparent); color: var(--ink); }   /* superpuesto: la miniatura usa todo el ancho */
+.cp-slide__thumb { position: relative; display: block; flex: none; width: var(--cp-thumb-w); height: calc(var(--cp-thumb-w) * 9 / 16); overflow: hidden; border-radius: 6px; outline: 1px solid var(--content-line); outline-offset: 0; background: var(--content-surface); }
+.cp-slides--thumbs .cp-slide__thumb { background: transparent; }                  /* con miniaturas la ventana es transparente: se ve el iframe de atrás */
+.cp-slide:hover .cp-slide__thumb { outline-color: var(--content-ink); }   /* hover blanco (tinta del contenido: casi blanca en oscuro, visible en claro); la activa conserva el dorado, que gana por orden */
+.cp-slide[aria-current="true"] .cp-slide__thumb { outline: 2px solid var(--gold); box-shadow: 0 0 0 3px color-mix(in srgb, var(--gold) 22%, transparent); }
+.cp-slide[aria-current="true"] .cp-slide__no { background: var(--gold); color: var(--bg); }
+.cp-slide:focus-visible .cp-slide__thumb { outline: 2px solid var(--gold); outline-offset: 2px; }
+.cp-slide[data-removed] { opacity: .55; }
+.cp-slide__fallback { position: absolute; inset: 0; padding: 20px 8px 6px; overflow: hidden; font: 600 .6rem/1.25 var(--sans); display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; }
+.cp-slides--thumbs .cp-slide__fallback { display: none; }
+.cp-slides__stage { display: none; position: absolute; top: 0; left: 0; z-index: 0; width: var(--cp-thumb-w); height: calc(var(--cp-n) * var(--cp-thumb-w) * 930 / 1440); overflow: hidden; pointer-events: none; }
+.cp-slides--thumbs .cp-slides__stage { display: block; }
+.cp-slides__stage .cp-slides__thumbs { position: absolute; top: 0; left: 0; width: 1440px; max-width: none; height: calc(var(--cp-n) * 930px); border: 0; transform: scale(var(--cp-k)); transform-origin: 0 0; }
+.cp-slides__add { position: sticky; bottom: 0; z-index: 3; flex: none; padding: 8px 0 10px; background: var(--content-surface); }
+.cp-slide-new { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; width: var(--cp-thumb-w); height: calc(var(--cp-thumb-w) * 9 / 16); border: 1.5px dashed color-mix(in srgb, var(--soft) 55%, transparent); border-radius: 6px; background: none; color: var(--soft); font: 600 .56rem var(--mono); letter-spacing: .06em; text-transform: uppercase; cursor: not-allowed; }
+.cp-slide-new__plus { font: 400 1.5rem/1 var(--sans); }
+.cp-slides__add .chart-tooltip { bottom: calc(100% + 6px); left: 0; transform: none; min-width: 0; width: max-content; max-width: 150px; }
+@media (max-width: 900px) {
+  .cp-workspace__body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .cp-slides { flex-direction: row; align-items: center; gap: 8px; padding: 8px 10px; overflow-x: auto; overflow-y: hidden; scrollbar-gutter: auto; border-right: 0; border-bottom: 1px solid var(--content-line); }
+  .cp-slides__head, .cp-slides__stage { display: none !important; }
+  .cp-slides__scroll { flex: none; }
+  .cp-slides__list { display: flex; gap: 8px; }
+  .cp-slides__add { position: sticky; right: 0; bottom: auto; padding: 0 0 0 8px; }
+  .cp-slides__list > li { height: auto; flex: none; }
+  .cp-slide { width: auto; }
+  .cp-slide__no { top: 50%; left: 4px; transform: translateY(-50%); }
+  .cp-slide__thumb { width: 130px; height: 40px; }
+  .cp-slide__fallback { padding: 6px 6px 6px 32px; -webkit-line-clamp: 2; }
+  .cp-slide-new { width: 44px; height: 40px; }
+  .cp-slide-new__label { display: none; }
+}
 @media (max-width: 640px) {
   .cp-wsheader { position: relative; padding: 8px 12px; }
   .cp-wsheader__eyebrow { display: none; }

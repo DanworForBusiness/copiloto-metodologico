@@ -53,6 +53,15 @@
   .arch__side.content-reveal{transform:translateY(14px) rotate(180deg)}
   .arch__side.content-reveal.is-visible{transform:rotate(180deg)}
   @media (max-width: 860px){.arch__side.content-reveal{transform:translateY(14px)}.arch__side.content-reveal.is-visible{transform:none}}
+  /* Modo miniatura (`?embed=1&thumbs=1`, panel de diapositivas del editor): el MISMO documento y renderer, sin JS (el template no carga vanture.js), sin animaciones ni cromo. Cada slide se recorta a 16:9 (1440×810) y se
+     separa de la siguiente por un hueco uniforme (120 px): el panel escala UN solo iframe y alinea las tarjetas por paso fijo (930 px). Las eliminadas son un bloque vacío con rótulo. */
+  html[data-cp-thumbs] *,html[data-cp-thumbs] *::before,html[data-cp-thumbs] *::after{animation:none!important;transition:none!important}
+  html[data-cp-thumbs] body{overflow:hidden;pointer-events:none;user-select:none}
+  html[data-cp-thumbs] section[id^="s"]{box-sizing:border-box;height:810px!important;min-height:0!important;max-height:810px;overflow:hidden;margin-bottom:120px;padding-top:160px!important;border-top:0!important;content-visibility:auto;contain-intrinsic-size:1440px 810px}   /* 160 px de aire arriba (≈16 px en la miniatura): ahí va el número superpuesto, sin tapar el título */
+  html[data-cp-thumbs] :is(.grain-overlay,.spotlight,nav.rail,.cp-topbar,.scroll-cue,.next-link,footer,body > div[style*="position:fixed"]){display:none!important}
+  html[data-cp-thumbs] section[data-cp-removed]{display:grid!important;place-items:center;background:color-mix(in srgb, var(--content-ink) 6%, transparent)}
+  html[data-cp-thumbs] section[data-cp-removed] > *{display:none!important}
+  html[data-cp-thumbs] section[data-cp-removed]::before{content:"Slide eliminada";font:600 44px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--content-ink-soft)}
   /* Rail (content.css, el de Academy): acá el texto de la sección aparece SOLO al pasar el mouse (el contenido llega al borde derecho: la sección activa no deja un label fijo encima). */
   .rail a.active:not(:hover) span { opacity:0; }
   /* Tarjetas: `.dw-card` (content.css, la de Academy): borde fino y hover con borde de acento; sin inclinación 3D ni glow por detrás. */

@@ -1,5 +1,7 @@
 # Gestión Comercial → Presentaciones (V1)
 
+> **Estado, decisiones y plan de continuidad (V1 + V2.0/V2.1 + V2.2+): ver [`COMMERCIAL_PRESENTATIONS_HANDOFF.md`](COMMERCIAL_PRESENTATIONS_HANDOFF.md).** Esta guía es el detalle técnico de contratos, rutas, campos y limitaciones.
+
 Presentaciones comerciales inmersivas gobernadas por el Hub: se **ven y presentan** por URL, se **copian** como instancias propias y se **editan** (campos de texto acotados) con control de revisiones.
 Primer template: `vanture-bdc` ("La empresa autónoma comienza con los datos", Danwor × Vanture).
 
@@ -124,7 +126,19 @@ Al entrar en **Editar presentación** (`/comercial/presentaciones/{id}/editar`, 
 * **Visibilidad del enlace:** el callout se reemplazó por el (i) contextual del Hub (`.chart-tooltip-anchor` + `.activity-kpi__info` + `.chart-tooltip`, el mismo de CCHH/Entrevistas), que muestra la explicación completa con hover y con foco de teclado (también en `aria-label`): «visible para cualquier usuario autorizado del Hub que tenga la URL, aunque no tenga acceso a Comercial». En móvil la explicación se ancla al encabezado y ocupa su ancho.
 * **Navegación:** «← Volver» es un enlace real al landing `/comercial/presentaciones` (`data-back-url` pasó del detalle al landing). Con JS, «Volver» y «Cancelar» salen por la **misma** confirmación «Descartar cambios» si hay cambios sin guardar (`dwConfirm`, más el aviso nativo ante cierre de pestaña); sin cambios navegan directo.
 * **Responsive:** el contenedor apila a ≤ 1180 px (márgenes de 12 px) y el topbar baja a 66 px a ≤ 900 px; en ambos tramos el documento sigue llenando el alto restante. En móvil el encabezado envuelve en dos filas.
-* **No incluye** (etapas siguientes): panel de miniaturas, estilos Galaxia/Classic ni slides nuevas.
+* **No incluye** (etapas siguientes): estilos Galaxia/Classic, imagen de portada propia ni slides nuevas (ver «Presentaciones V2» en el handoff).
+
+### Panel de diapositivas con miniaturas (V2.1)
+
+A la izquierda del documento, dentro del workspace (`aside.cp-slides`, 178 px; a ≤ 900 px es una tira horizontal sobre el documento):
+
+* **Lista:** sale del DOM del editor (mismo origen): una tarjeta por `section[id^="s"]` (12), con el título del riel (`sN_nav`; «Portada» para la 1), el **número superpuesto** en la esquina de la miniatura (`01`…; las eliminadas muestran «–» y no consumen numeración), la activa con borde dorado y el hover en blanco (`--content-ink`). Clic o Enter llevan el documento a esa slide con scroll suave. Las eliminadas se atenúan y se restauran desde el documento. El contador y los números se recalculan al quitar/restaurar.
+* **Navegación sin rebotes:** durante la navegación iniciada por clic/teclado el destino queda fijo como activo (`navTarget`) hasta que el scroll se asienta (~160 ms sin eventos) o la persona toma el control (rueda, tacto, teclado, puntero); sin eso la tarjeta activa pasaba por el origen y las slides intermedias («va y viene»). Al fondo del documento la última slide queda activa.
+* **Miniaturas reales con UN solo iframe adicional:** `?embed=1&thumbs=1` de R1 (parámetro de consulta; sin ruta nueva): el MISMO renderer en modo lectura (`html[data-cp-thumbs]`), **sin JS** (el template no carga `vanture.js`), sin animaciones, 12 slides recortadas a 1440×810 con un hueco uniforme de 120 px (paso fijo de 930 px; 160 px de aire arriba para el número) y las eliminadas como bloque vacío rotulado, de modo que la tarjeta *i* queda exactamente sobre su slide. `thumbs` solo se honra con `embed=1`, anula `edit` (nunca editable) y mantiene los permisos de lectura de R1.
+* **Costo y carga:** el iframe se carga después del editor (`requestIdleCallback`) y solo con ≥ 901 px; en móvil o si falla (o no coincide el número de slides) cada tarjeta es **texto** (fallback). Se refresca al guardar y al cambiar el tema del Hub (el documento de miniaturas no corre JS ni el listener de tema). Medido en Chromium headless: el reposo del editor pasó de ≈ 10 % a ≈ 14 % de un núcleo con las miniaturas (≈ 3–4 puntos) y el documento carga en ~15 ms.
+* **Escala:** `--cp-k` (miniatura = 1440 px × k) la fija el JS desde el **ancho útil real** del panel (descontada la barra de scroll, que ocupa ancho en navegadores con barras clásicas); nunca un ancho supuesto. El **panel entero** es el único contenedor con scroll (`overflow-y: auto; scrollbar-gutter: stable`), con el encabezado y el «+» fijos (sticky): la barra corre de borde a borde y usa la regla de scrollbar del Hub (`.cp-slides` se sumó a `tools.css`). Las divisorias usan `--content-line` (cambia con el tema; `--line` es del panel oscuro y en claro casi no se veía).
+* **«+ Nueva diapositiva»:** placeholder punteado deshabilitado (`aria-disabled`, tooltip «Disponible en una próxima etapa»). La acción real es V2.5.
+* **Lección de QA:** Playwright lanza Chromium headless con `--hide-scrollbars`; los gates del panel se corren con `ignore_default_args=["--hide-scrollbars"]` para ver las barras reales, que ocupan ancho y recortaban las miniaturas.
 
 ## Edición de las 12 slides (contenido textual completo)
 

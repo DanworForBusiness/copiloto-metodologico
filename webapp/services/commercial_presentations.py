@@ -1648,7 +1648,7 @@ def _asset_hash(template_id: str, name: str) -> str:
         return "0"
 
 
-def render_context(presentation: dict, *, embed: bool = False, theme: str = "light", edit: bool = False, library: list | None = None) -> dict:
+def render_context(presentation: dict, *, embed: bool = False, theme: str = "light", edit: bool = False, library: list | None = None, thumbs: bool = False) -> dict:
     """Contexto del documento inmersivo: `c` = contenido completo (solo claves de la spec), URLs de assets COMPARTIDAS (idénticas para toda instancia del template) con cache-busting por contenido."""
     template_id = presentation["template_id"]
     spec = TEMPLATES[template_id]
@@ -1675,6 +1675,7 @@ def render_context(presentation: dict, *, embed: bool = False, theme: str = "lig
         "css_url": f"{asset_base}/{spec.css}?v={_asset_hash(template_id, spec.css)}",
         "js_url": f"{asset_base}/{spec.js}?v={_asset_hash(template_id, spec.js)}",
         "embed": bool(embed),
-        "edit_mode": bool(edit),                                                 # solo lo pide el router cuando el usuario PUEDE editar esta instancia
+        "edit_mode": bool(edit) and not thumbs,                                  # solo lo pide el router cuando el usuario PUEDE editar esta instancia
+        "thumbs": bool(thumbs),                                                  # modo miniatura: todas las slides (las eliminadas como bloque vacío) a 1440×810, sin JS ni animaciones
         "theme": "dark" if theme == "dark" else "light",
     }

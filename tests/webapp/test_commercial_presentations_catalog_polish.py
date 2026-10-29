@@ -107,7 +107,7 @@ def test_the_embeddable_documents_reuse_the_hub_scrollbar_rule_without_colors_of
     for url in (f"/presentaciones/{SEED_ID}", f"/presentaciones/{pid}?embed=1&edit=1", "/comercial/componentes/vista?ref=layer-stack:bdc-architecture"):
         soup = BeautifulSoup(world.client(A).get(url).text, "html.parser")
         assert "content-doc" in soup.html["class"], url                                                        # lo que scrollea es el viewport del documento embebido: se engancha a la regla del Hub
-    rule = re.search(r"\.module-content, \.copilot-panel, html\.content-doc \{[^}]*\}", TOOLS)
+    rule = re.search(r"\.module-content, \.copilot-panel, html\.content-doc, \.cp-slides \{[^}]*\}", TOOLS)      # + el panel de miniaturas del editor (V2.1): misma regla, sin colores propios
     assert rule and "scrollbar-width: thin" in rule.group(0) and "rgba(20,22,28,.18)" in rule.group(0)
     assert TOOLS.count("rgba(20,22,28,.18)") == 1                                                              # una sola definición del color
     assert "scrollbar" not in VANTURE_CSS and "scrollbar" not in (VANTURE / "vanture.js").read_text(encoding="utf-8")

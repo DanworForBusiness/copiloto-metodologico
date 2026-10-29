@@ -127,7 +127,7 @@ def _storage_response(exc: Exception) -> JSONResponse:
 # ── R1 — ver / presentar por URL (NO exige Comercial) ─────────────────────────────────────────────────────────────────────
 
 @router.get("/presentaciones/{presentation_id}", response_class=HTMLResponse, include_in_schema=False)
-def presentation_shared_view(request: Request, presentation_id: str, embed: str = "", edit: str = ""):
+def presentation_shared_view(request: Request, presentation_id: str, embed: str = "", edit: str = "", thumbs: str = ""):
     user = auth_service.session_user(request)
     if not user:
         return workspaces.platform_login_redirect(request)
@@ -140,9 +140,10 @@ def presentation_shared_view(request: Request, presentation_id: str, embed: str 
     spec = presentations.template_spec(view["template_id"])
     theme = "dark" if request.cookies.get("dw-content-theme") == "dark" else "light"            # preferencia del Hub (cookie `dw-content-theme`), como /pack-assets: sin flash
     # Edición inline: `?edit=1` solo se honra si el usuario PUEDE editar esta instancia (Comercial + responsable / CONTENT_OWNER; nunca la semilla). Para cualquier otro es la vista de siempre: leer por URL no habilita nada.
-    edit_mode = edit == "1" and embedded and presentations.can_edit_presentation_user(user, view)
+    thumbs_mode = thumbs == "1" and embedded                                   # modo miniatura (panel de diapositivas del editor): el MISMO documento sin JS ni animaciones; es de solo lectura y anula `edit`
+    edit_mode = edit == "1" and embedded and not thumbs_mode and presentations.can_edit_presentation_user(user, view)
     library = presentations.library_for(user, view.get("blocks")) if edit_mode else None      # institucionales + SUS componentes propios + los snapshots en uso: el filtro de visibilidad es del servidor
-    return templates.TemplateResponse(request=request, name=spec.jinja, context=presentations.render_context(view, embed=embedded, theme=theme, edit=edit_mode, library=library), headers=_NO_STORE)
+    return templates.TemplateResponse(request=request, name=spec.jinja, context=presentations.render_context(view, embed=embedded, theme=theme, edit=edit_mode, library=library, thumbs=thumbs_mode), headers=_NO_STORE)
 
 
 # ── R8 — logo propio de una instancia (mismo contrato de lectura que R1) ───────────────────────────────────────────────

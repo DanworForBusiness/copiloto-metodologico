@@ -545,6 +545,122 @@
       });
     });
 
+    // ── Panel de diapositivas (V2.1). La lista sale del DOM del editor (mismo origen): orden, título (rótulo del riel), eliminadas (`data-cp-removed`) y la activa por scroll. Las miniaturas son UN iframe adicional
+    // (`data-cp-thumbs-frame`, modo `?embed=1&thumbs=1` del mismo renderer) que se carga DESPUÉS del editor, solo en pantallas anchas, y se refresca al guardar; si no carga, cada tarjeta queda como texto.
+    var slidesPanel = editor.querySelector("[data-cp-slides]");
+    var refreshThumbs = function () {};
+    if (slidesPanel) {
+      var slidesList = slidesPanel.querySelector("[data-cp-slides-list]"), slidesCount = slidesPanel.querySelector("[data-cp-slides-count]");
+      var thumbsFrame = slidesPanel.querySelector("[data-cp-thumbs-frame]"), wide = window.matchMedia("(min-width: 901px)");
+      var slidesSig = "", wiredDoc = null;
+      var pad2 = function (n) { return (n < 10 ? "0" : "") + n; };
+      var slideSections = function () { var d = frame.contentDocument; return d ? Array.prototype.slice.call(d.querySelectorAll('section[id^="s"]')) : []; };
+      var slideTitle = function (sec) {
+        if (sec.id === "s1") return "Portada";
+        var a = frame.contentDocument.querySelector('nav.rail a[href="#' + sec.id + '"] span');
+        return (a && a.textContent.trim()) || sec.id;
+      };
+      var slidesScroll = slidesPanel.querySelector(".cp-slides__scroll");
+      var keepVisible = function (li) {                                                // la tarjeta activa queda a la vista con un ajuste SOLO vertical del panel (scrollIntoView también movería el eje horizontal); el encabezado y el «+» son fijos
+        if (!wide.matches) return;
+        var head = slidesPanel.querySelector(".cp-slides__head").offsetHeight, add = slidesPanel.querySelector(".cp-slides__add").offsetHeight;
+        var top = slidesScroll.offsetTop + li.offsetTop, bottom = top + li.offsetHeight;
+        if (top < slidesPanel.scrollTop + head) slidesPanel.scrollTop = Math.max(0, top - head - 4);
+        else if (bottom > slidesPanel.scrollTop + slidesPanel.clientHeight - add) slidesPanel.scrollTop = bottom - slidesPanel.clientHeight + add + 4;
+      };
+      var fitThumbs = function () {                                                    // la escala de las miniaturas sale del ÁREA ÚTIL real de la lista (descontada la barra de scroll), no de un ancho supuesto
+        if (wide.matches && slidesScroll.clientWidth > 0) slidesPanel.style.setProperty("--cp-k", (slidesScroll.clientWidth / 1440).toFixed(5));
+      };
+      if (window.ResizeObserver) new ResizeObserver(fitThumbs).observe(slidesScroll);
+      fitThumbs();
+      var navTarget = "", lastScrollAt = 0;                                            // destino de una navegación iniciada por clic/teclado: la tarjeta activa NO se recalcula (ni rebota por las slides intermedias) mientras el scroll suave llega
+      var releaseNav = function () { navTarget = ""; };
+      var settleNav = function () {                                                    // se suelta cuando el scroll se asienta (sin eventos por ~160 ms); sin temporizadores: un lazo de frames
+        if (!navTarget) return;
+        if (performance.now() - lastScrollAt > 160) { releaseNav(); markActive(); } else requestAnimationFrame(settleNav);
+      };
+      var markActive = function () {
+        var w = frame.contentWindow, d = frame.contentDocument, line = ((w && w.innerHeight) || 800) * 0.35, cur = "s1";
+        if (navTarget) {                                                               // ya llegó (borde superior en su lugar) → se suelta; si no, se mantiene el destino
+          var tgt = d && d.getElementById(navTarget);
+          if (tgt && Math.abs(tgt.getBoundingClientRect().top) <= 4) releaseNav(); else return;
+        }
+        slideSections().forEach(function (s) { if (s.getBoundingClientRect().top <= line) cur = s.id; });                  // la última slide cuyo borde superior ya pasó la línea de lectura
+        var secs = slideSections();
+        if (d && w && secs.length && d.documentElement.scrollTop + w.innerHeight >= d.documentElement.scrollHeight - 2) cur = secs[secs.length - 1].id;          // al fondo del documento la última queda activa aunque su borde no llegue a la línea
+        Array.prototype.forEach.call(slidesList.querySelectorAll(".cp-slide"), function (b) {
+          if (b.getAttribute("data-cp-slide") === cur) { if (b.getAttribute("aria-current") !== "true") { b.setAttribute("aria-current", "true"); keepVisible(b.parentElement); } }
+          else b.removeAttribute("aria-current");
+        });
+      };
+      var renderSlides = function () {
+        var secs = slideSections();
+        if (!secs.length) return;
+        var items = secs.map(function (s) { return { id: s.id, title: slideTitle(s), removed: s.hasAttribute("data-cp-removed") }; });
+        var sig = JSON.stringify(items);
+        if (sig === slidesSig) { markActive(); return; }
+        slidesSig = sig;
+        slidesList.replaceChildren();
+        var n = 0;
+        items.forEach(function (it) {
+          var li = document.createElement("li"), btn = document.createElement("button"), no = document.createElement("span"), th = document.createElement("span"), fb = document.createElement("span");
+          if (!it.removed) n += 1;
+          btn.type = "button"; btn.className = "cp-slide"; btn.setAttribute("data-cp-slide", it.id);
+          if (it.removed) btn.setAttribute("data-removed", "");
+          btn.title = it.title;
+          btn.setAttribute("aria-label", it.removed ? "Diapositiva eliminada: " + it.title : "Diapositiva " + n + ": " + it.title);
+          no.className = "cp-slide__no"; no.textContent = it.removed ? "–" : pad2(n);
+          th.className = "cp-slide__thumb"; fb.className = "cp-slide__fallback"; fb.textContent = it.removed ? "Eliminada · " + it.title : it.title;
+          th.appendChild(fb); th.appendChild(no); btn.appendChild(th); li.appendChild(btn); slidesList.appendChild(li);                  // el número va superpuesto en la esquina de la miniatura
+        });
+        slidesCount.textContent = String(n);
+        slidesPanel.style.setProperty("--cp-n", String(items.length));
+        markActive();
+      };
+      slidesList.addEventListener("click", function (ev) {
+        var btn = ev.target.closest("[data-cp-slide]");
+        var d = frame.contentDocument;
+        var sec = btn && d ? d.getElementById(btn.getAttribute("data-cp-slide")) : null;
+        if (!sec) return;
+        navTarget = btn.getAttribute("data-cp-slide"); lastScrollAt = performance.now();
+        sec.scrollIntoView({ behavior: "smooth", block: "start" });
+        Array.prototype.forEach.call(slidesList.querySelectorAll(".cp-slide"), function (b) { if (b === btn) b.setAttribute("aria-current", "true"); else b.removeAttribute("aria-current"); });
+        requestAnimationFrame(settleNav);
+      });
+      var loadThumbs = function () {
+        if (!wide.matches || thumbsFrame.getAttribute("src")) return;
+        var go = function () { thumbsFrame.setAttribute("src", thumbsFrame.getAttribute("data-src")); };
+        if (window.requestIdleCallback) window.requestIdleCallback(go, { timeout: 2000 }); else go();                      // después de que el editor esté listo
+      };
+      thumbsFrame.addEventListener("load", function () {
+        var d = thumbsFrame.contentDocument, ok = false;
+        try { ok = !!d && slideSections().length > 0 && d.querySelectorAll('section[id^="s"]').length === slideSections().length; } catch (e) { ok = false; }
+        slidesPanel.classList.toggle("cp-slides--thumbs", ok);                                                              // si no coincide o no carga, quedan las tarjetas de texto
+      });
+      refreshThumbs = function () {
+        if (!thumbsFrame.getAttribute("src")) return;
+        try { thumbsFrame.contentWindow.location.reload(); } catch (e) { thumbsFrame.setAttribute("src", thumbsFrame.getAttribute("data-src")); }
+      };
+      wide.addEventListener("change", loadThumbs);
+      // El documento de miniaturas no corre JS (ni el listener de tema de vanture.js): si el tema del Hub cambia, se recarga ese ÚNICO iframe con la cookie nueva.
+      var themeNow = function () { var m = /content-theme-(light|dark)/.exec(document.documentElement.className); return m ? m[1] : ""; }, lastTheme = themeNow();
+      new MutationObserver(function () { var t = themeNow(); if (t !== lastTheme) { lastTheme = t; refreshThumbs(); } }).observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+      var wireSlides = function () {
+        renderSlides();
+        var d = frame.contentDocument, w = frame.contentWindow;
+        if (!d || !w || wiredDoc === d) return;
+        wiredDoc = d;
+        var queued = false;
+        w.addEventListener("scroll", function () { lastScrollAt = performance.now(); if (queued) return; queued = true; requestAnimationFrame(function () { queued = false; markActive(); }); }, { passive: true });
+        ["wheel", "touchstart", "keydown", "pointerdown"].forEach(function (type) { d.addEventListener(type, releaseNav, { passive: true, capture: true }); });    // si la persona toma el control del scroll, manda su posición
+        d.addEventListener("click", function () { requestAnimationFrame(function () { requestAnimationFrame(renderSlides); }); }, true);      // quitar / restaurar una slide
+        d.addEventListener("input", function () { requestAnimationFrame(renderSlides); }, true);                                     // el título de una slide se edita en vivo
+        if (d.readyState === "complete" && slideSections().length) loadThumbs();
+      };
+      frame.addEventListener("load", wireSlides);
+      wireSlides();
+    }
+
     saveBtn.addEventListener("click", async function () {
       showError("");
       var delta = changed();
@@ -565,6 +681,7 @@
           editor.setAttribute("data-revision", String(data.revision));
           if (Array.isArray(data.removed_slides)) originalRemoved = data.removed_slides.slice();
           originalBlocks = JSON.stringify(blocksNow());
+          refreshThumbs();                                                       // las miniaturas reflejan lo guardado
           leaves().forEach(function (el) {
             var key = el.getAttribute("data-cp-field");
             if (data.content && typeof data.content[key] === "string") el.setAttribute("data-original", data.content[key]);

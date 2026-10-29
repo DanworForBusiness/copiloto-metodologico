@@ -237,14 +237,14 @@
 
 /* Scrollbar sutil dentro de los tiles claros (el global es oscuro/grueso y
    rompía la curvatura del card, como en el Streamlit original). */
-/* `html.content-doc` = los documentos de contenido que el Hub embebe en un iframe (Presentaciones): ahí lo que scrollea es el viewport del propio documento, no `.module-content`; misma regla, sin colores propios. */
-.module-content, .copilot-panel, html.content-doc { scrollbar-width: thin; scrollbar-color: rgba(20,22,28,.18) transparent; }
-.module-content::-webkit-scrollbar, .copilot-panel::-webkit-scrollbar, html.content-doc::-webkit-scrollbar { width: 9px; height: 9px; }
-.module-content::-webkit-scrollbar-track, .copilot-panel::-webkit-scrollbar-track, html.content-doc::-webkit-scrollbar-track { background: transparent; }
-.module-content::-webkit-scrollbar-thumb, .copilot-panel::-webkit-scrollbar-thumb, html.content-doc::-webkit-scrollbar-thumb {
+/* `html.content-doc` = los documentos de contenido que el Hub embebe en un iframe (Presentaciones): ahí lo que scrollea es el viewport del propio documento, no `.module-content`; `.cp-slides` = el panel de miniaturas del editor de Presentaciones; misma regla, sin colores propios. */
+.module-content, .copilot-panel, html.content-doc, .cp-slides { scrollbar-width: thin; scrollbar-color: rgba(20,22,28,.18) transparent; }
+.module-content::-webkit-scrollbar, .copilot-panel::-webkit-scrollbar, html.content-doc::-webkit-scrollbar, .cp-slides::-webkit-scrollbar { width: 9px; height: 9px; }
+.module-content::-webkit-scrollbar-track, .copilot-panel::-webkit-scrollbar-track, html.content-doc::-webkit-scrollbar-track, .cp-slides::-webkit-scrollbar-track { background: transparent; }
+.module-content::-webkit-scrollbar-thumb, .copilot-panel::-webkit-scrollbar-thumb, html.content-doc::-webkit-scrollbar-thumb, .cp-slides::-webkit-scrollbar-thumb {
   background: rgba(20,22,28,.16); border-radius: 9px; border: 3px solid transparent; background-clip: padding-box;
 }
-.module-content::-webkit-scrollbar-thumb:hover, .copilot-panel::-webkit-scrollbar-thumb:hover, html.content-doc::-webkit-scrollbar-thumb:hover {
+.module-content::-webkit-scrollbar-thumb:hover, .copilot-panel::-webkit-scrollbar-thumb:hover, html.content-doc::-webkit-scrollbar-thumb:hover, .cp-slides::-webkit-scrollbar-thumb:hover {
   background: rgba(20,22,28,.30); background-clip: padding-box;
 }
 
