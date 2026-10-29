@@ -1026,7 +1026,6 @@ table.dashboard-table.commercial-creadas-table td:nth-child(4) { width: auto; }
 .cp-wsheader .cp-toolbar { margin: 0; align-items: center; }
 .cp-wsheader .chart-tooltip-anchor { flex: none; display: inline-flex; align-items: center; }
 .cp-wsheader .chart-tooltip { bottom: auto; top: calc(100% + 8px); left: 0; transform: none; width: max-content; max-width: min(340px, 72vw); }   /* abre hacia abajo y hacia adentro: nunca se sale del viewport */
-.cp-wsheader .activity-kpi__info svg { width: 15px; height: 15px; }
 .cp-workspace__editor .cp-workspace__frame { flex: 1 1 auto; min-height: 0; height: auto; margin: 0; }
 /* V2.1 — panel izquierdo de diapositivas: columna angosta de miniaturas (la activa con borde dorado) con el número SUPERPUESTO en su esquina superior izquierda, y una tarjeta punteada «+». Las miniaturas son UN iframe (`?embed=1&thumbs=1`) a 1440 px escalado por `--cp-k`; cada
    fila mide el paso fijo del documento (810 + 120 px) × `--cp-k`, de modo que la tarjeta i queda exactamente sobre su slide. Sin iframe (móvil / carga fallida) la tarjeta es texto. */
