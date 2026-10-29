@@ -98,7 +98,7 @@
   .cp-addon-preview{margin-top:14px;max-height:min(300px,38vh);overflow:auto;padding:12px;border:1px dashed color-mix(in srgb, var(--content-ink) 28%, transparent);background:var(--content-canvas);color:var(--content-ink)}
   .cp-addon-sizer{overflow:hidden}
   .cp-addon-stage{width:1100px;transform-origin:0 0}
-  .cp-addon-preview [style*="animation-timeline"]{animation:none!important;opacity:1!important;transform:none!important}
+  .cp-addon-preview [style*="animation-timeline"],.cp-preview [style*="animation-timeline"]{animation:none!important;opacity:1!important;transform:none!important}
   .cp-addon-preview:empty::before{content:"Elegí un componente para ver su vista previa.";font:500 12px/1.4 var(--mono);color:var(--content-ink-soft)}
   .cp-addon-tag{margin-left:8px;font:600 10.5px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--gold)}
   html[data-cp-edit] .cp-asset-tools{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:center}

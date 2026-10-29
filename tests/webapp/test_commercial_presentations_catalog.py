@@ -69,7 +69,9 @@ def test_the_table_lives_in_a_hub_grouping_with_a_right_aligned_count_in_its_hea
     assert head.select_one(".dashboard-section__title").text.strip() == "Presentaciones"
     body = section.select_one(".dashboard-section__body")
     assert body is not None and body.select_one(".matrix-scroll > table.dashboard-table#cp-catalog-table") is not None
-    assert len(soup.select(".dashboard-section")) == 1 and len(soup.select("table")) == 1       # ni segundo agrupador ni variante nueva de tabla
+    sections = soup.select(".dashboard-section")                                                 # dos colecciones en la misma página, MISMO patrón de agrupador y de tabla
+    assert [s["data-section-id"] for s in sections] == ["presentaciones", "componentes"] and len(soup.select("table.dashboard-table")) == 2 and len(soup.select("table")) == 2
+    assert sections[1].select_one(".dashboard-section__title").text.strip() == "Componentes reutilizables" and sections[1].select_one(".dashboard-section__body .matrix-scroll > table.dashboard-table#cc-catalog-table")
 
 
 def test_the_initial_count_is_the_real_total_with_correct_plural_and_search_text_is_title_plus_owner_only(world):

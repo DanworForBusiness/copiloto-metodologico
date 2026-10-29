@@ -332,6 +332,10 @@ _USAGE_EVENTS: frozenset[str] = frozenset({
     "presentation.copied",
     "presentation.saved",
     "presentation.deleted",
+    # Comercial/Presentaciones — colección «Componentes reutilizables»: acciones de negocio completadas (alta por duplicado, edición, baja).
+    "component.created",
+    "component.saved",
+    "component.deleted",
     # Comercial/CRM — feedback transversal (Homologación al Danwor Hub, ver
     # HANDOFF): MISMA capacidad compartida que Reporting/Staffing, un control
     # por capability (Dashboard/Actividades/Licencias/Historial Perdidas/
@@ -417,6 +421,9 @@ EVENT_LABELS: dict[str, str] = {
     "presentation.copied": "Presentaciones — copia creada",
     "presentation.saved": "Presentaciones — guardado exitoso",
     "presentation.deleted": "Presentaciones — presentación eliminada",
+    "component.created": "Presentaciones — componente duplicado como propio",
+    "component.saved": "Presentaciones — componente editado",
+    "component.deleted": "Presentaciones — componente eliminado",
     "commercial.feedback": "Comercial — feedback de capability",
     # "commercial.data_error" NO tiene entrada acá a propósito: es un evento
     # de DIAGNÓSTICO (_DIAGNOSTIC_EVENTS), no de uso — mismo criterio que

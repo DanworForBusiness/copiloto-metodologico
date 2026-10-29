@@ -47,21 +47,23 @@
   (function () {
     var input = document.querySelector("[data-cp-search-input]");
     if (!input) return;
-    var count = document.querySelector("[data-cp-count]");
-    var empty = document.querySelector("[data-cp-empty]");
-    var wrap = document.querySelector("[data-cp-table-wrap]");
     function apply() {
-      var rows = Array.prototype.slice.call(document.querySelectorAll("#cp-catalog-table tbody tr[data-cp-search]"));    // se relee: una fila eliminada ya no cuenta
       var q = dwSearchFold(input.value);
-      var shown = 0;
-      rows.forEach(function (tr) {
-        var hit = !q || dwSearchFold(tr.getAttribute("data-cp-search")).indexOf(q) !== -1;
-        tr.hidden = !hit;
-        if (hit) shown += 1;
+      Array.prototype.forEach.call(document.querySelectorAll("details.dashboard-section[data-section-id]"), function (section) {     // un agrupador por colección: mismo filtro, contador propio
+        var rows = Array.prototype.slice.call(section.querySelectorAll("tbody tr[data-cp-search]"));                                // se relee: una fila eliminada ya no cuenta
+        var shown = 0;
+        rows.forEach(function (tr) {
+          var hit = !q || dwSearchFold(tr.getAttribute("data-cp-search")).indexOf(q) !== -1;
+          tr.hidden = !hit;
+          if (hit) shown += 1;
+        });
+        var count = section.querySelector("[data-cp-count]");
+        var wrap = section.querySelector("[data-cp-table-wrap]");
+        var empty = section.querySelector("[data-cp-empty]");
+        if (count) count.textContent = shown + " " + (shown === 1 ? count.getAttribute("data-cp-singular") : count.getAttribute("data-cp-plural"));
+        if (wrap) wrap.hidden = shown === 0;
+        if (empty) empty.hidden = shown !== 0;
       });
-      if (count) count.textContent = shown + " presentaci" + (shown === 1 ? "ón" : "ones");
-      if (wrap) wrap.hidden = shown === 0;
-      if (empty) empty.hidden = shown !== 0;
     }
     input.addEventListener("input", apply);
     input.closest("form").addEventListener("submit", function (ev) { ev.preventDefault(); });
@@ -108,6 +110,205 @@
         return;
       }
       toast("No se pudo eliminar", messageOf(data, "Reintentá en unos minutos."), "punch");
+    } catch (e) {
+      toast("No se pudo eliminar", "Verificá tu conexión y reintentá.", "punch");
+    }
+    btn.disabled = false;
+  });
+
+  // ── Componentes reutilizables: Ver (vista previa con el renderer real) · Duplicar · Editar (textos y tonos) · Eliminar ───────────────────────────────────────────────────────
+  // Misma mecánica que Presentaciones: diálogos nativos del Hub, POST de mismo origen, autoridad en el servidor. El formulario de edición se arma a partir de los parámetros del componente con `createElement` +
+  // `value` (sin armar markup con cadenas) y el payload conserva la ESTRUCTURA original: solo se reemplazan textos y tonos. El servidor revalida contra el contrato del renderer y exige la misma estructura.
+  var CC_FLASH = "cc-flash";
+  try {
+    var ccFlash = window.sessionStorage.getItem(CC_FLASH);
+    if (ccFlash) { window.sessionStorage.removeItem(CC_FLASH); var f = JSON.parse(ccFlash); toast(f.title, f.text, "success"); }
+  } catch (e) { /* sin sessionStorage: el aviso se omite, la acción ya ocurrió */ }
+  function ccReload(title, text) {
+    try { window.sessionStorage.setItem(CC_FLASH, JSON.stringify({ title: title, text: text })); } catch (e) { /* ver arriba */ }
+    window.location.reload();
+  }
+  var STACK_TONES = [["light", "Destacada suave"], ["strong", "Destacada"], ["neutral", "Neutra"]];
+  var BOX_TONES = [["gold", "Dorada"], ["neutral", "Neutra"]];
+  var ccUid = 0;
+
+  function ccField(labelText, control) {
+    var wrap = document.createElement("div");
+    wrap.className = "feedback-field";
+    var label = document.createElement("label");
+    ccUid += 1;
+    control.id = "cc-f-" + ccUid;
+    label.setAttribute("for", control.id);
+    label.textContent = labelText;
+    wrap.appendChild(label);
+    wrap.appendChild(control);
+    return wrap;
+  }
+  function ccInput(path, value) {
+    var input = document.createElement("input");
+    input.type = "text"; input.maxLength = 120; input.autocomplete = "off"; input.required = true;
+    input.value = value;
+    input.setAttribute("data-cc-path", path);
+    return input;
+  }
+  function ccSelect(path, value, options) {
+    var select = document.createElement("select");
+    options.forEach(function (o) { var opt = document.createElement("option"); opt.value = o[0]; opt.textContent = o[1]; select.appendChild(opt); });
+    select.value = value;
+    select.setAttribute("data-cc-path", path);
+    return select;
+  }
+  function buildParamsForm(host, params) {
+    host.replaceChildren();
+    if (params.sides.length) {
+      var sides = document.createElement("fieldset");
+      sides.className = "cc-edit-layer";
+      var sl = document.createElement("legend"); sl.textContent = "Laterales"; sides.appendChild(sl);
+      var sg = document.createElement("div"); sg.className = "cc-edit-grid";
+      params.sides.forEach(function (text, i) { sg.appendChild(ccField("Lateral " + (i + 1), ccInput("sides." + i, text))); });
+      sides.appendChild(sg); host.appendChild(sides);
+    }
+    params.layers.forEach(function (layer, li) {
+      var fs = document.createElement("fieldset");
+      fs.className = "cc-edit-layer";
+      var legend = document.createElement("legend"); legend.textContent = "Capa " + (li + 1); fs.appendChild(legend);
+      var grid = document.createElement("div"); grid.className = "cc-edit-grid";
+      grid.appendChild(ccField("Rótulo", ccInput("layers." + li + ".label", layer.label)));
+      if ("sub" in layer) grid.appendChild(ccField("Descripción", ccInput("layers." + li + ".sub", layer.sub)));
+      grid.appendChild(ccField("Tono de la capa", ccSelect("layers." + li + ".tone", layer.tone, STACK_TONES)));
+      fs.appendChild(grid);
+      layer.boxes.forEach(function (box, bi) {
+        var bg = document.createElement("div"); bg.className = "cc-edit-grid";
+        bg.appendChild(ccField("Caja " + (bi + 1), ccInput("layers." + li + ".boxes." + bi + ".text", box.text)));
+        bg.appendChild(ccField("Tono de la caja " + (bi + 1), ccSelect("layers." + li + ".boxes." + bi + ".tone", box.tone, BOX_TONES)));
+        if ("note" in box) bg.appendChild(ccField("Nota de la caja " + (bi + 1), ccInput("layers." + li + ".boxes." + bi + ".note", box.note)));
+        fs.appendChild(bg);
+      });
+      host.appendChild(fs);
+    });
+  }
+  function readParamsForm(host, original) {
+    var params = JSON.parse(JSON.stringify(original));                           // la estructura (capas, cajas, reveal, conectores) sale del original; solo se pisan textos y tonos
+    Array.prototype.forEach.call(host.querySelectorAll("[data-cc-path]"), function (control) {
+      var parts = control.getAttribute("data-cc-path").split(".");
+      var target = params;
+      for (var k = 0; k < parts.length - 1; k += 1) target = target[parts[k]];
+      target[parts[parts.length - 1]] = control.value;
+    });
+    return params;
+  }
+  function ccPost(url, payload) {
+    return fetch(url, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }).then(function (res) {
+      return readJson(res).then(function (data) { return { ok: res.ok && data.state === "ok", status: res.status, data: data }; });
+    });
+  }
+  function ccShowError(dialog, text) {
+    var box = dialog.querySelector("[data-cc-error]");
+    box.textContent = text || "";
+    box.hidden = !text;
+  }
+
+  var viewDialog = document.getElementById("cc-view-dialog");
+  var dupDialog = document.getElementById("cc-dup-dialog");
+  var editDialog = document.getElementById("cc-edit-dialog");
+  var ccEditing = null;
+
+  document.addEventListener("click", function (ev) {
+    var view = ev.target.closest("[data-cc-view]");
+    if (view && viewDialog) {
+      viewDialog.querySelector("[data-cc-view-title]").textContent = view.getAttribute("data-cc-name") || "Componente";
+      viewDialog.querySelector("[data-cc-view-meta]").textContent = view.getAttribute("data-cc-meta") || "";
+      viewDialog.querySelector("[data-cc-view-frame]").src = "/comercial/componentes/vista?ref=" + encodeURIComponent(view.getAttribute("data-cc-view"));
+      viewDialog.showModal();
+      return;
+    }
+    var dup = ev.target.closest("[data-cc-dup]");
+    if (dup && !dup.disabled && dupDialog) {
+      dupDialog.dataset.ref = dup.getAttribute("data-cc-dup");
+      var nameInput = dupDialog.querySelector("[data-cc-name-input]");
+      nameInput.value = ("Copia de " + (dup.getAttribute("data-cc-name") || "")).slice(0, nameInput.maxLength > 0 ? nameInput.maxLength : 120);
+      dupDialog.querySelector("[data-cc-desc-input]").value = "";
+      ccShowError(dupDialog, "");
+      dupDialog.querySelector("[data-cc-dup-submit]").disabled = false;
+      dupDialog.showModal();
+      nameInput.focus(); nameInput.select();
+      return;
+    }
+    var edit = ev.target.closest("[data-cc-edit]");
+    if (edit && !edit.disabled && editDialog) {
+      var params;
+      try { params = JSON.parse(edit.getAttribute("data-cc-params")); } catch (e) { return; }
+      ccEditing = { id: edit.getAttribute("data-cc-edit"), revision: parseInt(edit.getAttribute("data-cc-rev"), 10), params: params };
+      editDialog.querySelector("[data-cc-name-input]").value = edit.getAttribute("data-cc-name") || "";
+      editDialog.querySelector("[data-cc-desc-input]").value = edit.getAttribute("data-cc-desc") || "";
+      buildParamsForm(editDialog.querySelector("[data-cc-edit-fields]"), params);
+      ccShowError(editDialog, "");
+      editDialog.querySelector("[data-cc-edit-submit]").disabled = false;
+      editDialog.showModal();
+    }
+  });
+  if (viewDialog) viewDialog.addEventListener("close", function () { viewDialog.querySelector("[data-cc-view-frame]").removeAttribute("src"); });
+
+  if (dupDialog) {
+    var dupBtn = dupDialog.querySelector("[data-cc-dup-submit]");
+    var duplicate = async function () {
+      var name = dupDialog.querySelector("[data-cc-name-input]").value.trim();
+      if (!name) { ccShowError(dupDialog, "Ingresá un nombre para el componente."); return; }
+      dupBtn.disabled = true;
+      try {
+        var r = await ccPost("/comercial/componentes/duplicar", { ref: dupDialog.dataset.ref, name: name, description: dupDialog.querySelector("[data-cc-desc-input]").value.trim() });
+        if (r.ok) { ccReload("Componente duplicado", "«" + name + "» ya está en «Componentes reutilizables»."); return; }
+        ccShowError(dupDialog, messageOf(r.data, "No se pudo duplicar el componente."));
+      } catch (e) {
+        ccShowError(dupDialog, "No se pudo duplicar el componente. Verificá tu conexión y reintentá.");
+      }
+      dupBtn.disabled = false;
+    };
+    dupBtn.addEventListener("click", duplicate);
+    dupDialog.querySelector("form").addEventListener("keydown", function (ev) { if (ev.key === "Enter" && ev.target.matches("input")) { ev.preventDefault(); duplicate(); } });
+  }
+
+  if (editDialog) {
+    var editBtn = editDialog.querySelector("[data-cc-edit-submit]");
+    var saveComponent = async function () {
+      if (!ccEditing) return;
+      var form = editDialog.querySelector("form");
+      if (!form.reportValidity()) return;                                        // campos vacíos: el navegador lo marca (el servidor valida de nuevo)
+      editBtn.disabled = true;
+      try {
+        var payload = { revision: ccEditing.revision, name: editDialog.querySelector("[data-cc-name-input]").value.trim(), description: editDialog.querySelector("[data-cc-desc-input]").value.trim(),
+                        params: readParamsForm(editDialog.querySelector("[data-cc-edit-fields]"), ccEditing.params) };
+        var r = await ccPost("/comercial/componentes/" + encodeURIComponent(ccEditing.id), payload);
+        if (r.ok) { ccReload("Componente guardado", "Revisión " + r.data.revision + ". Lo ya insertado en presentaciones no cambia."); return; }
+        ccShowError(editDialog, messageOf(r.data, "No se pudo guardar el componente."));
+      } catch (e) {
+        ccShowError(editDialog, "No se pudo guardar el componente. Verificá tu conexión y reintentá; tus cambios en pantalla no se perdieron.");
+      }
+      editBtn.disabled = false;
+    };
+    editBtn.addEventListener("click", saveComponent);
+  }
+
+  document.addEventListener("click", async function (ev) {
+    var btn = ev.target.closest("[data-cc-delete]");
+    if (!btn || btn.disabled) return;
+    var name = btn.getAttribute("data-cc-name") || "este componente";
+    var message = "Se eliminará «" + name + "» de forma definitiva. Las presentaciones donde ya lo insertaste conservan su copia y no se alteran.";
+    var confirmed = typeof dwConfirm === "function"
+      ? await dwConfirm({ title: "Eliminar componente", message: message, confirmLabel: "Eliminar" })
+      : window.confirm(message);
+    if (!confirmed) return;
+    btn.disabled = true;
+    try {
+      var r = await ccPost("/comercial/componentes/" + encodeURIComponent(btn.getAttribute("data-cc-delete")) + "/eliminar", {});
+      if (r.ok) {
+        var row = btn.closest("tr");
+        if (row) row.remove();
+        document.dispatchEvent(new CustomEvent("cp:rows-changed"));
+        toast("Componente eliminado", "«" + name + "» ya no está en la colección.", "success");
+        return;
+      }
+      toast("No se pudo eliminar", messageOf(r.data, "Reintentá en unos minutos."), "punch");
     } catch (e) {
       toast("No se pudo eliminar", "Verificá tu conexión y reintentá.", "punch");
     }

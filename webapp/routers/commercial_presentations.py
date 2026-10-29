@@ -13,6 +13,10 @@ DOS contratos de lectura/escritura, DELIBERADAMENTE separados (ver `webapp.servi
   R8  GET  /presentaciones/{id}/logo                 logo propio de una copia               — contrato de lectura de R1
   R9  POST /comercial/presentaciones/{id}/qr         reemplazar / quitar el QR de la copia  — ídem R6 (multipart: revision + file | remove)
   R10 GET  /presentaciones/{id}/qr                   QR propio de una copia                 — contrato de lectura de R1
+  R11 GET  /comercial/componentes/vista              vista previa de un componente (renderer real) — Comercial + visibilidad del componente
+  R12 POST /comercial/componentes/duplicar           duplicar un componente como propio     — Comercial + verlo
+  R13 POST /comercial/componentes/{id}               editar nombre, descripción y parámetros — Comercial + (responsable O CONTENT_OWNER)
+  R14 POST /comercial/componentes/{id}/eliminar      eliminar un componente propio          — ídem R13
 
 La URL de R1 es una DIRECCIÓN de acceso autenticado: no es una credencial ni un permiso. No hay acceso anónimo, tokens ni permisos por destinatario. No existe ninguna ruta para administrar templates o seeds.
 
@@ -137,7 +141,8 @@ def presentation_shared_view(request: Request, presentation_id: str, embed: str 
     theme = "dark" if request.cookies.get("dw-content-theme") == "dark" else "light"            # preferencia del Hub (cookie `dw-content-theme`), como /pack-assets: sin flash
     # Edición inline: `?edit=1` solo se honra si el usuario PUEDE editar esta instancia (Comercial + responsable / CONTENT_OWNER; nunca la semilla). Para cualquier otro es la vista de siempre: leer por URL no habilita nada.
     edit_mode = edit == "1" and embedded and presentations.can_edit_presentation_user(user, view)
-    return templates.TemplateResponse(request=request, name=spec.jinja, context=presentations.render_context(view, embed=embedded, theme=theme, edit=edit_mode), headers=_NO_STORE)
+    library = presentations.library_for(user, view.get("blocks")) if edit_mode else None      # institucionales + SUS componentes propios + los snapshots en uso: el filtro de visibilidad es del servidor
+    return templates.TemplateResponse(request=request, name=spec.jinja, context=presentations.render_context(view, embed=embedded, theme=theme, edit=edit_mode, library=library), headers=_NO_STORE)
 
 
 # ── R8 — logo propio de una instancia (mismo contrato de lectura que R1) ───────────────────────────────────────────────
@@ -196,9 +201,13 @@ def presentations_catalog(request: Request):
     rows = [{**item, "can_edit": presentations.can_edit_presentation_user(user, item), "can_delete": presentations.can_delete_presentation_user(user, item), "share_path": _share_path(item["presentation_id"]),
              "updated_label": _date_dmy(item.get("updated_at")),
              "copied_from_title": titles.get((item.get("copied_from") or {}).get("presentation_id"), "")} for item in items]
+    try:
+        components = [{**c, "updated_label": _date_dmy(c.get("updated_at"))} for c in presentations.catalog_components(user)]
+    except presentations.PresentationStorageError:
+        components = []
     return templates.TemplateResponse(
         request=request, name="commercial/presentations.html",
-        context=_shell_context(request, user, rows=rows, error_state=error_state, max_title=presentations.MAX_TITLE), headers=_NO_STORE,
+        context=_shell_context(request, user, rows=rows, components=components, error_state=error_state, max_title=presentations.MAX_TITLE, max_desc=presentations.MAX_COMPONENT_DESC), headers=_NO_STORE,
     )
 
 
@@ -329,6 +338,116 @@ async def presentation_qr_set(request: Request, presentation_id: str):
     return JSONResponse({"state": "ok", "revision": saved["revision"], "qr_url": ctx["qr_url"], "qr_custom": ctx["qr_custom"]})
 
 
+# ── Colección «Componentes reutilizables» (R11–R14) ──────────────────────────────────────────────────────────────────────
+
+def _load_component(user: dict, component_id: str) -> dict:
+    """404 si no existe, no está disponible o NO es visible para `user` (un componente ajeno no se distingue de uno inexistente)."""
+    try:
+        view = presentations.get_component(component_id)
+    except (presentations.PresentationNotFound, presentations.PresentationUnavailable):
+        raise HTTPException(404, "Componente no encontrado")
+    except presentations.PresentationStorageError:
+        raise HTTPException(503, "Presentaciones no disponibles")
+    if not presentations.can_view_component_user(user, view):
+        raise HTTPException(404, "Componente no encontrado")
+    return view
+
+
+@router.get("/comercial/componentes/vista", response_class=HTMLResponse, include_in_schema=False)
+def component_preview(request: Request, ref: str = ""):
+    redirect = _require_commercial_page(request)
+    if redirect is not None:
+        return redirect
+    user = auth_service.session_user(request)
+    try:
+        resolved = presentations.resolve_component_ref(ref, user)
+    except (presentations.PresentationNotFound, presentations.PresentationUnavailable):
+        raise HTTPException(404, "Componente no encontrado")
+    except presentations.PresentationStorageError:
+        raise HTTPException(503, "Presentaciones no disponibles")
+    theme = "dark" if request.cookies.get("dw-content-theme") == "dark" else "light"
+    template_id = next(iter(presentations.TEMPLATES))
+    ctx = presentations.render_context(presentations.get(template_id), embed=True, theme=theme)
+    ctx["preview_component"] = {"component": resolved["component"], "variant": resolved["variant"], "params": resolved["params"]}      # EL renderer real de la presentación, sin el resto del documento
+    return templates.TemplateResponse(request=request, name=presentations.template_spec(template_id).jinja, context=ctx, headers=_NO_STORE)
+
+
+@router.post("/comercial/componentes/duplicar", include_in_schema=False)
+async def component_duplicate(request: Request):
+    user = _require_commercial_write(request)
+    if not same_origin_guard.is_same_origin_write(request):
+        raise HTTPException(403, "Origen del request no verificado")
+    body = await _json_body(request)
+    ref = body.get("ref")
+    if not isinstance(ref, str):
+        raise HTTPException(400, "Falta 'ref' en el payload")
+    try:
+        created = presentations.duplicate_component(ref, name=body.get("name"), description=body.get("description"), user=user)
+    except presentations.PresentationValidationError as exc:
+        raise HTTPException(422, str(exc))
+    except presentations.QuotaExceeded:
+        return JSONResponse({"state": "quota", "message": "Se alcanzó el máximo de componentes propios. Eliminá alguno antes de crear otro."}, status_code=409)
+    except (presentations.PresentationNotFound, presentations.PresentationUnavailable):
+        raise HTTPException(404, "Componente no encontrado")
+    except presentations.PresentationStorageError as exc:
+        _logger.error("commercial_presentations.component.duplicate failed: %s", type(exc).__name__)
+        return _storage_response(exc)
+    log_activity("component.created", user=user, scope=SCOPE_COMMERCIAL, area=AREA_PRESENTATIONS, module=CM03_MODULE_ID, revision=created["revision"])
+    return JSONResponse({"state": "ok", "component_id": created["component_id"], "revision": created["revision"]})
+
+
+@router.post("/comercial/componentes/{component_id}", include_in_schema=False)
+async def component_save(request: Request, component_id: str):
+    user = _require_commercial_write(request)
+    view = _load_component(user, component_id)
+    if not presentations.can_edit_component_user(user, view):
+        raise HTTPException(403, "No autorizado para editar este componente")
+    if not same_origin_guard.is_same_origin_write(request):
+        raise HTTPException(403, "Origen del request no verificado")
+    body = await _json_body(request)
+    revision = body.get("revision")
+    if not isinstance(revision, int) or isinstance(revision, bool):
+        raise HTTPException(400, "Falta 'revision' (entero) en el payload")
+    if not any(k in body for k in ("name", "description", "params")) or set(body) - {"revision", "name", "description", "params"}:
+        raise HTTPException(422, "No hay nada para guardar")
+    updated_by_id = str(user.get("sub") or "")
+    updated_by_label = str(user.get("name") or user.get("username") or user.get("email") or updated_by_id)
+    try:
+        saved = presentations.update_component(component_id, expected_revision=revision, name=body.get("name"), description=body.get("description"), params=body.get("params"),
+                                               updated_by_id=updated_by_id, updated_by_label=updated_by_label)
+    except presentations.PresentationValidationError as exc:
+        raise HTTPException(422, str(exc))
+    except presentations.StaleRevision as exc:
+        return JSONResponse({"state": "stale", "current_revision": exc.current_revision,
+                             "message": "El componente cambió desde que lo cargaste — recargá la página antes de volver a guardar. Nada se sobrescribió."}, status_code=409)
+    except (presentations.PresentationNotFound, presentations.PresentationUnavailable):
+        raise HTTPException(404, "Componente no encontrado")
+    except presentations.PresentationStorageError as exc:
+        _logger.error("commercial_presentations.component.save failed: %s", type(exc).__name__)
+        return _storage_response(exc)
+    log_activity("component.saved", user=user, scope=SCOPE_COMMERCIAL, area=AREA_PRESENTATIONS, module=CM03_MODULE_ID, revision=saved["revision"])
+    return JSONResponse({"state": "ok", "revision": saved["revision"], "ref": saved["ref"]})
+
+
+@router.post("/comercial/componentes/{component_id}/eliminar", include_in_schema=False)
+async def component_delete(request: Request, component_id: str):
+    user = _require_commercial_write(request)
+    view = _load_component(user, component_id)
+    if not presentations.can_delete_component_user(user, view):
+        raise HTTPException(403, "No autorizado para eliminar este componente")
+    if not same_origin_guard.is_same_origin_write(request):
+        raise HTTPException(403, "Origen del request no verificado")
+    try:
+        presentations.delete_component(component_id)
+    except (presentations.PresentationNotFound, presentations.PresentationUnavailable):
+        raise HTTPException(404, "Componente no encontrado")
+    except presentations.PresentationStorageError as exc:
+        _logger.error("commercial_presentations.component.delete failed: %s", type(exc).__name__)
+        return _storage_response(exc)
+    log_activity("component.deleted", user=user, scope=SCOPE_COMMERCIAL, area=AREA_PRESENTATIONS, module=CM03_MODULE_ID)
+    return JSONResponse({"state": "ok"})
+
+
 # ── R7 — eliminar ────────────────────────────────────────────────────────────
 
 @router.post("/comercial/presentaciones/{presentation_id}/eliminar", include_in_schema=False)
@@ -378,7 +497,7 @@ async def presentation_save(request: Request, presentation_id: str):
     blocks = body.get("blocks")                                                  # opcional: los desvíos COMPLETOS de composición por región (ids de componente/variante; nunca markup)
     try:
         removed = presentations.validate_removed_slides(removed) if removed is not None else None
-        blocks = presentations.validate_blocks(blocks) if blocks is not None else None
+        blocks = presentations.validate_blocks(presentations.attach_block_snapshots(user, view, blocks)) if blocks is not None else None
         fields = body.get("fields")
         clean = presentations.validate_fields(view["template_id"], fields) if (fields or (removed is None and blocks is None)) else {}
     except presentations.PresentationValidationError as exc:

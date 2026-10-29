@@ -991,6 +991,12 @@ table.dashboard-table.commercial-creadas-table td:nth-child(4) { width: auto; }
       contenido reinicia el temporizador) y el markup `.callout`; solo repite el POSICIONAMIENTO de `.hc-catalog-refresh-feedback--topbar` (human_capital.css, no se carga acá).
    5. `.cp-notice` / `.cp-toast`: escala compacta de título y cuerpo de un `.callout` chico (mismas medidas que ese toast: `.callout__body p` hereda 1rem y se ve sobredimensionado en un aviso). */
 .dashboard-table.cp-catalog { min-width: 820px; }
+/* Vista previa de un componente (diálogo «Ver»): iframe del renderer real; sin borde propio de tarjeta, mismo trazo discontinuo que las demás zonas de vista previa. */
+.cc-preview-frame { display: block; width: 100%; height: min(380px, 48vh); border: 1px dashed rgba(128,128,128,.4); border-radius: 8px; background: transparent; }
+.cc-edit-layer { margin: 14px 0 0; padding: 12px 14px; border: 1px solid rgba(128,128,128,.28); border-radius: 8px; }
+.cc-edit-layer > legend { padding: 0 6px; font-weight: 700; font-size: .78rem; }
+.cc-edit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 560px) { .cc-edit-grid { grid-template-columns: 1fr; } }
 .module-hero + #cp-catalog-panel { margin-top: 24px; }   /* respiro hero → primer bloque: MISMA regla por-panel que CCHH/Operaciones (`.module-hero + #hc-…-panel`) */
 #cp-catalog-panel .dashboard-sections { margin-top: 26px; }   /* respiro filtro → agrupador: los 26px de `#hc-profiles-panel > * + *` (CCHH Base de CVs) */
 .cp-toast:not(:empty) { position: fixed; top: 84px; left: 50%; transform: translateX(-50%); z-index: 100; width: min(650px, calc(100vw - 32px)); }
@@ -998,4 +1004,5 @@ table.dashboard-table.commercial-creadas-table td:nth-child(4) { width: auto; }
 .cp-toast .callout__body, .cp-notice .callout__body { font-size: .78rem; line-height: 1.5; }
 .cp-toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; }
 .content-theme-light .cp-form input[type="text"],
+.content-theme-light .cp-form select,
 .content-theme-light .cp-form textarea { background: #fff; color: inherit; border-color: rgba(0, 0, 0, .18); }

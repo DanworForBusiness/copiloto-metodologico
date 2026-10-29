@@ -404,6 +404,11 @@ REGIONS: dict[str, tuple[str, str | None]] = {
 }
 
 
+_UUID_PATTERN = r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
+_OWN_VARIANT_RE = re.compile(rf"^own:({_UUID_PATTERN})@([1-9]\d{{0,5}})$")                     # variante de un componente propio: `own:<uuid>@<revisión>`
+_OWN_REF_RE = re.compile(rf"^own:({_UUID_PATTERN})(?:@([1-9]\d{{0,5}}))?$")
+
+
 def _ref(component: str, variant: str) -> str:
     return f"{component}:{variant}"
 
@@ -431,10 +436,25 @@ def validate_blocks(value) -> dict:
             if default is not None:
                 out[region_id] = None
             continue
-        if not isinstance(occupant, dict) or set(occupant) != {"component", "variant"} or not all(isinstance(v, str) for v in occupant.values()):
+        if not isinstance(occupant, dict) or not isinstance(occupant.get("component"), str) or not isinstance(occupant.get("variant"), str):
             raise PresentationValidationError("El componente indicado no es válido")
         component, variant = occupant["component"], occupant["variant"]
         spec = COMPONENTS.get(component)
+        own = _OWN_VARIANT_RE.match(variant)
+        if own:                                                                  # componente PROPIO: la instancia guarda un SNAPSHOT independiente de sus parámetros (nunca el HTML)
+            if set(occupant) != {"component", "variant", "params", "from"} or spec is None or component not in PARAM_CONTRACTS:
+                raise PresentationValidationError("El componente indicado no es válido")
+            origin = occupant["from"]
+            if (not isinstance(origin, dict) or set(origin) != {"id", "revision", "name"} or origin["id"] != own.group(1) or origin["revision"] != int(own.group(2))
+                    or isinstance(origin["revision"], bool) or not isinstance(origin["name"], str) or not origin["name"].strip() or len(origin["name"]) > MAX_TITLE or _FORBIDDEN_CHARS.search(origin["name"])):
+                raise PresentationValidationError("El componente indicado no es válido")
+            if spec["region"] != rtype:
+                raise PresentationValidationError("Ese componente no es compatible con la región elegida")
+            out[region_id] = {"component": component, "variant": variant, "params": PARAM_CONTRACTS[component]["validate"](occupant["params"]),
+                              "from": {"id": origin["id"], "revision": origin["revision"], "name": origin["name"].strip()}}
+            continue
+        if set(occupant) != {"component", "variant"}:
+            raise PresentationValidationError("El componente indicado no es válido")
         if spec is None or variant not in spec["variants"]:
             raise PresentationValidationError("El componente indicado no está en la biblioteca")
         if spec["region"] != rtype:
@@ -454,7 +474,7 @@ def resolve_regions(blocks: dict | None) -> dict[str, dict]:
             o = None if blocks[rid] is None else (blocks[rid]["component"], blocks[rid]["variant"])
         else:
             o = d
-        out[rid] = {"type": rtype, "default": d, "occupant": o}
+        out[rid] = {"type": rtype, "default": d, "occupant": o, "params": (blocks[rid] or {}).get("params") if rid in blocks else None}
     return out
 
 
@@ -464,9 +484,71 @@ def component_library() -> list[dict]:
             for c, spec in COMPONENTS.items() for v, label in spec["variants"].items()]
 
 
+_STACK_TONES = ("light", "strong", "neutral")
+_BOX_TONES = ("gold", "neutral")
+_MAX_STACK_TEXT = 120
+
+
+def _stack_text(value) -> str:
+    if not isinstance(value, str) or not value.strip() or len(value.strip()) > _MAX_STACK_TEXT or _FORBIDDEN_CHARS.search(value):
+        raise PresentationValidationError("Un texto del componente no es válido: vacío, de más de 120 caracteres o con caracteres no permitidos")
+    return value.strip()
+
+
+def validate_layer_stack_params(value, *, with_label: bool = False) -> dict:
+    """CONTRATO de parámetros del renderer `layer-stack` (YAML institucional, componentes propios y snapshots de una presentación pasan por acá): tonos y rangos cerrados, textos de una línea, colecciones
+    ORDENADAS de capas y cajas con tope. Devuelve una copia normalizada; rechazo atómico con mensajes que no reflejan el valor recibido. Nunca HTML/CSS/JS: son datos."""
+    keys = {"sides", "connectors", "layers"} | ({"label"} if with_label else set())
+    if not isinstance(value, dict) or set(value) != keys or not isinstance(value["connectors"], bool) or not isinstance(value["layers"], list) or not 1 <= len(value["layers"]) <= 6:
+        raise PresentationValidationError("Los parámetros del componente no tienen la forma esperada")
+    out: dict = {}
+    if with_label:
+        out["label"] = _stack_text(value["label"])
+    if not isinstance(value["sides"], list) or len(value["sides"]) not in (0, 2):
+        raise PresentationValidationError("Los parámetros del componente no tienen la forma esperada")
+    out["sides"] = [_stack_text(x) for x in value["sides"]]
+    out["connectors"] = value["connectors"]
+    layers = []
+    for layer in value["layers"]:
+        if not isinstance(layer, dict) or set(layer) - {"tone", "label", "sub", "reveal", "boxes"} or {"tone", "label", "reveal", "boxes"} - set(layer):
+            raise PresentationValidationError("Los parámetros del componente no tienen la forma esperada")
+        reveal = layer["reveal"]
+        if layer["tone"] not in _STACK_TONES or not isinstance(reveal, int) or isinstance(reveal, bool) or not 5 <= reveal <= 60:
+            raise PresentationValidationError("Una capa del componente tiene un tono o un rango no permitido")
+        if not isinstance(layer["boxes"], list) or not 1 <= len(layer["boxes"]) <= 6:
+            raise PresentationValidationError("Los parámetros del componente no tienen la forma esperada")
+        item: dict = {"tone": layer["tone"], "label": _stack_text(layer["label"])}
+        if "sub" in layer:
+            item["sub"] = _stack_text(layer["sub"])
+        item["reveal"] = reveal
+        boxes = []
+        for box in layer["boxes"]:
+            if not isinstance(box, dict) or set(box) - {"text", "note", "tone"} or {"text", "tone"} - set(box) or box["tone"] not in _BOX_TONES:
+                raise PresentationValidationError("Una caja del componente tiene un tono o una forma no permitida")
+            b = {"text": _stack_text(box["text"])}
+            if "note" in box:
+                b["note"] = _stack_text(box["note"])
+            b["tone"] = box["tone"]
+            boxes.append(b)
+        item["boxes"] = boxes
+        layers.append(item)
+    out["layers"] = layers
+    return out
+
+
+def _stack_shape(params: dict) -> tuple:
+    """Estructura que NO se edita en esta entrega (cantidad de capas/cajas, laterales, conectores, rango de reveal, presencia de subtítulo/nota): solo textos y tonos cambian."""
+    return (len(params["sides"]), params["connectors"],
+            tuple((layer["reveal"], "sub" in layer, tuple("note" in b for b in layer["boxes"])) for layer in params["layers"]))
+
+
+# componentes cuyo renderer admite parámetros editables (el resto se ve y se usa, pero no se duplica ni se edita)
+PARAM_CONTRACTS = {"layer-stack": {"validate": validate_layer_stack_params, "shape": _stack_shape}}
+
+
 @lru_cache(maxsize=None)
 def _addons() -> dict:
-    """Parámetros de las variantes institucionales de `layer-stack` (`addons.yaml`), validados al cargar: tonos y rangos cerrados, textos no vacíos, sin caracteres de control."""
+    """Parámetros de las variantes institucionales de `layer-stack` (`addons.yaml`), validados al cargar con EL MISMO contrato que los componentes propios."""
     path = _SEED_DIR / "addons.yaml"
     try:
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -475,35 +557,14 @@ def _addons() -> dict:
     stacks = data.get("layer-stack") if isinstance(data, dict) else None
     if not isinstance(stacks, dict) or set(stacks) != set(COMPONENTS["layer-stack"]["variants"]):
         raise PresentationUnavailable("Variantes de add-ons sin la forma esperada", "seed")
-
-    def text(v, *, required=True):
-        ok = isinstance(v, str) and (v.strip() or not required) and not _FORBIDDEN_CHARS.search(v) and len(v) <= 120
-        if not ok:
-            raise PresentationUnavailable("Variantes de add-ons con un texto inválido", "seed")
-        return v
-
+    out = {}
     for variant, v in stacks.items():
-        if set(v) != {"label", "sides", "connectors", "layers"} or not isinstance(v["connectors"], bool) or not isinstance(v["layers"], list) or not v["layers"]:
-            raise PresentationUnavailable("Variantes de add-ons sin la forma esperada", "seed")
-        text(v["label"])
-        if not isinstance(v["sides"], list) or len(v["sides"]) not in (0, 2):
-            raise PresentationUnavailable("Variantes de add-ons con laterales inválidos", "seed")
-        [text(x) for x in v["sides"]]
-        for layer in v["layers"]:
-            if set(layer) - {"tone", "label", "sub", "reveal", "boxes"} or layer.get("tone") not in ("light", "strong", "neutral") or not isinstance(layer.get("reveal"), int) or not 5 <= layer["reveal"] <= 60:
-                raise PresentationUnavailable("Variantes de add-ons con una capa inválida", "seed")
-            text(layer["label"])
-            if "sub" in layer:
-                text(layer["sub"])
-            if not isinstance(layer.get("boxes"), list) or not 1 <= len(layer["boxes"]) <= 6:
-                raise PresentationUnavailable("Variantes de add-ons con cajas inválidas", "seed")
-            for box in layer["boxes"]:
-                if set(box) - {"text", "note", "tone"} or box.get("tone") not in ("gold", "neutral"):
-                    raise PresentationUnavailable("Variantes de add-ons con una caja inválida", "seed")
-                text(box["text"])
-                if "note" in box:
-                    text(box["note"])
-    return stacks
+        try:
+            out[variant] = validate_layer_stack_params(v, with_label=True)
+        except PresentationValidationError as exc:
+            raise PresentationUnavailable("Variantes de add-ons inválidas", "seed") from exc
+    return out
+
 
 TEMPLATES: dict[str, TemplateSpec] = {
     "vanture-bdc": TemplateSpec(
@@ -1232,6 +1293,303 @@ def save(presentation_id: str, fields, *, expected_revision: int, updated_by_id:
         raise DurablePushFailed()
 
 
+# ── Componentes reutilizables (segunda colección) ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+# Tres cosas distintas: la DEFINICIÓN visual gobernada (renderer + contrato de parámetros: código y deploy), el COMPONENTE catalogado (identidad, nombre, parámetros validados, responsable, procedencia, revisión)
+# y el USO en una presentación (snapshot independiente de los parámetros dentro de `blocks`). Los institucionales no se guardan: salen del registro. Los propios viven en
+# `presentations/components/<uuid>.json` (mismo directorio persistido, mismo contrato de escritura atómica, push y compensación). Editar o eliminar un componente NUNCA altera lo ya insertado.
+MAX_COMPONENTS = 200
+MAX_COMPONENTS_PER_USER = 30
+MAX_COMPONENT_DESC = 200
+
+
+def _comp_dir() -> Path:
+    return _dir() / "components"
+
+
+def _comp_path(component_id: str) -> Path:
+    return _comp_dir() / f"{component_id}.json"
+
+
+def _is_component_id(value: str) -> bool:
+    return bool(re.fullmatch(_UUID_PATTERN, value or ""))
+
+
+def _component_view(raw: dict) -> dict:
+    cid, component = str(raw.get("component_id") or ""), str(raw.get("component") or "")
+    contract = PARAM_CONTRACTS.get(component)
+    if not _is_component_id(cid) or contract is None:
+        raise PresentationUnavailable("Componente no disponible", "unknown_template")
+    try:
+        params = contract["validate"](raw.get("params"))
+    except PresentationValidationError as exc:
+        raise PresentationUnavailable("Componente con parámetros inválidos", "seed") from exc
+    revision = int(raw.get("revision") or 1)
+    return {"component_id": cid, "component": component, "name": str(raw.get("name") or ""), "description": str(raw.get("description") or ""), "params": params, "revision": revision,
+            "owner_id": raw.get("owner_id"), "created_by_id": raw.get("created_by_id"), "created_by_label": raw.get("created_by_label"), "created_at": raw.get("created_at"),
+            "updated_at": raw.get("updated_at"), "updated_by_id": raw.get("updated_by_id"), "updated_by_label": raw.get("updated_by_label"), "based_on": raw.get("based_on"),
+            "variant": f"own:{cid}@{revision}", "ref": _ref(component, f"own:{cid}@{revision}")}
+
+
+def _read_component_raw(component_id: str) -> dict:
+    if not _is_component_id(component_id):
+        raise PresentationNotFound(component_id)
+    _ensure_restored()
+    try:
+        raw = json.loads(_comp_path(component_id).read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise PresentationNotFound(component_id) from exc
+    except ValueError as exc:
+        raise PresentationNotFound(component_id) from exc
+    except OSError as exc:
+        raise PresentationStorageError(f"No se pudo leer el componente: {exc}") from exc
+    if not isinstance(raw, dict) or raw.get("component_id") != component_id:
+        raise PresentationNotFound(component_id)
+    return raw
+
+
+def get_component(component_id: str) -> dict:
+    return _component_view(_read_component_raw(component_id))
+
+
+def _component_ids() -> list[str]:
+    _ensure_restored()
+    directory = _comp_dir()
+    if not directory.exists():
+        return []
+    try:
+        return sorted(p.stem for p in directory.iterdir() if p.is_file() and p.suffix == ".json" and _is_component_id(p.stem))
+    except OSError as exc:
+        raise PresentationStorageError(f"No se pudo listar los componentes: {exc}") from exc
+
+
+def can_view_component_user(user: dict | None, component: dict) -> bool:
+    """VER / USAR un componente propio: Comercial Y (su responsable O `CONTENT_OWNER`). Privado por defecto; `APP_OWNER` no lo ve por ser administrador. El filtro se aplica en el SERVIDOR."""
+    if not commercial_access.is_commercial_authorized_user(user):
+        return False
+    email = _email(user)
+    owner = str(component.get("owner_id") or "").strip().lower()
+    return bool(email) and ((bool(owner) and email == owner) or auth_service.is_content_owner_user(email))
+
+
+can_edit_component_user = can_view_component_user                                # editar y eliminar: el mismo conjunto (responsable o CONTENT_OWNER)
+can_delete_component_user = can_view_component_user
+
+
+def visible_components(user: dict | None) -> list[dict]:
+    """Componentes propios que `user` puede ver (más recientes primero). Uno ilegible no rompe el listado."""
+    out = []
+    for cid in _component_ids():
+        try:
+            view = get_component(cid)
+        except (PresentationNotFound, PresentationUnavailable):
+            continue
+        if can_view_component_user(user, view):
+            out.append(view)
+    out.sort(key=lambda v: str(v.get("updated_at") or ""), reverse=True)
+    return out
+
+
+def resolve_component_ref(ref: str, user: dict | None) -> dict:
+    """`componente:variante` institucional (p. ej. `layer-stack:bdc-architecture`) o `own:<uuid>[@rev]` (el vigente) → `{component, variant, params, label, origin, ...}`. NotFound si no existe o no es visible para `user`."""
+    own = _OWN_REF_RE.match(ref or "")
+    if own:
+        entry = get_component(own.group(1))
+        if not can_view_component_user(user, entry):
+            raise PresentationNotFound(ref)
+        return {"component": entry["component"], "variant": entry["variant"], "params": copy.deepcopy(entry["params"]), "label": entry["name"], "origin": "own", "entry": entry}
+    component, _, variant = (ref or "").partition(":")
+    spec = COMPONENTS.get(component)
+    if spec is None or variant not in spec["variants"]:
+        raise PresentationNotFound(ref)
+    params = None
+    if component in PARAM_CONTRACTS:
+        params = {k: copy.deepcopy(v) for k, v in _addons()[variant].items() if k != "label"}
+    return {"component": component, "variant": variant, "params": params, "label": spec["variants"][variant], "origin": "institutional", "entry": None}
+
+
+def catalog_components(user: dict | None) -> list[dict]:
+    """Filas de la colección «Componentes reutilizables» para `user`: institucionales (del registro) + propios visibles, con permisos y motivos para las acciones que no corresponden."""
+    rows = []
+    for o in component_library():
+        spec = COMPONENTS[o["component"]]
+        editable = o["component"] in PARAM_CONTRACTS
+        rows.append({"kind": "institutional", "ref": o["ref"], "component": o["component"], "component_label": spec["label"], "region": spec["region"], "name": o["label"], "description": "",
+                     "owner_label": "Danwor (institucional)", "based_on_label": "", "updated_at": None, "component_id": None, "revision": None, "params": None,
+                     "can_duplicate": editable, "duplicate_reason": "" if editable else "este componente no tiene parámetros editables",
+                     "can_edit": False, "edit_reason": "los componentes institucionales son de solo lectura", "can_delete": False, "delete_reason": "los componentes institucionales no se eliminan"})
+    for entry in visible_components(user):
+        spec = COMPONENTS[entry["component"]]
+        based = entry.get("based_on") or {}
+        rows.append({"kind": "own", "ref": f"own:{entry['component_id']}", "component": entry["component"], "component_label": spec["label"], "region": spec["region"], "name": entry["name"],
+                     "description": entry["description"], "owner_label": entry.get("created_by_label") or entry.get("owner_id") or "—",
+                     "based_on_label": f"Basado en «{based.get('name')}»" if based.get("name") else "", "updated_at": entry.get("updated_at"), "component_id": entry["component_id"], "revision": entry["revision"],
+                     "params": entry["params"], "can_duplicate": True, "duplicate_reason": "", "can_edit": can_edit_component_user(user, entry), "edit_reason": "",
+                     "can_delete": can_delete_component_user(user, entry), "delete_reason": ""})
+    return rows
+
+
+def library_for(user: dict | None, blocks: dict | None) -> list[dict]:
+    """Biblioteca del diálogo de add-ons para `user`: las composiciones institucionales registradas + sus componentes propios vigentes + los snapshots YA en uso en esta presentación (aunque el componente de origen
+    ya no exista o haya cambiado). Cada entrada lleva `params` cuando el renderer los admite: el documento renderiza de ahí la vista previa y el componente a insertar."""
+    lib = [{**o, "tag": "", "params": None} for o in component_library()]
+    seen = {o["ref"] for o in lib}
+    for entry in visible_components(user):
+        lib.append({"component": entry["component"], "variant": entry["variant"], "label": entry["name"], "region": COMPONENTS[entry["component"]]["region"], "ref": entry["ref"], "tag": "propio", "params": entry["params"]})
+        seen.add(entry["ref"])
+    for occ in (blocks or {}).values():
+        if occ and occ.get("params") is not None and _ref(occ["component"], occ["variant"]) not in seen:
+            ref = _ref(occ["component"], occ["variant"])
+            lib.append({"component": occ["component"], "variant": occ["variant"], "label": occ["from"]["name"], "region": COMPONENTS[occ["component"]]["region"], "ref": ref, "tag": f"en uso · rev. {occ['from']['revision']}", "params": occ["params"]})
+            seen.add(ref)
+    return lib
+
+
+def attach_block_snapshots(user: dict | None, presentation: dict, requested):
+    """Antes de validar `blocks`: para cada región con un componente PROPIO elegido por el editor (`{component, variant:"own:<uuid>@<rev>"}`, sin parámetros: el navegador NUNCA aporta el snapshot) el servidor adjunta el
+    snapshot de los parámetros vigentes. Si la región ya tenía ESE mismo componente (misma variante) se conserva SU snapshot guardado: modificar después el original no altera un uso ya insertado."""
+    if not isinstance(requested, dict):
+        return requested
+    current = presentation.get("blocks") or {}
+    out = {}
+    for rid, occupant in requested.items():
+        match = _OWN_VARIANT_RE.match(occupant.get("variant", "")) if isinstance(occupant, dict) and isinstance(occupant.get("variant"), str) else None
+        if not match:
+            out[rid] = occupant
+            continue
+        if set(occupant) != {"component", "variant"}:
+            raise PresentationValidationError("El componente indicado no es válido")
+        existing = current.get(rid)
+        if isinstance(existing, dict) and existing.get("variant") == occupant["variant"] and existing.get("component") == occupant["component"]:
+            out[rid] = existing
+            continue
+        unavailable = PresentationValidationError("El componente indicado ya no está disponible")
+        try:
+            entry = get_component(match.group(1))
+        except (PresentationNotFound, PresentationUnavailable, PresentationStorageError):
+            raise unavailable from None
+        if not can_view_component_user(user, entry) or entry["component"] != occupant["component"]:
+            raise unavailable
+        if entry["revision"] != int(match.group(2)):
+            raise PresentationValidationError("El componente cambió desde que abriste el editor: recargá la página y volvé a elegirlo")
+        out[rid] = {"component": entry["component"], "variant": occupant["variant"], "params": copy.deepcopy(entry["params"]),
+                    "from": {"id": entry["component_id"], "revision": entry["revision"], "name": entry["name"]}}
+    return out
+
+
+def _validate_component_meta(name, description) -> tuple[str, str]:
+    clean_name = _text(name, max_len=MAX_TITLE, label="Nombre")
+    if description is None or (isinstance(description, str) and not description.strip()):
+        return clean_name, ""
+    return clean_name, _text(description, max_len=MAX_COMPONENT_DESC, label="Descripción")
+
+
+def _commit_component_file(path: Path, payload: dict, previous_bytes: bytes | None) -> None:
+    """Escritura atómica + push (mismo contrato que `save`/`copy_presentation`). Alta (`previous_bytes is None`): un reintento y, si no se confirma, se retira todo y el resultado es INCIERTO. Cambio: se restaura
+    la versión anterior (503)."""
+    _write_atomic(path, payload)
+    if _local_only():
+        return
+    if remote_store.push_path(path):
+        return
+    if not remote_store.enabled():
+        _restore_previous(path, previous_bytes) if previous_bytes is not None else _cleanup_failed_write(path)
+        raise PresentationConfigIncomplete("Las presentaciones todavía no están configuradas para este entorno.")
+    if previous_bytes is None:
+        if remote_store.push_path(path):
+            return
+        _cleanup_failed_write(path)
+        raise RemoteOutcomeUnknown("No pudimos confirmar si el componente se guardó. Antes de reintentar, revisá la colección — si ya aparece, no lo dupliques de nuevo.")
+    _restore_previous(path, previous_bytes)
+    _logger.error("commercial_presentations.component: push síncrono a Spaces falló — local revertido (id=%s)", payload.get("component_id"))
+    raise DurablePushFailed()
+
+
+def duplicate_component(source_ref: str, *, name, description=None, user: dict | None) -> dict:
+    """Duplica un componente (institucional o propio visible) como PROPIO del usuario: identidad nueva, responsable = quien duplica, procedencia (`based_on`), parámetros independientes, revisión 1."""
+    clean_name, clean_desc = _validate_component_meta(name, description)
+    source = resolve_component_ref(source_ref, user)                              # NotFound si no existe / no es visible
+    if source["component"] not in PARAM_CONTRACTS or source["params"] is None:
+        raise PresentationValidationError("Este componente no tiene parámetros editables")
+    owner_id = _email(user)
+    if not owner_id:
+        raise PresentationValidationError("No se pudo identificar al usuario")
+    _require_writable_mode()
+    now = _now_iso()
+    cid = str(uuid4())
+    label = str(user.get("name") or user.get("username") or user.get("email") or owner_id)
+    entry = source["entry"]
+    payload = {"schema_version": SCHEMA_VERSION, "component_id": cid, "component": source["component"], "name": clean_name, "description": clean_desc, "params": source["params"], "revision": 1,
+               "owner_id": owner_id, "created_by_id": owner_id, "created_by_label": label, "created_at": now, "updated_at": now, "updated_by_id": owner_id, "updated_by_label": label,
+               "based_on": {"ref": source_ref if not entry else f"{entry['component']}:{entry['variant']}", "name": source["label"], "revision": entry["revision"] if entry else None, "origin": source["origin"]}}
+    with _write_lock:
+        ids = _component_ids()
+        if len(ids) >= MAX_COMPONENTS:
+            raise QuotaExceeded()
+        mine = 0
+        for existing in ids:
+            try:
+                if str(_read_component_raw(existing).get("owner_id") or "") == owner_id:
+                    mine += 1
+            except (PresentationNotFound, PresentationStorageError):
+                continue
+        if mine >= MAX_COMPONENTS_PER_USER:
+            raise QuotaExceeded()
+        _commit_component_file(_comp_path(cid), payload, None)
+    return _component_view(payload)
+
+
+def update_component(component_id: str, *, expected_revision: int, name=None, description=None, params=None, updated_by_id: str, updated_by_label: str) -> dict:
+    """Edita nombre, descripción y/o parámetros (SOLO textos y tonos: la estructura debe ser la misma) bajo revisión optimista. No toca ninguna presentación: los usos ya insertados conservan su snapshot."""
+    if not _is_component_id(component_id):
+        raise PresentationNotFound(component_id)
+    _require_writable_mode()
+    with _write_lock:
+        raw = _read_component_raw(component_id)
+        view = _component_view(raw)
+        if view["revision"] != expected_revision:
+            raise StaleRevision(view["revision"])
+        candidate = dict(raw)
+        if name is not None or description is not None:
+            candidate["name"], candidate["description"] = _validate_component_meta(view["name"] if name is None else name, view["description"] if description is None else description)
+        if params is not None:
+            contract = PARAM_CONTRACTS[view["component"]]
+            clean = contract["validate"](params)
+            if contract["shape"](clean) != contract["shape"](view["params"]):
+                raise PresentationValidationError("Solo se pueden editar textos y tonos: la estructura del componente (capas y cajas) no cambia en esta entrega")
+            candidate["params"] = clean
+        if candidate == raw:
+            return view
+        candidate.update({"revision": expected_revision + 1, "updated_at": _now_iso(), "updated_by_id": str(updated_by_id or ""), "updated_by_label": str(updated_by_label or updated_by_id or "")})
+        path = _comp_path(component_id)
+        previous_bytes = path.read_bytes()
+        _commit_component_file(path, candidate, previous_bytes)
+    return _component_view(candidate)
+
+
+def delete_component(component_id: str) -> None:
+    """Elimina un componente propio (borrado real). Las presentaciones que lo usaron conservan su snapshot: no se rompen. En `remote`, si el borrado no se confirma tras un reintento, el local se restaura (503)."""
+    if not _is_component_id(component_id):
+        raise PresentationNotFound(component_id)
+    _require_writable_mode()
+    with _write_lock:
+        _read_component_raw(component_id)
+        path = _comp_path(component_id)
+        previous_bytes = path.read_bytes()
+        try:
+            path.unlink()
+        except OSError as exc:
+            raise PresentationStorageError(f"No se pudo eliminar el componente del disco: {exc}") from exc
+        if _local_only():
+            return
+        if not remote_store.enabled():
+            _restore_previous(path, previous_bytes)
+            raise PresentationConfigIncomplete("Las presentaciones todavía no están configuradas para este entorno.")
+        if remote_store.delete_path(path) or remote_store.delete_path(path):
+            return
+        _restore_previous(path, previous_bytes)
+        raise DurablePushFailed()
+
+
 # ── Autorización ───────────────────────────────────────────────────────────────────────────────────────────────────────
 
 def _email(user: dict | None) -> str:
@@ -1279,7 +1637,7 @@ def _asset_hash(template_id: str, name: str) -> str:
         return "0"
 
 
-def render_context(presentation: dict, *, embed: bool = False, theme: str = "light", edit: bool = False) -> dict:
+def render_context(presentation: dict, *, embed: bool = False, theme: str = "light", edit: bool = False, library: list | None = None) -> dict:
     """Contexto del documento inmersivo: `c` = contenido completo (solo claves de la spec), URLs de assets COMPARTIDAS (idénticas para toda instancia del template) con cache-busting por contenido."""
     template_id = presentation["template_id"]
     spec = TEMPLATES[template_id]
@@ -1291,7 +1649,7 @@ def render_context(presentation: dict, *, embed: bool = False, theme: str = "lig
     qr_custom = bool(presentation.get("qr_sha")) and _qr_path(presentation["presentation_id"]).exists()      # referencia rota (archivo perdido) → vuelve al QR institucional, nunca una imagen rota
     return {
         "c": content,
-        "regions": regions, "addons": _addons(), "library": component_library() if edit else [],
+        "regions": regions, "addons": _addons(), "library": ((library if library is not None else component_library()) if edit else []), "preview_component": None,
         "qr_url": (f"/presentaciones/{presentation['presentation_id']}/qr?v={str(presentation['qr_sha'])[:10]}" if qr_custom else f"{asset_base}/{_DEFAULT_QR}"), "qr_custom": qr_custom,
         "removed_ids": set(removed),                                             # el modo lectura omite estas slides; el de edición las muestra colapsadas con «Restaurar»
         "slide_no": {s: i for i, s in enumerate(visible, 1)},                    # numeración dinámica: «NN / total» sobre las visibles

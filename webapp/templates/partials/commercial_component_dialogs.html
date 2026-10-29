@@ -1,0 +1,62 @@
+{# Diálogos de «Componentes reutilizables» (Comercial → Presentaciones). MISMO primitivo `<dialog class="dw-confirm">` del Hub (ancho/zona con scroll: `.busqueda-dialog` + `.busqueda-picker`, como «Agregar candidato desde el
+   Banco» de CCHH). Uno por acción, con su opener `[data-cc-*]` en la fila; `commercial_presentations.js` hace los POST (mismo origen) y la autoridad es SIEMPRE el servidor. #}
+<dialog class="dw-confirm busqueda-dialog" id="cc-view-dialog" aria-labelledby="cc-view-title">
+  <div class="dw-confirm__body">
+    <h2 class="dw-confirm__title" id="cc-view-title" data-cc-view-title>Componente</h2>
+    <p class="dw-confirm__msg" data-cc-view-meta></p>
+  </div>
+  <div class="busqueda-picker">
+    {# Vista previa con el renderer REAL: el mismo documento y el mismo macro de la presentación (sin el resto de la slide), en un iframe del mismo origen. #}
+    <iframe class="cc-preview-frame" title="Vista previa del componente" data-cc-view-frame></iframe>
+  </div>
+  <div class="dw-confirm__actions">
+    <form method="dialog"><button type="submit" class="btn-secondary" autofocus>Cerrar</button></form>
+  </div>
+</dialog>
+
+<dialog class="dw-confirm" id="cc-dup-dialog" aria-labelledby="cc-dup-title">
+  <form method="dialog" class="tree-feedback-form cp-form" data-cc-dup-form>
+    <div class="dw-confirm__body">
+      <h2 class="dw-confirm__title" id="cc-dup-title">Duplicar como componente propio</h2>
+      <p class="dw-confirm__msg">Se crea un componente tuyo, independiente del original: podés editar sus textos y tonos sin afectarlo. Queda privado para vos (y para quien gobierna los contenidos).</p>
+      <div class="feedback-field">
+        <label for="cc-dup-name">Nombre</label>
+        <input id="cc-dup-name" type="text" maxlength="{{ max_title }}" autocomplete="off" required data-cc-name-input>
+      </div>
+      <div class="feedback-field">
+        <label for="cc-dup-desc">Descripción (opcional)</label>
+        <input id="cc-dup-desc" type="text" maxlength="{{ max_desc }}" autocomplete="off" data-cc-desc-input>
+      </div>
+      <p class="feedback-error" role="alert" data-cc-error hidden></p>
+    </div>
+    <div class="dw-confirm__actions">
+      <button type="submit" class="btn-secondary" value="cancel" formnovalidate>Cancelar</button>
+      <button type="button" class="btn-primary" data-cc-dup-submit>Duplicar</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog class="dw-confirm busqueda-dialog" id="cc-edit-dialog" aria-labelledby="cc-edit-title">
+  <form method="dialog" class="tree-feedback-form cp-form" data-cc-edit-form>
+    <div class="dw-confirm__body">
+      <h2 class="dw-confirm__title" id="cc-edit-title">Editar componente</h2>
+      <p class="dw-confirm__msg">Podés cambiar los textos y los tonos; la estructura (capas y cajas) no cambia. Las presentaciones donde ya lo usaste conservan su propia copia: no se alteran.</p>
+    </div>
+    <div class="busqueda-picker">
+      <div class="feedback-field">
+        <label for="cc-edit-name">Nombre</label>
+        <input id="cc-edit-name" type="text" maxlength="{{ max_title }}" autocomplete="off" required data-cc-name-input>
+      </div>
+      <div class="feedback-field">
+        <label for="cc-edit-desc">Descripción (opcional)</label>
+        <input id="cc-edit-desc" type="text" maxlength="{{ max_desc }}" autocomplete="off" data-cc-desc-input>
+      </div>
+      <div data-cc-edit-fields></div>
+    </div>
+    <div class="dw-confirm__body"><p class="feedback-error" role="alert" data-cc-error hidden></p></div>
+    <div class="dw-confirm__actions">
+      <button type="submit" class="btn-secondary" value="cancel" formnovalidate>Cancelar</button>
+      <button type="button" class="btn-primary" data-cc-edit-submit>Guardar</button>
+    </div>
+  </form>
+</dialog>

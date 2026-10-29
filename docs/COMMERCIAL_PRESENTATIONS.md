@@ -20,6 +20,10 @@ bloques genéricos, SPA ni persistencia transversal nueva. Las composiciones esp
 | R8 | `GET /presentaciones/{id}/logo` | PNG del logo propio de una copia (404 si no tiene) | MISMO contrato de lectura que R1: sesión + `is_authorized`, **sin** exigir Comercial |
 | R9 | `POST /comercial/presentaciones/{id}/qr` | Reemplaza o quita (`remove=1`) el QR de la copia (multipart: `revision` + `file`) | ídem R6 (Comercial + poder editar esa instancia + `same_origin_guard`) |
 | R10 | `GET /presentaciones/{id}/qr` | PNG del QR propio de una copia (404 si no tiene) | MISMO contrato de lectura que R1/R8 |
+| R11 | `GET /comercial/componentes/vista?ref=` | Vista previa de un componente con el renderer real | Comercial + visibilidad del componente (404 si no lo ve) |
+| R12 | `POST /comercial/componentes/duplicar` | Duplica un componente (institucional o propio visible) como PROPIO | Comercial + verlo + `same_origin_guard` |
+| R13 | `POST /comercial/componentes/{id}` | Edita nombre, descripción y parámetros (textos y tonos) bajo revisión | responsable o `CONTENT_OWNER` + `same_origin_guard` |
+| R14 | `POST /comercial/componentes/{id}/eliminar` | Elimina un componente propio | ídem R13 |
 
 * **Copiar no implica editar.** Editar = Comercial **y** no-seed **y** (`owner_id` == usuario **o** `CONTENT_OWNER`). `CONTENT_OWNER` es la capacidad transversal de gobierno de edición de contenidos del Hub (no se creó ninguna variable, rol ni allowlist nueva).
   **`APP_OWNER` no edita contenido ajeno por ser administrador**: es el contrato que ya rige Estrategia (`commercial_access.can_edit_strategy_user`: «sin bypass de `APP_OWNER`; si el dueño de la app necesita editar, su identidad debe estar explícita en `CONTENT_OWNER`») y lo reitera `auth_service.is_content_owner_user`. Si el dueño de la app edita, lo hace porque también está en `CONTENT_OWNER`, o sobre sus propias copias (es su responsable).
@@ -183,7 +187,24 @@ En el modo edición cada slide (menos la portada) muestra una **✕ arriba a la 
 
 **Autorización:** la de siempre. Usar componentes y cambiar el QR = poder editar esa instancia (responsable o `CONTENT_OWNER`); `APP_OWNER` no obtiene edición de contenido ajeno; el seed y las definiciones institucionales no se editan (cambian por código y deploy). Sin variables, roles ni allowlists nuevos.
 
-**Guardar como (siguiente capacidad de producto, no implementada):** requiere parámetros realmente editables y por eso queda para el próximo slice, **sin repositorio de variantes todavía**. Compatibilidad reservada: el id de variante es el único contrato de selección; la instancia ya admite claves opcionales; una variante propia se guardará con nombre, identidad, autor, definición de origen y parámetros independientes, con alcance privado inicial, y **nunca HTML/CSS/JS**.
+**Guardar como:** se materializa en la colección «Componentes reutilizables» (siguiente sección): «Duplicar como propio» guarda un componente con nombre, identidad, responsable, procedencia y parámetros independientes, con alcance privado inicial y **nunca HTML/CSS/JS**.
+
+## Componentes reutilizables (segunda colección)
+
+`/comercial/presentaciones` administra **dos colecciones** con los mismos patrones (filtro compartido, agrupador `.dashboard-section` con contador, tabla `.matrix-scroll`, acciones siempre presentes y grisadas con motivo, estado vacío del Hub y tema): **Presentaciones** y **Componentes reutilizables**.
+El modelo distingue tres cosas:
+
+1. **Definición visual gobernada** (código y deploy): el renderer compartido y su **contrato de parámetros**. Para `layer-stack` (`validate_layer_stack_params`, el MISMO validador del YAML institucional, de los componentes propios y de los snapshots): tonos y rangos cerrados, textos de una línea (≤ 120), colecciones **ordenadas** de capas (≤ 6) y cajas (≤ 6). `ecosystem-flow` y `logo-marquee` no tienen parámetros: se ven y se usan, no se duplican ni se editan.
+2. **Componente catalogado**: identidad (uuid), nombre, descripción, parámetros, responsable (`owner_id`/`created_by_*`), procedencia (`based_on`: de qué institucional o propio salió), revisión y fechas. Los institucionales **no se guardan**: salen del registro (`addons.yaml`). Los propios viven en `commercial_strategy_runtime/presentations/components/<uuid>.json` (mismo directorio persistido, subdirectorio aparte; escritura atómica, push y compensación del contrato de siempre; **sin repositorio nuevo, variables ni roles**). Topes: 30 por usuario y 200 en total.
+3. **Uso en una presentación**: `blocks[region]` guarda `{component, variant: "own:<uuid>@<revisión>", params, from: {id, revision, name}}`: un **snapshot independiente** de los parámetros. Las instancias anteriores y los usos institucionales (`{component, variant}`) no cambian.
+
+**Autorización (D1/D2, sin roles ni variables):** los propios son **privados para su responsable y para `CONTENT_OWNER`** autorizado en Comercial; el filtro se aplica en el SERVIDOR (lista, vista previa, uso, edición y baja: un componente ajeno es 404, no se distingue de uno inexistente; `APP_OWNER` tampoco lo ve por ser administrador). Ver/usar/editar/eliminar un propio = el mismo conjunto (responsable o `CONTENT_OWNER`). Los institucionales se ven y se duplican; **solo el código los cambia** (los propios almacenan parámetros validados, nunca HTML/CSS/JS).
+
+**Flujo:** Ver (vista previa con el renderer real: el mismo documento y el mismo macro de la presentación, sin el resto de la slide, en un iframe) → Duplicar como propio (nombre «Copia de …», descripción opcional) → Editar textos y tonos (formulario generado desde el contrato; **la estructura —capas, cajas, laterales, conectores, rangos— no se edita en esta entrega**: ni reordenar ni eliminar elementos internos) → Guardar (revisión optimista, 409 si cambió) → aparece en el agrupador → el diálogo contextual de add-ons lo ofrece (etiqueta «propio») con su vista previa real → Aplicar y Guardar.
+
+**Snapshot, no referencia viva:** al elegir un componente propio el navegador manda solo `{component, variant}`; el **servidor** adjunta el snapshot de los parámetros vigentes (si el cliente intenta aportar `params`/`from`, 422; si la revisión elegida ya no es la vigente, 422; si no puede verlo, 422). Si la región ya tenía ESA misma variante se conserva SU snapshot guardado. Modificar después el original **no altera** un uso ya insertado: el diálogo ofrece la versión vigente («propio») y la que está en uso («en uso · rev. N»), y recién al elegir la vigente el uso se actualiza. **Eliminar** el componente tampoco rompe nada: las presentaciones (y sus copias, que heredan el snapshot) siguen renderizando; su uso queda como «en uso» y puede conservarse o reemplazarse.
+
+**Fuera de esta entrega (modelado, no implementado):** reordenar o eliminar capas/cajas internas, y compartir un propio con otros usuarios de Comercial.
 
 ## Logo del cliente al copiar
 

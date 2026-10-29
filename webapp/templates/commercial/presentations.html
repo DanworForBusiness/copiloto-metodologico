@@ -50,7 +50,7 @@
       <summary class="dashboard-section__head">
         <span class="dashboard-section__caret"></span>
         <span class="dashboard-section__title">Presentaciones</span>
-        <span class="dashboard-section__count" role="status" aria-live="polite" data-cp-count>{{ rows | length }} presentaci{{ 'ón' if rows | length == 1 else 'ones' }}</span>
+        <span class="dashboard-section__count" role="status" aria-live="polite" data-cp-count data-cp-singular="presentación" data-cp-plural="presentaciones">{{ rows | length }} presentaci{{ 'ón' if rows | length == 1 else 'ones' }}</span>
       </summary>
       <div class="dashboard-section__body">
     <div class="matrix-scroll" data-cp-table-wrap>
@@ -174,6 +174,66 @@
     </div>
       </div>
     </details>
+    <details class="dashboard-section" data-section-id="componentes" open>
+      <summary class="dashboard-section__head">
+        <span class="dashboard-section__caret"></span>
+        <span class="dashboard-section__title">Componentes reutilizables</span>
+        <span class="dashboard-section__count" role="status" aria-live="polite" data-cp-count data-cp-singular="componente" data-cp-plural="componentes">{{ components | length }} componente{{ '' if components | length == 1 else 's' }}</span>
+      </summary>
+      <div class="dashboard-section__body">
+    {# Composiciones visuales gobernadas: las institucionales (solo lectura) y los componentes PROPIOS (privados para su responsable y `CONTENT_OWNER`). Mismo patrón que la tabla de presentaciones: tabla en `.matrix-scroll`, acciones
+       siempre presentes (inhabilitadas con motivo si no corresponden), estado vacío del Hub y filtro compartido. Ver = vista previa con el renderer REAL; Duplicar = copia propia con textos y tonos editables. #}
+    <div class="matrix-scroll" data-cp-table-wrap>
+    <table class="dashboard-table cp-catalog" id="cc-catalog-table">
+      <colgroup>
+        <col style="width:30%">
+        <col style="width:16%">
+        <col style="width:20%">
+        <col style="width:14%">
+        <col style="width:12%">
+        <col style="width:180px">
+      </colgroup>
+      <thead>
+        <tr>
+          <th class="left">Componente</th>
+          <th class="left">Región</th>
+          <th class="left">Procedencia</th>
+          <th class="left">Responsable</th>
+          <th class="left">Última edición</th>
+          <th class="center">Acciones</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in components %}
+        <tr data-cc-ref="{{ c.ref }}" data-cp-search="{{ c.name }} {{ c.description }} {{ c.owner_label }} {{ c.component_label }}">
+          <td class="left">
+            <strong>{{ c.name }}</strong>
+            {% if c.kind == 'institutional' %}<span class="status-badge status-badge--activo">Institucional</span>{% else %}<span class="status-badge status-badge--tentativo">Propio</span>{% endif %}
+            <div class="field-hint">{{ c.component_label }}{% if c.description %} · {{ c.description }}{% endif %}</div>
+          </td>
+          <td class="left">{{ 'Cuerpo de la slide' if c.region == 'body' else 'Ancho completo' }}</td>
+          <td class="left">{% if c.kind == 'institutional' %}Danwor (solo lectura){% else %}{{ c.based_on_label or 'Propio' }}{% endif %}</td>
+          <td class="left">{{ c.owner_label }}</td>
+          <td class="left">{{ c.updated_label or "—" }}</td>
+          <td class="center">
+            <div class="dw-row-actions">
+              <button type="button" class="table-action-btn chart-tooltip-anchor" data-cc-view="{{ c.ref }}" data-cc-name="{{ c.name }}" data-cc-meta="{{ c.component_label }} · {{ 'Institucional' if c.kind == 'institutional' else 'Propio' }}" aria-label="Ver componente"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Ver</p></span></button>
+              {% if c.can_duplicate %}<button type="button" class="table-action-btn chart-tooltip-anchor" data-cc-dup="{{ c.ref }}" data-cc-name="{{ c.name }}" aria-label="Duplicar como propio"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Duplicar como propio</p></span></button>{% else %}<button type="button" class="table-action-btn chart-tooltip-anchor" disabled aria-label="Duplicar como propio no disponible: {{ c.duplicate_reason }}"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Sin parámetros</p></span></button>{% endif %}
+              {% if c.can_edit %}<button type="button" class="table-action-btn chart-tooltip-anchor" data-cc-edit="{{ c.component_id }}" data-cc-name="{{ c.name }}" data-cc-desc="{{ c.description }}" data-cc-rev="{{ c.revision }}" data-cc-params='{{ c.params | tojson }}' aria-label="Editar componente"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Editar componente</p></span></button>{% else %}<button type="button" class="table-action-btn chart-tooltip-anchor" disabled aria-label="Editar componente no disponible: {{ c.edit_reason or 'no tenés permiso para editarlo' }}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Solo lectura</p></span></button>{% endif %}
+              {% if c.can_delete %}<button type="button" class="table-action-btn chart-tooltip-anchor" data-cc-delete="{{ c.component_id }}" data-cc-name="{{ c.name }}" aria-label="Eliminar componente"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Eliminar componente</p></span></button>{% else %}<button type="button" class="table-action-btn chart-tooltip-anchor" disabled aria-label="Eliminar componente no disponible: {{ c.delete_reason or 'no tenés permiso para eliminarlo' }}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Solo lectura</p></span></button>{% endif %}
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    <div class="dashboard-empty" data-empty-kind="no_matches" data-cp-empty hidden>
+      <span class="dashboard-empty__label">Sin resultados</span>
+      <p>No se encontraron componentes para la búsqueda.</p>
+    </div>
+      </div>
+    </details>
     </div>
     {% endif %}
     </div>
@@ -181,6 +241,7 @@
 </div>
 
 {% include "partials/commercial_presentation_copy_dialog.html" %}
+{% include "partials/commercial_component_dialogs.html" %}
 <link rel="stylesheet" href="{{ url_for('static', path='commercial.css') }}?v={{ static_version }}">
 <script src="{{ url_for('static', path='commercial_presentations.js') }}?v={{ static_version }}"></script>
 {% endblock %}
