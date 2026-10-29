@@ -40,6 +40,45 @@
   setTimeout(scheduleTick, 500);
   setTimeout(scheduleTick, 1500);
 
+  // Reveal por scroll: el contrato del Hub (`.content-reveal` → `.is-visible`, content.css), activado como en el Copiloto (IntersectionObserver, mismas opciones) pero UNA sola vez por visita: lo revelado no se
+  // vuelve a ocultar. Cada unidad narrativa (los elementos que ya tenían reveal `view()` en el template, las solapas y los rótulos sueltos) recibe la clase; donde se activa reemplaza al `view()` inline (vanture.css:
+  // no compiten). Queda FUERA: la portada (entrada inmediata), el encabezado y el riel, la edición y `prefers-reduced-motion`. Sin JS o sin IntersectionObserver no se agrega nada: el contenido queda visible
+  // (o con el `view()` original en los navegadores que lo soportan).
+  if ('IntersectionObserver' in window && !reduceMotion && !document.documentElement.hasAttribute('data-cp-edit')) {
+    var revealSlides = [].slice.call(document.querySelectorAll('section[id^="s"]')).filter(function(s){ return s.id !== 's1'; });
+    var revealSet = [];
+    revealSlides.forEach(function(s){ [].forEach.call(s.querySelectorAll('[style*="animation-timeline:view()"], .ptabs'), function(el){ revealSet.push(el); }); });
+    revealSlides.forEach(function(s){                                              // texto suelto: bloques con texto propio que ninguna unidad anterior cubre (p. ej. rótulos de una composición)
+      [].forEach.call(s.querySelectorAll('h1,h2,h3,h4,p,li,blockquote,div,a'), function(el){
+        var own = [].some.call(el.childNodes, function(n){ return n.nodeType === 3 && n.textContent.trim().length > 1; });
+        if (own && !el.closest('nav, .cp-topbar, .cp-slide-tools, .cp-region-tools, template, dialog') && !revealSet.some(function(u){ return u.contains(el); })) revealSet.push(el);
+      });
+    });
+    var revealUnits = revealSet.filter(function(el){ return !revealSet.some(function(o){ return o !== el && o.contains(el); }); });      // sin unidades anidadas: se conserva la externa
+    if (revealUnits.length) {
+      var revealVh = window.innerHeight || document.documentElement.clientHeight;
+      var revealIo = new IntersectionObserver(function(entries){
+        entries.forEach(function(entry){ if (entry.isIntersecting) { entry.target.classList.add('is-visible'); revealIo.unobserve(entry.target); } });
+      }, { threshold: 0.05, rootMargin: '0px 0px -4% 0px' });
+      revealUnits.forEach(function(el){
+        el.classList.add('content-reveal');
+        if (el.getBoundingClientRect().top < revealVh) el.classList.add('is-visible'); else revealIo.observe(el);      // lo que ya está en pantalla o por encima entra visible, sin animar
+      });
+      // Anclas (riel, «Siguiente», hash de la URL): el destino se revela de inmediato, como en el Copiloto; nada queda oculto bajo un salto.
+      var revealSection = function(id){
+        var target = id ? document.getElementById(id) : null;
+        if (target) [].forEach.call(target.querySelectorAll('.content-reveal:not(.is-visible)'), function(n){ n.classList.add('is-visible'); revealIo.unobserve(n); });
+      };
+      var hashId = function(){ try { return decodeURIComponent(location.hash.slice(1)); } catch (e) { return ''; } };
+      revealSection(hashId());
+      window.addEventListener('hashchange', function(){ revealSection(hashId()); });
+      document.addEventListener('click', function(ev){
+        var a = ev.target.closest && ev.target.closest('a[href^="#"]');
+        if (a) revealSection(a.getAttribute('href').slice(1));
+      }, true);
+    }
+  }
+
   // Glow del puntero de la portada: el MISMO de la landing/login del Hub (brand-hero.css `.hero-gradient` + brand-hero.js `initMouseGradient`): un resplandor dorado enorme y muy suave que sigue
   // al puntero y queda donde lo dejó (no se apaga al salir). Solo con puntero fino (en táctil queda en su posición por defecto, como en la landing).
   var hero = document.getElementById('s1');

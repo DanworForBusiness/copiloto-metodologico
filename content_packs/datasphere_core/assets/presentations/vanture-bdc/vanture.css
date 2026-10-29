@@ -40,6 +40,19 @@
   .cp-topbar::before{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;background:var(--bg);border-bottom:1px solid var(--line);opacity:var(--cp-topbar-rest)}
   .cp-topbar.is-ready::before{transition:opacity 1s ease}
   .cp-topbar.is-solid::before{opacity:1}
+  /* Reveal por scroll: el contrato del Hub (`.content-reveal`/`.is-visible` de content.css; vanture.js lo activa). Donde una unidad lo recibe reemplaza al `view()` inline de ese elemento y de lo que contiene: no compiten.
+     Las clases que ya definen su propia `transition`/`opacity` (`.dw-card`, `.flow-hub`, el cue `.scroll-cue`) la pisarían: se les suma el fade del Hub con sus mismos valores y conservan lo suyo (mismo criterio que
+     `.module-continue` en layout.css: el cue entra con el reveal pero mantiene su atenuado de reposo y su brillo en hover). */
+  .content-reveal[style*="animation-timeline:view()"],.content-reveal [style*="animation-timeline:view()"]{animation:none!important}
+  .content-reveal.dw-card{transition:opacity .48s cubic-bezier(.22,.61,.36,1),transform .2s,border-color .2s}   /* el fade es el del Hub; el transform/borde conservan los .2 s del hover original de la tarjeta */
+  .content-reveal.flow-hub{transition:opacity .48s cubic-bezier(.22,.61,.36,1),transform .48s cubic-bezier(.22,.61,.36,1),box-shadow .4s ease,border-color .4s ease}
+  .scroll-cue.content-reveal{opacity:0;transition:opacity .48s cubic-bezier(.22,.61,.36,1),transform .48s cubic-bezier(.22,.61,.36,1)}
+  .scroll-cue.content-reveal.is-visible{opacity:.4}
+  .scroll-cue.content-reveal.is-visible:hover,.scroll-cue.content-reveal.is-visible:focus-visible{opacity:.85}
+  /* `.arch__side` (rótulo vertical) tiene su propio `transform` (rotate(180deg); `none` en móvil): el reveal lo COMPONE con el desplazamiento en vez de pisarlo (`.is-visible` fuerza `transform:none`) */
+  .arch__side.content-reveal{transform:translateY(14px) rotate(180deg)}
+  .arch__side.content-reveal.is-visible{transform:rotate(180deg)}
+  @media (max-width: 860px){.arch__side.content-reveal{transform:translateY(14px)}.arch__side.content-reveal.is-visible{transform:none}}
   /* Rail (content.css, el de Academy): acá el texto de la sección aparece SOLO al pasar el mouse (el contenido llega al borde derecho: la sección activa no deja un label fijo encima). */
   .rail a.active:not(:hover) span { opacity:0; }
   /* Tarjetas: `.dw-card` (content.css, la de Academy): borde fino y hover con borde de acento; sin inclinación 3D ni glow por detrás. */

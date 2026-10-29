@@ -145,19 +145,41 @@ def test_the_footer_drops_the_tagline_and_gives_the_disclaimer_a_wide_short_box_
     assert box.get_text(" ", strip=True).startswith("AVISO Contenido informativo preparado por Danwor")           # el aviso no cambió
 
 
-def test_the_scroll_reveal_reuses_the_presentation_timeline_mechanism_without_a_second_engine(world):
+def test_the_scroll_reveal_reuses_the_hub_contract_activated_once_per_visit_without_a_second_engine(world):
     doc = _seed_doc(world)
-    assert len(re.findall(r'animation-timeline:view\(\)', doc)) >= 50                                            # el reveal por scroll ya existe en las slides, con view timelines inline
+    assert len(re.findall(r'animation-timeline:view\(\)', doc)) >= 50                                           # el template no cambia: de ahí salen las unidades y queda de degradación (Chromium sin JS/IO)
+    assert "content-reveal" not in doc and "is-visible" not in doc                                              # la clase la agrega SOLO el JS: sin JS el contenido queda visible por defecto
     hero = re.search(r'<section id="s1".*?</section>', doc, re.S).group(0)
     assert "animation-timeline:view()" not in hero                                                               # el hero conserva su entrada inmediata
     js = (VANTURE / "vanture.js").read_text(encoding="utf-8")
-    assert "IntersectionObserver" not in js and "content-reveal" not in doc and not re.search(r'class="reveal[ "]', doc)      # sin segundo motor ni clases de reveal paralelas
-    assert 'href="#s9"' in doc                                                                                   # el riel por anclas sigue siendo navegación nativa (el timeline lo deja revelado por posición)
+    assert "'IntersectionObserver' in window" in js and "!reduceMotion" in js and "hasAttribute('data-cp-edit')" in js         # sin soporte, en reduced-motion y en edición no se activa
+    assert "s.id !== 's1'" in js                                                                                 # la portada queda fuera
+    assert "threshold: 0.05" in js and "rootMargin: '0px 0px -4% 0px'" in js                                    # mismas opciones que `initContentReveals` del Copiloto
+    assert "classList.add('content-reveal')" in js and "classList.add('is-visible')" in js and "revealIo.unobserve(" in js      # el contrato del Hub, UNA sola vez por elemento
+    assert "classList.remove('is-visible')" not in js and "toggle('is-visible'" not in js                       # lo revelado nunca se vuelve a ocultar
+    assert "function revealSection" in js or "var revealSection" in js
+    assert "'hashchange'" in js and "a[href^=\"#\"]" in js                                                       # anclas: riel, «Siguiente» y hash de la URL revelan el destino de inmediato
+    assert "getBoundingClientRect().top < revealVh" in js                                                        # lo que ya está en pantalla o por encima entra visible, sin animar
+    assert 'href="#s9"' in doc
+    content_css = (STATIC / "content.css").read_text(encoding="utf-8")
+    assert ".content-reveal.is-visible { opacity: 1; transform: none; }" in content_css and "transition: opacity .48s cubic-bezier(.22,.61,.36,1), transform .48s cubic-bezier(.22,.61,.36,1);" in content_css
+    assert not re.search(r"(?m)^\s*\.content-reveal\s*\{", VANTURE_CSS)                                          # NO se redefine el contrato del Hub: se reutiliza el de content.css
+    both = '.content-reveal[style*="animation-timeline:view()"],.content-reveal [style*="animation-timeline:view()"]{animation:none!important}'
+    assert VANTURE_CSS.count(both) == 1                                                                          # el `view()` se apaga SOLO donde la unidad recibe el reveal nuevo: no compiten
     off = '[style*="animation-timeline:view()"]{animation:none!important}'
-    assert VANTURE_CSS.count(off) == 2                                                                           # una para prefers-reduced-motion y otra para el modo edición (no oculta ni mueve el blanco de acciones)
+    assert VANTURE_CSS.count(off) == 3                                                                           # esa regla + prefers-reduced-motion + modo edición (contenido siempre visible)
     assert re.search(r"@media \(prefers-reduced-motion: reduce\)\{[^@]*?\[style\*=\"animation-timeline:view\(\)\"\]\{animation:none!important\}", VANTURE_CSS.replace("\n", ""))
     assert re.search(r"html\[data-cp-edit\] \[style\*=\"animation-timeline:view\(\)\"\]\{animation:none!important\}", VANTURE_CSS)
-    assert 'animation-timeline:scroll(root)' in doc and "scroll(root)" not in VANTURE_CSS                         # la barra de progreso (timeline de scroll del documento) no la apaga ninguna de las dos reglas
+    assert 'animation-timeline:scroll(root)' in doc and "scroll(root)" not in VANTURE_CSS                         # la barra de progreso no se toca
+
+
+def test_the_reveal_composes_with_the_classes_that_define_their_own_transition_opacity_or_transform():
+    css = VANTURE_CSS
+    assert ".content-reveal.dw-card{transition:opacity .48s cubic-bezier(.22,.61,.36,1),transform .2s,border-color .2s}" in css                       # `.dw-card` pisaría el fade (content.css): fade del Hub y hover original (.2 s) intactos
+    assert ".content-reveal.flow-hub{transition:opacity .48s" in css and "box-shadow .4s ease,border-color .4s ease}" in css
+    assert ".scroll-cue.content-reveal.is-visible{opacity:.4}" in css and ".scroll-cue.content-reveal.is-visible:hover" in css            # el cue «Siguiente» conserva su atenuado de reposo y su hover
+    assert ".arch__side.content-reveal{transform:translateY(14px) rotate(180deg)}" in css and ".arch__side.content-reveal.is-visible{transform:rotate(180deg)}" in css      # el rótulo vertical no se da vuelta al revelarse
+    assert "@media (max-width: 860px){.arch__side.content-reveal{transform:translateY(14px)}.arch__side.content-reveal.is-visible{transform:none}}" in css      # y en móvil sigue sin rotación
 
 
 def test_only_the_cover_keeps_a_gold_background_glow_and_every_other_slide_has_a_clean_background(world):
