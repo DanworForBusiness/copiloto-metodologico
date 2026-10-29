@@ -979,3 +979,102 @@ table.dashboard-table.commercial-creadas-table td:nth-child(4) { width: auto; }
    th[data-column-key][draggable="true"]` -- MISMOS elementos exactos
    que esta clase marcaba, sin necesitar un nombre por vertical/tabla.
    Nada que declarar acá. */
+
+/* ── Presentaciones V1 (CM03) ─────────────────────────────────────────────────────────────────────────────────────────
+   Ajustes MÍNIMOS que ningún primitivo compartido cubre; todo lo demás de las pantallas usa primitivos del Hub (dashboard-table, table-action-btn, callout, dw-confirm,
+   feedback-field, tree-feedback-form).
+   1. `.cp-catalog`: piso de ancho de la tabla (con `table-layout:fixed` + `.matrix-scroll` la tabla scrollea en vez de aplastar las columnas en pantallas angostas).
+   2. `.cp-toolbar`: fila de acciones que envuelve (el `.hero-lead-row > div` no envuelve y desbordaba en móvil).
+   3. `.cp-form` en tema CLARO: `.tree-feedback-form` es un primitivo de panel oscuro (tokens --card/--ink) y no trae variante clara fuera de CCHH; sin esto los campos quedan negros sobre
+      el panel claro. Solo cambia fondo/borde y hereda el color de texto del contenedor (sin literales: el par de tinta neutra de Comercial es una variable con consumidores fijos); el foco (anillo dorado) lo sigue dando el primitivo.
+   4. `.cp-toast`: confirmación TRANSITORIA. Reusa el primitivo Hub-wide `data-dw-auto-dismiss` (app.js `initAutoDismissFeedback`: se vacía solo por timeout o al click afuera, y cada nuevo
+      contenido reinicia el temporizador) y el markup `.callout`; solo repite el POSICIONAMIENTO de `.hc-catalog-refresh-feedback--topbar` (human_capital.css, no se carga acá).
+   5. `.cp-notice` / `.cp-toast`: escala compacta de título y cuerpo de un `.callout` chico (mismas medidas que ese toast: `.callout__body p` hereda 1rem y se ve sobredimensionado en un aviso). */
+.dashboard-table.cp-catalog { min-width: 820px; }
+/* CONTRATO de columnas de las tablas del catálogo (Presentaciones y Componentes reutilizables): mismo ancho, alineación y distribución; solo cambian los campos semánticos de cada colección. */
+.dashboard-table.cp-catalog col:nth-child(1) { width: 34%; }
+.dashboard-table.cp-catalog col:nth-child(2) { width: 22%; }
+.dashboard-table.cp-catalog col:nth-child(3) { width: 16%; }
+.dashboard-table.cp-catalog col:nth-child(4) { width: 12%; }
+.dashboard-table.cp-catalog col:nth-child(5) { width: 252px; }
+/* Vista previa de un componente (diálogo «Ver»): iframe del renderer real; sin borde propio de tarjeta, mismo trazo discontinuo que las demás zonas de vista previa. */
+.cc-preview-box { position: relative; overflow: hidden; width: 100%; min-height: 120px; border: 1px dashed rgba(128,128,128,.4); border-radius: 8px; }
+.cc-preview-frame { display: block; width: 1260px; height: 640px; border: 0; background: transparent; transform-origin: 0 0; }   /* 1260 = ancho de referencia: el de la slide de la presentación (contenedor de 1180 + 40 de margen a cada lado) */
+.cc-edit-layer { margin: 14px 0 0; padding: 12px 14px; border: 1px solid rgba(128,128,128,.28); border-radius: 8px; }
+.cc-edit-layer > legend { padding: 0 6px; font-weight: 700; font-size: .78rem; }
+.cc-edit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 560px) { .cc-edit-grid { grid-template-columns: 1fr; } }
+.module-hero + #cp-catalog-panel { margin-top: 24px; }   /* respiro hero → primer bloque: MISMA regla por-panel que CCHH/Operaciones (`.module-hero + #hc-…-panel`) */
+#cp-catalog-panel .dashboard-sections { margin-top: 26px; }   /* respiro filtro → agrupador: los 26px de `#hc-profiles-panel > * + *` (CCHH Base de CVs) */
+.cp-toast:not(:empty) { position: fixed; top: 84px; left: 50%; transform: translateX(-50%); z-index: 100; width: min(650px, calc(100vw - 32px)); }
+.cp-toast .callout__title, .cp-notice .callout__title { font-size: .85rem; }
+.cp-toast .callout__body, .cp-notice .callout__body { font-size: .78rem; line-height: 1.5; }
+.cp-toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; }
+/* ═══ Presentaciones V2.0 — workspace dedicado de edición ═══
+   Sin la navegación lateral del Hub (la plantilla no incluye `commercial_nav` ni su handle): la grilla queda de UNA columna y la tarjeta de contenido toma TODO el ancho y el alto restante bajo la barra superior (que se
+   conserva). Dentro: encabezado compacto (`.catalog-actionbar`, la barra de acciones transversal) + el iframe del documento, que llena el resto. Solo la página del editor lleva `.cp-workspace`. */
+.app-shell.cp-workspace { --cp-topbar-h: 74px; grid-template-columns: minmax(0, 1fr); }
+.app-shell.cp-workspace .module-content { grid-column: 1; display: flex; flex-direction: column; padding: 0; overflow: hidden; scrollbar-gutter: auto; position: sticky; top: 88px; height: calc(100dvh - var(--cp-topbar-h) - 34px); }
+@media (max-width: 1180px) { .app-shell.cp-workspace .module-content { position: static; height: calc(100dvh - var(--cp-topbar-h) - 24px); } }
+@media (max-width: 900px) { .app-shell.cp-workspace { --cp-topbar-h: 66px; } }
+.cp-workspace .mobile-menu { display: none; }                                   /* no hay menú lateral que abrir */
+.cp-workspace__editor { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+.cp-wsheader { margin: 0; padding: 10px 16px; gap: 8px 16px; border-bottom: 1px solid var(--content-line); }   /* `--content-line` cambia con el tema; `--line` es del panel oscuro y en claro casi no se veía */
+.cp-wsheader__id { display: flex; align-items: center; gap: 8px; flex: 1 1 220px; min-width: 0; }
+.cp-wsheader__eyebrow { flex: none; font: 600 .62rem var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--gold); }
+.cp-wsheader__title { margin: 0; min-width: 0; font-size: 1rem; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cp-wsheader .cp-toolbar { margin: 0; align-items: center; }
+.cp-wsheader .chart-tooltip-anchor { flex: none; display: inline-flex; align-items: center; }
+.cp-wsheader .chart-tooltip { bottom: auto; top: calc(100% + 8px); left: 0; transform: none; width: max-content; max-width: min(340px, 72vw); }   /* abre hacia abajo y hacia adentro: nunca se sale del viewport */
+.cp-workspace__editor .cp-workspace__frame { flex: 1 1 auto; min-height: 0; height: auto; margin: 0; }
+/* V2.1 — panel izquierdo de diapositivas: columna angosta de miniaturas (la activa con borde dorado) con el número SUPERPUESTO en su esquina superior izquierda, y una tarjeta punteada «+». Las miniaturas son UN iframe (`?embed=1&thumbs=1`) a 1440 px escalado por `--cp-k`; cada
+   fila mide el paso fijo del documento (810 + 120 px) × `--cp-k`, de modo que la tarjeta i queda exactamente sobre su slide. Sin iframe (móvil / carga fallida) la tarjeta es texto. */
+.cp-workspace__body { display: grid; grid-template-columns: var(--cp-panel-w, 178px) minmax(0, 1fr); flex: 1 1 auto; min-height: 0; }
+.cp-workspace__body > .cp-workspace__frame { height: 100%; min-width: 0; }
+.cp-slides { --cp-k: .1083333; --cp-thumb-w: calc(1440px * var(--cp-k)); --cp-n: 12; position: relative; display: flex; flex-direction: column; min-height: 0; padding: 0 10px; overflow-x: hidden; overflow-y: auto; scrollbar-gutter: stable; border-right: 1px solid var(--content-line); }   /* el PANEL entero es el contenedor con scroll: su barra corre de borde a borde (encabezado y «+» quedan fijos) y la reserva SIEMPRE: `--cp-k` se ajusta al área útil (vía JS), nunca a un ancho supuesto */
+.cp-slides__head { position: sticky; top: 0; z-index: 3; display: flex; flex: none; align-items: baseline; justify-content: space-between; padding: 10px 2px 8px; background: var(--content-surface); font: 600 .62rem var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--soft); }
+.cp-slides__scroll { position: relative; flex: 1 0 auto; }   /* la barra reserva SIEMPRE su ancho: `--cp-k` se ajusta al área útil (vía JS), nunca a un ancho supuesto */
+.cp-slides__list { position: relative; z-index: 1; margin: 0; padding: 0; list-style: none; }
+.cp-slides__list > li { height: calc(var(--cp-thumb-w) * 930 / 1440); }
+.cp-slide { display: block; width: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.cp-slide__no { position: absolute; top: 2px; left: 2px; z-index: 2; height: 13px; padding: 0 4px; border-radius: 3px; text-align: center; font: 700 .53rem/13px var(--mono); background: color-mix(in srgb, var(--bg) 82%, transparent); color: var(--ink); }   /* superpuesto: la miniatura usa todo el ancho */
+.cp-slide__thumb { position: relative; display: block; flex: none; width: var(--cp-thumb-w); height: calc(var(--cp-thumb-w) * 9 / 16); overflow: hidden; border-radius: 6px; outline: 1px solid var(--content-line); outline-offset: 0; background: var(--content-surface); }
+.cp-slides--thumbs .cp-slide__thumb { background: transparent; }                  /* con miniaturas la ventana es transparente: se ve el iframe de atrás */
+.cp-slide:hover .cp-slide__thumb { outline-color: var(--content-ink); }   /* hover blanco (tinta del contenido: casi blanca en oscuro, visible en claro); la activa conserva el dorado, que gana por orden */
+.cp-slide[aria-current="true"] .cp-slide__thumb { outline: 2px solid var(--gold); box-shadow: 0 0 0 3px color-mix(in srgb, var(--gold) 22%, transparent); }
+.cp-slide[aria-current="true"] .cp-slide__no { background: var(--gold); color: var(--bg); }
+.cp-slide:focus-visible .cp-slide__thumb { outline: 2px solid var(--gold); outline-offset: 2px; }
+.cp-slide[data-removed] { opacity: .55; }
+.cp-slide__fallback { position: absolute; inset: 0; padding: 20px 8px 6px; overflow: hidden; font: 600 .6rem/1.25 var(--sans); display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; }
+.cp-slides--thumbs .cp-slide__fallback { display: none; }
+.cp-slides__stage { display: none; position: absolute; top: 0; left: 0; z-index: 0; width: var(--cp-thumb-w); height: calc(var(--cp-n) * var(--cp-thumb-w) * 930 / 1440); overflow: hidden; pointer-events: none; }
+.cp-slides--thumbs .cp-slides__stage { display: block; }
+.cp-slides__stage .cp-slides__thumbs { position: absolute; top: 0; left: 0; width: 1440px; max-width: none; height: calc(var(--cp-n) * 930px); border: 0; transform: scale(var(--cp-k)); transform-origin: 0 0; }
+.cp-slides__add { position: sticky; bottom: 0; z-index: 3; flex: none; padding: 8px 0 10px; background: var(--content-surface); }
+.cp-slide-new { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; width: var(--cp-thumb-w); height: calc(var(--cp-thumb-w) * 9 / 16); border: 1.5px dashed color-mix(in srgb, var(--soft) 55%, transparent); border-radius: 6px; background: none; color: var(--soft); font: 600 .56rem var(--mono); letter-spacing: .06em; text-transform: uppercase; cursor: not-allowed; }
+.cp-slide-new__plus { font: 400 1.5rem/1 var(--sans); }
+.cp-slides__add .chart-tooltip { bottom: calc(100% + 6px); left: 0; transform: none; min-width: 0; width: max-content; max-width: 150px; }
+@media (max-width: 900px) {
+  .cp-workspace__body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .cp-slides { flex-direction: row; align-items: center; gap: 8px; padding: 8px 10px; overflow-x: auto; overflow-y: hidden; scrollbar-gutter: auto; border-right: 0; border-bottom: 1px solid var(--content-line); }
+  .cp-slides__head, .cp-slides__stage { display: none !important; }
+  .cp-slides__scroll { flex: none; }
+  .cp-slides__list { display: flex; gap: 8px; }
+  .cp-slides__add { position: sticky; right: 0; bottom: auto; padding: 0 0 0 8px; }
+  .cp-slides__list > li { height: auto; flex: none; }
+  .cp-slide { width: auto; }
+  .cp-slide__no { top: 50%; left: 4px; transform: translateY(-50%); }
+  .cp-slide__thumb { width: 130px; height: 40px; }
+  .cp-slide__fallback { padding: 6px 6px 6px 32px; -webkit-line-clamp: 2; }
+  .cp-slide-new { width: 44px; height: 40px; }
+  .cp-slide-new__label { display: none; }
+}
+@media (max-width: 640px) {
+  .cp-wsheader { position: relative; padding: 8px 12px; }
+  .cp-wsheader__eyebrow { display: none; }
+  .cp-wsheader .chart-tooltip-anchor { position: static; }                       /* el (i) se ancla al ENCABEZADO, no al ícono: la explicación ocupa su ancho y nunca se sale del viewport */
+  .cp-wsheader .chart-tooltip { top: calc(100% + 4px); left: 12px; right: 12px; width: auto; max-width: none; }
+}
+.content-theme-light .cp-form input[type="text"],
+.content-theme-light .cp-form select,
+.content-theme-light .cp-form textarea { background: #fff; color: inherit; border-color: rgba(0, 0, 0, .18); }

@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% from "partials/platform_topbar.html" import platform_topbar %}
+{% from "partials/workspace_shell.html" import sidebar_resize_handle %}
+{% block title %}{{ presentation.title }} · Presentaciones · Comercial · Danwor{% endblock %}
+{% block body %}
+<div
+  x-data="copilotLayout('commercial')"
+  x-init="init()"
+  class="app-shell no-copilot"
+>
+  {% set _identity_html %}<iframe src="/brand/dancing/{{ pack }}?title={{ config.COMMERCIAL_APP_TITLE | urlencode }}&subtitle={{ config.COMMERCIAL_APP_SUBTITLE | urlencode }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
+  {% call platform_topbar(current_workspace, available_workspaces, current_workspace.home_url, _identity_html, "Menú") %}
+    <select class="pack-select" aria-label="Área operativa" disabled>
+      <option selected>Comercial</option>
+    </select>
+  {% endcall %}
+
+  {% include "partials/commercial_nav.html" %}
+
+  {{ sidebar_resize_handle() }}
+
+  <main id="content" class="module-content">
+    {# "← Volver": primitivo transversal del Hub (`.catalog-back`, tools.css), MISMO exacto que Capital Humano/Catálogo: primer hijo de `main`, antes del hero. Destino: el catálogo. #}
+    <a class="catalog-back" href="/comercial/presentaciones">← Volver a Presentaciones</a>
+    <section class="module-hero">
+      <p class="eyebrow">Presentaciones</p>
+      <h1>{{ presentation.title }}</h1>
+      <p class="hero-lead full-page-subtitle">
+        {% if presentation.is_seed %}Presentación institucional de Danwor · solo lectura{% else %}Responsable: {{ presentation.created_by_label or presentation.owner_id or "—" }} · Revisión {{ presentation.revision }}{% if presentation.updated_label %} · Última edición {{ presentation.updated_label }}{% endif %}{% endif %}
+      </p>
+    </section>
+
+    <div class="cp-toast" aria-live="polite" data-dw-auto-dismiss="6000" data-cp-status></div>
+    {# Acciones: el segmentado NATIVO del Hub (`.dashboard-view-switch`, el mismo de CRM → Actividades › Período), con `--scroll` para que no desborde en pantallas angostas; «Presentar» (la acción principal) va resaltada con `.is-active`; las cinco acciones están SIEMPRE y la que no corresponde queda inhabilitada (`button:disabled` del primitivo). #}
+    <div class="cp-toolbar">
+      <div class="dashboard-view-switch dashboard-view-switch--scroll" role="group" aria-label="Acciones de la presentación">
+        <a class="is-active" href="{{ share_path }}" target="_blank" rel="noopener">Presentar</a>
+        <button type="button" data-cp-copy-link="{{ share_path }}">Copiar enlace</button>
+        <button type="button" data-cp-copy-open data-cp-id="{{ presentation.presentation_id }}" data-cp-title="Copia de {{ presentation.title }}">Copiar como nueva</button>
+        {% if can_edit %}<a href="/comercial/presentaciones/{{ presentation.presentation_id }}/editar">Editar</a>{% else %}<button type="button" disabled title="{{ 'Las presentaciones institucionales son de solo lectura' if presentation.is_seed else 'Solo el responsable de la copia puede editarla' }}" aria-label="Editar no disponible: {{ 'las presentaciones institucionales son de solo lectura' if presentation.is_seed else 'solo el responsable de la copia puede editarla' }}">Editar</button>{% endif %}
+        {% if can_delete %}<button type="button" data-cp-delete="{{ presentation.presentation_id }}" data-cp-title="{{ presentation.title }}">Eliminar</button>{% else %}<button type="button" disabled title="{{ 'Las presentaciones institucionales no se eliminan' if presentation.is_seed else 'Solo el responsable de la copia o el dueño de la app pueden eliminarla' }}" aria-label="Eliminar no disponible: {{ 'las presentaciones institucionales no se eliminan' if presentation.is_seed else 'solo el responsable de la copia o el dueño de la app pueden eliminarla' }}">Eliminar</button>{% endif %}
+      </div>
+    </div>
+    {# Aviso informativo: `callout--note` (variante informativa del Hub, con su regla de tema claro) + escala compacta (`.cp-notice`, commercial.css), como los avisos chicos de Capital Humano. #}
+    <aside class="callout callout--note cp-notice">
+      <div class="callout__head"><span class="callout__icon">🔗</span><span class="callout__title">Visibilidad del enlace</span></div>
+      <div class="callout__body"><p>Cualquier usuario autorizado del Hub que tenga la URL puede ver y presentar esta presentación, aunque no tenga acceso a Comercial. No le permite copiarla ni editarla.</p></div>
+    </aside>
+
+    <div class="html-embed-shell" style="--embed-height:78vh">
+      <iframe class="content-embed" src="{{ share_path }}?embed=1" title="{{ presentation.title }}" loading="lazy"></iframe>
+    </div>
+  </main>
+</div>
+
+{% include "partials/commercial_presentation_copy_dialog.html" %}
+<link rel="stylesheet" href="{{ url_for('static', path='commercial.css') }}?v={{ static_version }}">
+<script src="{{ url_for('static', path='commercial_presentations.js') }}?v={{ static_version }}"></script>
+{% endblock %}

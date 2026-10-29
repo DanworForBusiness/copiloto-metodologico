@@ -61,6 +61,8 @@ AREA_CRM = "crm"
 # separada de CRM (área/dato distinto, ver commercial_strategy.py) — MISMO
 # criterio que CRM tuvo su propia área en vez de reusar "commercial" a secas.
 AREA_STRATEGY = "strategy"
+# Comercial/Presentaciones (V1): capability propia, MISMO criterio que Estrategia.
+AREA_PRESENTATIONS = "presentations"
 AREA_UNKNOWN = "unknown"
 
 # Clasificación de eventos HISTÓRICOS (JSONL previos a esta fase, sin scope/area).
@@ -118,6 +120,7 @@ AREA_LABELS: dict[str, str] = {
     AREA_REPORTING: "Reporting",
     AREA_CRM: "CRM",
     AREA_STRATEGY: "Estrategia",
+    AREA_PRESENTATIONS: "Presentaciones",
     AREA_UNKNOWN: "Sin clasificar",
 }
 
@@ -325,6 +328,14 @@ _USAGE_EVENTS: frozenset[str] = frozenset({
     # HANDOFF) — no se inventa clasificación para eventos que ese ticket
     # todavía no emite.
     "strategy.saved",
+    # Comercial/Presentaciones V1: acciones de negocio completadas (copia y guardado exitosos), MISMO criterio que "strategy.saved".
+    "presentation.copied",
+    "presentation.saved",
+    "presentation.deleted",
+    # Comercial/Presentaciones — colección «Componentes reutilizables»: acciones de negocio completadas (alta por duplicado, edición, baja).
+    "component.created",
+    "component.saved",
+    "component.deleted",
     # Comercial/CRM — feedback transversal (Homologación al Danwor Hub, ver
     # HANDOFF): MISMA capacidad compartida que Reporting/Staffing, un control
     # por capability (Dashboard/Actividades/Licencias/Historial Perdidas/
@@ -407,6 +418,12 @@ EVENT_LABELS: dict[str, str] = {
     "reporting.feedback": "Reporting — feedback de reporte",
     "staffing.feedback": "Asignaciones — feedback de reporte",
     "strategy.saved": "Estrategia — guardado exitoso",
+    "presentation.copied": "Presentaciones — copia creada",
+    "presentation.saved": "Presentaciones — guardado exitoso",
+    "presentation.deleted": "Presentaciones — presentación eliminada",
+    "component.created": "Presentaciones — componente duplicado como propio",
+    "component.saved": "Presentaciones — componente editado",
+    "component.deleted": "Presentaciones — componente eliminado",
     "commercial.feedback": "Comercial — feedback de capability",
     # "commercial.data_error" NO tiene entrada acá a propósito: es un evento
     # de DIAGNÓSTICO (_DIAGNOSTIC_EVENTS), no de uso — mismo criterio que

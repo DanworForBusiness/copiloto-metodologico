@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% from "partials/platform_topbar.html" import platform_topbar %}
+{% block title %}Editar · {{ presentation.title }} · Presentaciones · Comercial · Danwor{% endblock %}
+{% block body %}
+<div
+  x-data="copilotLayout('commercial')"
+  x-init="init()"
+  class="app-shell no-copilot cp-workspace"
+>
+  {% set _identity_html %}<iframe src="/brand/dancing/{{ pack }}?title={{ config.COMMERCIAL_APP_TITLE | urlencode }}&subtitle={{ config.COMMERCIAL_APP_SUBTITLE | urlencode }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
+  {% call platform_topbar(current_workspace, available_workspaces, current_workspace.home_url, _identity_html, "Menú") %}
+    <select class="pack-select" aria-label="Área operativa" disabled>
+      <option selected>Comercial</option>
+    </select>
+  {% endcall %}
+
+  {# WORKSPACE DEDICADO de edición (V2.0): sin la navegación lateral del Hub (`commercial_nav` y su handle no se incluyen: la grilla `.cp-workspace` libera su ancho). La barra superior (marca, workspace, tema, sesión)
+     se conserva. El catálogo, el detalle y el modo lectura mantienen su shell normal. #}
+  <main id="content" class="module-content">
+    {# Edición INLINE, como «02. Estrategia»: los textos habilitados son leaves `contenteditable` (texto plano) del propio documento, que va en el iframe con `?embed=1&edit=1` (el servidor solo lo habilita si el usuario puede editar esta instancia).
+       El encabezado compacto (← Volver · identidad · Cancelar · «Sin guardar» · Guardar) vive en el Hub y reutiliza la barra de acciones transversal (`.catalog-actionbar`); el guardado manda SOLO los campos que cambiaron, bajo la
+       revisión que cargó la página (R6). «Volver» y «Cancelar» pasan por la MISMA confirmación si hay cambios sin guardar. #}
+    <div data-cp-editor class="cp-workspace__editor" data-qr-url="/comercial/presentaciones/{{ presentation.presentation_id }}/qr" data-save-url="/comercial/presentaciones/{{ presentation.presentation_id }}" data-revision="{{ presentation.revision }}" data-back-url="/comercial/presentaciones">
+      {% set _link_visibility = "Esta presentación es visible para cualquier usuario autorizado del Hub que tenga la URL, aunque no tenga acceso a Comercial." %}
+      <header class="catalog-actionbar cp-wsheader">
+        <a class="catalog-back" href="/comercial/presentaciones" data-cp-back>← Volver a Presentaciones</a>
+        <div class="cp-wsheader__id">
+          <span class="cp-wsheader__eyebrow">Editando</span>
+          <h1 class="cp-wsheader__title">{{ presentation.title }}</h1>
+          {# Visibilidad del enlace como (i) contextual: el MISMO primitivo del Hub que usan CCHH/Entrevistas (`.chart-tooltip-anchor` + `.activity-kpi__info` + `.chart-tooltip`); el copy va también en `aria-label` (hover y foco de teclado). #}
+          <span class="chart-tooltip-anchor">
+            <button type="button" class="activity-kpi__info" aria-label="Visibilidad del enlace. {{ _link_visibility }}" data-cp-link-info>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 7.8v.2"/></svg>
+            </button>
+            <span class="chart-tooltip"><p><strong>Visibilidad del enlace.</strong> {{ _link_visibility }}</p></span>
+          </span>
+        </div>
+        <div class="cp-toolbar catalog-actionbar__actions">
+          <button type="button" class="btn-secondary" data-cp-cancel>Cancelar</button>
+          <span class="status-badge status-badge--tentativo" data-cp-dirty hidden>Sin guardar</span>
+          <button type="button" class="btn-primary" data-cp-save disabled>Guardar</button>
+        </div>
+      </header>
+      <div class="cp-toast" aria-live="polite" data-dw-auto-dismiss="6000" data-cp-status></div>
+      <p class="feedback-error" role="alert" data-cp-error hidden></p>
+      <div class="cp-workspace__body">
+        {# Panel de diapositivas (V2.1): miniaturas REALES del mismo renderer en UN solo iframe adicional (`?embed=1&thumbs=1`: sin JS ni animaciones, cargado después del editor y solo en pantallas anchas), escalado y alineado con
+           las tarjetas; sin miniaturas (móvil, carga fallida) cada tarjeta es texto. La lista sale del DOM del editor (orden, títulos, eliminadas, activa por scroll); `commercial_presentations.js`. #}
+        <aside class="cp-slides" data-cp-slides aria-label="Diapositivas">
+          <div class="cp-slides__head"><span class="cp-slides__title">Presentación</span><span class="cp-slides__count" data-cp-slides-count></span></div>
+          <div class="cp-slides__scroll">
+            <div class="cp-slides__stage" aria-hidden="true"><iframe class="content-embed cp-slides__thumbs" title="Miniaturas de las diapositivas" tabindex="-1" data-cp-thumbs-frame data-src="{{ share_path }}?embed=1&thumbs=1"></iframe></div>
+            <ol class="cp-slides__list" data-cp-slides-list></ol>
+          </div>
+          <div class="cp-slides__add chart-tooltip-anchor">
+            <button type="button" class="cp-slide-new" disabled aria-disabled="true" aria-label="Nueva diapositiva (disponible en una próxima etapa)"><span class="cp-slide-new__plus" aria-hidden="true">+</span><span class="cp-slide-new__label">Nueva diapositiva</span></button>
+            <span class="chart-tooltip"><p>Disponible en una próxima etapa.</p></span>
+          </div>
+        </aside>
+        <div class="html-embed-shell cp-workspace__frame">
+          <iframe class="content-embed" src="{{ share_path }}?embed=1&edit=1" title="Editar {{ presentation.title }}" data-cp-frame></iframe>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<link rel="stylesheet" href="{{ url_for('static', path='commercial.css') }}?v={{ static_version }}">
+<script src="{{ url_for('static', path='commercial_presentations.js') }}?v={{ static_version }}"></script>
+{% endblock %}

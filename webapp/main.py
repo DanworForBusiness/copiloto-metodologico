@@ -79,6 +79,7 @@ from webapp.services import catalog_ingestion_orchestration
 from webapp.services import catalog_cds_docs
 from webapp.services import catalog_view_source
 from webapp.routers import commercial_strategy as commercial_strategy_router
+from webapp.routers import commercial_presentations as commercial_presentations_router
 
 WEB_DIR = Path(__file__).parent
 
@@ -296,6 +297,7 @@ app.include_router(platform_router.router)
 app.include_router(commercial_router.router)
 app.include_router(human_capital_router.router)
 app.include_router(commercial_strategy_router.router)
+app.include_router(commercial_presentations_router.router)
 app.include_router(catalog_assessment_router.router)
 app.include_router(datasphere_assessment_router.router)
 app.include_router(datasphere_publication_router.router)

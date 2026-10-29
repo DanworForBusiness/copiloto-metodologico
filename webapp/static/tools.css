@@ -210,19 +210,18 @@
 /* Canvas + tiles cambian con el tema:
    claro -> canvas #F6F7F9 + tiles blancos;
    oscuro -> canvas negro + tiles #181819. */
-.content-theme-light .app-shell { background: #F6F7F9; }
-.content-theme-dark .app-shell  { background: #0c0c0d; }
+.content-theme-light .app-shell { background: var(--content-canvas); }
+.content-theme-dark .app-shell  { background: var(--content-canvas); }
 
 .content-theme-light .module-content,
 .content-theme-light .academy-stage {
-  --content-surface: #fff;                       /* superficie de contenido: la consumen las cabeceras fijas (`.dashboard-sticky-header`, `.matrix-scroll--contained`) */
+  /* `--content-surface` (superficie que consumen las cabeceras fijas `.dashboard-sticky-header`, `.matrix-scroll--contained`): definida por tema en content.css (tokens compartidos) */
   background: var(--content-surface);
   border-color: #e4e4e0;
   box-shadow: 0 2px 10px rgba(20,22,28,.04);     /* casi imperceptible; separa el borde */
 }
 .content-theme-dark .module-content,
 .content-theme-dark .academy-stage {
-  --content-surface: #181819;
   background: var(--content-surface);             /* card elevado sobre el canvas negro */
 }
 .copilot-panel { background: var(--card); }       /* #fff en claro, #181819 en oscuro */
@@ -238,13 +237,14 @@
 
 /* Scrollbar sutil dentro de los tiles claros (el global es oscuro/grueso y
    rompía la curvatura del card, como en el Streamlit original). */
-.module-content, .copilot-panel { scrollbar-width: thin; scrollbar-color: rgba(20,22,28,.18) transparent; }
-.module-content::-webkit-scrollbar, .copilot-panel::-webkit-scrollbar { width: 9px; height: 9px; }
-.module-content::-webkit-scrollbar-track, .copilot-panel::-webkit-scrollbar-track { background: transparent; }
-.module-content::-webkit-scrollbar-thumb, .copilot-panel::-webkit-scrollbar-thumb {
+/* `html.content-doc` = los documentos de contenido que el Hub embebe en un iframe (Presentaciones): ahí lo que scrollea es el viewport del propio documento, no `.module-content`; `.cp-slides` = el panel de miniaturas del editor de Presentaciones; misma regla, sin colores propios. */
+.module-content, .copilot-panel, html.content-doc, .cp-slides { scrollbar-width: thin; scrollbar-color: rgba(20,22,28,.18) transparent; }
+.module-content::-webkit-scrollbar, .copilot-panel::-webkit-scrollbar, html.content-doc::-webkit-scrollbar, .cp-slides::-webkit-scrollbar { width: 9px; height: 9px; }
+.module-content::-webkit-scrollbar-track, .copilot-panel::-webkit-scrollbar-track, html.content-doc::-webkit-scrollbar-track, .cp-slides::-webkit-scrollbar-track { background: transparent; }
+.module-content::-webkit-scrollbar-thumb, .copilot-panel::-webkit-scrollbar-thumb, html.content-doc::-webkit-scrollbar-thumb, .cp-slides::-webkit-scrollbar-thumb {
   background: rgba(20,22,28,.16); border-radius: 9px; border: 3px solid transparent; background-clip: padding-box;
 }
-.module-content::-webkit-scrollbar-thumb:hover, .copilot-panel::-webkit-scrollbar-thumb:hover {
+.module-content::-webkit-scrollbar-thumb:hover, .copilot-panel::-webkit-scrollbar-thumb:hover, html.content-doc::-webkit-scrollbar-thumb:hover, .cp-slides::-webkit-scrollbar-thumb:hover {
   background: rgba(20,22,28,.30); background-clip: padding-box;
 }
 
@@ -403,6 +403,10 @@
 .feedback-form-header strong { display: block; font-size: .88rem; color: var(--ink); }
 .feedback-form-header p { margin: 3px 0 0; color: var(--soft); font-size: .74rem; line-height: 1.45; }
 .feedback-field { display: grid; gap: 6px; margin-top: 14px; }
+/* Selector de archivo del Hub: el MISMO look que Capital Humano ya definía por formulario (`.hc-profile-form`, `.hc-document-upload-form`, `.hc-document-retry-form`, human_capital.css; valores idénticos), promovido al
+   campo genérico para que cualquier vertical lo use sin cargar la hoja de otra (Comercial → Presentaciones: logo del cliente). Borde fino, radio 8px, tipografía .8rem. */
+.feedback-field input[type="file"] { padding: 7px 10px; border: 1px solid rgba(128,128,128,.35); border-radius: 8px; background: transparent; color: #1f1f24; font: .8rem var(--sans); }
+.content-theme-dark .feedback-field input[type="file"] { color: #e4e4ec; }
 .feedback-field label { color: var(--ink); font-size: .74rem; font-weight: 650; line-height: 1.35; letter-spacing: 0; text-transform: none; }
 /* `:not(.chart-tooltip):not(.chart-tooltip-anchor)` (owner corrective, CCHH
    Entrevistas "Fecha de entrevista" (i)): el tooltip transversal del Hub
@@ -704,6 +708,22 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 .hc-profile-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
 .hc-profile-filters .feedback-field { margin-top: 0; min-width: 150px; flex: 1 1 150px; }
 .hc-profile-filters > button, .hc-profile-filters > a.btn-secondary { flex: 0 0 auto; height: 40px; }
+/* LOOK de los controles de la barra (padding/borde/tipografía/foco). Vivía en human_capital.css; se movió acá SIN cambiar reglas ni valores para que cualquier vertical que use la barra
+   (CCHH, Operaciones, Comercial → Presentaciones) la vea igual sin cargar la hoja de otra vertical. El ANCHO sigue siendo del flex item `.feedback-field` y de `width:100%` (abajo): esta
+   regla es solo apariencia (un `min-width` acá desbordó una vez la celda compacta de `<select>`). */
+.hc-profile-filters input[type="text"],
+.hc-profile-filters select {
+  padding: 8px 11px; border: 1px solid rgba(128,128,128,.35);
+  border-radius: 8px; background: transparent; color: #1f1f24; font: .8rem var(--sans);
+}
+.content-theme-dark .hc-profile-filters input[type="text"],
+.content-theme-dark .hc-profile-filters select { color: #e4e4ec; }
+.hc-profile-filters input:focus, .hc-profile-filters select:focus {
+  outline: none; border-color: var(--gold); box-shadow: 0 0 0 3px rgba(231,176,8,.18);
+}
+.hc-profile-filters .btn-primary, .hc-profile-filters .btn-secondary {
+  height: 38px; padding: 0 16px; border-radius: 8px;
+}
 /* ROOT CAUSE del solape visual reportado por el owner (real, no un artefacto
    de captura): `.feedback-field` es un grid container (`display:grid`,
    tools.css) -- por default sus hijos (el propio `<select>`/`<input>`)
@@ -1238,6 +1258,10 @@ button.star-rating__star:focus-visible { outline: 2px solid var(--gold); outline
 .dw-confirm__hint { margin: 8px 0 0 25px; font-size: .74rem; line-height: 1.55; color: #55555c; white-space: pre-line; }
 .content-theme-dark .dw-confirm__hint { color: #b2b2bc; }
 .dw-confirm__actions { display: flex; justify-content: flex-end; gap: 10px; padding: 18px 24px 22px; }
+/* Diálogo ancho con una zona de selección que scrollea («Agregar candidato desde el Banco» de CCHH; «Componente de la región» de Presentaciones): promovido desde human_capital.css para que lo consuman ambos.
+   Va DESPUÉS de `.dw-confirm` (mismo peso) para pisar su ancho; los refinamientos propios de CCHH (`.busqueda-picker--search`, tabla, grupo de casillas) siguen en human_capital.css, que carga después. */
+.busqueda-dialog { max-width: 640px; width: calc(100% - 32px); }
+.busqueda-picker { max-height: 52vh; overflow: auto; padding: 0 24px; }
 /* Acciones de fila (Editar + Eliminar) lado a lado, centradas en su celda. */
 .dw-row-actions { display: inline-flex; align-items: center; gap: 4px; }
 /* Form envoltura de una acción destructiva dentro de una botonera flex: el
@@ -1403,6 +1427,15 @@ button.star-rating__star:focus-visible { outline: 2px solid var(--gold); outline
 .dashboard-view-switch button:hover { color: #1f1f24; }
 .content-theme-dark .dashboard-view-switch button:hover { color: #e4e4ec; }
 .dashboard-view-switch button.is-active { background: var(--gold); color: #1f1f24; }
+/* Ítems que NAVEGAN o abren en otra pestaña: el MISMO aspecto con `<a>` (el primitivo solo estilizaba `button`; Capital Humano lo replica solo para `.busqueda-views a`, human_capital.css). Así un
+   grupo mixto de enlaces y botones (Comercial → Presentaciones: Presentar / Copiar enlace / Copiar como nueva / Editar) usa el primitivo nativo sin reimplementarlo. */
+.dashboard-view-switch a { display: inline-flex; align-items: center; background: #ffffff; border-right: 1px solid rgba(128,128,128,.28); padding: 8px 16px; font: 600 .78rem var(--sans); color: #55555c; text-decoration: none; cursor: pointer; }
+.content-theme-dark .dashboard-view-switch a { background: #181819; color: #b2b2bc; }
+.dashboard-view-switch a:last-child { border-right: none; }
+.dashboard-view-switch a:hover { color: #1f1f24; }
+.content-theme-dark .dashboard-view-switch a:hover { color: #e4e4ec; }
+.dashboard-view-switch a.is-active { background: var(--gold); color: #1f1f24; }
+.dashboard-view-switch a:focus-visible { outline: 2px solid var(--gold); outline-offset: -2px; }
 /* ESTADO VACÍO corrective (owner — mejora transversal a Año/Mes multi-
    select, ver pillMultiField/opts.disabledAll): base genérica, no solo
    `--multi` — Año (base) y Mes (`--scroll`) también pueden deshabilitarse

@@ -455,7 +455,9 @@ def test_the_view_reuses_hub_primitives_and_adds_only_generic_extensions_defined
                  ".category-plot-legend .swatch-bar--weighted { background: #a67c00; }", ".content-theme-dark .category-plot-legend .swatch-bar--weighted { background: #e8820a; }"):
         assert kept in commercial, kept
     # token de superficie: definido por tema una vez, consumido por las cabeceras fijas (sin literales #fff/#181819 en la regla de Indicadores)
-    assert tools.count("--content-surface: #fff;") == 1 and tools.count("--content-surface: #181819;") == 1
+    content = (ROOT / "webapp/static/content.css").read_text(encoding="utf-8")                      # el token se promovió a content.css (fuente de verdad de tema compartida con Academy y Presentaciones), mismo nombre y mismos valores
+    surface = lambda value: len(re.findall(r"--content-surface:\s*" + re.escape(value) + ";", content))   # noqa: E731
+    assert surface("#fff") == 1 and surface("#181819") == 1 and "--content-surface:" not in tools
     contained = re.search(r"\.matrix-scroll--contained table\.dashboard-table th \{[^}]*\}", tools).group(0)
     assert "var(--content-surface" in contained and "#fff" not in contained.replace("var(--content-surface, #fff)", "") and "#181819" not in contained
     assert "margin-top: 24px" in hc and ".module-hero + #hc-indicadores-panel" in hc

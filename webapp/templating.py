@@ -68,6 +68,8 @@ class _StaticVersion:
 templates.env.globals["static_version"] = _StaticVersion()
 templates.env.globals["verbose_telemetry"] = is_verbose()
 templates.env.globals["config"] = config
+# URL ÚNICA de las fuentes institucionales del Hub (Inter + JetBrains Mono): la consumen base.html y los documentos propios del Hub que no extienden base (Presentaciones, R1).
+templates.env.globals["hub_fonts_url"] = "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500&display=swap"
 
 
 def _dsa_tool(request, stem: str) -> dict:

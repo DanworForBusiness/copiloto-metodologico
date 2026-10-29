@@ -153,6 +153,12 @@ _CM02_LEGACY_KEY = "estrategia"
 _CM02_VISIBLE_LABEL = "Estrategia"
 _CM02_DISPLAY_ORDER = 2
 
+# CM03 — Comercial/Presentaciones (Presentaciones V1). Tercera entrada de la colección de Comercial (`display_order=3`) — MISMO criterio que CM01/CM02: literales propios, sin Markdown backing.
+CM03_MODULE_ID = "CM03"
+_CM03_LEGACY_KEY = "presentaciones"
+_CM03_VISIBLE_LABEL = "Presentaciones"
+_CM03_DISPLAY_ORDER = 3
+
 
 def _build_entries() -> tuple[ModuleDescriptor, ...]:
     # `display_order` viene SIEMPRE del segundo elemento de la tupla
@@ -225,6 +231,13 @@ def _build_entries() -> tuple[ModuleDescriptor, ...]:
         kind="module", content_key=None,
         visible_label=_CM02_VISIBLE_LABEL,
         display_order=_CM02_DISPLAY_ORDER, legacy_aliases=(_CM02_LEGACY_KEY,),
+    ))
+    # Comercial/Presentaciones — área "presentations" (ver activity_context.AREA_PRESENTATIONS).
+    entries.append(ModuleDescriptor(
+        module_id=CM03_MODULE_ID, workspace="commercial", area="presentations",
+        kind="module", content_key=None,
+        visible_label=_CM03_VISIBLE_LABEL,
+        display_order=_CM03_DISPLAY_ORDER, legacy_aliases=(_CM03_LEGACY_KEY,),
     ))
     return tuple(entries)
 

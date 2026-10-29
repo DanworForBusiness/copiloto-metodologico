@@ -1,0 +1,25 @@
+{# Diálogo ÚNICO de «Copiar como nueva» (Comercial → Presentaciones). MISMO primitivo `<dialog class="dw-confirm">` que el resto del Hub. El opener (`[data-cp-copy-open]`) trae por data-attrs el id y el
+   título de origen; `commercial_presentations.js` hace el POST (multipart, mismo origen: título + logo opcional) y navega al detalle de la copia. Copiar NO requiere nada más que Comercial: la copia queda a nombre de quien la crea. #}
+<dialog class="dw-confirm" id="cp-copy-dialog" aria-labelledby="cp-copy-title">
+  <form method="dialog" class="tree-feedback-form cp-form" data-cp-copy-form>
+    <div class="dw-confirm__body">
+      <h2 class="dw-confirm__title" id="cp-copy-title">Copiar como nueva presentación</h2>
+      <p class="dw-confirm__msg">Se crea una copia independiente a tu nombre: podés editar su contenido sin afectar la original.</p>
+      <div class="feedback-field">
+        <label for="cp-copy-name">Título de la copia</label>
+        <input id="cp-copy-name" type="text" maxlength="{{ max_title }}" autocomplete="off" required data-cp-title>
+      </div>
+      {# Logo del cliente (opcional): reemplaza al logo de Vanture del header y el pie. Selector nativo de archivo (mismo criterio que CCHH: sin primitivo visual nuevo) + aclaración con `.dashboard-empty__hint`. El servidor valida de nuevo todo. #}
+      <div class="feedback-field">
+        <label for="cp-copy-logo">Logo del cliente (opcional)</label>
+        <input id="cp-copy-logo" type="file" accept="image/png,.png" data-cp-logo>
+        <p class="dashboard-empty__hint">Reemplaza al logo de Vanture. PNG con fondo transparente, hasta 1 MB. Si no subís uno, la copia conserva el original.</p>
+      </div>
+      <p class="feedback-error" role="alert" data-cp-copy-error hidden></p>
+    </div>
+    <div class="dw-confirm__actions">
+      <button type="submit" class="btn-secondary" value="cancel" formnovalidate>Cancelar</button>
+      <button type="button" class="btn-primary" data-cp-copy-submit>Crear copia</button>
+    </div>
+  </form>
+</dialog>
