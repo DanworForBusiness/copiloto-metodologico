@@ -1680,3 +1680,46 @@ def test_section_feedback_route_never_checks_can_edit_strategy_user():
     # LLAME como código real dentro de las rutas de feedback.
     feedback_block = _STRATEGY_PY.split("# ── Feedback por sección")[1]
     assert "can_edit_strategy_user(" not in feedback_block
+
+
+# ============================================================================
+# Fila de acciones arriba a la derecha: «Editar» (solo CONTENT_OWNER) + «Compartir» (todos)
+# ============================================================================
+
+def test_share_button_is_visible_to_every_authorized_visitor_without_the_edit_ui():
+    text = client.get("/comercial/estrategia").text
+    assert 'id="cs-share-btn"' in text and 'data-cs-copy-link="/comercial/estrategia"' in text
+    assert "commercial_strategy_share.js" in text
+    assert "data-cs-status" in text and 'data-dw-auto-dismiss="4000"' in text   # aviso transitorio: primitivo del Hub
+    # no abre la edición a quien no puede editar
+    for banned in ("cs-edit-toggle", "cs-edit-toolbar", ">Editar<", "cs-save-btn"):
+        assert banned not in text, banned
+
+
+def test_actions_row_keeps_edit_for_the_owner_and_puts_share_as_the_highlighted_last_action(monkeypatch):
+    _with_owner(monkeypatch)
+    text = owner_client.get("/comercial/estrategia").text
+    row = text.split('<div class="cs-actions">')[1].split('data-cs-status')[0]
+    assert row.index('id="cs-edit-toggle"') < row.index('id="cs-save-btn"') < row.index('id="cs-share-btn"')
+    assert 'class="btn-primary" id="cs-share-btn"' in row   # el naranja del Hub (mismo `.btn-primary` de «Compartir perfiles» en CCHH)
+    assert "@click=\"editing ? cancelEdit() : startEdit()\"" in row   # comportamiento de Editar intacto
+
+
+def test_share_link_is_a_plain_path_with_no_query_or_credentials_and_the_route_keeps_its_auth():
+    text = client.get("/comercial/estrategia").text
+    assert 'data-cs-copy-link="/comercial/estrategia"' in text
+    anonymous = TestClient(app, follow_redirects=False).get("/comercial/estrategia")
+    assert anonymous.status_code in (302, 303, 307, 401, 403)   # el enlace NO evita la autorización normal
+
+
+def test_share_script_uses_hub_primitives_and_never_innerhtml():
+    js = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "commercial_strategy_share.js").read_text(encoding="utf-8")
+    assert "copyTextToClipboard" in js and "[data-cs-status]" in js and "textContent" in js
+    assert "innerHTML" not in js and "setTimeout" not in js   # el auto-cierre lo da `data-dw-auto-dismiss`
+
+def test_actions_row_is_out_of_flow_so_the_content_aligns_with_the_rest_of_commercial():
+    css = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "commercial_strategy.css").read_text(encoding="utf-8")
+    row = css.split(".cs-actions {")[1].split("}")[0]
+    assert "position: absolute" in row and "right: 0" in row   # no empuja el contenido (Estrategia arranca a la altura de CRM)
+    shell = css.split(".cs-edit-shell {")[1].split("}")[0]
+    assert "position: relative" in shell and "margin: 0 0 14px" in shell   # sin margen superior: el eyebrow coincide con el de CRM
