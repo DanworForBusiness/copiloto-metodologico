@@ -538,16 +538,28 @@
            $el.querySelectorAll('.content-reveal:not(.is-visible)').forEach(n => n.classList.add('is-visible'));
          }); })"
     >
-      {% if can_edit %}
-      <div class="cs-edit-toolbar">
-        <button type="button" class="btn-secondary" id="cs-edit-toggle" @click="editing ? cancelEdit() : startEdit()">
-          <span x-text="editing ? 'Cancelar' : 'Editar'"></span>
-        </button>
-        <span x-show="editing && dirty" x-cloak class="cs-dirty-badge">Sin guardar</span>
-        <button type="button" x-show="editing" x-cloak class="btn-primary" id="cs-save-btn" :disabled="saving || !dirty" @click="save()">
-          <span x-text="saving ? 'Guardando…' : 'Guardar'"></span>
+      {#- Fila de acciones arriba a la DERECHA del contenido (mismo patrón que Capital Humano: `.hc-profiles-hero-actions`, alto 38px). «Editar» (solo `can_edit`) conserva su comportamiento;
+          «Compartir» es la acción destacada (`.btn-primary`, el naranja del Hub) y la ve CUALQUIER visitante autorizado a Comercial: solo copia la URL de esta página (`commercial_strategy_share.js`);
+          no concede acceso, quien la abre pasa por la sesión/autorización normal del Hub. El aviso transitorio reutiliza `.cp-toast` (commercial.css) + `data-dw-auto-dismiss` (app.js). #}
+      <div class="cs-actions">
+        {% if can_edit %}
+        <div class="cs-edit-toolbar">
+          <button type="button" class="btn-secondary" id="cs-edit-toggle" @click="editing ? cancelEdit() : startEdit()">
+            <span x-text="editing ? 'Cancelar' : 'Editar'"></span>
+          </button>
+          <span x-show="editing && dirty" x-cloak class="cs-dirty-badge">Sin guardar</span>
+          <button type="button" x-show="editing" x-cloak class="btn-primary" id="cs-save-btn" :disabled="saving || !dirty" @click="save()">
+            <span x-text="saving ? 'Guardando…' : 'Guardar'"></span>
+          </button>
+        </div>
+        {% endif %}
+        <button type="button" class="btn-primary" id="cs-share-btn" data-cs-copy-link="/comercial/estrategia">
+          <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4"/><path d="M15.4 6.5l-6.8 4"/></svg>
+          Compartir
         </button>
       </div>
+      <div class="cp-toast" aria-live="polite" data-dw-auto-dismiss="4000" data-cs-status></div>
+      {% if can_edit %}
       <p x-show="editing && error" x-cloak class="cs-edit-error" id="cs-save-error" x-text="error"></p>
       {% endif %}
       <section id="hero" class="module-hero">
@@ -1197,4 +1209,5 @@
 
 <link rel="stylesheet" href="{{ url_for('static', path='commercial.css') }}?v={{ static_version }}">
 <link rel="stylesheet" href="{{ url_for('static', path='commercial_strategy.css') }}?v={{ static_version }}">
+<script defer src="{{ url_for('static', path='commercial_strategy_share.js') }}?v={{ static_version }}"></script>
 {% endblock %}

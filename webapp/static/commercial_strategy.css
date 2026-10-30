@@ -224,9 +224,11 @@
    app.css), demasiado alto para un toggle chico flotando sobre el hero:
    sin este override pisaba el eyebrow de abajo. Mismo look (mismo
    `--line`/`--card`/`--gold`), solo más angosto en altura/padding. */
+/* Fila de acciones arriba a la derecha (Editar + Compartir): botones con la medida de Capital Humano (`.hc-profiles-hero-actions`: 38px, padding 0 16px, radio 8px). */
+.cs-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 12px; margin-bottom: 18px; }
 .cs-edit-toolbar { display: flex; align-items: center; gap: 12px; }
-.cs-edit-toolbar .btn-secondary, .cs-edit-toolbar .btn-primary {
-  min-height: 30px; padding: 5px 12px; font-size: .74rem;
+.cs-actions .btn-secondary, .cs-actions .btn-primary {
+  height: 38px; min-height: 38px; padding: 0 16px; border-radius: 8px; display: inline-flex; align-items: center; gap: 8px;
 }
 
 /* Edición INLINE (gate "PIVOT EDIT UX TO INLINE STRUCTURED EDITING") —
