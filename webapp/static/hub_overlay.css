@@ -1,0 +1,23 @@
+/* hub_overlay.css — FUENTE ÚNICA del overlay del Hub ("Completando acceso…" en el login y "Abriendo espacio…" al cambiar de
+   vertical). La cargan DOS mundos: el login (vía el @import de brand-hero.css) y las pantallas autenticadas (vía el <link> de
+   platform_topbar). Se extrajo de brand-hero.css para poder reutilizar EXACTAMENTE el mismo visual en las pantallas
+   autenticadas SIN arrastrar el `:root`/`html,body` de brand-hero (que fijan los colores oscuros del login y romperían el tema
+   claro autenticado).
+
+   Colores LITERALES a propósito (no var()): el overlay debe verse SIEMPRE igual que el del login —fondo oscuro, texto claro,
+   spinner dorado— sin importar el tema claro/oscuro de la pantalla autenticada sobre la que aparece. Son exactamente los
+   valores que --ink (#e4e4ec) y --gold (#e7b008) resuelven en el login, así que el login NO cambia ni un pixel. */
+
+/* ── Overlay base (visual del login) ── */
+.auth-overlay{position:fixed;inset:0;z-index:50;display:none;flex-direction:column;gap:18px;
+  align-items:center;justify-content:center;background:rgba(12,12,13,.94);color:#e4e4ec;
+  font:600 .9rem 'JetBrains Mono',monospace;letter-spacing:.12em;text-transform:uppercase}
+body.auth-completing .auth-overlay{display:flex}            /* disparador del login (callback de Microsoft) */
+.auth-spinner{width:34px;height:34px;border-radius:50%;border:2px solid rgba(231,176,8,.25);
+  border-top-color:#e7b008;animation:auth-spin .8s linear infinite}
+@keyframes auth-spin{to{transform:rotate(360deg)}}
+
+/* ── Preload al cambiar de VERTICAL — REUTILIZA .auth-overlay/.auth-spinner; sólo cambia el disparador
+   (body.hub-transitioning, puesto por hub_transition.js) y el texto. Sin segundo spinner ni CSS duplicado. ── */
+body.hub-transitioning .auth-overlay[data-hub-transition]{display:flex}
+@media (prefers-reduced-motion:reduce){.auth-overlay[data-hub-transition] .auth-spinner{animation:none}}

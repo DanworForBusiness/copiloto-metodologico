@@ -2,6 +2,9 @@
    fondo animado (gradiente + grid + grano + circuito + red de partículas) y el cue
    "scroll". Una sola página: intro (logo) → acceso (login), compartiendo el fondo.
    Único cambio de marca: gold #B8960C → #E7B008 (rgba 231,176,8). */
+/* Overlay "Completando acceso…" → movido a webapp/static/hub_overlay.css (FUENTE ÚNICA, compartida con las pantallas
+   autenticadas). Se trae acá por @import para que el login lo siga cargando sin tocar sus plantillas. */
+@import "hub_overlay.css";
 :root{
   --bg:#0c0c0d; --bg-card:#181819; --ink:#e4e4ec; --ink-soft:#8b8b96; --ink-dim:#50505a;
   --gold:#e7b008; --gold-2:#c8990a; --line:rgba(231,176,8,.14);
@@ -180,11 +183,4 @@ html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans)
 .workspace-tile .access-list li{font-size:.78rem;gap:8px}
 .workspace-tile .access-check{width:17px;height:17px;font-size:.58rem}
 
-/* ── Overlay "Completando acceso…" (mientras se procesa el callback de Microsoft) ── */
-.auth-overlay{position:fixed;inset:0;z-index:50;display:none;flex-direction:column;gap:18px;
-  align-items:center;justify-content:center;background:rgba(12,12,13,.94);color:var(--ink);
-  font:600 .9rem var(--mono);letter-spacing:.12em;text-transform:uppercase}
-body.auth-completing .auth-overlay{display:flex}
-.auth-spinner{width:34px;height:34px;border-radius:50%;border:2px solid rgba(231,176,8,.25);
-  border-top-color:var(--gold);animation:auth-spin .8s linear infinite}
-@keyframes auth-spin{to{transform:rotate(360deg)}}
+/* ── Overlay "Completando acceso…" / transición entre verticales → webapp/static/hub_overlay.css (fuente ÚNICA, @import arriba). ── */
