@@ -1716,3 +1716,10 @@ def test_share_script_uses_hub_primitives_and_never_innerhtml():
     js = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "commercial_strategy_share.js").read_text(encoding="utf-8")
     assert "copyTextToClipboard" in js and "[data-cs-status]" in js and "textContent" in js
     assert "innerHTML" not in js and "setTimeout" not in js   # el auto-cierre lo da `data-dw-auto-dismiss`
+
+def test_actions_row_is_out_of_flow_so_the_content_aligns_with_the_rest_of_commercial():
+    css = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "commercial_strategy.css").read_text(encoding="utf-8")
+    row = css.split(".cs-actions {")[1].split("}")[0]
+    assert "position: absolute" in row and "right: 0" in row   # no empuja el contenido (Estrategia arranca a la altura de CRM)
+    shell = css.split(".cs-edit-shell {")[1].split("}")[0]
+    assert "position: relative" in shell and "margin: 0 0 14px" in shell   # sin margen superior: el eyebrow coincide con el de CRM
