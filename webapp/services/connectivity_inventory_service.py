@@ -95,7 +95,7 @@ def can_use_client_profiles(request) -> bool:
 def tool_context(request, stem: str) -> dict:
     """Contexto de la plantilla. ``form`` = SOLO host/token/client_id de la sesión del módulo 04 (lectura; acá no se guarda nada)."""
     enabled = tool_enabled(stem)
-    can = bool(enabled and can_execute(request))
+    can = bool(enabled and request is not None and can_execute(request))   # sin request (render aislado) no hay permiso: marcado de siempre
     owner_only = bool(can and can_use_client_profiles(request))
     form: dict[str, str] = {}
     if can:
