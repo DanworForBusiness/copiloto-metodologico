@@ -101,6 +101,21 @@ class CliConnectionSource:
     No se ejecuta contra tenants reales en F2.1. El `preflight` valida OAuth y el scope de conexiones
     (listar conexiones de un espacio de prueba); esa validación de compatibilidad real requiere un tenant
     NO productivo (gate F2.1-real).
+
+    BRECHAS del adaptador REAL (lo que el simulador NO demuestra; corrección mínima en el gate F2.1-real):
+    - Paginación: `_run` hace UNA llamada; confía en que `datasphere spaces connections list` devuelve la
+      lista completa. No verificado si el comando pagina o topa resultados. Corrección: si pagina, iterar
+      con los flags de página del CLI (p. ej. `--top`/`--skip`, como `authorization_preflight` usa `--top 1`).
+    - 429/Retry-After: `_run` no los maneja; un rate-limit del CLI llega como returncode≠0 y acá se mapea
+      NO-retriable → no se reintenta. Corrección: detectar 429/“Too Many Requests” en stderr y relanzar
+      SourceError(retriable=True, retry_after=<parseado>).
+    - Timeout: `_invoke_cli` usa `subprocess.run` SIN `timeout` → una llamada colgada bloquea. Corrección:
+      pasar `timeout=` y mapear `TimeoutExpired` a SourceError("TIMEOUT", retriable=True).
+    - Clasificación de permisos: list→SPACE_INACCESSIBLE y get→GET_FAILED son genéricos; no distinguen
+      403/401. Corrección: inspeccionar el stderr (como `authorization_preflight`) y emitir SCOPE_DENIED.
+    - Detección de respuesta incompleta: `_run` detecta salida vacía / JSON no parseable, pero NO una lista
+      truncada silenciosa. Corrección: si el CLI expone total/cursor, contrastar contra lo recibido.
+    Hasta cubrirlas y validarlas contra un tenant NO productivo, la extracción REAL no debe darse por probada.
     """
     host: str
     client_id: str

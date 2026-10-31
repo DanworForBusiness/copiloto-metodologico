@@ -182,6 +182,19 @@ def test_extraction_is_read_only():
     assert all(c[0] in read_verbs for c in src.calls)       # nunca create/update/delete/write
 
 
+# ── cobertura: una página incompleta NUNCA produce COMPLETE ──────────────────
+def test_incomplete_page_cannot_yield_complete():
+    # A mitad de la paginación de CALIDAD falla una página (error no-retriable) → el espacio no se puede
+    # listar completo → inaccesible → PARTIAL. La página parcial NO se acepta silenciosamente como completa.
+    faults = {("list", "CALIDAD", 1): [SourceError("SERVER_ERROR", "500 Internal Server Error")]}
+    src = SimulatedConnectionSource(_spaces_data(), page_size=2, faults=faults)
+    inv = _extract(src)
+    assert inv.status == InventoryStatus.PARTIAL
+    assert inv.status != InventoryStatus.COMPLETE
+    assert "CALIDAD" in inv.coverage.inaccessible_spaces           # no se reporta como 0 conexiones ni completo
+    assert all(c.identity.space != "CALIDAD" for c in inv.connections)
+
+
 # ── environment gobernado: espacio sin mapeo → hueco, no se inventa ──────────
 def test_ungoverned_space_is_a_gap_not_invented():
     src = SimulatedConnectionSource(_spaces_data())
