@@ -616,6 +616,9 @@ class DatasphereCli:
         if use_secrets_file:
             self._login_with_secrets_file(timeout=timeout)
             return
+        # Sin timeout pedido, la llamada conserva la forma HISTÓRICA exacta (`_run(args)`): los consumidores existentes
+        # (y sus dobles de prueba) no reciben un kwarg nuevo.
+        run_kwargs = {} if timeout is None else {"timeout": timeout}
         self._run(
             [
                 "login",
@@ -626,7 +629,7 @@ class DatasphereCli:
                 "--authorization-flow", "client_credentials",
                 "--force",
             ],
-            timeout=timeout,
+            **run_kwargs,
         )
 
     def _login_with_secrets_file(self, *, timeout: float | None) -> None:
