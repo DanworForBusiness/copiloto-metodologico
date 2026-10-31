@@ -18,9 +18,18 @@ VERSION = "connectivity-inventory/v1"
 
 
 class InventoryStatus(Enum):
+    """Estado de EJECUCIÓN de la extracción (¿terminaron bien las llamadas que se hicieron?)."""
     COMPLETE = "COMPLETE"      # todos los espacios esperados accesibles y todas las conexiones extraídas, sin errores
     PARTIAL = "PARTIAL"        # se extrajo algo pero hay huecos/errores
     FAILED = "FAILED"          # preflight falló o no se pudo acceder a nada
+
+
+class Exhaustiveness(Enum):
+    """Exhaustividad COMPROBADA del inventario (¿lo extraído es TODO lo que existe?). Eje SEPARADO del estado
+    de ejecución: una ejecución COMPLETE no implica un inventario exhaustivo (ver `compute_exhaustiveness`)."""
+    VERIFIED = "VERIFIED"            # la fuente puede probar completitud (cursor/total contrastado, o datos conocidos)
+    UNVERIFIABLE = "UNVERIFIABLE"    # todas las llamadas OK pero sin señal verificable de completitud (p. ej. CLI sin cursor/total)
+    INCOMPLETE = "INCOMPLETE"        # se sabe que falta algo (espacio inaccesible, listado/ get con error, truncación)
 
 
 @dataclass(frozen=True)
@@ -51,9 +60,10 @@ class ConnectivityInventory:
     captured_at: str                   # ISO-8601 UTC
     tenant_id: str                     # identidad técnica estable (CUID/host contrastado por OAuth)
     tenant_host: str
-    status: InventoryStatus
+    status: InventoryStatus            # EJECUCIÓN (COMPLETE/PARTIAL/FAILED)
     coverage: InventoryCoverage
     connections: tuple = ()            # ObservedConnection[]
+    exhaustiveness: Exhaustiveness = Exhaustiveness.INCOMPLETE   # ¿es TODO lo que existe? eje separado del estado
     version: str = VERSION
 
     def to_dict(self) -> dict:
@@ -80,6 +90,7 @@ class ConnectivityInventory:
             "captured_at": self.captured_at,
             "tenant": {"tenant_id": self.tenant_id, "host": self.tenant_host},
             "status": self.status.value,
+            "exhaustiveness": self.exhaustiveness.value,
             "coverage": {
                 "expected_spaces": list(self.coverage.expected_spaces),
                 "accessible_spaces": list(self.coverage.accessible_spaces),
@@ -109,3 +120,16 @@ def compute_status(coverage: InventoryCoverage, *, preflight_ok: bool, had_targe
         and coverage.extracted_connections == coverage.discovered_connections
     )
     return InventoryStatus.COMPLETE if complete else InventoryStatus.PARTIAL
+
+
+def compute_exhaustiveness(status: InventoryStatus, *, source_guarantees_exhaustive: bool) -> Exhaustiveness:
+    """Exhaustividad SEPARADA del estado de ejecución.
+
+    - Ejecución no COMPLETE (PARTIAL/FAILED) ⇒ INCOMPLETE (se sabe que falta algo).
+    - Ejecución COMPLETE: VERIFIED solo si la fuente puede PROBAR completitud (cursor/total o datos conocidos);
+      si no hay señal verificable (p. ej. el CLI devuelve un array sin cursor/total), UNVERIFIABLE — una
+      ejecución correcta NO se convierte automáticamente en inventario exhaustivo.
+    """
+    if status != InventoryStatus.COMPLETE:
+        return Exhaustiveness.INCOMPLETE
+    return Exhaustiveness.VERIFIED if source_guarantees_exhaustive else Exhaustiveness.UNVERIFIABLE

@@ -40,7 +40,7 @@ class SimulatedConnectionSource:
     def __init__(self, spaces: dict, *, page_size: Optional[int] = None,
                  inaccessible: Optional[set] = None, preflight_error: Optional[SourceError] = None,
                  faults: Optional[dict] = None, retry: Optional[RetryPolicy] = None,
-                 tenant: str = "sim-tenant"):
+                 tenant: str = "sim-tenant", guarantees_exhaustive_list: bool = True):
         self._spaces = {s: list(v) for s, v in spaces.items()}
         self.page_size = page_size
         self.inaccessible = set(inaccessible or ())
@@ -48,6 +48,9 @@ class SimulatedConnectionSource:
         self._faults = {k: list(v) for k, v in (faults or {}).items()}
         self.retry = retry or RetryPolicy()
         self.tenant = tenant
+        # El simulado CONOCE el conjunto completo de datos → por defecto puede garantizar exhaustividad.
+        # Se puede poner False para imitar el caso del CLI (array sin cursor/total → UNVERIFIABLE).
+        self.guarantees_exhaustive_list = guarantees_exhaustive_list
         self.calls: list = []          # registro de operaciones de LECTURA (para el test de "no escrituras")
 
     def _pop_fault(self, *key):

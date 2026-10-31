@@ -15,7 +15,15 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Callable, Optional, Protocol, runtime_checkable
 
-from .inventory import ConnectivityInventory, InventoryCoverage, ExtractionError, InventoryStatus, compute_status
+from .inventory import (
+    ConnectivityInventory,
+    Exhaustiveness,
+    ExtractionError,
+    InventoryCoverage,
+    InventoryStatus,
+    compute_exhaustiveness,
+    compute_status,
+)
 from .snapshot import from_snapshot
 
 
@@ -119,11 +127,15 @@ def extract_inventory(
     snapshot_id = snapshot_id or uuid.uuid4().hex
     errors: list = []
 
+    # ¿La fuente puede PROBAR completitud del listado? (CLI sin cursor/total ⇒ False.)
+    source_guarantees_exhaustive = bool(getattr(source, "guarantees_exhaustive_list", False))
+
     def _inv(status, coverage, conns=()):
         return ConnectivityInventory(
             client=client, snapshot_id=snapshot_id, captured_at=now(),
             tenant_id=tenant_id, tenant_host=tenant_host, status=status,
             coverage=coverage, connections=tuple(conns),
+            exhaustiveness=compute_exhaustiveness(status, source_guarantees_exhaustive=source_guarantees_exhaustive),
         )
 
     # 1) Preflight (OAuth + scope). Un fallo acá ⇒ FAILED, sin exponer secretos.

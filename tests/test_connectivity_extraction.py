@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from tools.catalog.connectivity_governance import (
+    Exhaustiveness,
     InventoryStatus,
     RetryPolicy,
     SimulatedConnectionSource,
@@ -180,6 +181,33 @@ def test_extraction_is_read_only():
     read_verbs = {"preflight", "list_spaces", "list", "get"}
     assert src.calls, "debió registrar llamadas de lectura"
     assert all(c[0] in read_verbs for c in src.calls)       # nunca create/update/delete/write
+
+
+# ── exhaustividad SEPARADA del estado de ejecución ───────────────────────────
+def test_complete_execution_is_not_exhaustive_when_source_cannot_prove_it():
+    # Fuente que imita el CLI (array sin cursor/total): todas las llamadas OK → COMPLETE, pero la
+    # exhaustividad NO es verificable → UNVERIFIABLE. Una ejecución correcta NO es un inventario exhaustivo.
+    src = SimulatedConnectionSource(_spaces_data(), guarantees_exhaustive_list=False)
+    inv = _extract(src)
+    assert inv.status == InventoryStatus.COMPLETE
+    assert inv.exhaustiveness == Exhaustiveness.UNVERIFIABLE
+    assert inv.to_dict()["exhaustiveness"] == "UNVERIFIABLE"
+
+
+def test_complete_execution_is_verified_when_source_guarantees_completeness():
+    # El simulado conoce el conjunto completo → puede garantizar exhaustividad → VERIFIED.
+    src = SimulatedConnectionSource(_spaces_data())  # guarantees_exhaustive_list=True por defecto
+    inv = _extract(src)
+    assert inv.status == InventoryStatus.COMPLETE
+    assert inv.exhaustiveness == Exhaustiveness.VERIFIED
+
+
+def test_partial_and_failed_executions_are_incomplete_exhaustiveness():
+    partial = _extract(SimulatedConnectionSource(_spaces_data(), inaccessible={"DESARROLLO"}))
+    assert partial.status == InventoryStatus.PARTIAL and partial.exhaustiveness == Exhaustiveness.INCOMPLETE
+    failed = _extract(SimulatedConnectionSource(_spaces_data(),
+                                                preflight_error=SourceError("OAUTH_FAILED", "401")))
+    assert failed.status == InventoryStatus.FAILED and failed.exhaustiveness == Exhaustiveness.INCOMPLETE
 
 
 # ── cobertura: una página incompleta NUNCA produce COMPLETE ──────────────────

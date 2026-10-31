@@ -28,9 +28,11 @@ from .snapshot import from_snapshot, is_connection_doc
 # F2.1 — extracción read-only + inventario normalizado (importables sin el CLI; la fuente real lo carga perezoso)
 from .inventory import (
     ConnectivityInventory,
+    Exhaustiveness,
     ExtractionError,
     InventoryCoverage,
     InventoryStatus,
+    compute_exhaustiveness,
     compute_status,
 )
 from .extraction import (
@@ -59,7 +61,8 @@ __all__ = [
     "ObservedConnection", "ConnectionIdentity", "PhysicalSystemIdentity", "AgentObservation",
     "ConnectivityVerdict", "Conformance", "Operational", "Coverage", "Divergence",
     # F2.1
-    "ConnectivityInventory", "InventoryCoverage", "InventoryStatus", "ExtractionError", "compute_status",
+    "ConnectivityInventory", "InventoryCoverage", "InventoryStatus", "Exhaustiveness", "ExtractionError",
+    "compute_status", "compute_exhaustiveness",
     "extract_inventory", "ConnectionSource", "SourceError", "RetryPolicy", "with_retry", "sanitize",
     "SimulatedConnectionSource", "CliConnectionSource", "rate_limited", "timed_out",
     "classify_cli_error", "PreflightReport", "PreflightCheck", "CheckStatus",
