@@ -4,8 +4,10 @@ Source-agnóstica: recibe un `ConnectionSource` (CLI real o simulado) y produce 
 Maneja reintentos con límites de API (429 + Retry-After), timeouts y errores PARCIALES sin abortar todo.
 NUNCA escribe en el tenant/SharePoint/Spaces: solo lee. NUNCA deja secretos/tokens en errores (ver `sanitize`).
 
-El `environment` y el `tenant_id` son GOBERNADOS (los provee el llamador vía `space_environment_map`/`tenant_id`);
-no se infieren de nombres. Un espacio sin environment gobernado se reporta como hueco (PARCIAL), no se inventa.
+El `environment` es un atributo GOBERNADO (lo asigna el registro de F2.2), NO un requisito técnico: la extracción solo necesita
+tenant, Spaces y conexiones. Si el llamador provee `space_environment_map` se usa tal cual; un Space SIN clasificación se extrae
+igual y queda con `environment: null` en el inventario (marcador interno UNASSIGNED_ENVIRONMENT), sin error y sin degradar el
+estado. Nunca se infiere de nombres de Spaces, tenants o conexiones.
 """
 from __future__ import annotations
 
@@ -17,6 +19,7 @@ from datetime import datetime, timezone
 from typing import Callable, Iterable, Optional, Protocol, runtime_checkable
 
 from .inventory import (
+    UNASSIGNED_ENVIRONMENT,
     ConnectivityInventory,
     Exhaustiveness,
     ExtractionError,
@@ -129,7 +132,7 @@ def extract_inventory(
     client: str,
     tenant_id: str,
     tenant_host: str,
-    space_environment_map: dict,
+    space_environment_map: Optional[dict] = None,
     expected_spaces: Optional[list] = None,
     retry: Optional[RetryPolicy] = None,
     snapshot_id: Optional[str] = None,
@@ -141,6 +144,7 @@ def extract_inventory(
     """
     retry = retry or RetryPolicy()
     now = now or _now_iso
+    space_environment_map = space_environment_map or {}
     snapshot_id = snapshot_id or uuid.uuid4().hex
     errors: list = []
 
@@ -179,13 +183,8 @@ def extract_inventory(
 
     # 3) Por cada espacio objetivo: list (paginado por la fuente) → get por conexión.
     for space in targets:
-        env = space_environment_map.get(space)
-        if env is None:
-            # environment es GOBERNADO: sin mapeo no se extrae (observado≠gobernado). Hueco → PARCIAL.
-            errors.append(ExtractionError(f"space:{space}", "ENVIRONMENT_UNGOVERNED",
-                                          f"espacio '{space}' sin environment gobernado; no se extrae"))
-            inaccessible.append(space)
-            continue
+        # environment es GOBERNADO (F2.2), no requisito técnico: sin clasificación el Space se extrae igual (clasificación pendiente).
+        env = space_environment_map.get(space) or UNASSIGNED_ENVIRONMENT
         try:
             # `list_connections` resuelve su propia PAGINACIÓN y sus 429 por página (responsabilidad de la fuente).
             items = source.list_connections(space)

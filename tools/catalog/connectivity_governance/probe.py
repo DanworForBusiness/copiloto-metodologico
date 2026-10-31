@@ -50,7 +50,7 @@ def _budget_stats(budget: Budget) -> dict:
 
 
 def run_probe(source, budget: Budget, *, client: str, tenant_id: str, tenant_host: str,
-              space_environment_map: dict, expected_spaces: list, max_attempts: int = 4,
+              expected_spaces: list, space_environment_map: Optional[dict] = None, max_attempts: int = 4,
               sleep: Callable[[float], None] = time.sleep,
               real_profile: Optional[Path] = None) -> ProbeOutcome:
     """Preflight (una vez) → extracción read-only, todo bajo `budget`. No persiste nada."""

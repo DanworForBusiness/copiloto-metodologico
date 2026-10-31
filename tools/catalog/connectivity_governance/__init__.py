@@ -32,6 +32,7 @@ from .inventory import (
     ExtractionError,
     InventoryCoverage,
     InventoryStatus,
+    UNASSIGNED_ENVIRONMENT,
     compute_exhaustiveness,
     compute_status,
 )
@@ -76,7 +77,7 @@ __all__ = [
     "ConnectivityVerdict", "Conformance", "Operational", "Coverage", "Divergence",
     # F2.1
     "ConnectivityInventory", "InventoryCoverage", "InventoryStatus", "Exhaustiveness", "ExtractionError",
-    "compute_status", "compute_exhaustiveness",
+    "compute_status", "compute_exhaustiveness", "UNASSIGNED_ENVIRONMENT",
     "extract_inventory", "ConnectionSource", "SourceError", "RetryPolicy", "with_retry", "sanitize",
     "SimulatedConnectionSource", "CliConnectionSource", "rate_limited", "timed_out",
     "classify_cli_error", "PreflightReport", "PreflightCheck", "CheckStatus",

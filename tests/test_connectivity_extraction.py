@@ -15,6 +15,8 @@ import pytest
 from tools.catalog.connectivity_governance import (
     Exhaustiveness,
     InventoryStatus,
+    UNASSIGNED_ENVIRONMENT,
+    from_snapshot,
     RetryPolicy,
     SimulatedConnectionSource,
     SourceError,
@@ -223,10 +225,26 @@ def test_incomplete_page_cannot_yield_complete():
     assert all(c.identity.space != "CALIDAD" for c in inv.connections)
 
 
-# ── environment gobernado: espacio sin mapeo → hueco, no se inventa ──────────
-def test_ungoverned_space_is_a_gap_not_invented():
+# ── environment = GOBIERNO (F2.2), no requisito técnico: sin clasificación se extrae igual, sin inventar ──────────
+def test_unclassified_space_is_extracted_with_null_environment():
     src = SimulatedConnectionSource(_spaces_data())
-    inv = _extract(src, space_environment_map={"CALIDAD": "QAS"})  # falta DESARROLLO
-    assert inv.status == InventoryStatus.PARTIAL
-    assert any(e.code == "ENVIRONMENT_UNGOVERNED" and e.scope == "space:DESARROLLO" for e in inv.coverage.errors)
-    assert all(c.identity.space != "DESARROLLO" for c in inv.connections)
+    inv = _extract(src, space_environment_map={"CALIDAD": "QAS"})  # DESARROLLO sin clasificación gobernada
+    assert inv.status == InventoryStatus.COMPLETE                   # la ausencia de environment no degrada la extracción
+    assert not inv.coverage.errors and not inv.coverage.inaccessible_spaces
+    dev = [c for c in inv.connections if c.identity.space == "DESARROLLO"]
+    assert dev and all(c.identity.environment == UNASSIGNED_ENVIRONMENT for c in dev)   # marcador interno, no un environment
+    d = inv.to_dict()
+    envs = {(c["identity"]["space"], c["identity"]["environment"]) for c in d["connections"]}
+    assert ("DESARROLLO", None) in envs and ("CALIDAD", "QAS") in envs                   # contrato público: null, nunca inferido
+    assert all(c["identity"]["environment"] in (None, "QAS") for c in d["connections"])
+    # identidad física intacta: no depende de la clasificación (mismo documento ⇒ misma identidad física y de agente)
+    docs = {c["name"]: c for c in _spaces_data()["DESARROLLO"]}
+    for c in dev:
+        ref = from_snapshot(docs[c.identity.connection_name], tenant=TENANT, environment="cualquiera")
+        assert c.physical == ref.physical and c.agent == ref.agent
+
+
+def test_no_map_at_all_extracts_everything_without_errors():
+    inv = _extract(SimulatedConnectionSource(_spaces_data()), space_environment_map=None)
+    assert inv.status == InventoryStatus.COMPLETE and not inv.coverage.errors
+    assert all(c["identity"]["environment"] is None for c in inv.to_dict()["connections"])

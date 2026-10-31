@@ -16,6 +16,12 @@ from .model import ObservedConnection
 
 VERSION = "connectivity-inventory/v1"
 
+# Marcador RESERVADO de clasificación pendiente. NO es un environment (ni válido, ni gobernado, ni homologado): solo existe porque
+# el modelo F1 declara `ConnectionIdentity.environment: str` y F1 no se modifica. El contrato público del inventario lo expone como
+# `environment: null`. El environment real (DEV/QA/QAS/PRD/…) lo asigna el registro gobernado (F2.2); F2.3 no debe evaluar
+# conformidad sobre conexiones sin clasificación. Nunca se infiere de nombres de Spaces, tenants o conexiones.
+UNASSIGNED_ENVIRONMENT = "__UNASSIGNED__"
+
 
 class InventoryStatus(Enum):
     """Estado de EJECUCIÓN de la extracción (¿terminaron bien las llamadas que se hicieron?)."""
@@ -37,7 +43,7 @@ class Exhaustiveness(Enum):
 class ExtractionError:
     """Un error de extracción, ya SANITIZADO (sin secretos/tokens/respuestas crudas)."""
     scope: str                 # "preflight" | "spaces" | "space:<name>" | "connection:<space>/<name>"
-    code: str                  # OAUTH_FAILED | SCOPE_DENIED | RATE_LIMITED | TIMEOUT | SPACE_INACCESSIBLE | GET_FAILED | ENVIRONMENT_UNGOVERNED | ...
+    code: str                  # OAUTH_FAILED | SCOPE_DENIED | RATE_LIMITED | TIMEOUT | SPACE_INACCESSIBLE | GET_FAILED | ...
     message: str               # mensaje legible, sanitizado
     retriable: bool = False
 
@@ -71,7 +77,8 @@ class ConnectivityInventory:
         def conn_dict(c: ObservedConnection) -> dict:
             return {
                 "identity": {
-                    "tenant": c.identity.tenant, "environment": c.identity.environment,
+                    "tenant": c.identity.tenant,
+                    "environment": None if c.identity.environment == UNASSIGNED_ENVIRONMENT else c.identity.environment,
                     "space": c.identity.space, "connection_name": c.identity.connection_name,
                     "type_id": c.identity.type_id,
                 },
