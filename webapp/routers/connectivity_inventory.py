@@ -8,7 +8,7 @@ Ruta (SOLO el POST ejecuta):
       {"t":"done","state","error_code","message","title","errors","operation_id","duration_s","summary"}
 
 Seguridad (MISMO patrón que las herramientas del módulo 04): sesión obligatoria (401); mismo origen (403); herramienta
-habilitada = feature flag ``DANWOR_CONNECTIVITY_EXTRACTION_UI`` + módulo 01 (404); ``can_execute`` (403); un ``profile_id``
+solo en el módulo 01 (404); ``can_execute`` (403); un ``profile_id``
 (perfil de cliente de SharePoint) es SOLO del dueño (403) y su secreto se resuelve en el SERVIDOR. El Client Secret llega
 solo por el cuerpo del POST, no se devuelve, no se guarda, no se registra. A diferencia del módulo 04, NO se reenvían líneas
 del extractor: el único dato de resultado es el resumen saneado (B1). Nada se persiste.

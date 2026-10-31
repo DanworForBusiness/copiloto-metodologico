@@ -6,7 +6,8 @@ marcados en host, URL, SID, mandante, Space, conexión, agente, Client ID y secr
 
 Gates cubiertos: (1) autorización, mismo origen y validación de host · (2) saneamiento integral de NDJSON, errores y logs ·
 (3) no persistencia de secretos ni inventarios · (4) aislamiento y concurrencia entre usuarios/tenants · (5) el módulo 04 no recibe
-nada nuevo · (7) launcher `direct` y workspace seguro (fail-closed) · (8) feature flag apagado por defecto.
+nada nuevo · (7) launcher `direct` y workspace seguro (fail-closed) · (8) visibilidad con las MISMAS reglas que el «+» del
+módulo 04 (`can_execute`, sin variable de entorno), separada de la autorización de ejecución.
 """
 from __future__ import annotations
 
@@ -122,7 +123,6 @@ def env(monkeypatch, tmp_path):
     monkeypatch.setattr(tempfile, "tempdir", str(tmp))
     monkeypatch.setattr(config, "ASSESSMENT_CACHE_DIR", tmp_path / "assessment_cache")
     monkeypatch.setenv("DANWOR_CATALOG_DIR", str(tmp_path / "catalog_local"))
-    monkeypatch.setenv(svc.FLAG_ENV, "1")
     monkeypatch.delenv(svc.PILOT_HOSTS_ENV, raising=False)
     monkeypatch.setattr(access, "APP_OWNER", "owner@danwor.com")
     fake = FakeCli()
@@ -171,21 +171,28 @@ def _shareable(events_or_text, *, hashes=True):
         assert not re.search(r"\b[0-9a-f]{8,}\b", low)
 
 
-# ═══════════════ (8) flag apagado por defecto ═══════════════
-def test_flag_off_by_default_hides_tool_and_404(monkeypatch, env):
-    monkeypatch.delenv(svc.FLAG_ENV)
-    assert svc.flag_enabled() is False and svc.tool_enabled(STEM) is False
-    owner = _client("owner@danwor.com")
-    html = owner.get(f"/modules/{STEM}?pack=datasphere_core&tab=catalogo").text
-    assert "dsc-form" not in html and "connectivity_inventory.js" not in html and "Extraer conexiones" not in html
-    assert _post(owner).status_code == 404
-    assert env.fake.calls == []
+# ═══════════════ (8) visibilidad = mismas reglas que el módulo 04 (sin flag) ═══════════════
+def test_plus_visible_by_can_execute_without_any_env_var(monkeypatch, env):
+    for var in ("DANWOR_CONNECTIVITY_EXTRACTION_UI", svc.PILOT_HOSTS_ENV):
+        monkeypatch.delenv(var, raising=False)
+    assert svc.tool_enabled(STEM) is True and svc.tool_enabled("04_Modelado_y_Desarrollo") is False
+    monkeypatch.setattr(auth_service, "ALLOWED_USERS", "trusted@danwor.com")
+    monkeypatch.setattr(auth_service, "ACADEMY_USERS", "reader@danwor.com")
+    for email in ("owner@danwor.com", "trusted@danwor.com"):                              # dueño y consultor con perfil completo
+        html = _client(email).get(f"/modules/{STEM}?pack=datasphere_core&tab=catalogo").text
+        assert 'id="dsc-form"' in html and "Extraer conexiones de un tenant" in html, email
+    for email in ("reader@danwor.com", "outsider@danwor.com"):                            # sin can_execute: ni «+» ni formulario
+        html = _client(email).get(f"/modules/{STEM}?pack=datasphere_core&tab=catalogo").text
+        assert "dsc-form" not in html and "connectivity_inventory.js" not in html, email
+    assert env.fake.calls == []                                                          # ver la UI no ejecuta nada
 
 
-def test_flag_on_shows_plus_only_in_module_01(env):
+def test_plus_and_catalog_tab_with_empty_catalog_only_in_module_01(env):
+    # El fixture apunta DANWOR_CATALOG_DIR a un directorio VACÍO: la pestaña Catálogo y el «+» siguen disponibles.
     owner = _client("owner@danwor.com")
     m01 = owner.get(f"/modules/{STEM}?pack=datasphere_core&tab=catalogo").text
     m04 = owner.get("/modules/04_Modelado_y_Desarrollo?pack=datasphere_core&tab=catalogo").text
+    assert "toolTab='catalogo'" in m01 and "0 orígenes disponibles" in m01
     assert 'id="dsc-form"' in m01 and "Extraer conexiones de un tenant" in m01 and "declarado" in m01
     assert 'type="password"' in m01 and M_SECRET not in m01
     assert "dsc-form" not in m04 and "connectivity_inventory.js" not in m04                  # (5) el módulo 04 no recibe nada

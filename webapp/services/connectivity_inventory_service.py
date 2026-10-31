@@ -13,7 +13,9 @@ Reutiliza del módulo 04 (sin duplicar): la AUTORIZACIÓN (`datasphere_assessmen
 `DANWOR_DATASPHERE_ALLOWED_HOSTS`) y de nombres, y el contexto NO sensible de la sesión (solo lectura).
 
 Controles propios:
-  * ``DANWOR_CONNECTIVITY_EXTRACTION_UI`` (feature flag): apagado por defecto ⇒ la herramienta no existe (sin «+», POST 404).
+  * visibilidad = MISMAS reglas que el «+» del módulo 04: la herramienta existe en el módulo 01 y se muestra a quien tiene
+    ``can_execute``; sin variable de entorno de visibilidad. Ver la UI NO autoriza a ejecutar: el endpoint vuelve a exigir sesión,
+    mismo origen y ``can_execute``, valida el tenant y aplica la restricción de piloto.
   * ``DANWOR_CONNECTIVITY_PILOT_HOSTS`` (opcional, SERVIDOR): lista de hostnames de tenant habilitados para el piloto; si está
     definida, cualquier otro tenant se rechaza. Nunca viene del navegador.
   * launcher del CLI en modo ``direct`` (fail-closed): con `npx` los nietos podrían sobrevivir a un timeout en Linux.
@@ -40,7 +42,6 @@ from webapp.services import datasphere_assessment_service as asd
 
 log = logging.getLogger("danwor.connectivity_inventory")
 
-FLAG_ENV = "DANWOR_CONNECTIVITY_EXTRACTION_UI"
 PILOT_HOSTS_ENV = "DANWOR_CONNECTIVITY_PILOT_HOSTS"
 MODULES = frozenset({"01_Arquitectura_y_Conectividad"})
 # El selector de perfiles del dueño reutiliza el endpoint EXISTENTE del módulo 04 (misma autorización de dueño; sin ruta nueva).
@@ -81,12 +82,8 @@ _CAPACITY = threading.BoundedSemaphore(MAX_CONCURRENT)
 
 
 # ───────────────────────────── habilitación y autorización (reutilizadas) ─────────────────────────────
-def flag_enabled() -> bool:
-    return os.getenv(FLAG_ENV, "").strip().lower() in {"1", "true", "yes", "on"}
-
-
 def tool_enabled(stem: str) -> bool:
-    return flag_enabled() and stem in MODULES
+    return stem in MODULES                              # como el módulo 04: la herramienta es del módulo, no de un flag
 
 
 def can_execute(request) -> bool:

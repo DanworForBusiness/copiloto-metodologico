@@ -12,7 +12,7 @@
     {{ datasphere_connection_fields("dsc", conn.form, conn.owner_profiles_url) }}
     <div class="tree-picker catalog-picker--secondary">
       <span class="admin-result-title">Alcance</span>
-      <p class="field-hint">El environment es <strong>declarado</strong> por vos: no está homologado ni validado por gobierno.</p>
+      <p class="admin-help">El environment es <strong>declarado</strong> por vos: no está homologado ni validado por gobierno.</p>
       {% for i in conn.space_rows %}
       <div class="catalog-picker--secondary">
         <label class="tool-label" for="dsc-space-{{ i }}">Space ID {{ i }}{% if not loop.first %} (opcional){% endif %}</label>
@@ -54,7 +54,7 @@
       <span data-dsc-message></span>
     </div>
     <div data-dsc-result hidden>
-      <p class="field-hint">Resultado temporal: no se guarda, no se publica y no modifica los Catálogos. Solo muestra estados, conteos y presencia de datos.</p>
+      <p class="admin-help">Resultado temporal: no se guarda, no se publica y no modifica los Catálogos. Solo muestra estados, conteos y presencia de datos.</p>
       <div class="admin-table-wrap">
         <table class="admin-table admin-table--compact" aria-label="Resultado de la extracción">
           <tbody data-dsc-overview></tbody>
@@ -69,5 +69,5 @@
     </div>
   </div>
 </div>
-{# El script se carga SOLO con la herramienta habilitada (base.html no cambia: con el flag apagado ninguna página se modifica). #}
+{# El script se carga SOLO donde se renderiza la herramienta (base.html no cambia: el resto de las páginas no se modifica). #}
 <script defer src="{{ url_for('static', path='connectivity_inventory.js') }}?v={{ static_version }}"></script>

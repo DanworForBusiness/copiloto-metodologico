@@ -5,7 +5,7 @@
 {% set is_security_catalog = module_number == "02" or document.summary.stem.startswith("02_") %}
 {% if is_architecture_catalog %}
 {#- Extracción AD-HOC de conexiones (F2.1): estado `catalogView = 'extract'` del Catálogo, mismo patrón que el «+» de publicación del
-    módulo 04. Con la herramienta deshabilitada (flag apagado o sin permiso) el marcado es EXACTAMENTE el de siempre. -#}
+    módulo 04 y con su MISMA regla de visibilidad (`can_execute`). Sin permiso, el marcado es EXACTAMENTE el de siempre. -#}
 {%- set conn = dsc_tool(request, document.summary.stem) if (document is defined and document) else {"can_execute": False} -%}
 {% if conn.can_execute %}
 <div class="tree-picker catalog-picker--connections">
