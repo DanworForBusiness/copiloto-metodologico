@@ -25,10 +25,32 @@ from .model import (
 )
 from .snapshot import from_snapshot, is_connection_doc
 
+# F2.1 — extracción read-only + inventario normalizado (importables sin el CLI; la fuente real lo carga perezoso)
+from .inventory import (
+    ConnectivityInventory,
+    ExtractionError,
+    InventoryCoverage,
+    InventoryStatus,
+    compute_status,
+)
+from .extraction import (
+    ConnectionSource,
+    RetryPolicy,
+    SourceError,
+    extract_inventory,
+    sanitize,
+    with_retry,
+)
+from .sources import CliConnectionSource, SimulatedConnectionSource, rate_limited, timed_out
+
 __all__ = [
     "compare_configurations", "evaluate", "evaluate_all",
     "from_snapshot", "is_connection_doc",
     "HomologationContract", "LogicalSystem", "ExpectedMember", "GovernedException",
     "ObservedConnection", "ConnectionIdentity", "PhysicalSystemIdentity", "AgentObservation",
     "ConnectivityVerdict", "Conformance", "Operational", "Coverage", "Divergence",
+    # F2.1
+    "ConnectivityInventory", "InventoryCoverage", "InventoryStatus", "ExtractionError", "compute_status",
+    "extract_inventory", "ConnectionSource", "SourceError", "RetryPolicy", "with_retry", "sanitize",
+    "SimulatedConnectionSource", "CliConnectionSource", "rate_limited", "timed_out",
 ]
