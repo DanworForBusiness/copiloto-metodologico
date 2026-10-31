@@ -9,11 +9,12 @@ no se infieren de nombres. Un espacio sin environment gobernado se reporta como 
 """
 from __future__ import annotations
 
+import json
 import re
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Callable, Optional, Protocol, runtime_checkable
+from typing import Callable, Iterable, Optional, Protocol, runtime_checkable
 
 from .inventory import (
     ConnectivityInventory,
@@ -39,7 +40,9 @@ class SourceError(Exception):
 
 # ── Sanitización de secretos/tokens (condición 8) ─────────────────────────────
 _SECRET_PATTERNS = [
-    re.compile(r"(--client-secret\s+)\S+", re.I),
+    # argv en forma de lista (repr de TimeoutExpired/CalledProcessError): '--client-secret', '<valor>'
+    re.compile(r"""(--(?:client-secret|access-token|refresh-token|passcode|code)['"]?\s*,\s*['"])[^'"]*""", re.I),
+    re.compile(r"(--(?:client-secret|access-token|refresh-token|passcode)[=\s]+)[^\s'\",\]]+", re.I),
     re.compile(r"(client[_-]?secret[\"'=:\s]+)\S+", re.I),
     re.compile(r"(authorization:\s*basic\s+)\S+", re.I),
     re.compile(r"(authorization:\s*bearer\s+)\S+", re.I),
@@ -49,9 +52,23 @@ _SECRET_PATTERNS = [
 ]
 
 
-def sanitize(text: object) -> str:
-    """Redacta secretos/tokens de un mensaje antes de exponerlo en error/log. Nunca vuelca la respuesta cruda."""
+def _literal_variants(secret: str):
+    # El valor puede aparecer tal cual, escapado por repr() (p.ej. barras dobles) o por JSON.
+    yield secret
+    yield repr(secret)[1:-1]
+    yield json.dumps(secret)[1:-1]
+
+
+def sanitize(text: object, secrets: Iterable[Optional[str]] = ()) -> str:
+    """Redacta secretos/tokens de un mensaje antes de exponerlo en error/log. Nunca vuelca la respuesta cruda.
+
+    `secrets`: valores CONOCIDOS (p.ej. el Client Secret de la ejecución) que se borran literalmente además de
+    los patrones; defensa en profundidad para formatos que los patrones no anticipen."""
     s = str(text)
+    for secret in secrets:
+        if secret and len(secret) >= 4:
+            for variant in _literal_variants(secret):
+                s = s.replace(variant, "[REDACTED]")
     for pat in _SECRET_PATTERNS:
         if pat.groups:
             s = pat.sub(r"\1[REDACTED]", s)

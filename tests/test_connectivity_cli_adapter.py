@@ -155,12 +155,12 @@ def test_exact_commands(monkeypatch, tmp_path):
 def _preflight_source(monkeypatch, tmp_path, *, oauth_ok=True, handler=None, **kw):
     handler = handler or (lambda a, k: _proc(returncode=0, stdout='[{"name": "X"}]'))
     src, fake = _make_source(monkeypatch, tmp_path, handler, timeout=10.0, **kw)
-    src._cli.oauth_preflight = (lambda: None) if oauth_ok else (_raise_oauth)
+    src._cli.oauth_preflight = (lambda **k: None) if oauth_ok else (_raise_oauth)
     src._cli.login = lambda *a, **k: None
     return src, fake
 
 
-def _raise_oauth():
+def _raise_oauth(**k):
     raise DSP.DatasphereCliError("PRECHECK_OAUTH_401 - rechazó credenciales")
 
 

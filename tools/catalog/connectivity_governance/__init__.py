@@ -62,7 +62,11 @@ from .safety import (
     assert_devqa_confirmed,
     assert_required,
     ephemeral_workdir,
+    profile_fingerprint,
+    real_cli_profile_dir,
+    remove_tree_verified,
 )
+from .probe import ProbeOutcome, run_probe
 
 __all__ = [
     "compare_configurations", "evaluate", "evaluate_all",
@@ -79,4 +83,5 @@ __all__ = [
     # F2.1c — controles de seguridad de ejecución
     "assert_allowlisted", "assert_devqa_confirmed", "assert_required", "Budget", "BudgetedSource",
     "BudgetError", "SafetyError", "ephemeral_workdir",
+    "profile_fingerprint", "real_cli_profile_dir", "remove_tree_verified", "ProbeOutcome", "run_probe",
 ]

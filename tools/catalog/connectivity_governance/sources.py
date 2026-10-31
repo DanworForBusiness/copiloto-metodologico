@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from .extraction import ConnectionSource, RetryPolicy, SourceError, sanitize, with_retry
+from .safety import Budget, BudgetError, remove_tree_verified
 
 
 # ── Helpers de faults para el simulado ────────────────────────────────────────
@@ -106,17 +107,18 @@ def _parse_retry_after(msg: str) -> Optional[float]:
     return float(m.group(1)) if m else None
 
 
-def classify_cli_error(exc: Exception) -> SourceError:
+def classify_cli_error(exc: Exception, *, secrets: tuple = ()) -> SourceError:
     """Mapea una excepción del CLI a un SourceError ESTRUCTURADO y verificable.
 
     Regla de reintento: solo 429/Retry-After y TIMEOUT son retriables. Los errores de AUTORIZACIÓN
     (401/403) y de ejecución/JSON NO se reintentan (no se asume que todo error del CLI es transitorio).
     La clasificación 429/401/403 depende de que el CLI exponga esos datos en stderr; si no, cae a
     CLI_EXECUTION_ERROR (no-retriable) — fail-safe, nunca retriable por defecto.
+    `secrets`: valores conocidos que se borran literalmente del mensaje (además de los patrones de `sanitize`).
     """
     if isinstance(exc, subprocess.TimeoutExpired):
         return SourceError("TIMEOUT", "la operación del CLI excedió el tiempo límite", retriable=True)
-    msg = sanitize(exc)
+    msg = sanitize(exc, secrets)
     low = msg.lower()
     if "429" in msg or "too many requests" in low or "rate limit" in low:
         return SourceError("RATE_LIMITED", msg, retriable=True, retry_after=_parse_retry_after(msg))
@@ -168,9 +170,15 @@ class PreflightReport:
 class CliConnectionSource:
     """Fuente real: OAuth client-credentials + `datasphere spaces connections list/get` vía `DatasphereCli`.
 
-    Reutiliza el extractor OAuth existente (secreto por argumento, nunca persistido). AISLAMIENTO por
-    (tenant, usuario, operación): UNA instancia por ejecución, con su propio `work_dir`/HOME temporal; NO se
-    reutilizan sesiones OAuth entre clientes. Toda operación lleva `timeout` controlado (opt-in en DatasphereCli).
+    Reutiliza el extractor OAuth existente. AISLAMIENTO por (tenant, usuario, operación): UNA instancia por
+    ejecución, con su propio `work_dir`; por defecto el CLI corre con un PERFIL AISLADO (USERPROFILE/HOME/APPDATA…
+    redirigidos al workspace y entorno mínimo: ver `isolated_cli_env`) y el login usa `--secrets-file` efímero
+    (el secreto no va por argv). NO se reutilizan sesiones OAuth entre clientes. Toda operación lleva `timeout`.
+
+    PRESUPUESTO (opcional, `budget`): cada llamada FÍSICA (HTTP OAuth, cada subprocess del CLI, incluidos
+    preflight y reintentos) cobra 1 solicitud y recibe como timeout el menor entre `timeout` y el tiempo RESTANTE;
+    si el corte fue por el presupuesto ⇒ BudgetError (aborta), nunca un error parcial. No combinar con
+    `BudgetedSource` (doble conteo; se rechaza).
 
     EXHAUSTIVIDAD (brecha declarada, NO resuelta): `datasphere spaces connections list --space <SPACE>`
     devuelve un array en UNA llamada y NO expone cursor/total/hasMore (verificado por la guía y por los
@@ -188,53 +196,101 @@ class CliConnectionSource:
     timeout: float = 120.0                # tiempo máximo por operación (seg); al vencer → SourceError TIMEOUT
     retry: RetryPolicy = field(default_factory=RetryPolicy)
     work_dir: Optional[str] = None
+    isolated_profile: bool = True         # perfil del CLI aislado del perfil real del operador
+    use_secrets_file: bool = True         # login sin secreto en argv
+    budget: Optional[Budget] = None       # medición de llamadas FÍSICAS + cota de duración
     _cli: object = field(default=None, repr=False, compare=False)
+    _owned_dir: Optional[Path] = field(default=None, repr=False, compare=False)
+    _last_preflight: Optional["PreflightReport"] = field(default=None, repr=False, compare=False)
 
     guarantees_exhaustive_list: bool = False   # el CLI no expone cursor/total → exhaustividad no verificable
 
     def _cli_obj(self):
         if self._cli is None:
             from tools.catalog.DSP_CLI_Export_Lineage import DatasphereCli  # import PEREZOSO
-            wd = Path(self.work_dir) if self.work_dir else Path(tempfile.mkdtemp(prefix="dsp-conn-"))
+            if self.work_dir:
+                wd = Path(self.work_dir)
+            else:
+                wd = self._owned_dir = Path(tempfile.mkdtemp(prefix="dsp-conn-"))   # se borra en close()
             self._cli = DatasphereCli(host=self.host, client_id=self.client_id,
-                                      client_secret=self.client_secret, token_url=self.token_url, work_dir=wd)
+                                      client_secret=self.client_secret, token_url=self.token_url, work_dir=wd,
+                                      isolated_profile=self.isolated_profile)
         return self._cli
 
+    def _secrets(self) -> tuple:
+        return (self.client_secret, getattr(self._cli, "client_secret", None))
+
+    def _physical(self, fn: Callable[[Optional[float]], object], op_timeout: Optional[float]):
+        """Ejecuta UNA llamada física bajo el presupuesto (si hay): cobra, acota el timeout al tiempo restante y
+        convierte un corte por presupuesto en BudgetError (aborto explícito)."""
+        if self.budget is None:
+            return fn(op_timeout)
+        t = self.budget.call_timeout(op_timeout)
+        capped = op_timeout is None or t < op_timeout
+        try:
+            return fn(t)
+        except subprocess.TimeoutExpired:
+            if not capped:
+                raise
+        raise BudgetError("DURATION_EXCEEDED",
+                          f"la llamada se cortó al agotarse la duración máxima ({self.budget.max_duration_s}s)")
+
+    def _call(self, args: list):
+        """Llamada CLI de lectura → JSON. Errores clasificados y SANITIZADOS; el SourceError se lanza FUERA del
+        bloque except (sin __context__ que arrastre la excepción original). BudgetError propaga intacto."""
+        try:
+            out = self._physical(lambda t: self._cli_obj()._run(args, expect_json=True, timeout=t), self.timeout)
+        except BudgetError:
+            raise
+        except Exception as e:
+            err = classify_cli_error(e, secrets=self._secrets())
+        else:
+            return out
+        raise err
+
     def _run_json(self, args: list):
-        return self._cli_obj()._run(args, expect_json=True, timeout=self.timeout)
+        return self._call(args)
 
     # — Preflight separado: cada permiso se verifica por separado; lo no ejecutado queda NOT_VERIFIED —
     def preflight_report(self) -> PreflightReport:
         checks = []
         cli = self._cli_obj()
         # 1) OAuth válido (token + login desatendido)
+        oauth_timeout = min(30.0, self.timeout) if self.timeout else 30.0
+        detail = None
         try:
-            cli.oauth_preflight()
-            cli.login(timeout=self.timeout)
+            self._physical(lambda t: cli.oauth_preflight(timeout=t), oauth_timeout)
+            self._physical(lambda t: cli.login(timeout=t, use_secrets_file=self.use_secrets_file), self.timeout)
+        except BudgetError:
+            raise
+        except Exception as e:
+            # TimeoutExpired → mensaje fijo; el resto se sanitiza con patrones + secreto conocido. Nunca str(e) crudo.
+            detail = classify_cli_error(e, secrets=self._secrets()).message
+        if detail is None:
             checks.append(PreflightCheck("oauth_token", CheckStatus.OK))
             oauth_ok = True
-        except Exception as e:
-            checks.append(PreflightCheck("oauth_token", CheckStatus.FAILED, sanitize(e)))
+        else:
+            checks.append(PreflightCheck("oauth_token", CheckStatus.FAILED, detail))
             oauth_ok = False
         # Sin OAuth no se puede verificar nada más ⇒ NOT_VERIFIED (nunca "autorizado").
         if not oauth_ok:
             for n in ("list_spaces", "list_connections", "read_detail"):
                 checks.append(PreflightCheck(n, CheckStatus.NOT_VERIFIED, "no ejecutada: OAuth no válido"))
-            return PreflightReport(tuple(checks))
+            return self._remember(PreflightReport(tuple(checks)))
         # 2) Listar espacios
         try:
-            self._run_json(["spaces", "list"])
+            self._call(["spaces", "list"])
             checks.append(PreflightCheck("list_spaces", CheckStatus.OK))
-        except Exception as e:
-            checks.append(PreflightCheck("list_spaces", CheckStatus.FAILED, classify_cli_error(e).message))
+        except SourceError as e:
+            checks.append(PreflightCheck("list_spaces", CheckStatus.FAILED, e.message))
         # 3) Listar conexiones (requiere probe_space)
         if self.probe_space:
             try:
-                self._run_json(["spaces", "connections", "list", "--space", self.probe_space])
+                self._call(["spaces", "connections", "list", "--space", self.probe_space])
                 checks.append(PreflightCheck("list_connections", CheckStatus.OK))
                 conn_ok = True
-            except Exception as e:
-                checks.append(PreflightCheck("list_connections", CheckStatus.FAILED, classify_cli_error(e).message))
+            except SourceError as e:
+                checks.append(PreflightCheck("list_connections", CheckStatus.FAILED, e.message))
                 conn_ok = False
         else:
             checks.append(PreflightCheck("list_connections", CheckStatus.NOT_VERIFIED, "no ejecutada: falta probe_space"))
@@ -242,27 +298,29 @@ class CliConnectionSource:
         # 4) Leer detalle (requiere probe_space + probe_name)
         if self.probe_space and self.probe_name and conn_ok:
             try:
-                self._run_json(["spaces", "connections", "get", "--space", self.probe_space, "--name", self.probe_name])
+                self._call(["spaces", "connections", "get", "--space", self.probe_space, "--name", self.probe_name])
                 checks.append(PreflightCheck("read_detail", CheckStatus.OK))
-            except Exception as e:
-                checks.append(PreflightCheck("read_detail", CheckStatus.FAILED, classify_cli_error(e).message))
+            except SourceError as e:
+                checks.append(PreflightCheck("read_detail", CheckStatus.FAILED, e.message))
         else:
             checks.append(PreflightCheck("read_detail", CheckStatus.NOT_VERIFIED, "no ejecutada: falta probe_name o list_connections no OK"))
-        return PreflightReport(tuple(checks))
+        return self._remember(PreflightReport(tuple(checks)))
+
+    def _remember(self, report: PreflightReport) -> PreflightReport:
+        self._last_preflight = report
+        return report
 
     def preflight(self) -> None:
         # Contrato del orquestador: lanza SourceError si el mínimo (OAuth) no está. El detalle por eslabón
-        # está en preflight_report(); una operación NO ejecutada nunca cuenta como autorizada.
-        report = self.preflight_report()
+        # está en preflight_report(); una operación NO ejecutada nunca cuenta como autorizada. Si esta instancia
+        # ya corrió preflight_report() (la sonda), se reutiliza: el preflight NO se re-ejecuta ni se re-cobra.
+        report = self._last_preflight or self.preflight_report()
         if report.status_of("oauth_token") != CheckStatus.OK:
             detail = next((c.detail for c in report.checks if c.name == "oauth_token"), "")
             raise SourceError("OAUTH_FAILED", detail or "OAuth no válido", retriable=False)
 
     def list_spaces(self) -> list:
-        try:
-            out = self._run_json(["spaces", "list"])
-        except Exception as e:
-            raise classify_cli_error(e) from None       # el orquestador reintenta si es retriable
+        out = self._call(["spaces", "list"])            # el orquestador reintenta si es retriable
         return [s.get("name", s) if isinstance(s, dict) else s for s in (out or [])]
 
     def list_connections(self, space: str) -> list:
@@ -270,15 +328,25 @@ class CliConnectionSource:
         # los transitorios (429/TIMEOUT) con la política propia. NO se pagina (ver docstring: exhaustividad
         # no verificable); una sola llamada.
         def call():
-            try:
-                out = self._run_json(["spaces", "connections", "list", "--space", space])
-            except Exception as e:
-                raise classify_cli_error(e) from None
-            return list(out or [])
+            return list(self._call(["spaces", "connections", "list", "--space", space]) or [])
         return with_retry(call, self.retry)
 
     def get_connection(self, space: str, name: str) -> dict:
-        try:
-            return self._run_json(["spaces", "connections", "get", "--space", space, "--name", name])
-        except Exception as e:
-            raise classify_cli_error(e) from None       # el orquestador reintenta si es retriable
+        return self._call(["spaces", "connections", "get", "--space", space, "--name", name])  # el orquestador reintenta
+
+    def close(self) -> None:
+        """Suelta las referencias al secreto y borra (verificado) el workspace PROPIO si lo creó esta instancia.
+        Un `work_dir` provisto por el llamador lo limpia el llamador (p.ej. `ephemeral_workdir`)."""
+        self.client_secret = None
+        if self._cli is not None:
+            self._cli.client_secret = None
+        if self._owned_dir is not None:
+            owned, self._owned_dir = self._owned_dir, None
+            remove_tree_verified(owned)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+        return False
