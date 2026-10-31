@@ -53,6 +53,16 @@ from .sources import (
     rate_limited,
     timed_out,
 )
+from .safety import (
+    Budget,
+    BudgetError,
+    BudgetedSource,
+    SafetyError,
+    assert_allowlisted,
+    assert_devqa_confirmed,
+    assert_required,
+    ephemeral_workdir,
+)
 
 __all__ = [
     "compare_configurations", "evaluate", "evaluate_all",
@@ -66,4 +76,7 @@ __all__ = [
     "extract_inventory", "ConnectionSource", "SourceError", "RetryPolicy", "with_retry", "sanitize",
     "SimulatedConnectionSource", "CliConnectionSource", "rate_limited", "timed_out",
     "classify_cli_error", "PreflightReport", "PreflightCheck", "CheckStatus",
+    # F2.1c — controles de seguridad de ejecución
+    "assert_allowlisted", "assert_devqa_confirmed", "assert_required", "Budget", "BudgetedSource",
+    "BudgetError", "SafetyError", "ephemeral_workdir",
 ]
