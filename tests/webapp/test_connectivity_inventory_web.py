@@ -49,7 +49,7 @@ M_PHYS_HOST, M_SID, M_MANDT, M_AGENT = "erp.mrkphys.corp.invalid", "QZX", "8642"
 FORBIDDEN = ("mrk", "QZX", "8642", "hcs.cloud.sap", "ondemand", "oauth/token", "sb-")
 
 VALID = {"host": M_HOST, "token_url": M_TOKEN, "datasphere_client_id": M_CLIENT_ID, "datasphere_client_secret": M_SECRET,
-         "client": "Acme", "space_id": list(M_SPACES), "space_env": ["DEV", "QAS"], "probe_connection": "MRKCONN_ERP"}
+         "client": "Acme", "space_id": list(M_SPACES), "probe_connection": "MRKCONN_ERP"}
 
 
 # ── CLI falso ─────────────────────────────────────────────────────────────────
@@ -191,7 +191,7 @@ def test_plus_and_catalog_tab_with_empty_catalog_only_in_module_01(env):
     m01 = owner.get(f"/modules/{STEM}?pack=datasphere_core&tab=catalogo").text
     m04 = owner.get("/modules/04_Modelado_y_Desarrollo?pack=datasphere_core&tab=catalogo").text
     assert "toolTab='catalogo'" in m01 and "0 orígenes disponibles" in m01
-    assert 'id="dsc-form"' in m01 and "Extraer conexiones de un tenant" in m01 and "declarado" in m01
+    assert 'id="dsc-form"' in m01 and "Extraer conexiones de un tenant" in m01 and "declarado" not in m01
     assert 'type="password"' in m01 and M_SECRET not in m01
     assert "dsc-form" not in m04 and "connectivity_inventory.js" not in m04                  # (5) el módulo 04 no recibe nada
     assert 'id="dsp-form"' in m04                                                            # su herramienta sigue ahí
@@ -214,20 +214,25 @@ def test_scope_starts_with_one_required_row_and_a_server_side_template(env):
     start = m01.index("<template data-dsc-space-template>")
     tpl = m01[start:m01.index("</template>", start)]
     assert box.count("data-dsc-space-row") == 1                                              # una sola fila al abrir
-    assert 'id="dsc-space-1"' in box and 'id="dsc-space-env-1"' in box and "data-dsc-remove-space" not in box
+    assert 'id="dsc-space-1"' in box and "data-dsc-remove-space" not in box
     assert re.search(r'<input id="dsc-space-1" name="space_id"[^>]* required', box)
-    assert re.search(r'<select id="dsc-space-env-1" name="space_env" required', box)
+    assert "<select" not in box and "space_env" not in m01 and "Environment declarado" not in m01   # sin environment en F2.1
     assert tpl.count("data-dsc-space-row") == 1 and "data-dsc-remove-space" in tpl and ">Quitar<" in tpl
-    assert re.search(r'name="space_id"[^>]* required', tpl) and re.search(r'name="space_env" required', tpl)
-    assert f'data-max="{svc.MAX_SPACES}"' in m01 and f"Hasta {svc.MAX_SPACES} Spaces por extracción" in m01
+    assert re.search(r'name="space_id"[^>]* required', tpl) and "<select" not in tpl
+    assert f'data-max="{svc.MAX_SPACES}"' in m01                                              # el tope técnico sigue en la lógica
+    assert "Spaces por extracción (límite del servidor" not in m01                            # sin texto fijo del tope
+    assert re.search(r'<p class="admin-help" data-dsc-max-note hidden>', m01)                 # aviso SOLO al alcanzar el máximo
+    help_btn = re.search(r'<button type="button" class="activity-kpi__info" aria-label="([^"]+)" data-dsc-probe-help>', m01)
+    assert help_btn and help_btn.group(1).startswith("Opcional. Si conocés el nombre técnico")  # (i) con el copy accesible
+    assert "chart-tooltip-anchor tree-picker-head__action" in m01
     assert "data-dsc-add-space" in m01 and "+ Otro espacio" in m01 and "(opcional)</label>" not in box
-    assert "declarado" in m01
+    assert "declarado" not in m01                                                          # sin environment declarado
 
 
 @pytest.mark.parametrize("n", [1, 2, 6])
 def test_any_number_of_spaces_up_to_the_server_max(env, n):
     spaces = [f"SPACE_{i}" for i in range(n)]
-    d = _done(_post(_client("owner@danwor.com"), data={**VALID, "space_id": spaces, "space_env": ["DEV"] * n,
+    d = _done(_post(_client("owner@danwor.com"), data={**VALID, "space_id": spaces,
                                                        "probe_connection": ""}))
     assert d["state"] == "SUCCESS", d
     assert d["summary"]["inventory"]["coverage"]["expected_spaces"] == n                     # exactamente las filas enviadas
@@ -235,17 +240,16 @@ def test_any_number_of_spaces_up_to_the_server_max(env, n):
 
 def test_more_than_the_server_max_is_rejected_explicitly(env):
     n = svc.MAX_SPACES + 1
-    d = _done(_post(_client("owner@danwor.com"), data={**VALID, "space_id": [f"S{i}" for i in range(n)], "space_env": ["DEV"] * n}))
+    d = _done(_post(_client("owner@danwor.com"), data={**VALID, "space_id": [f"S{i}" for i in range(n)]}))
     assert d["state"] == "INVALID" and str(svc.MAX_SPACES) in d["errors"]["spaces"] and env.fake.calls == []
 
 
-@pytest.mark.parametrize("ids,envs,fragment", [
-    (["MRKSPACE_DEV", "MRKSPACE_QAS"], ["DEV", ""], "environment"),                         # environment ausente en una fila
-    (["MRKSPACE_DEV", "", "MRKSPACE_QAS"], ["DEV", "QAS", "QAS"], "Completá"),              # fila vacía: no se descarta en silencio
-    (["MRKSPACE_DEV", "mrkspace_DEV"], ["DEV", "QAS"], "repetidos"),
+@pytest.mark.parametrize("ids,fragment", [
+    (["MRKSPACE_DEV", "", "MRKSPACE_QAS"], "Completá"),                                      # fila vacía: no se descarta en silencio
+    (["MRKSPACE_DEV", "mrkspace_DEV"], "repetidos"),
 ])
-def test_incomplete_or_duplicated_rows_are_rejected(env, ids, envs, fragment):
-    d = _done(_post(_client("owner@danwor.com"), data={**VALID, "space_id": ids, "space_env": envs}))
+def test_incomplete_or_duplicated_rows_are_rejected(env, ids, fragment):
+    d = _done(_post(_client("owner@danwor.com"), data={**VALID, "space_id": ids}))
     assert d["state"] == "INVALID" and fragment in d["errors"]["spaces"] and env.fake.calls == []
 
 
@@ -274,10 +278,9 @@ def test_authorization_and_origin(monkeypatch, env):
     ({"datasphere_client_id": "a b"}, "client_id"),
     ({"datasphere_client_secret": ""}, "client_secret"),
     ({"client": ""}, "client"),
-    ({"space_id": ["", ""], "space_env": ["", ""]}, "spaces"),
-    ({"space_id": ["MRK SPACE"], "space_env": ["DEV"]}, "spaces"),
-    ({"space_id": ["MRKSPACE_DEV"], "space_env": ["PRD"]}, "spaces"),
-    ({"space_id": ["MRKSPACE_DEV", "mrkspace_dev"], "space_env": ["DEV", "QAS"]}, "spaces"),
+    ({"space_id": ["", ""]}, "spaces"),
+    ({"space_id": ["MRK SPACE"]}, "spaces"),
+    ({"space_id": ["MRKSPACE_DEV", "mrkspace_dev"]}, "spaces"),
     ({"probe_connection": "a,b"}, "probe_connection"),
 ])
 def test_validation_rejects_without_executing(env, patch, field):
@@ -305,6 +308,27 @@ def test_no_connectivity_specific_configuration():
         src = Path(mod.__file__).read_text(encoding="utf-8")
         assert "DANWOR_CONNECTIVITY" not in src and "os.environ" not in src, mod.__name__
         assert set(re.findall(r'os\.getenv\("([A-Z_]+)"', src)) <= {"DANWOR_CATALOG_DIR"}, mod.__name__
+
+
+def test_spaces_without_environment_extract_complete(env):
+    # El environment es gobierno (F2.2): su ausencia no impide consultar Spaces ni degrada una extracción exitosa.
+    d = _done(_post(_client("owner@danwor.com")))
+    inv = d["summary"]["inventory"]
+    assert d["state"] == "SUCCESS" and inv["status"] == "COMPLETE" and inv["coverage"]["errors_total"] == 0
+    assert inv["coverage"]["inaccessible_spaces"] == 0 and "ENVIRONMENT_UNGOVERNED" not in json.dumps(d)
+
+
+def test_browser_supplied_environment_is_ignored(monkeypatch, env):
+    # Nada de clasificación desde el navegador: un `space_env` enviado a mano no llega a la extracción.
+    seen = {}
+    real = cg.run_probe
+
+    def spy(*a, **k):
+        seen.update(k)
+        return real(*a, **k)
+    monkeypatch.setattr(cg, "run_probe", spy)
+    d = _done(_post(_client("owner@danwor.com"), data={**VALID, "space_env": ["PRD", "PRD"]}))
+    assert d["state"] == "SUCCESS" and seen.get("space_environment_map") in (None, {})
 
 
 # ═══════════════ (2) saneamiento integral ═══════════════
@@ -383,9 +407,9 @@ def test_each_run_gets_its_own_profile_and_real_profile_is_untouched(env):
 def test_parallel_runs_for_different_users_and_tenants_are_isolated(env):
     env.fake.delay = 0.02
     other = svc.ExtractionValues.from_form(host="https://otro.eu10.hcs.cloud.sap", token_url=M_TOKEN, client_id=M_CLIENT_ID,
-                                           client="Beta", space_ids=["MRKSPACE_DEV"], space_envs=["DEV"])
+                                           client="Beta", space_ids=["MRKSPACE_DEV"])
     mine = svc.ExtractionValues.from_form(host=M_HOST, token_url=M_TOKEN, client_id=M_CLIENT_ID, client="Acme",
-                                          space_ids=["MRKSPACE_DEV"], space_envs=["DEV"])
+                                          space_ids=["MRKSPACE_DEV"])
     results = {}
     threads = [threading.Thread(target=lambda k, v, u: results.__setitem__(k, svc.run(v, M_SECRET, user_email=u, sleep=lambda s: None)),
                                 args=(k, v, u)) for k, v, u in (("a", mine, "a@danwor.com"), ("b", other, "b@danwor.com"))]
@@ -400,7 +424,7 @@ def test_parallel_runs_for_different_users_and_tenants_are_isolated(env):
 
 def test_single_flight_and_capacity(env):
     values = svc.ExtractionValues.from_form(host=M_HOST, token_url=M_TOKEN, client_id=M_CLIENT_ID, client="Acme",
-                                            space_ids=["MRKSPACE_DEV"], space_envs=["DEV"])
+                                            space_ids=["MRKSPACE_DEV"])
     lock = svc._lock_for("a@danwor.com", M_HOST)
     lock.acquire()
     try:

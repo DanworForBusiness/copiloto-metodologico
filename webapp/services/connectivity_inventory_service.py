@@ -23,7 +23,7 @@ Controles propios:
 
 Identidad (decisión D1): ``tenant_id`` del inventario = clave técnica PROVISIONAL derivada del host
 (``provisional-host:<hostname>``). NO es la identidad gobernada: F2.2 la reemplazará por el ``tenant_id`` del registro
-gobernado `space→environment`/tenant. El environment de cada Space es DECLARADO por el consultor (D2), no homologado.
+gobernado `space→environment`/tenant. El environment NO se pide ni se infiere: es un atributo gobernado (F2.2); el inventario lo deja en null.
 """
 from __future__ import annotations
 
@@ -44,7 +44,6 @@ log = logging.getLogger("danwor.connectivity_inventory")
 MODULES = frozenset({"01_Arquitectura_y_Conectividad"})
 # El selector de perfiles del dueño reutiliza el endpoint EXISTENTE del módulo 04 (misma autorización de dueño; sin ruta nueva).
 PROFILES_STEM = "04_Modelado_y_Desarrollo"
-ENVIRONMENTS = ("DEV", "QAS")
 # Máximo TÉCNICO de Spaces por extracción (protección de recursos, no regla de negocio): cada Space consume al menos una llamada
 # física (listar) más una por conexión, dentro del presupuesto de LIMITS. La UI lo muestra y no permite superarlo; el servidor lo exige.
 MAX_SPACES = 20
@@ -105,7 +104,7 @@ def tool_context(request, stem: str) -> dict:
     from webapp.services import datasphere_profiles
     return {"enabled": enabled, "can_execute": can, "stem": stem, "form": form,
             "owner_profiles_url": datasphere_profiles.selector_url(PROFILES_STEM, owner_only),
-            "max_spaces": MAX_SPACES, "environments": list(ENVIRONMENTS)}
+            "max_spaces": MAX_SPACES}
 
 
 # ───────────────────────────── valores y validación ─────────────────────────────
@@ -115,18 +114,16 @@ class ExtractionValues:
     token_url: str
     client_id: str
     client: str
-    spaces: tuple = ()                    # ((space_id, environment_declarado), ...) en el orden del formulario
+    spaces: tuple = ()                    # Space IDs en el orden del formulario (el environment es gobierno: F2.2)
     probe_connection: str = ""            # opcional: valida read_detail en el preflight
 
     @classmethod
     def from_form(cls, *, host: str, token_url: str, client_id: str, client: str,
-                  space_ids: list[str], space_envs: list[str], probe_connection: str = "") -> "ExtractionValues":
-        # Filas dinámicas: TODAS las enviadas cuentan (ninguna se descarta en silencio); una fila incompleta la rechaza `validate`.
-        ids, envs = list(space_ids or []), list(space_envs or [])
-        pairs = [((ids[i] if i < len(ids) else "").strip(), (envs[i] if i < len(envs) else "").strip())
-                 for i in range(max(len(ids), len(envs)))]
+                  space_ids: list[str], probe_connection: str = "") -> "ExtractionValues":
+        # Filas dinámicas: TODAS las enviadas cuentan (ninguna se descarta en silencio); una fila vacía la rechaza `validate`.
+        spaces = tuple((raw or "").strip() for raw in (space_ids or []))
         return cls(host=(host or "").strip(), token_url=(token_url or "").strip(), client_id=(client_id or "").strip(),
-                   client=" ".join((client or "").split()), spaces=tuple(pairs),
+                   client=" ".join((client or "").split()), spaces=spaces,
                    probe_connection=(probe_connection or "").strip())
 
 
@@ -142,18 +139,15 @@ def validate(values: ExtractionValues, client_secret: str) -> dict[str, str]:
         errors["client"] = "Ingresá el cliente (letras, números, espacios, _ . -)."
     seen: set[str] = set()
     if not values.spaces:
-        errors["spaces"] = "Ingresá al menos un Space ID con su environment declarado."
+        errors["spaces"] = "Ingresá al menos un Space ID."
     elif len(values.spaces) > MAX_SPACES:
         errors["spaces"] = f"Podés pedir hasta {MAX_SPACES} Spaces por extracción."
-    for space, env in (values.spaces if "spaces" not in errors else ()):
+    for space in (values.spaces if "spaces" not in errors else ()):
         if not space:
             errors["spaces"] = "Completá el Space ID de cada fila."
             break
         if not asd._NAME_RE.match(space):
             errors["spaces"] = "Cada Space ID debe ser un nombre técnico (letras, números, _ . -)."
-            break
-        if env not in ENVIRONMENTS:
-            errors["spaces"] = "Elegí el environment declarado (DEV o QAS) de cada Space."
             break
         if space.casefold() in seen:
             errors["spaces"] = "Hay Spaces repetidos."
@@ -250,7 +244,7 @@ def run(values: ExtractionValues, client_secret: str, *, user_email: str = "", o
         if on_phase is not None:
             on_phase(PHASE_EXTRACTING)
         budget = Budget(**LIMITS)
-        spaces = [s for s, _env in values.spaces]
+        spaces = list(values.spaces)
         with ephemeral_workdir(WORK_PREFIX) as wd:
             src = CliConnectionSource(
                 host=values.host, client_id=values.client_id, client_secret=client_secret, token_url=values.token_url,
@@ -259,7 +253,7 @@ def run(values: ExtractionValues, client_secret: str, *, user_email: str = "", o
             )
             try:
                 out = run_probe(src, budget, client=values.client, tenant_id=provisional_tenant_key(values.host),
-                                tenant_host=values.host, space_environment_map=dict(values.spaces),
+                                tenant_host=values.host,          # sin space→environment: la clasificación es gobierno (F2.2)
                                 expected_spaces=spaces, max_attempts=MAX_ATTEMPTS, sleep=sleep,
                                 real_profile=real_cli_profile_dir())    # el perfil REAL del CLI del servidor no debe cambiar
             finally:

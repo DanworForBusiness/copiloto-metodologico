@@ -53,14 +53,14 @@ def run_connectivity_inventory(
     request: Request, stem: str,
     host: str = Form(""), token_url: str = Form(""),
     client_id: str = Form("", alias="datasphere_client_id"), client_secret: str = Form("", alias="datasphere_client_secret"),
-    client: str = Form(""), space_id: list[str] = Form([]), space_env: list[str] = Form([]),
+    client: str = Form(""), space_id: list[str] = Form([]),
     probe_connection: str = Form(""), profile_id: str = Form(""), graph_token: str = Form(""),
 ):
     user = _authorize(request, stem)
     if profile_id.strip() and not svc.can_use_client_profiles(request):      # el secreto de un perfil de cliente es del dueño
         raise HTTPException(403, "No autorizado")
     values = svc.ExtractionValues.from_form(host=host, token_url=token_url, client_id=client_id, client=client,
-                                            space_ids=list(space_id), space_envs=list(space_env),
+                                            space_ids=list(space_id),
                                             probe_connection=probe_connection)
     secret = client_secret
     del client_secret

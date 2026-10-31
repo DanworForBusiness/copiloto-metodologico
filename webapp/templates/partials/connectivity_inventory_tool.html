@@ -3,17 +3,16 @@
    `.tool-label`, `.btn-primary`, `.section-analysis-loading`, `.feedback-error`, `.admin-table`). Sin CSS propio.
    La ejecución NO usa HTMX: `connectivity_inventory.js` hace un fetch POST a su ruta y pinta, con textContent, SOLO el resumen saneado
    (preflight, estado, exhaustividad, cobertura, presencia de metadatos). No se guarda ni se publica nada.
-   El environment de cada Space es DECLARADO por el consultor: no está homologado ni validado por gobierno (F2.2).
-   Contexto: conn = {enabled, can_execute, stem, form (host/token/client_id de la sesión), owner_profiles_url, space_rows, environments}.
+   Contexto: conn = {enabled, can_execute, stem, form (host/token/client_id de la sesión), owner_profiles_url, max_spaces}.
    SECRETOS: el Client Secret es `type="password"`, viaja solo en el cuerpo del POST, se limpia del campo al enviar y no se renderiza. #}
 {% from "partials/datasphere_form_fields.html" import datasphere_connection_fields, ds_field %}
 <div id="dsc-panel" class="dsa-panel">
   <form id="dsc-form" data-dsc-form method="post" action="/modules/{{ conn.stem }}/connectivity-inventory/run" autocomplete="off">
     <input type="hidden" name="pack" value="{{ pack }}">
     {{ datasphere_connection_fields("dsc", conn.form, conn.owner_profiles_url) }}
-    {# Fila Space + environment DECLARADO: ÚNICA fuente de marcado para la fila inicial y para el <template> que clona
-       connectivity_inventory.js. Ambos campos son obligatorios en TODAS las filas. Las filas agregadas llevan «Quitar». #}
-    {% macro space_row(row_id, removable, environments) %}
+    {# Fila Space: ÚNICA fuente de marcado para la fila inicial y para el <template> que clona connectivity_inventory.js. Space ID
+       obligatorio en TODAS las filas; las filas agregadas llevan «Quitar». El environment no se pide: es gobierno (F2.2). #}
+    {% macro space_row(row_id, removable) %}
       <div class="catalog-picker--secondary" data-dsc-space-row>
         <div class="tree-picker-head">
           <label class="tool-label"{% if row_id %} for="dsc-space-{{ row_id }}"{% endif %} data-dsc-space-label>Space ID</label>
@@ -22,27 +21,34 @@
         <div class="tree-picker-row">
           <input{% if row_id %} id="dsc-space-{{ row_id }}"{% endif %} name="space_id" type="text" placeholder="DESARROLLO" required
                  autocomplete="off" autocapitalize="none" spellcheck="false" data-dsc-space-input>
-          <select{% if row_id %} id="dsc-space-env-{{ row_id }}"{% endif %} name="space_env" required aria-label="Environment declarado" data-dsc-env-input>
-            <option value="">Environment declarado...</option>
-            {% for e in environments %}<option value="{{ e }}">{{ e }}</option>{% endfor %}
-          </select>
         </div>
       </div>
     {% endmacro %}
     <div class="tree-picker catalog-picker--secondary">
       <span class="admin-result-title">Alcance</span>
-      <p class="admin-help">El environment es <strong>declarado</strong> por vos: no está homologado ni validado por gobierno.</p>
       <div data-dsc-spaces data-max="{{ conn.max_spaces }}">
-        {{ space_row(1, False, conn.environments) }}
+        {{ space_row(1, False) }}
       </div>
-      <template data-dsc-space-template>{{ space_row(None, True, conn.environments) }}</template>
+      <template data-dsc-space-template>{{ space_row(None, True) }}</template>
       <div class="catalog-picker--secondary">
         <button type="button" class="table-action-btn table-action-btn--text" data-dsc-add-space>+ Otro espacio</button>
-        <p class="admin-help">Hasta {{ conn.max_spaces }} Spaces por extracción (límite del servidor: cada Space consume solicitudes del presupuesto de la extracción).</p>
+        {# Sin texto fijo del tope: el aviso aparece SOLO al alcanzar el máximo técnico del servidor (el botón se deshabilita). #}
+        <p class="admin-help" data-dsc-max-note hidden>Llegaste al máximo de {{ conn.max_spaces }} Spaces por extracción.</p>
       </div>
       <p class="feedback-error" data-dsc-error="spaces" hidden></p>
       <div class="catalog-picker--secondary">
-        <label class="tool-label" for="dsc-probe_connection">Conexión conocida del primer Space (opcional)</label>
+        {# Ayuda contextual: MISMO primitivo (i) del Hub (`.chart-tooltip-anchor` + `.activity-kpi__info` + `.chart-tooltip`), ubicado como
+           acción de la fila del título (`.tree-picker-head`); el copy va también en `aria-label` (hover y foco de teclado). #}
+        {% set _probe_help = "Opcional. Si conocés el nombre técnico de una conexión existente dentro del primer Space, la herramienta la usa para verificar el permiso de lectura de detalle de una conexión. No limita qué conexiones se extraen: si lo dejás vacío, la extracción igual se ejecuta y esa verificación puntual queda sin comprobar." %}
+        <div class="tree-picker-head">
+          <label class="tool-label" for="dsc-probe_connection">Conexión conocida (opcional)</label>
+          <span class="chart-tooltip-anchor tree-picker-head__action">
+            <button type="button" class="activity-kpi__info" aria-label="{{ _probe_help }}" data-dsc-probe-help>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 7.8v.2"/></svg>
+            </button>
+            <span class="chart-tooltip"><p>{{ _probe_help }}</p></span>
+          </span>
+        </div>
         <div class="tree-picker-row">
           <input id="dsc-probe_connection" name="probe_connection" type="text" placeholder="S4HANA_CONN" autocomplete="off" autocapitalize="none" spellcheck="false">
           <p class="feedback-error" data-dsc-error="probe_connection" hidden></p>

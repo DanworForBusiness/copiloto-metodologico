@@ -139,7 +139,7 @@
     setHidden(result, !renderSummary(panel, done.summary));
   }
 
-  // ── Filas dinámicas Space + environment declarado ────────────────────────────
+  // ── Filas dinámicas de Space (el environment no se pide: es gobierno, F2.2) ─────
   // Una fila al abrir; «+ Otro espacio» clona el <template> del servidor (única fuente de marcado) y «Quitar» elimina SOLO esa fila:
   // el resto de los nodos no se toca, así que sus valores se conservan. Siempre queda al menos una fila. El máximo lo fija el servidor.
   function spaceRows(form) { return form.querySelectorAll("[data-dsc-spaces] [data-dsc-space-row]"); }
@@ -147,7 +147,10 @@
   function syncAddButton(form) {
     const box = el(form, "[data-dsc-spaces]");
     const add = el(form, "[data-dsc-add-space]");
-    if (box && add) add.disabled = spaceRows(form).length >= Number(box.dataset.max || 0);
+    if (!box || !add) return;
+    const atMax = spaceRows(form).length >= Number(box.dataset.max || 0);
+    add.disabled = atMax;
+    setHidden(el(form, "[data-dsc-max-note]"), !atMax);   // el aviso del tope aparece SOLO al alcanzarlo
   }
 
   function addSpaceRow(form) {
@@ -158,9 +161,7 @@
     form.dataset.dscNextRow = String(next + 1);
     const row = tpl.content.firstElementChild.cloneNode(true);
     const input = row.querySelector("[data-dsc-space-input]");
-    const select = row.querySelector("[data-dsc-env-input]");
     input.id = "dsc-space-" + next;
-    select.id = "dsc-space-env-" + next;
     row.querySelector("[data-dsc-space-label]").htmlFor = input.id;
     box.appendChild(row);
     syncAddButton(form);
