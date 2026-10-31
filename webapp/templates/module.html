@@ -48,7 +48,7 @@
        la publicación vive DENTRO del Catálogo (estado "publicar", ver catalog_tab.html), así que sin esa pestaña no habría cómo
        publicar el primer dominio. #}
     {% set _pub_ctx = dsp_pub_tool(request, document.summary.stem) %}
-    {% set show_catalog = (catalog_domains or _pub_ctx.can_execute) and document.summary.number|string != "05" and not document.summary.stem.startswith("05_") %}
+    {% set show_catalog = (catalog_domains or _pub_ctx.can_execute or dsc_tool(request, document.summary.stem).can_execute) and document.summary.number|string != "05" and not document.summary.stem.startswith("05_") %}
     <section id="__module__" class="module-hero">
       <p class="eyebrow">{% if is_appendix %}Apéndice {{ document.summary.stem.split('_')[0] }}{% else %}Módulo {{ document.summary.number }}{% endif %}</p>
       <h1>{{ document.summary.title }}</h1>

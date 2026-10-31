@@ -1,0 +1,73 @@
+{# Herramienta "Extraer conexiones" (F2.1, módulo 01): extracción AD-HOC de SOLO LECTURA. Reutiliza el selector de perfil y el grupo
+   "Conexión Datasphere" del módulo 04 (macro `datasphere_connection_fields`, prefijo "dsc") y los primitivos del Hub (`.tree-picker`,
+   `.tool-label`, `.btn-primary`, `.section-analysis-loading`, `.feedback-error`, `.admin-table`). Sin CSS propio.
+   La ejecución NO usa HTMX: `connectivity_inventory.js` hace un fetch POST a su ruta y pinta, con textContent, SOLO el resumen saneado
+   (preflight, estado, exhaustividad, cobertura, presencia de metadatos). No se guarda ni se publica nada.
+   El environment de cada Space es DECLARADO por el consultor: no está homologado ni validado por gobierno (F2.2).
+   Contexto: conn = {enabled, can_execute, stem, form (host/token/client_id de la sesión), owner_profiles_url, space_rows, environments}.
+   SECRETOS: el Client Secret es `type="password"`, viaja solo en el cuerpo del POST, se limpia del campo al enviar y no se renderiza. #}
+{% from "partials/datasphere_form_fields.html" import datasphere_connection_fields, ds_field %}
+<div id="dsc-panel" class="dsa-panel">
+  <form id="dsc-form" data-dsc-form method="post" action="/modules/{{ conn.stem }}/connectivity-inventory/run" autocomplete="off">
+    {{ datasphere_connection_fields("dsc", conn.form, conn.owner_profiles_url) }}
+    <div class="tree-picker catalog-picker--secondary">
+      <span class="admin-result-title">Alcance</span>
+      <p class="field-hint">El environment es <strong>declarado</strong> por vos: no está homologado ni validado por gobierno.</p>
+      {% for i in conn.space_rows %}
+      <div class="catalog-picker--secondary">
+        <label class="tool-label" for="dsc-space-{{ i }}">Space ID {{ i }}{% if not loop.first %} (opcional){% endif %}</label>
+        <div class="tree-picker-row">
+          <input id="dsc-space-{{ i }}" name="space_id" type="text" placeholder="{{ 'DESARROLLO' if loop.first else '' }}"{% if loop.first %} required{% endif %}
+                 autocomplete="off" autocapitalize="none" spellcheck="false">
+          <select id="dsc-space-env-{{ i }}" name="space_env" aria-label="Environment declarado del Space {{ i }}">
+            <option value="">Environment declarado...</option>
+            {% for e in conn.environments %}<option value="{{ e }}">{{ e }}</option>{% endfor %}
+          </select>
+        </div>
+      </div>
+      {% endfor %}
+      <p class="feedback-error" data-dsc-error="spaces" hidden></p>
+      <div class="catalog-picker--secondary">
+        <label class="tool-label" for="dsc-probe_connection">Conexión conocida del Space 1 (opcional)</label>
+        <div class="tree-picker-row">
+          <input id="dsc-probe_connection" name="probe_connection" type="text" placeholder="S4HANA_CONN" autocomplete="off" autocapitalize="none" spellcheck="false">
+          <p class="feedback-error" data-dsc-error="probe_connection" hidden></p>
+        </div>
+      </div>
+    </div>
+    <div class="catalog-picker--secondary">
+      <span class="admin-result-title">Destino</span>
+      {{ ds_field("dsc", "client", "Nombre de Cliente", "text", "Pampa", first=True) }}
+    </div>
+    <div class="admin-actions">
+      <button type="submit" class="btn-primary tool-primary" data-dsc-submit>Extraer conexiones</button>
+    </div>
+  </form>
+
+  {# Avance y resultado: ocultos hasta ejecutar. Todo el contenido dinámico entra con textContent (nunca innerHTML). #}
+  <div data-dsc-progress hidden>
+    <div class="section-analysis-loading" role="status">
+      <span class="section-analysis-spinner" data-dsc-spinner hidden></span><span class="section-analysis-loading-copy" data-dsc-status data-running-text="Extrayendo conexiones..."></span>
+    </div>
+    <div class="feedback-error" role="alert" data-dsc-failed hidden>
+      <strong data-dsc-title></strong>
+      <span data-dsc-message></span>
+    </div>
+    <div data-dsc-result hidden>
+      <p class="field-hint">Resultado temporal: no se guarda, no se publica y no modifica los Catálogos. Solo muestra estados, conteos y presencia de datos.</p>
+      <div class="admin-table-wrap">
+        <table class="admin-table admin-table--compact" aria-label="Resultado de la extracción">
+          <tbody data-dsc-overview></tbody>
+        </table>
+      </div>
+      <div class="admin-table-wrap" data-dsc-conn-wrap hidden>
+        <table class="admin-table admin-table--compact" aria-label="Presencia de metadatos por conexión">
+          <thead><tr><th>Conexión</th><th>Space</th><th>Host</th><th>SID</th><th>Nro. sistema</th><th>Mandante</th><th>DP Agent</th><th>Ubicación</th></tr></thead>
+          <tbody data-dsc-connections></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{# El script se carga SOLO con la herramienta habilitada (base.html no cambia: con el flag apagado ninguna página se modifica). #}
+<script defer src="{{ url_for('static', path='connectivity_inventory.js') }}?v={{ static_version }}"></script>
