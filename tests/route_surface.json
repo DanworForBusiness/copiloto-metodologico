@@ -227,6 +227,7 @@
   "POST /human-capital/profiles/{profile_id}/documents/retry-upload",
   "POST /human-capital/profiles/{profile_id}/edit",
   "POST /modules/{stem}/assistant/chat",
+  "POST /modules/{stem}/connectivity-inventory/run",
   "POST /modules/{stem}/datasphere-assessment/refresh-catalog",
   "POST /modules/{stem}/datasphere-assessment/result/{result_id}/delete",
   "POST /modules/{stem}/datasphere-assessment/run",
