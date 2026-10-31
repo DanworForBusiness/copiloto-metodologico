@@ -148,4 +148,12 @@
    Reporting lo alimenta con progreso ESTIMADO por tiempo (ver reporting.js
    `HubEstimatedProgress`) — misma barra, distinta FUENTE del valor. #}
 <div class="read-progress" aria-hidden="true"><span class="read-progress__fill"></span></div>
+{# Preload transversal al CAMBIAR DE VERTICAL (mismo criterio "REUTILIZAR, NO COPIAR"): un único mecanismo compartido que
+   REUTILIZA el overlay del login. El visual vive en UNA sola hoja compartida (webapp/static/hub_overlay.css), que cargan tanto
+   el login (vía el @import de brand-hero.css) como estas pantallas autenticadas (este <link>). NO se carga brand-hero.css
+   completo acá: arrastraría su `:root`/`html,body` con los colores FIJOS del login (fondo #0c0c0d, texto #e4e4ec) y romperían
+   el tema claro de las pantallas autenticadas. El overlay sólo aparece al navegar de una vertical a otra desde el switcher;
+   sin lógica por vertical. Ver webapp/static/hub_transition.js. #}
+<link rel="stylesheet" href="/static/hub_overlay.css">
+<script src="/static/hub_transition.js" defer></script>
 {% endmacro %}
