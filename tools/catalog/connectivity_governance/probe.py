@@ -14,6 +14,8 @@ captura el secreto; TODA la ejecución bajo presupuesto vive acá para que el ca
 """
 from __future__ import annotations
 
+import json
+import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -82,3 +84,132 @@ def run_probe(source, budget: Budget, *, client: str, tenant_id: str, tenant_hos
         outcome.real_profile_modified = True
         outcome.exit_code = EXIT_REAL_PROFILE_MODIFIED
     return outcome
+
+
+# ── Salida COMPARTIBLE (B1) ───────────────────────────────────────────────────
+# El `ProbeOutcome` conserva el detalle técnico SOLO en memoria. Lo único que se imprime es `review_summary`:
+# estados del preflight, estado/exhaustividad, conteos, presencia/ausencia de atributos, ordinales locales y
+# códigos de error de un vocabulario CERRADO. Nunca hosts/URLs/SID/mandantes/nombres de espacios, conexiones o
+# agentes/Client ID/secretos/tokens, ni mensajes de excepción, ni hashes/huellas de identificadores.
+_KNOWN_CODES = frozenset({
+    # clasificación de la fuente / orquestador
+    "AUTH_401", "CLI_EXECUTION_ERROR", "CLI_UNAVAILABLE", "GET_FAILED", "INVALID_OR_INCOMPLETE_JSON",
+    "OAUTH_FAILED", "RATE_LIMITED", "SCOPE_DENIED", "SPACE_INACCESSIBLE", "TIMEOUT",
+    "BAD_LIST_ITEM", "ENVIRONMENT_UNGOVERNED", "PARSE_FAILED",
+    # preflight OAuth (DatasphereCli)
+    "PRECHECK_OAUTH_401", "PRECHECK_OAUTH_NETWORK_ERROR", "PRECHECK_OAUTH_ERROR", "PRECHECK_OAUTH_INVALID_RESPONSE",
+    # presupuesto / seguridad
+    "REQUESTS_EXCEEDED", "DURATION_EXCEEDED", "RETRIES_EXCEEDED",
+    "DEVQA_NOT_CONFIRMED", "CONFIG_INCOMPLETE", "CONFIG_INVALID", "ALLOWLIST_EMPTY", "HOST_NOT_ALLOWLISTED",
+    "TOKEN_URL_NOT_ALLOWLISTED", "WORKDIR_CLEANUP_FAILED", "NO_INTERACTIVE_CONSOLE",
+})
+_PRECHECK_HTTP_RE = re.compile(r"\bPRECHECK_OAUTH_HTTP_\d{3}\b")
+_PRECHECK_RE = re.compile(r"\bPRECHECK_[A-Z0-9_]+\b")
+_SCOPE_KINDS = ("preflight", "spaces", "space", "connection")
+_ABORT_TEXT = {
+    "REQUESTS_EXCEEDED": "presupuesto de solicitudes agotado",
+    "DURATION_EXCEEDED": "duración máxima agotada",
+    "RETRIES_EXCEEDED": "reintentos totales agotados",
+}
+
+
+def safe_code(code: Optional[str]) -> str:
+    """Código técnico SOLO si pertenece al vocabulario cerrado; cualquier otra cosa ⇒ UNCLASSIFIED."""
+    if code in _KNOWN_CODES:
+        return code
+    if code and _PRECHECK_HTTP_RE.fullmatch(code):
+        return code
+    return "UNCLASSIFIED"
+
+
+def _detail_code(status: str, detail: str) -> Optional[str]:
+    """Reduce el detalle de un eslabón del preflight a un código (el texto nunca sale)."""
+    if status == "OK":
+        return None
+    if status == "NOT_VERIFIED":
+        return "NOT_EXECUTED"
+    m = _PRECHECK_HTTP_RE.search(detail or "") or _PRECHECK_RE.search(detail or "")
+    if m:
+        return safe_code(m.group(0))
+    import subprocess
+    from .sources import classify_cli_error           # clasificación por palabras clave; solo se usa el código
+    timeout_err = classify_cli_error(subprocess.TimeoutExpired("cli", 0))
+    if detail == timeout_err.message:                  # mensaje fijo de TIMEOUT (fuente única)
+        return timeout_err.code
+    return safe_code(classify_cli_error(Exception(detail or "")).code)
+
+
+def _scope_kind(scope: str) -> str:
+    kind = (scope or "").split(":", 1)[0]
+    return kind if kind in _SCOPE_KINDS else "other"
+
+
+def review_summary(outcome: ProbeOutcome) -> dict:
+    """Vista compartible del resultado (ver comentario de sección)."""
+    out: dict = {"result": outcome.result if outcome.result in ("OK", "PREFLIGHT_INSUFFICIENT", "ABORTED")
+                 else "UNCLASSIFIED", "exit_code": int(outcome.exit_code)}
+    if outcome.preflight is not None:
+        out["preflight"] = {
+            name: ({"status": v.get("status")} | ({"code": c} if (c := _detail_code(v.get("status"), v.get("detail", ""))) else {}))
+            for name, v in outcome.preflight.items()
+            if name in ("oauth_token", "list_spaces", "list_connections", "read_detail")
+        }
+    if outcome.result == "ABORTED":
+        code = safe_code(outcome.abort_code)
+        out["abort"] = {"code": code, "text": _ABORT_TEXT.get(code, "ejecución interrumpida")}
+    inv = outcome.inventory
+    if inv is not None and outcome.result == "OK":
+        cov = inv["coverage"]
+        by_code: dict = {}
+        by_kind: dict = {}
+        for e in cov["errors"]:
+            c = safe_code(e.get("code"))
+            by_code[c] = by_code.get(c, 0) + 1
+            k = _scope_kind(e.get("scope", ""))
+            by_kind[k] = by_kind.get(k, 0) + 1
+        space_ref = {s: f"S{i}" for i, s in enumerate(cov["expected_spaces"], 1)}   # ordinal local
+        conns = []
+        for i, c in enumerate(inv["connections"], 1):
+            phys, agent = c["physical_system"], c["agent_observed"]
+            conns.append({
+                "ref": f"C{i}",
+                "space_ref": space_ref.get(c["identity"]["space"], "S?"),
+                "physical_present": {k: phys.get(k) not in (None, "") for k in ("host", "sysid", "systemnumber", "client")},
+                "agent_present": {k: agent.get(k) not in (None, "") for k in ("agent_name", "agent_group", "location", "status")},
+            })
+        out["inventory"] = {
+            "status": inv["status"],
+            "exhaustiveness": inv["exhaustiveness"],
+            "coverage": {
+                "expected_spaces": len(cov["expected_spaces"]),
+                "accessible_spaces": len(cov["accessible_spaces"]),
+                "inaccessible_spaces": len(cov["inaccessible_spaces"]),
+                "discovered_connections": cov["discovered_connections"],
+                "extracted_connections": cov["extracted_connections"],
+                "errors_total": len(cov["errors"]),
+                "errors_by_code": dict(sorted(by_code.items())),
+                "errors_by_scope": dict(sorted(by_kind.items())),
+            },
+            "connections": conns,
+        }
+    b = outcome.budget or {}
+    out["budget"] = {k: b[k] for k in ("requests_used", "max_requests", "retries_used", "max_total_retries",
+                                       "elapsed_s", "max_duration_s") if k in b}
+    out["real_profile_modified"] = bool(outcome.real_profile_modified)
+    return out
+
+
+def render_review(outcome: ProbeOutcome) -> str:
+    """Texto compartible: SOLO el resumen saneado (JSON indentado)."""
+    return json.dumps(review_summary(outcome), ensure_ascii=False, indent=2)
+
+
+def render_abort(code: Optional[str]) -> str:
+    """Abortos previos a la red (SafetyError) y similares: solo el código, nunca el mensaje."""
+    return f"ABORT [{safe_code(code)}]"
+
+
+def render_unexpected(exc: BaseException) -> str:
+    """Excepción inesperada: solo el NOMBRE del tipo; el mensaje (que puede llevar datos) nunca se imprime."""
+    name = type(exc).__name__
+    return f"ABORT [UNEXPECTED]: {name if re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]{0,60}', name) else 'Exception'}"

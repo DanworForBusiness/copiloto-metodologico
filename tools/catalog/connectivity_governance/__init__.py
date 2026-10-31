@@ -66,7 +66,7 @@ from .safety import (
     real_cli_profile_dir,
     remove_tree_verified,
 )
-from .probe import ProbeOutcome, run_probe
+from .probe import ProbeOutcome, render_abort, render_review, render_unexpected, review_summary, run_probe
 
 __all__ = [
     "compare_configurations", "evaluate", "evaluate_all",
@@ -84,4 +84,5 @@ __all__ = [
     "assert_allowlisted", "assert_devqa_confirmed", "assert_required", "Budget", "BudgetedSource",
     "BudgetError", "SafetyError", "ephemeral_workdir",
     "profile_fingerprint", "real_cli_profile_dir", "remove_tree_verified", "ProbeOutcome", "run_probe",
+    "review_summary", "render_review", "render_abort", "render_unexpected",
 ]

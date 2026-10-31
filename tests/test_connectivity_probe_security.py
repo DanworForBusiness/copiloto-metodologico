@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -541,3 +542,182 @@ def test_h4_real_wallclock_bound_with_blocking_subprocess(tmp_path):
         src.get_connection("CALIDAD", "BW_DS")
     assert ei.value.code == "DURATION_EXCEEDED"
     assert time.monotonic() - t0 < 10.0
+
+
+# ═══════════════════ B1 — salida compartible saneada ════════════════════════
+from tools.catalog.connectivity_governance import (  # noqa: E402
+    render_abort,
+    render_review,
+    render_unexpected,
+    review_summary,
+)
+from tools.catalog.connectivity_governance.probe import ProbeOutcome  # noqa: E402
+
+M_HOST = "https://tenant-mrkhost.devqa.invalid/"
+M_TOKEN_URL = "https://auth-mrkurl.invalid/oauth/token"
+M_CLIENT_ID = "sb-mrkclientid!b1"
+M_SECRET = "MRK-Secret-Value-77"
+M_SPACES = {"MRKSPACE_DEV": "DEV", "MRKSPACE_QAS": "QAS"}
+M_PHYS_HOST = "erp.mrkphys.corp.invalid"
+M_SID, M_CLIENT = "QZX", "8642"
+M_AGENT = "MRKAGENT_ONPREM"
+M_CONNS = {"MRKSPACE_DEV": ["MRKCONN_ERP", "MRKCONN_BW"], "MRKSPACE_QAS": ["MRKCONN_ERP", "MRKCONN_JDBC"]}
+FORBIDDEN = ("mrk", "QZX", "8642", "http", "invalid", "oauth/token", "sb-")
+
+
+def _marked_doc(space, name):
+    if name == "MRKCONN_JDBC":       # sin atributos físicos ni agente
+        return {"name": name, "space_name": space, "typeId": "GENERICJDBC", "credentialMode": "technicaluser"}
+    raw = (FIXTURES / "DESARROLLO__S4ABAP.json").read_text(encoding="utf-8")
+    for a, b in (("erp-a-dev.invalid", M_PHYS_HOST), ('"EAD"', f'"{M_SID}"'), ('"100"', f'"{M_CLIENT}"'),
+                 ("AGENT_SHARED", M_AGENT), ("S4ABAP", name), ("DESARROLLO", space)):
+        raw = raw.replace(a, b)
+    return json.loads(raw)
+
+
+def _echo(*extra):
+    # stderr del CLI que hace eco de TODO lo sensible (peor caso)
+    return " ".join([f"HTTP 403 Forbidden {M_HOST} {M_TOKEN_URL} client {M_CLIENT_ID} secret {M_SECRET}", *extra])
+
+
+def _marked_script(overrides=None):
+    overrides = overrides or {}
+
+    def script(a):
+        for match, resp in overrides.items():
+            if tuple(a[:len(match)]) == match:
+                return resp
+        if a[:1] == ["login"]:
+            return 0.2, _proc(0)
+        if a[:2] == ["spaces", "list"]:
+            return 0.1, _proc(0, json.dumps([{"name": s} for s in M_SPACES]))
+        if a[:3] == ["spaces", "connections", "list"]:
+            sp = a[a.index("--space") + 1]
+            return 0.1, _proc(0, json.dumps([{"name": n} for n in M_CONNS.get(sp, [])]))
+        if a[:3] == ["spaces", "connections", "get"]:
+            sp, nm = a[a.index("--space") + 1], a[a.index("--name") + 1]
+            return 0.1, _proc(0, json.dumps(_marked_doc(sp, nm)))
+        return 0.1, _proc(1, stderr=_echo("unknown"))
+    return script
+
+
+def _marked_run(monkeypatch, tmp_path, capsys, *, overrides=None, oauth_exc=None, duration=300.0, timeout=120.0):
+    clock = Clock()
+    budget = _budget(clock, duration=duration)
+    fake = FakeCli(clock, _marked_script(overrides))
+    monkeypatch.setattr(DSP.subprocess, "run", fake)
+    monkeypatch.setattr(DSP, "resolve_datasphere_cli_launcher",
+                        lambda root: DSP.DatasphereCliLauncher(command=("fake-cli",), mode="direct"))
+    src = CliConnectionSource(host=M_HOST, client_id=M_CLIENT_ID, client_secret=M_SECRET, token_url=M_TOKEN_URL,
+                              probe_space="MRKSPACE_DEV", probe_name="MRKCONN_ERP", timeout=timeout,
+                              work_dir=str(tmp_path / "wd"), budget=budget)
+
+    def oauth(timeout=30):
+        if oauth_exc is not None:
+            raise oauth_exc
+    src._cli_obj().oauth_preflight = oauth
+    out = run_probe(src, budget, client="probe-test", tenant_id="mrktenant-id", tenant_host=M_HOST,
+                    space_environment_map=M_SPACES, expected_spaces=list(M_SPACES), sleep=clock.sleep)
+    src.close()
+    print(render_review(out))
+    shared = capsys.readouterr()          # TODO lo que llegó a stdout/stderr durante la corrida + el resumen
+    return out, shared.out + shared.err
+
+
+def _assert_shareable(text):
+    low = text.lower()
+    for marker in FORBIDDEN:
+        assert marker.lower() not in low, f"filtró {marker!r}: {text}"
+    assert not re.search(r"\b[0-9a-f]{8,}\b", low), "la salida no debe llevar hashes/huellas"
+
+
+def test_b1_happy_path_shareable_and_informative(monkeypatch, tmp_path, capsys, real_profile):
+    out, text = _marked_run(monkeypatch, tmp_path, capsys)
+    _assert_shareable(text)
+    s = review_summary(out)
+    assert s["result"] == "OK"
+    assert set(s["preflight"]) == {"oauth_token", "list_spaces", "list_connections", "read_detail"}
+    assert all(v == {"status": "OK"} for v in s["preflight"].values())
+    inv = s["inventory"]
+    assert inv["status"] == "COMPLETE" and inv["exhaustiveness"] == "UNVERIFIABLE"
+    assert inv["coverage"]["expected_spaces"] == 2 and inv["coverage"]["extracted_connections"] == 4
+    refs = {c["ref"]: c for c in inv["connections"]}
+    assert list(refs) == ["C1", "C2", "C3", "C4"] and {c["space_ref"] for c in refs.values()} == {"S1", "S2"}
+    assert refs["C1"]["physical_present"] == {"host": True, "sysid": True, "systemnumber": True, "client": True}
+    assert refs["C1"]["agent_present"]["agent_name"] is True
+    assert refs["C4"]["physical_present"]["host"] is False and refs["C4"]["agent_present"]["agent_name"] is False
+    # el detalle técnico sigue disponible en MEMORIA para el procesamiento (no se imprime)
+    assert out.inventory["connections"][0]["physical_system"]["sysid"] == M_SID
+
+
+def test_b1_permission_error_in_extraction(monkeypatch, tmp_path, capsys, real_profile):
+    ov = {("spaces", "connections", "list", "--space", "MRKSPACE_QAS"): (0.1, _proc(1, stderr=_echo("MRKSPACE_QAS"))),
+          ("spaces", "connections", "get", "--space", "MRKSPACE_DEV", "--name", "MRKCONN_BW"):
+              (0.1, _proc(1, stderr=_echo("MRKCONN_BW", M_PHYS_HOST, M_AGENT)))}
+    out, text = _marked_run(monkeypatch, tmp_path, capsys, overrides=ov)
+    _assert_shareable(text)
+    inv = review_summary(out)["inventory"]
+    assert inv["status"] == "PARTIAL"
+    assert inv["coverage"]["errors_by_code"] == {"SCOPE_DENIED": 2}
+    assert inv["coverage"]["errors_by_scope"] == {"connection": 1, "space": 1}
+    assert inv["coverage"]["inaccessible_spaces"] == 1
+
+
+def test_b1_preflight_permission_error(monkeypatch, tmp_path, capsys, real_profile):
+    ov = {("spaces", "connections", "list"): (0.1, _proc(1, stderr=_echo("MRKSPACE_DEV")))}
+    out, text = _marked_run(monkeypatch, tmp_path, capsys, overrides=ov)
+    _assert_shareable(text)
+    pf = review_summary(out)["preflight"]
+    assert out.result == "PREFLIGHT_INSUFFICIENT"
+    assert pf["list_connections"] == {"status": "FAILED", "code": "SCOPE_DENIED"}
+    assert pf["read_detail"] == {"status": "NOT_VERIFIED", "code": "NOT_EXECUTED"}
+
+
+def test_b1_login_timeout(monkeypatch, tmp_path, capsys, real_profile):
+    out, text = _marked_run(monkeypatch, tmp_path, capsys, timeout=5.0, overrides={("login",): (999.0, _proc(0))})
+    _assert_shareable(text)
+    assert review_summary(out)["preflight"]["oauth_token"] == {"status": "FAILED", "code": "TIMEOUT"}
+
+
+def test_b1_oauth_error_with_urls_in_message(monkeypatch, tmp_path, capsys, real_profile):
+    exc = DSP.DatasphereCliError(f"PRECHECK_OAUTH_NETWORK_ERROR - No se pudo contactar {M_TOKEN_URL} "
+                                 f"({M_CLIENT_ID}:{M_SECRET}). Detalle: <urlopen error {M_HOST}>")
+    out, text = _marked_run(monkeypatch, tmp_path, capsys, oauth_exc=exc)
+    _assert_shareable(text)
+    assert review_summary(out)["preflight"]["oauth_token"] == {"status": "FAILED", "code": "PRECHECK_OAUTH_NETWORK_ERROR"}
+
+
+def test_b1_budget_abort(monkeypatch, tmp_path, capsys, real_profile):
+    ov = {("spaces", "connections", "get", "--space", "MRKSPACE_QAS"): (1000.0, _proc(0))}
+    out, text = _marked_run(monkeypatch, tmp_path, capsys, overrides=ov, duration=30.0)
+    _assert_shareable(text)
+    s = review_summary(out)
+    assert s["result"] == "ABORTED" and s["abort"]["code"] == "DURATION_EXCEEDED" and "inventory" not in s
+
+
+def test_b1_unexpected_exception_and_safety_aborts_print_codes_only():
+    class MRKWeird(Exception):
+        pass
+    for exc in (RuntimeError(f"boom {M_HOST} {M_SECRET} {M_SID}"), OSError(f"[WinError 5] {M_PHYS_HOST}")):
+        line = render_unexpected(exc)
+        assert line.startswith("ABORT [UNEXPECTED]: ")
+        _assert_shareable(line)
+        assert "boom" not in line and "WinError" not in line
+    assert render_unexpected(MRKWeird("x")) == "ABORT [UNEXPECTED]: MRKWeird"   # nombre de TIPO del código, no dato
+    err = SafetyError("WORKDIR_CLEANUP_FAILED", f"no se pudo borrar C:\\Temp\\dsp-x {M_HOST}")
+    assert render_abort(err.code) == "ABORT [WORKDIR_CLEANUP_FAILED]"
+    assert render_abort(f"X {M_HOST}") == "ABORT [UNCLASSIFIED]"          # código fuera de vocabulario
+
+
+def test_b1_unknown_codes_and_free_text_are_not_echoed():
+    inv = {"status": "PARTIAL", "exhaustiveness": "INCOMPLETE",
+           "coverage": {"expected_spaces": ["MRKSPACE_DEV"], "accessible_spaces": [],
+                        "inaccessible_spaces": ["MRKSPACE_DEV"], "discovered_connections": 0,
+                        "extracted_connections": 0,
+                        "errors": [{"scope": "space:MRKSPACE_DEV", "code": f"E_{M_PHYS_HOST}", "message": M_HOST,
+                                    "retriable": False}]},
+           "connections": []}
+    text = render_review(ProbeOutcome("OK", 0, preflight={"oauth_token": {"status": "FAILED", "detail": f"{M_HOST} zzz"}},
+                                      inventory=inv))
+    _assert_shareable(text)
+    assert "UNCLASSIFIED" in text
