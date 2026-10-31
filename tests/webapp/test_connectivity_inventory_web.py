@@ -123,7 +123,6 @@ def env(monkeypatch, tmp_path):
     monkeypatch.setattr(tempfile, "tempdir", str(tmp))
     monkeypatch.setattr(config, "ASSESSMENT_CACHE_DIR", tmp_path / "assessment_cache")
     monkeypatch.setenv("DANWOR_CATALOG_DIR", str(tmp_path / "catalog_local"))
-    monkeypatch.delenv(svc.PILOT_HOSTS_ENV, raising=False)
     monkeypatch.setattr(access, "APP_OWNER", "owner@danwor.com")
     fake = FakeCli()
     monkeypatch.setattr(DSP.subprocess, "run", fake)
@@ -173,8 +172,7 @@ def _shareable(events_or_text, *, hashes=True):
 
 # ═══════════════ (8) visibilidad = mismas reglas que el módulo 04 (sin flag) ═══════════════
 def test_plus_visible_by_can_execute_without_any_env_var(monkeypatch, env):
-    for var in ("DANWOR_CONNECTIVITY_EXTRACTION_UI", svc.PILOT_HOSTS_ENV):
-        monkeypatch.delenv(var, raising=False)
+    monkeypatch.delenv("DANWOR_CONNECTIVITY_EXTRACTION_UI", raising=False)
     assert svc.tool_enabled(STEM) is True and svc.tool_enabled("04_Modelado_y_Desarrollo") is False
     monkeypatch.setattr(auth_service, "ALLOWED_USERS", "trusted@danwor.com")
     monkeypatch.setattr(auth_service, "ACADEMY_USERS", "reader@danwor.com")
@@ -289,16 +287,24 @@ def test_validation_rejects_without_executing(env, patch, field):
     assert env.fake.calls == [] and M_SECRET not in r.text
 
 
-def test_pilot_restriction_is_server_side(monkeypatch, env):
-    monkeypatch.setenv(svc.PILOT_HOSTS_ENV, "otro-tenant.eu10.hcs.cloud.sap")
-    d = _done(_post(_client("owner@danwor.com")))
-    assert d["state"] == "INVALID" and "piloto" in d["errors"]["host"] and env.fake.calls == []
-    monkeypatch.setenv(svc.PILOT_HOSTS_ENV, "MRKHOST.eu10.hcs.cloud.sap")                    # habilitado (sin distinguir mayúsculas)
-    assert _done(_post(_client("owner@danwor.com")))["state"] == "SUCCESS"
-    # una "allowlist" enviada desde el navegador se ignora: no es un campo del formulario
-    monkeypatch.setenv(svc.PILOT_HOSTS_ENV, "otro-tenant.eu10.hcs.cloud.sap")
-    d = _done(_post(_client("owner@danwor.com"), data={**VALID, "pilot_hosts": "mrkhost.eu10.hcs.cloud.sap"}))
-    assert d["state"] == "INVALID"
+def test_host_validation_is_exactly_the_module_04_one(monkeypatch, env):
+    # Misma función y mismos mensajes que el módulo 04 (`_check_url`: https + sufijos SAP + DANWOR_DATASPHERE_ALLOWED_HOSTS existente).
+    from webapp.services import datasphere_assessment_service as asd
+    for bad in ("https://evil.example.com", "http://mrkhost.eu10.hcs.cloud.sap", "https://user:pw@mrkhost.eu10.hcs.cloud.sap"):
+        mine = _done(_post(_client("owner@danwor.com"), data={**VALID, "host": bad}))["errors"].get("host")
+        theirs: dict = {}
+        asd._check_url(bad, theirs, "host")
+        assert mine == theirs["host"], bad
+    assert env.fake.calls == []
+
+
+def test_no_connectivity_specific_configuration():
+    # Sin variables de entorno ni flags propios: solo se lee configuración YA existente de la app (DANWOR_CATALOG_DIR, la misma que
+    # usan el Catálogo y remote_store para la guarda del workspace).
+    for mod in (svc, router):
+        src = Path(mod.__file__).read_text(encoding="utf-8")
+        assert "DANWOR_CONNECTIVITY" not in src and "os.environ" not in src, mod.__name__
+        assert set(re.findall(r'os\.getenv\("([A-Z_]+)"', src)) <= {"DANWOR_CATALOG_DIR"}, mod.__name__
 
 
 # ═══════════════ (2) saneamiento integral ═══════════════

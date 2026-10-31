@@ -15,9 +15,8 @@ Reutiliza del módulo 04 (sin duplicar): la AUTORIZACIÓN (`datasphere_assessmen
 Controles propios:
   * visibilidad = MISMAS reglas que el «+» del módulo 04: la herramienta existe en el módulo 01 y se muestra a quien tiene
     ``can_execute``; sin variable de entorno de visibilidad. Ver la UI NO autoriza a ejecutar: el endpoint vuelve a exigir sesión,
-    mismo origen y ``can_execute``, valida el tenant y aplica la restricción de piloto.
-  * ``DANWOR_CONNECTIVITY_PILOT_HOSTS`` (opcional, SERVIDOR): lista de hostnames de tenant habilitados para el piloto; si está
-    definida, cualquier otro tenant se rechaza. Nunca viene del navegador.
+    mismo origen y ``can_execute`` y valida el tenant con la MISMA validación de host del módulo 04. Sin variables de entorno ni
+    configuración propias: la herramienta reutiliza la arquitectura de autenticación/autorización/perfiles del módulo 04.
   * launcher del CLI en modo ``direct`` (fail-closed): con `npx` los nietos podrían sobrevivir a un timeout en Linux.
   * workspace efímero fuera de todo directorio persistido (fail-closed) y borrado VERIFICADO.
   * concurrencia: semáforo global + single-flight por (usuario, tenant).
@@ -42,7 +41,6 @@ from webapp.services import datasphere_assessment_service as asd
 
 log = logging.getLogger("danwor.connectivity_inventory")
 
-PILOT_HOSTS_ENV = "DANWOR_CONNECTIVITY_PILOT_HOSTS"
 MODULES = frozenset({"01_Arquitectura_y_Conectividad"})
 # El selector de perfiles del dueño reutiliza el endpoint EXISTENTE del módulo 04 (misma autorización de dueño; sin ruta nueva).
 PROFILES_STEM = "04_Modelado_y_Desarrollo"
@@ -132,17 +130,10 @@ class ExtractionValues:
                    probe_connection=(probe_connection or "").strip())
 
 
-def pilot_hosts() -> frozenset[str]:
-    return frozenset(h.strip().lower().strip(".") for h in os.getenv(PILOT_HOSTS_ENV, "").split(",") if h.strip())
-
-
 def validate(values: ExtractionValues, client_secret: str) -> dict[str, str]:
     errors: dict[str, str] = {}
     asd._check_url(values.host, errors, "host")                    # MISMA validación de tenant que el módulo 04
     asd._check_url(values.token_url, errors, "token_url")
-    pilot = pilot_hosts()
-    if pilot and "host" not in errors and (urlparse(values.host).hostname or "").lower().strip(".") not in pilot:
-        errors["host"] = "Este tenant no está habilitado para la extracción de conexiones durante el piloto."
     if not values.client_id or len(values.client_id) > 300 or any(c.isspace() for c in values.client_id):
         errors["client_id"] = "Ingresá el Client ID (sin espacios)."
     if not client_secret or len(client_secret) > 1000:
