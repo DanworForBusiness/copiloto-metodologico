@@ -347,11 +347,73 @@ def resolve_datasphere_cli_launcher(project_root: Path) -> DatasphereCliLauncher
     )
 
 
+# Flags del CLI cuyo VALOR es sensible: nunca deben aparecer en mensajes de error/excepciones.
+_SENSITIVE_CLI_FLAGS = frozenset({"--client-secret", "--access-token", "--refresh-token", "--code", "--passcode"})
+
+# Variables del entorno del operador que el perfil AISLADO hereda (allowlist). Todo lo demás se descarta:
+# el CLI lee opciones desde env (HOST, CLIENT_SECRET, ACCESS_TOKEN, SECRETS_FILE, OPTIONS_FILE…), y
+# CLI_LEGACY_CACHE_LOCATION / NODE_CONFIG* / NODE_OPTIONS alteran caché, destino o código cargado.
+_ISOLATED_ENV_KEEP = frozenset({
+    "SYSTEMROOT", "WINDIR", "COMSPEC", "PATH", "PATHEXT", "SYSTEMDRIVE", "OS",
+    "PROCESSOR_ARCHITECTURE", "NUMBER_OF_PROCESSORS",
+    "PROGRAMFILES", "PROGRAMFILES(X86)", "PROGRAMW6432", "COMMONPROGRAMFILES", "PROGRAMDATA",
+    "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "NODE_EXTRA_CA_CERTS", "LANG", "LC_ALL",
+})
+
+
+def redact_cli_argv(cmd: Iterable[str]) -> list[str]:
+    """Copia del argv con los valores de flags sensibles reemplazados (para mensajes/excepciones)."""
+    out: list[str] = []
+    hide_next = False
+    for part in cmd:
+        part = str(part)
+        if hide_next:
+            out.append("[REDACTED]")
+            hide_next = False
+            continue
+        flag, sep, _ = part.partition("=")
+        if flag in _SENSITIVE_CLI_FLAGS:
+            if sep:
+                out.append(f"{flag}=[REDACTED]")
+            else:
+                out.append(part)
+                hide_next = True
+            continue
+        out.append(part)
+    return out
+
+
+def isolated_cli_env(profile_dir: Path, base_env: dict[str, str] | None = None) -> dict[str, str]:
+    """Entorno MÍNIMO para un perfil del CLI aislado en `profile_dir`.
+
+    En Windows Node resuelve `os.homedir()` desde USERPROFILE (HOME se ignora; sin USERPROFILE vuelve al perfil
+    real vía API del SO), y @sap/cli-core guarda secrets.json/settings.json bajo `homedir()/.@sap/<cli>/.cache`.
+    Por eso se redirigen USERPROFILE + HOME (+ APPDATA/LOCALAPPDATA/TEMP/TMP/XDG_*) al perfil efímero y se
+    descarta el resto del entorno salvo una allowlist técnica (proxy/CA/sistema)."""
+    base = os.environ if base_env is None else base_env
+    env = {k: v for k, v in base.items() if k.upper() in _ISOLATED_ENV_KEEP}
+    roaming = profile_dir / "AppData" / "Roaming"
+    local = profile_dir / "AppData" / "Local"
+    temp = profile_dir / "Temp"
+    node_config = profile_dir / "node-config"          # vacío: ningún `config/` del cwd redefine tenant.host
+    for d in (roaming, local, temp, node_config):
+        d.mkdir(parents=True, exist_ok=True)
+    env.update({
+        "USERPROFILE": str(profile_dir), "HOME": str(profile_dir),
+        "APPDATA": str(roaming), "LOCALAPPDATA": str(local),
+        "TEMP": str(temp), "TMP": str(temp),
+        "XDG_CONFIG_HOME": str(profile_dir / ".config"), "XDG_CACHE_HOME": str(profile_dir / ".cache"),
+        "NODE_CONFIG_DIR": str(node_config),
+    })
+    return env
+
+
 class DatasphereCli:
     def __init__(
         self, host: str, client_id: str, client_secret: str, token_url: str, work_dir: Path,
         diagnostics: ExtractionDiagnostics | None = None,
         launcher: DatasphereCliLauncher | None = None,
+        *, isolated_profile: bool = False,
     ) -> None:
         self.host = host.rstrip("/") + "/"
         self.client_id = client_id
@@ -360,14 +422,24 @@ class DatasphereCli:
         self.work_dir = work_dir
         self.diagnostics = diagnostics or ExtractionDiagnostics(False)
         self.project_root = Path(__file__).resolve().parents[2]
-        self.env = os.environ.copy()
         self.home_dir = self.work_dir / "home"
         self.home_dir.mkdir(parents=True, exist_ok=True)
-        self.env["HOME"] = str(self.home_dir)
+        # `isolated_profile` es OPT-IN (default False = comportamiento histórico: entorno completo + HOME, que en
+        # Windows NO aísla el perfil del CLI). Solo el adaptador de conectividad lo activa.
+        if isolated_profile:
+            self.env = isolated_cli_env(self.home_dir)
+        else:
+            self.env = os.environ.copy()
+            self.env["HOME"] = str(self.home_dir)
         self.launcher = launcher or resolve_datasphere_cli_launcher(self.project_root)
 
-    def _invoke_cli(self, args: list[str]) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+    def _invoke_cli(self, args: list[str], *, timeout: float | None = None) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+        # `timeout` es OPT-IN (default None = comportamiento histórico idéntico: subprocess.run(timeout=None)).
+        # Solo el adaptador de conectividad lo pasa; los consumidores existentes (publicación de modelos) no se
+        # ven afectados. Al vencer, subprocess.run lanza TimeoutExpired (no es OSError) y propaga sin disparar
+        # el fallback npx — quien llama con timeout la clasifica como error estructurado.
         cmd = [*self.launcher.command, *args]
+        timed_out = False
         try:
             proc = subprocess.run(
                 cmd,
@@ -375,8 +447,11 @@ class DatasphereCli:
                 env=self.env,
                 capture_output=True,
                 text=True,
+                timeout=timeout,
             )
             return proc, cmd
+        except subprocess.TimeoutExpired:
+            timed_out = True
         except OSError as exc:
             fallback = self.launcher.fallback_command
             if self.launcher.mode != "direct" or fallback is None:
@@ -392,15 +467,22 @@ class DatasphereCli:
                     env=self.env,
                     capture_output=True,
                     text=True,
+                    timeout=timeout,
                 )
                 return proc, fallback_cmd
+            except subprocess.TimeoutExpired:
+                timed_out = True
             except OSError as fallback_exc:
                 raise DatasphereCliError(
                     "DATASPHERE_CLI_UNAVAILABLE - No se pudo iniciar el CLI local "
                     f"ni el fallback npx: {fallback_exc}"
                 ) from fallback_exc
+        # TimeoutExpired original lleva el argv completo (incluido --client-secret <valor>) y la salida parcial:
+        # se relanza FUERA del except (sin __context__) con argv redactado y sin stdout/stderr.
+        assert timed_out
+        raise subprocess.TimeoutExpired(redact_cli_argv(cmd), timeout)
 
-    def _run(self, args: list[str], *, expect_json: bool = False) -> Any:
+    def _run(self, args: list[str], *, expect_json: bool = False, timeout: float | None = None) -> Any:
         family: str | None = None
         operation = args[0] if args else "unknown"
         technical_name: str | None = None
@@ -413,7 +495,7 @@ class DatasphereCli:
                     technical_name = args[idx + 1]
 
         started = time.perf_counter()
-        proc, cmd = self._invoke_cli(args)
+        proc, cmd = self._invoke_cli(args, timeout=timeout)   # timeout opt-in; TimeoutExpired propaga al llamador
         elapsed_ms = (time.perf_counter() - started) * 1000.0
         parse_ms = 0.0
         parsed: Any = None
@@ -424,7 +506,7 @@ class DatasphereCli:
                     family=family, operation=operation, technical_name=technical_name,
                     elapsed_ms=elapsed_ms, network_bearing=True,
                 )
-                raise DatasphereCliError(f"Command returned empty output: {' '.join(cmd)}")
+                raise DatasphereCliError(f"Command returned empty output: {' '.join(redact_cli_argv(cmd))}")
             parse_started = time.perf_counter()
             try:
                 parsed = json.loads(raw)
@@ -435,7 +517,7 @@ class DatasphereCli:
                     elapsed_ms=elapsed_ms, parse_ms=parse_ms, network_bearing=True,
                 )
                 raise DatasphereCliError(
-                    f"Expected JSON but could not parse CLI output for: {' '.join(cmd)}"
+                    f"Expected JSON but could not parse CLI output for: {' '.join(redact_cli_argv(cmd))}"
                 ) from exc
             parse_ms = (time.perf_counter() - parse_started) * 1000.0
 
@@ -451,7 +533,8 @@ class DatasphereCli:
             return parsed
         return proc.stdout
 
-    def oauth_preflight(self) -> None:
+    def oauth_preflight(self, *, timeout: float = 30) -> None:
+        # `timeout` opt-in (default 30 = histórico); el adaptador de conectividad lo acota al presupuesto restante.
         _say("Preflight OAuth: validando client_credentials...")
         raw = f"{self.client_id}:{self.client_secret}".encode("utf-8")
         basic = base64.b64encode(raw).decode("ascii")
@@ -466,7 +549,7 @@ class DatasphereCli:
             },
         )
         try:
-            with urllib.request.urlopen(request, timeout=30) as response:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
                 status = int(getattr(response, "status", 0) or response.getcode() or 0)
                 payload = response.read().decode("utf-8", errors="replace")
         except urllib.error.HTTPError as exc:
@@ -526,7 +609,16 @@ class DatasphereCli:
             ) from exc
         _say(f"Preflight autorización: OK - acceso al Space {space}")
 
-    def login(self) -> None:
+    def login(self, *, timeout: float | None = None, use_secrets_file: bool = False) -> None:
+        # `use_secrets_file` es OPT-IN (default False = histórico: secreto por argv). Con True el secreto viaja en
+        # un archivo efímero (`--secrets-file`, soportado por @sap/cli-core) dentro del perfil del CLI y se borra al
+        # terminar: no queda en la línea de comandos del proceso ni en excepciones que incluyan el argv.
+        if use_secrets_file:
+            self._login_with_secrets_file(timeout=timeout)
+            return
+        # Sin timeout pedido, la llamada conserva la forma HISTÓRICA exacta (`_run(args)`): los consumidores existentes
+        # (y sus dobles de prueba) no reciben un kwarg nuevo.
+        run_kwargs = {} if timeout is None else {"timeout": timeout}
         self._run(
             [
                 "login",
@@ -536,8 +628,36 @@ class DatasphereCli:
                 "--host", self.host,
                 "--authorization-flow", "client_credentials",
                 "--force",
-            ]
+            ],
+            **run_kwargs,
         )
+
+    def _login_with_secrets_file(self, *, timeout: float | None) -> None:
+        # authorization_url no se usa en client_credentials, pero @sap/cli-core la exige como URL válida para
+        # clientes custom (sb-…); se deriva del token endpoint XSUAA estándar.
+        token_url = self.token_url
+        authorization_url = (
+            token_url[: -len("/oauth/token")] + "/oauth/authorize" if token_url.endswith("/oauth/token") else token_url
+        )
+        payload = json.dumps({
+            "client_id": self.client_id,
+            "client_secret": self.client_secret,
+            "token_url": token_url,
+            "authorization_url": authorization_url,
+            "authorization_flow": "client_credentials",
+        })
+        secrets_path = self.home_dir / f"login-secrets-{os.getpid()}-{time.monotonic_ns()}.json"
+        fd = os.open(secrets_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(payload)
+            self._run(
+                ["login", "--secrets-file", str(secrets_path), "--host", self.host, "--force"],
+                timeout=timeout,
+            )
+        finally:
+            with contextlib.suppress(FileNotFoundError):
+                secrets_path.unlink()
 
     def list_spaces(self) -> list[str]:
         data = self._run(

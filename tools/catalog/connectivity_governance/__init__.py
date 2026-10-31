@@ -25,10 +25,65 @@ from .model import (
 )
 from .snapshot import from_snapshot, is_connection_doc
 
+# F2.1 — extracción read-only + inventario normalizado (importables sin el CLI; la fuente real lo carga perezoso)
+from .inventory import (
+    ConnectivityInventory,
+    Exhaustiveness,
+    ExtractionError,
+    InventoryCoverage,
+    InventoryStatus,
+    UNASSIGNED_ENVIRONMENT,
+    compute_exhaustiveness,
+    compute_status,
+)
+from .extraction import (
+    ConnectionSource,
+    RetryPolicy,
+    SourceError,
+    extract_inventory,
+    sanitize,
+    with_retry,
+)
+from .sources import (
+    CheckStatus,
+    CliConnectionSource,
+    PreflightCheck,
+    PreflightReport,
+    SimulatedConnectionSource,
+    classify_cli_error,
+    rate_limited,
+    timed_out,
+)
+from .safety import (
+    Budget,
+    BudgetError,
+    BudgetedSource,
+    SafetyError,
+    assert_allowlisted,
+    assert_devqa_confirmed,
+    assert_required,
+    ephemeral_workdir,
+    profile_fingerprint,
+    real_cli_profile_dir,
+    remove_tree_verified,
+)
+from .probe import ProbeOutcome, render_abort, render_review, render_unexpected, review_summary, run_probe
+
 __all__ = [
     "compare_configurations", "evaluate", "evaluate_all",
     "from_snapshot", "is_connection_doc",
     "HomologationContract", "LogicalSystem", "ExpectedMember", "GovernedException",
     "ObservedConnection", "ConnectionIdentity", "PhysicalSystemIdentity", "AgentObservation",
     "ConnectivityVerdict", "Conformance", "Operational", "Coverage", "Divergence",
+    # F2.1
+    "ConnectivityInventory", "InventoryCoverage", "InventoryStatus", "Exhaustiveness", "ExtractionError",
+    "compute_status", "compute_exhaustiveness", "UNASSIGNED_ENVIRONMENT",
+    "extract_inventory", "ConnectionSource", "SourceError", "RetryPolicy", "with_retry", "sanitize",
+    "SimulatedConnectionSource", "CliConnectionSource", "rate_limited", "timed_out",
+    "classify_cli_error", "PreflightReport", "PreflightCheck", "CheckStatus",
+    # F2.1c — controles de seguridad de ejecución
+    "assert_allowlisted", "assert_devqa_confirmed", "assert_required", "Budget", "BudgetedSource",
+    "BudgetError", "SafetyError", "ephemeral_workdir",
+    "profile_fingerprint", "real_cli_profile_dir", "remove_tree_verified", "ProbeOutcome", "run_probe",
+    "review_summary", "render_review", "render_abort", "render_unexpected",
 ]

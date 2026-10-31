@@ -22,5 +22,18 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt -r requirements-dev.txt
 
+      # Gate Linux de la extracción de conexiones (F2.1 · G7): CLI de Datasphere EXACTO del lockfile + tenant FALSO en
+      # 127.0.0.1. Sin credenciales, sin SAP, sin variables nuevas. Un fallo (exit != 0) corta el job: nunca pasa por SKIP.
+      - name: Set up Node 22 (engines de package.json)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Datasphere CLI from lockfile
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Connectivity Linux gate (G7)
+        run: python -m tools.catalog.connectivity_governance.linux_gate
+
       - name: Run tests
         run: pytest -q
