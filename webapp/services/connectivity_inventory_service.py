@@ -208,11 +208,24 @@ def _launcher_mode() -> str:
     return dsp.resolve_datasphere_cli_launcher(Path(dsp.__file__).resolve().parents[2]).mode
 
 
-def _workspace_safe(base: Path) -> bool:
-    from tools.catalog.modeling_assessment import paths as ma_paths
+def _is_within(child: Path, parent: Path) -> bool:
     try:
-        return ma_paths.persisted_dir_containing(base) is None
-    except Exception:                                   # noqa: BLE001 — si no puede verificarse, no se ejecuta
+        child.resolve().relative_to(parent.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def _workspace_safe(base: Path) -> bool:
+    """El workspace efímero NO puede caer bajo un directorio que `mirror_up()` sube a Spaces (misma fuente de verdad que la guarda
+    del Assessment: `core.remote_store._persist_dirs`) ni bajo el Catálogo. FAIL-CLOSED: si no puede verificarse, no se ejecuta."""
+    try:
+        import config
+        from core import remote_store
+        forbidden = [Path(p) for _name, p in remote_store._persist_dirs()]
+        forbidden.append(Path(os.getenv("DANWOR_CATALOG_DIR", "").strip() or (Path(config.BASE_DIR) / "catalog_local")))
+        return not any(_is_within(base, d) for d in forbidden)
+    except Exception:                                   # noqa: BLE001
         return False
 
 

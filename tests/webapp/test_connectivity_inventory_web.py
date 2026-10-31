@@ -370,6 +370,22 @@ def test_workspace_under_persisted_dir_fails_closed(monkeypatch, env):
     assert _done(_post(_client("owner@danwor.com")))["error_code"] == "WORKSPACE_UNSAFE" and env.fake.calls == []
 
 
+def test_workspace_guard_uses_persisted_dirs_and_catalog(monkeypatch, tmp_path):
+    from core import remote_store
+    persisted = tmp_path / "persisted"
+    catalog = tmp_path / "catalog_local"
+    monkeypatch.setattr(remote_store, "_persist_dirs", lambda: [("x", str(persisted))])
+    monkeypatch.setenv("DANWOR_CATALOG_DIR", str(catalog))
+    assert svc._workspace_safe(tmp_path / "tmp") is True
+    assert svc._workspace_safe(persisted / "tmp") is False                                # lo subiría mirror_up()
+    assert svc._workspace_safe(catalog / "tmp") is False
+
+    def broken():
+        raise RuntimeError("no se puede leer la configuración")
+    monkeypatch.setattr(remote_store, "_persist_dirs", broken)
+    assert svc._workspace_safe(tmp_path / "tmp") is False                                 # no verificable ⇒ no se ejecuta
+
+
 def test_real_launcher_resolution_is_direct_in_this_checkout():
     # El checkout tiene node + node_modules/@sap/datasphere-cli: el launcher real debe resolver 'direct' (sin npx).
     repo = Path(DSP.__file__).resolve().parents[2]
