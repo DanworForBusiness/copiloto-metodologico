@@ -139,12 +139,81 @@
     setHidden(result, !renderSummary(panel, done.summary));
   }
 
+  // ── Filas dinámicas Space + environment declarado ────────────────────────────
+  // Una fila al abrir; «+ Otro espacio» clona el <template> del servidor (única fuente de marcado) y «Quitar» elimina SOLO esa fila:
+  // el resto de los nodos no se toca, así que sus valores se conservan. Siempre queda al menos una fila. El máximo lo fija el servidor.
+  function spaceRows(form) { return form.querySelectorAll("[data-dsc-spaces] [data-dsc-space-row]"); }
+
+  function syncAddButton(form) {
+    const box = el(form, "[data-dsc-spaces]");
+    const add = el(form, "[data-dsc-add-space]");
+    if (box && add) add.disabled = spaceRows(form).length >= Number(box.dataset.max || 0);
+  }
+
+  function addSpaceRow(form) {
+    const box = el(form, "[data-dsc-spaces]");
+    const tpl = el(form, "[data-dsc-space-template]");
+    if (!box || !tpl || spaceRows(form).length >= Number(box.dataset.max || 0)) return;
+    const next = Number(form.dataset.dscNextRow || spaceRows(form).length + 1);
+    form.dataset.dscNextRow = String(next + 1);
+    const row = tpl.content.firstElementChild.cloneNode(true);
+    const input = row.querySelector("[data-dsc-space-input]");
+    const select = row.querySelector("[data-dsc-env-input]");
+    input.id = "dsc-space-" + next;
+    select.id = "dsc-space-env-" + next;
+    row.querySelector("[data-dsc-space-label]").htmlFor = input.id;
+    box.appendChild(row);
+    syncAddButton(form);
+    input.focus();
+  }
+
+  function removeSpaceRow(form, row) {
+    if (spaceRows(form).length <= 1) return;                   // siempre al menos un grupo
+    row.remove();
+    syncAddButton(form);
+  }
+
+  function duplicatedSpace(form) {
+    const seen = new Set();
+    for (const input of form.querySelectorAll("[data-dsc-spaces] [data-dsc-space-input]")) {
+      const key = input.value.trim().toLowerCase();
+      if (!key) continue;
+      if (seen.has(key)) return input;
+      seen.add(key);
+    }
+    return null;
+  }
+
+  document.addEventListener("click", (event) => {
+    const add = event.target.closest && event.target.closest("[data-dsc-add-space]");
+    const remove = event.target.closest && event.target.closest("[data-dsc-remove-space]");
+    const form = (add || remove) && (add || remove).closest("[data-dsc-form]");
+    if (!form) return;
+    event.preventDefault();
+    if (add) addSpaceRow(form);
+    else removeSpaceRow(form, remove.closest("[data-dsc-space-row]"));
+  });
+
+  document.addEventListener("input", (event) => {               // al corregir un Space, el aviso de filas deja de aplicar
+    if (!event.target.matches || !event.target.matches("[data-dsc-space-input]")) return;
+    const errorBox = event.target.closest("[data-dsc-form]").querySelector('[data-dsc-error="spaces"]');
+    if (errorBox) { errorBox.textContent = ""; errorBox.hidden = true; }
+  });
+
   document.addEventListener("submit", (event) => {
     const form = event.target;
     if (!(form instanceof HTMLFormElement) || !form.hasAttribute("data-dsc-form")) return;
     event.preventDefault();
     const submit = form.querySelector("[data-dsc-submit]");
     if (submit && submit.disabled) return;
+    const errorBox = el(form, '[data-dsc-error="spaces"]');
+    const dup = duplicatedSpace(form);
+    if (dup) {                                                   // el servidor también lo rechaza; acá se evita el viaje
+      errorBox.textContent = "Hay Spaces repetidos.";
+      errorBox.hidden = false;
+      dup.focus();
+      return;
+    }
     run(form);
   });
 })();

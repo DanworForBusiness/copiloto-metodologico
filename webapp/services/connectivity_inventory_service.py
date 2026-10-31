@@ -47,8 +47,9 @@ MODULES = frozenset({"01_Arquitectura_y_Conectividad"})
 # El selector de perfiles del dueño reutiliza el endpoint EXISTENTE del módulo 04 (misma autorización de dueño; sin ruta nueva).
 PROFILES_STEM = "04_Modelado_y_Desarrollo"
 ENVIRONMENTS = ("DEV", "QAS")
-SPACE_ROWS = 4
-MAX_SPACES = 10
+# Máximo TÉCNICO de Spaces por extracción (protección de recursos, no regla de negocio): cada Space consume al menos una llamada
+# física (listar) más una por conexión, dentro del presupuesto de LIMITS. La UI lo muestra y no permite superarlo; el servidor lo exige.
+MAX_SPACES = 20
 WORK_PREFIX = "dsp-conn-web-"
 # Presupuesto del SERVIDOR (no editable desde la UI). Solicitudes = llamadas FÍSICAS (preflight incluido).
 LIMITS = {"max_requests": 150, "max_total_retries": 6, "max_duration_s": 600.0}
@@ -106,7 +107,7 @@ def tool_context(request, stem: str) -> dict:
     from webapp.services import datasphere_profiles
     return {"enabled": enabled, "can_execute": can, "stem": stem, "form": form,
             "owner_profiles_url": datasphere_profiles.selector_url(PROFILES_STEM, owner_only),
-            "space_rows": list(range(1, SPACE_ROWS + 1)), "environments": list(ENVIRONMENTS)}
+            "max_spaces": MAX_SPACES, "environments": list(ENVIRONMENTS)}
 
 
 # ───────────────────────────── valores y validación ─────────────────────────────
@@ -122,12 +123,10 @@ class ExtractionValues:
     @classmethod
     def from_form(cls, *, host: str, token_url: str, client_id: str, client: str,
                   space_ids: list[str], space_envs: list[str], probe_connection: str = "") -> "ExtractionValues":
-        pairs = []
-        for i, raw in enumerate(space_ids):
-            space = (raw or "").strip()
-            env = (space_envs[i] if i < len(space_envs) else "").strip()
-            if space or env:
-                pairs.append((space, env))
+        # Filas dinámicas: TODAS las enviadas cuentan (ninguna se descarta en silencio); una fila incompleta la rechaza `validate`.
+        ids, envs = list(space_ids or []), list(space_envs or [])
+        pairs = [((ids[i] if i < len(ids) else "").strip(), (envs[i] if i < len(envs) else "").strip())
+                 for i in range(max(len(ids), len(envs)))]
         return cls(host=(host or "").strip(), token_url=(token_url or "").strip(), client_id=(client_id or "").strip(),
                    client=" ".join((client or "").split()), spaces=tuple(pairs),
                    probe_connection=(probe_connection or "").strip())
@@ -155,7 +154,10 @@ def validate(values: ExtractionValues, client_secret: str) -> dict[str, str]:
         errors["spaces"] = "Ingresá al menos un Space ID con su environment declarado."
     elif len(values.spaces) > MAX_SPACES:
         errors["spaces"] = f"Podés pedir hasta {MAX_SPACES} Spaces por extracción."
-    for space, env in values.spaces:
+    for space, env in (values.spaces if "spaces" not in errors else ()):
+        if not space:
+            errors["spaces"] = "Completá el Space ID de cada fila."
+            break
         if not asd._NAME_RE.match(space):
             errors["spaces"] = "Cada Space ID debe ser un nombre técnico (letras, números, _ . -)."
             break

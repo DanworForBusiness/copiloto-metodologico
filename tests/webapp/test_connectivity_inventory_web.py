@@ -199,6 +199,58 @@ def test_plus_and_catalog_tab_with_empty_catalog_only_in_module_01(env):
     assert 'id="dsp-form"' in m04                                                            # su herramienta sigue ahí
 
 
+def test_extract_state_reuses_the_compact_header_of_module_04(env):
+    # G2: mismo encabezado compacto que el estado de publicación del 04 (sin el hueco bajo el título) y mismo margen del primer grupo.
+    m01 = _client("owner@danwor.com").get(f"/modules/{STEM}?pack=datasphere_core&tab=catalogo").text
+    assert ":class=\"catalogView === 'extract' && 'catalog-picker--bare'\"" in m01
+    form = m01[m01.index('id="dsc-form"'):]
+    assert re.match(r'id="dsc-form"[^>]*>\s*<input type="hidden" name="pack"', form)        # ancla de la regla de 14px (igual que el 04)
+    css = (Path(main.__file__).resolve().parent / "static" / "tools.css").read_text(encoding="utf-8")
+    assert ".catalog-picker--bare + #catalog-extract-state form > input[type=\"hidden\"] + .tree-picker" in css
+    assert ".catalog-picker--bare + #catalog-publish-state form > input[type=\"hidden\"] + .tree-picker" in css
+
+
+def test_scope_starts_with_one_required_row_and_a_server_side_template(env):
+    m01 = _client("owner@danwor.com").get(f"/modules/{STEM}?pack=datasphere_core&tab=catalogo").text
+    box = m01[m01.index("data-dsc-spaces"):m01.index("<template data-dsc-space-template>")]
+    start = m01.index("<template data-dsc-space-template>")
+    tpl = m01[start:m01.index("</template>", start)]
+    assert box.count("data-dsc-space-row") == 1                                              # una sola fila al abrir
+    assert 'id="dsc-space-1"' in box and 'id="dsc-space-env-1"' in box and "data-dsc-remove-space" not in box
+    assert re.search(r'<input id="dsc-space-1" name="space_id"[^>]* required', box)
+    assert re.search(r'<select id="dsc-space-env-1" name="space_env" required', box)
+    assert tpl.count("data-dsc-space-row") == 1 and "data-dsc-remove-space" in tpl and ">Quitar<" in tpl
+    assert re.search(r'name="space_id"[^>]* required', tpl) and re.search(r'name="space_env" required', tpl)
+    assert f'data-max="{svc.MAX_SPACES}"' in m01 and f"Hasta {svc.MAX_SPACES} Spaces por extracción" in m01
+    assert "data-dsc-add-space" in m01 and "+ Otro espacio" in m01 and "(opcional)</label>" not in box
+    assert "declarado" in m01
+
+
+@pytest.mark.parametrize("n", [1, 2, 6])
+def test_any_number_of_spaces_up_to_the_server_max(env, n):
+    spaces = [f"SPACE_{i}" for i in range(n)]
+    d = _done(_post(_client("owner@danwor.com"), data={**VALID, "space_id": spaces, "space_env": ["DEV"] * n,
+                                                       "probe_connection": ""}))
+    assert d["state"] == "SUCCESS", d
+    assert d["summary"]["inventory"]["coverage"]["expected_spaces"] == n                     # exactamente las filas enviadas
+
+
+def test_more_than_the_server_max_is_rejected_explicitly(env):
+    n = svc.MAX_SPACES + 1
+    d = _done(_post(_client("owner@danwor.com"), data={**VALID, "space_id": [f"S{i}" for i in range(n)], "space_env": ["DEV"] * n}))
+    assert d["state"] == "INVALID" and str(svc.MAX_SPACES) in d["errors"]["spaces"] and env.fake.calls == []
+
+
+@pytest.mark.parametrize("ids,envs,fragment", [
+    (["MRKSPACE_DEV", "MRKSPACE_QAS"], ["DEV", ""], "environment"),                         # environment ausente en una fila
+    (["MRKSPACE_DEV", "", "MRKSPACE_QAS"], ["DEV", "QAS", "QAS"], "Completá"),              # fila vacía: no se descarta en silencio
+    (["MRKSPACE_DEV", "mrkspace_DEV"], ["DEV", "QAS"], "repetidos"),
+])
+def test_incomplete_or_duplicated_rows_are_rejected(env, ids, envs, fragment):
+    d = _done(_post(_client("owner@danwor.com"), data={**VALID, "space_id": ids, "space_env": envs}))
+    assert d["state"] == "INVALID" and fragment in d["errors"]["spaces"] and env.fake.calls == []
+
+
 # ═══════════════ (1) autorización, mismo origen y validación ═══════════════
 def test_authorization_and_origin(monkeypatch, env):
     assert _post(_client(None)).status_code == 401

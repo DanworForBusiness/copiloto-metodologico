@@ -9,26 +9,40 @@
 {% from "partials/datasphere_form_fields.html" import datasphere_connection_fields, ds_field %}
 <div id="dsc-panel" class="dsa-panel">
   <form id="dsc-form" data-dsc-form method="post" action="/modules/{{ conn.stem }}/connectivity-inventory/run" autocomplete="off">
+    <input type="hidden" name="pack" value="{{ pack }}">
     {{ datasphere_connection_fields("dsc", conn.form, conn.owner_profiles_url) }}
-    <div class="tree-picker catalog-picker--secondary">
-      <span class="admin-result-title">Alcance</span>
-      <p class="admin-help">El environment es <strong>declarado</strong> por vos: no está homologado ni validado por gobierno.</p>
-      {% for i in conn.space_rows %}
-      <div class="catalog-picker--secondary">
-        <label class="tool-label" for="dsc-space-{{ i }}">Space ID {{ i }}{% if not loop.first %} (opcional){% endif %}</label>
+    {# Fila Space + environment DECLARADO: ÚNICA fuente de marcado para la fila inicial y para el <template> que clona
+       connectivity_inventory.js. Ambos campos son obligatorios en TODAS las filas. Las filas agregadas llevan «Quitar». #}
+    {% macro space_row(row_id, removable, environments) %}
+      <div class="catalog-picker--secondary" data-dsc-space-row>
+        <div class="tree-picker-head">
+          <label class="tool-label"{% if row_id %} for="dsc-space-{{ row_id }}"{% endif %} data-dsc-space-label>Space ID</label>
+          {% if removable %}<button type="button" class="table-action-btn table-action-btn--text tree-picker-head__action" data-dsc-remove-space aria-label="Quitar este Space">Quitar</button>{% endif %}
+        </div>
         <div class="tree-picker-row">
-          <input id="dsc-space-{{ i }}" name="space_id" type="text" placeholder="{{ 'DESARROLLO' if loop.first else '' }}"{% if loop.first %} required{% endif %}
-                 autocomplete="off" autocapitalize="none" spellcheck="false">
-          <select id="dsc-space-env-{{ i }}" name="space_env" aria-label="Environment declarado del Space {{ i }}">
+          <input{% if row_id %} id="dsc-space-{{ row_id }}"{% endif %} name="space_id" type="text" placeholder="DESARROLLO" required
+                 autocomplete="off" autocapitalize="none" spellcheck="false" data-dsc-space-input>
+          <select{% if row_id %} id="dsc-space-env-{{ row_id }}"{% endif %} name="space_env" required aria-label="Environment declarado" data-dsc-env-input>
             <option value="">Environment declarado...</option>
-            {% for e in conn.environments %}<option value="{{ e }}">{{ e }}</option>{% endfor %}
+            {% for e in environments %}<option value="{{ e }}">{{ e }}</option>{% endfor %}
           </select>
         </div>
       </div>
-      {% endfor %}
+    {% endmacro %}
+    <div class="tree-picker catalog-picker--secondary">
+      <span class="admin-result-title">Alcance</span>
+      <p class="admin-help">El environment es <strong>declarado</strong> por vos: no está homologado ni validado por gobierno.</p>
+      <div data-dsc-spaces data-max="{{ conn.max_spaces }}">
+        {{ space_row(1, False, conn.environments) }}
+      </div>
+      <template data-dsc-space-template>{{ space_row(None, True, conn.environments) }}</template>
+      <div class="catalog-picker--secondary">
+        <button type="button" class="table-action-btn table-action-btn--text" data-dsc-add-space>+ Otro espacio</button>
+        <p class="admin-help">Hasta {{ conn.max_spaces }} Spaces por extracción (límite del servidor: cada Space consume solicitudes del presupuesto de la extracción).</p>
+      </div>
       <p class="feedback-error" data-dsc-error="spaces" hidden></p>
       <div class="catalog-picker--secondary">
-        <label class="tool-label" for="dsc-probe_connection">Conexión conocida del Space 1 (opcional)</label>
+        <label class="tool-label" for="dsc-probe_connection">Conexión conocida del primer Space (opcional)</label>
         <div class="tree-picker-row">
           <input id="dsc-probe_connection" name="probe_connection" type="text" placeholder="S4HANA_CONN" autocomplete="off" autocapitalize="none" spellcheck="false">
           <p class="feedback-error" data-dsc-error="probe_connection" hidden></p>

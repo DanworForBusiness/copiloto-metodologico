@@ -2447,7 +2447,8 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 .catalog-flows-list > li[hidden] { display: none; }
 /* El buscador ocupa el ancho del 2.º dropdown (el `.whatsnew-filter--fill` estira al contenedor; el input se ajusta a él). */
 .catalog-picker--secondary .whatsnew-filter--fill input[type="search"] { width: 100%; }
-.catalog-picker--bare + #catalog-publish-state form > input[type="hidden"] + .tree-picker { margin-top: 14px; }
+.catalog-picker--bare + #catalog-publish-state form > input[type="hidden"] + .tree-picker,
+.catalog-picker--bare + #catalog-extract-state form > input[type="hidden"] + .tree-picker { margin-top: 14px; }   /* mismo estado compacto: publicación (04) y extracción de conexiones (01) */
 /* Variante con texto del primitivo neutro `.table-action-btn` (p. ej. "← Volver" del estado de publicación): sin caja, ancho por contenido. */
 .table-action-btn.table-action-btn--text { width: auto; padding: 0 8px; white-space: nowrap; font: 600 .72rem var(--sans); letter-spacing: .02em; }
 .tool-suggest__link { margin: 14px 0 0; font-size: .78rem; }
