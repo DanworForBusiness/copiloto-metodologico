@@ -1,0 +1,29 @@
+{
+  "name": "PostgreSQL",
+  "space_name": "CALIDAD",
+  "typeId": "GENERICJDBC",
+  "adapter": null,
+  "credentialMode": "technicaluser",
+  "location": "agent",
+  "agentName": "AGENT_CLOUD",
+  "agentGroupName": null,
+  "agentStatus": "DISCONNECTED",
+  "content": {
+    "objects": {
+      "PostgreSQL": {
+        "configuration": {
+          "ConnectionProperties": {
+            "ConnectionInfo": {
+              "connectionType": "",
+              "host": "",
+              "port": "",
+              "systemnumber": "",
+              "client": "",
+              "sysid": ""
+            }
+          }
+        }
+      }
+    }
+  }
+}

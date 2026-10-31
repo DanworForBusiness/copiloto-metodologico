@@ -1,0 +1,29 @@
+{
+  "name": "SQL_SERVER_2019_onpremise",
+  "space_name": "CALIDAD",
+  "typeId": "MSSQL",
+  "adapter": null,
+  "credentialMode": "technicaluser",
+  "location": "agent",
+  "agentName": "AGENT_LOCAL",
+  "agentGroupName": null,
+  "agentStatus": "CONNECTED",
+  "content": {
+    "objects": {
+      "SQL_SERVER_2019_onpremise": {
+        "configuration": {
+          "ConnectionProperties": {
+            "ConnectionInfo": {
+              "connectionType": "",
+              "host": "",
+              "port": "",
+              "systemnumber": "",
+              "client": "",
+              "sysid": ""
+            }
+          }
+        }
+      }
+    }
+  }
+}
