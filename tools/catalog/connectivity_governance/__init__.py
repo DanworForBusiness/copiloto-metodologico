@@ -41,7 +41,16 @@ from .extraction import (
     sanitize,
     with_retry,
 )
-from .sources import CliConnectionSource, SimulatedConnectionSource, rate_limited, timed_out
+from .sources import (
+    CheckStatus,
+    CliConnectionSource,
+    PreflightCheck,
+    PreflightReport,
+    SimulatedConnectionSource,
+    classify_cli_error,
+    rate_limited,
+    timed_out,
+)
 
 __all__ = [
     "compare_configurations", "evaluate", "evaluate_all",
@@ -53,4 +62,5 @@ __all__ = [
     "ConnectivityInventory", "InventoryCoverage", "InventoryStatus", "ExtractionError", "compute_status",
     "extract_inventory", "ConnectionSource", "SourceError", "RetryPolicy", "with_retry", "sanitize",
     "SimulatedConnectionSource", "CliConnectionSource", "rate_limited", "timed_out",
+    "classify_cli_error", "PreflightReport", "PreflightCheck", "CheckStatus",
 ]

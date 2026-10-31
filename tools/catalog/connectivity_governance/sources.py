@@ -10,7 +10,12 @@ Ninguna fuente escribe en el tenant/SharePoint/Spaces: solo emite verbos de LECT
 """
 from __future__ import annotations
 
+import re
+import subprocess
+import tempfile
 from dataclasses import dataclass, field
+from enum import Enum
+from pathlib import Path
 from typing import Callable, Optional
 
 from .extraction import ConnectionSource, RetryPolicy, SourceError, sanitize, with_retry
@@ -89,75 +94,188 @@ class SimulatedConnectionSource:
         raise SourceError("GET_FAILED", f"conexión '{name}' no encontrada en '{space}'")
 
 
-# ── Fuente real (reutiliza DatasphereCli). Cableada; NO ejecutada en F2.1. ─────
+# ── Clasificación verificable de errores del CLI ──────────────────────────────
+_RETRY_AFTER_RE = re.compile(r"retry[-\s]?after[:\s]+(\d+(?:\.\d+)?)", re.I)
+
+
+def _parse_retry_after(msg: str) -> Optional[float]:
+    m = _RETRY_AFTER_RE.search(msg)
+    return float(m.group(1)) if m else None
+
+
+def classify_cli_error(exc: Exception) -> SourceError:
+    """Mapea una excepción del CLI a un SourceError ESTRUCTURADO y verificable.
+
+    Regla de reintento: solo 429/Retry-After y TIMEOUT son retriables. Los errores de AUTORIZACIÓN
+    (401/403) y de ejecución/JSON NO se reintentan (no se asume que todo error del CLI es transitorio).
+    La clasificación 429/401/403 depende de que el CLI exponga esos datos en stderr; si no, cae a
+    CLI_EXECUTION_ERROR (no-retriable) — fail-safe, nunca retriable por defecto.
+    """
+    if isinstance(exc, subprocess.TimeoutExpired):
+        return SourceError("TIMEOUT", "la operación del CLI excedió el tiempo límite", retriable=True)
+    msg = sanitize(exc)
+    low = msg.lower()
+    if "429" in msg or "too many requests" in low or "rate limit" in low:
+        return SourceError("RATE_LIMITED", msg, retriable=True, retry_after=_parse_retry_after(msg))
+    if "403" in msg or "forbidden" in low or "permission" in low or "insufficient" in low or "not authorized" in low:
+        return SourceError("SCOPE_DENIED", msg, retriable=False)        # autorización: NO reintentar
+    if "401" in msg or "unauthorized" in low:
+        return SourceError("AUTH_401", msg, retriable=False)            # autorización: NO reintentar
+    if "could not parse" in low or "empty output" in low or "expected json" in low:
+        return SourceError("INVALID_OR_INCOMPLETE_JSON", msg, retriable=False)
+    if "cli_unavailable" in low or "no se pudo iniciar" in low:
+        return SourceError("CLI_UNAVAILABLE", msg, retriable=False)
+    return SourceError("CLI_EXECUTION_ERROR", msg, retriable=False)     # no asumir transitorio
+
+
+# ── Preflight de permisos separado (cada eslabón: OK / FAILED / NOT_VERIFIED) ──
+class CheckStatus(Enum):
+    OK = "OK"
+    FAILED = "FAILED"
+    NOT_VERIFIED = "NOT_VERIFIED"       # NO ejecutada ⇒ nunca "autorizada"
+
+
+@dataclass(frozen=True)
+class PreflightCheck:
+    name: str                          # oauth_token | list_spaces | list_connections | read_detail
+    status: CheckStatus
+    detail: str = ""                   # sanitizado
+
+
+@dataclass(frozen=True)
+class PreflightReport:
+    checks: tuple
+
+    def status_of(self, name: str) -> CheckStatus:
+        for c in self.checks:
+            if c.name == name:
+                return c.status
+        return CheckStatus.NOT_VERIFIED
+
+    def authorized_for_extraction(self) -> bool:
+        # Mínimo para extraer: token OK y poder listar conexiones. El resto se maneja por-operación.
+        return self.status_of("oauth_token") == CheckStatus.OK and self.status_of("list_connections") == CheckStatus.OK
+
+    def to_dict(self) -> dict:
+        return {c.name: {"status": c.status.value, "detail": c.detail} for c in self.checks}
+
+
+# ── Fuente real (reutiliza DatasphereCli). Cableada; NO ejecutada contra tenants reales. ─────
 @dataclass
 class CliConnectionSource:
     """Fuente real: OAuth client-credentials + `datasphere spaces connections list/get` vía `DatasphereCli`.
 
     Reutiliza el extractor OAuth existente (secreto por argumento, nunca persistido). AISLAMIENTO por
-    (tenant, usuario, operación): se construye UNA instancia por ejecución, con su propio `DatasphereCli`
-    (HOME temporal aislado); NO se reutilizan sesiones OAuth entre clientes.
+    (tenant, usuario, operación): UNA instancia por ejecución, con su propio `work_dir`/HOME temporal; NO se
+    reutilizan sesiones OAuth entre clientes. Toda operación lleva `timeout` controlado (opt-in en DatasphereCli).
 
-    No se ejecuta contra tenants reales en F2.1. El `preflight` valida OAuth y el scope de conexiones
-    (listar conexiones de un espacio de prueba); esa validación de compatibilidad real requiere un tenant
-    NO productivo (gate F2.1-real).
-
-    BRECHAS del adaptador REAL (lo que el simulador NO demuestra; corrección mínima en el gate F2.1-real):
-    - Paginación: `_run` hace UNA llamada; confía en que `datasphere spaces connections list` devuelve la
-      lista completa. No verificado si el comando pagina o topa resultados. Corrección: si pagina, iterar
-      con los flags de página del CLI (p. ej. `--top`/`--skip`, como `authorization_preflight` usa `--top 1`).
-    - 429/Retry-After: `_run` no los maneja; un rate-limit del CLI llega como returncode≠0 y acá se mapea
-      NO-retriable → no se reintenta. Corrección: detectar 429/“Too Many Requests” en stderr y relanzar
-      SourceError(retriable=True, retry_after=<parseado>).
-    - Timeout: `_invoke_cli` usa `subprocess.run` SIN `timeout` → una llamada colgada bloquea. Corrección:
-      pasar `timeout=` y mapear `TimeoutExpired` a SourceError("TIMEOUT", retriable=True).
-    - Clasificación de permisos: list→SPACE_INACCESSIBLE y get→GET_FAILED son genéricos; no distinguen
-      403/401. Corrección: inspeccionar el stderr (como `authorization_preflight`) y emitir SCOPE_DENIED.
-    - Detección de respuesta incompleta: `_run` detecta salida vacía / JSON no parseable, pero NO una lista
-      truncada silenciosa. Corrección: si el CLI expone total/cursor, contrastar contra lo recibido.
-    Hasta cubrirlas y validarlas contra un tenant NO productivo, la extracción REAL no debe darse por probada.
+    EXHAUSTIVIDAD (brecha declarada, NO resuelta): `datasphere spaces connections list --space <SPACE>`
+    devuelve un array en UNA llamada y NO expone cursor/total/hasMore (verificado por la guía y por los
+    exports reales). Por lo tanto la exhaustividad NO es verificable desde el resultado. Este adaptador
+    NO inventa paginación y declara `guarantees_exhaustive_list = False`: la cobertura reportada refleja lo
+    que el CLI devolvió, no una exhaustividad comprobada. (Si en el futuro el CLI expone cursor/total, se
+    contrasta e itera entonces.) No ejecutar contra tenants reales hasta el gate F2.1-real.
     """
     host: str
     client_id: str
-    client_secret: str              # por argumento; NUNCA se persiste/loguea (se sanitiza todo error)
+    client_secret: str              # por argumento; NUNCA se persiste/loguea (todo error se sanitiza)
     token_url: str
-    probe_space: Optional[str] = None     # espacio mínimo para validar scope de conexiones en preflight
+    probe_space: Optional[str] = None     # espacio para validar scope list_connections en el preflight
+    probe_name: Optional[str] = None      # conexión para validar scope read_detail en el preflight
+    timeout: float = 120.0                # tiempo máximo por operación (seg); al vencer → SourceError TIMEOUT
+    retry: RetryPolicy = field(default_factory=RetryPolicy)
+    work_dir: Optional[str] = None
     _cli: object = field(default=None, repr=False, compare=False)
+
+    guarantees_exhaustive_list: bool = False   # el CLI no expone cursor/total → exhaustividad no verificable
 
     def _cli_obj(self):
         if self._cli is None:
-            # Import PEREZOSO: no acoplar el paquete puro al CLI pesado.
-            from tools.catalog.DSP_CLI_Export_Lineage import DatasphereCli  # type: ignore
+            from tools.catalog.DSP_CLI_Export_Lineage import DatasphereCli  # import PEREZOSO
+            wd = Path(self.work_dir) if self.work_dir else Path(tempfile.mkdtemp(prefix="dsp-conn-"))
             self._cli = DatasphereCli(host=self.host, client_id=self.client_id,
-                                      client_secret=self.client_secret, token_url=self.token_url)
+                                      client_secret=self.client_secret, token_url=self.token_url, work_dir=wd)
         return self._cli
 
-    def preflight(self) -> None:
+    def _run_json(self, args: list):
+        return self._cli_obj()._run(args, expect_json=True, timeout=self.timeout)
+
+    # — Preflight separado: cada permiso se verifica por separado; lo no ejecutado queda NOT_VERIFIED —
+    def preflight_report(self) -> PreflightReport:
+        checks = []
         cli = self._cli_obj()
+        # 1) OAuth válido (token + login desatendido)
         try:
-            cli.oauth_preflight()                       # valida client-credentials
-            cli.login()                                 # login desatendido
-            if self.probe_space:                        # valida SCOPE de conexiones con una lectura mínima
-                cli._run(["spaces", "connections", "list", "--space", self.probe_space], expect_json=True)
-        except Exception as e:                          # nunca propagar el secreto
-            raise SourceError("OAUTH_OR_SCOPE_FAILED", sanitize(e)) from None
+            cli.oauth_preflight()
+            cli.login(timeout=self.timeout)
+            checks.append(PreflightCheck("oauth_token", CheckStatus.OK))
+            oauth_ok = True
+        except Exception as e:
+            checks.append(PreflightCheck("oauth_token", CheckStatus.FAILED, sanitize(e)))
+            oauth_ok = False
+        # Sin OAuth no se puede verificar nada más ⇒ NOT_VERIFIED (nunca "autorizado").
+        if not oauth_ok:
+            for n in ("list_spaces", "list_connections", "read_detail"):
+                checks.append(PreflightCheck(n, CheckStatus.NOT_VERIFIED, "no ejecutada: OAuth no válido"))
+            return PreflightReport(tuple(checks))
+        # 2) Listar espacios
+        try:
+            self._run_json(["spaces", "list"])
+            checks.append(PreflightCheck("list_spaces", CheckStatus.OK))
+        except Exception as e:
+            checks.append(PreflightCheck("list_spaces", CheckStatus.FAILED, classify_cli_error(e).message))
+        # 3) Listar conexiones (requiere probe_space)
+        if self.probe_space:
+            try:
+                self._run_json(["spaces", "connections", "list", "--space", self.probe_space])
+                checks.append(PreflightCheck("list_connections", CheckStatus.OK))
+                conn_ok = True
+            except Exception as e:
+                checks.append(PreflightCheck("list_connections", CheckStatus.FAILED, classify_cli_error(e).message))
+                conn_ok = False
+        else:
+            checks.append(PreflightCheck("list_connections", CheckStatus.NOT_VERIFIED, "no ejecutada: falta probe_space"))
+            conn_ok = False
+        # 4) Leer detalle (requiere probe_space + probe_name)
+        if self.probe_space and self.probe_name and conn_ok:
+            try:
+                self._run_json(["spaces", "connections", "get", "--space", self.probe_space, "--name", self.probe_name])
+                checks.append(PreflightCheck("read_detail", CheckStatus.OK))
+            except Exception as e:
+                checks.append(PreflightCheck("read_detail", CheckStatus.FAILED, classify_cli_error(e).message))
+        else:
+            checks.append(PreflightCheck("read_detail", CheckStatus.NOT_VERIFIED, "no ejecutada: falta probe_name o list_connections no OK"))
+        return PreflightReport(tuple(checks))
+
+    def preflight(self) -> None:
+        # Contrato del orquestador: lanza SourceError si el mínimo (OAuth) no está. El detalle por eslabón
+        # está en preflight_report(); una operación NO ejecutada nunca cuenta como autorizada.
+        report = self.preflight_report()
+        if report.status_of("oauth_token") != CheckStatus.OK:
+            detail = next((c.detail for c in report.checks if c.name == "oauth_token"), "")
+            raise SourceError("OAUTH_FAILED", detail or "OAuth no válido", retriable=False)
 
     def list_spaces(self) -> list:
         try:
-            out = self._cli_obj()._run(["spaces", "list"], expect_json=True)
+            out = self._run_json(["spaces", "list"])
         except Exception as e:
-            raise SourceError("SPACES_LIST_FAILED", sanitize(e)) from None
+            raise classify_cli_error(e) from None       # el orquestador reintenta si es retriable
         return [s.get("name", s) if isinstance(s, dict) else s for s in (out or [])]
 
     def list_connections(self, space: str) -> list:
-        try:
-            out = self._cli_obj()._run(["spaces", "connections", "list", "--space", space], expect_json=True)
-        except Exception as e:
-            raise SourceError("SPACE_INACCESSIBLE", sanitize(e)) from None
-        return list(out or [])
+        # El orquestador NO reintenta list_connections (es responsabilidad de la fuente): acá sí reintentamos
+        # los transitorios (429/TIMEOUT) con la política propia. NO se pagina (ver docstring: exhaustividad
+        # no verificable); una sola llamada.
+        def call():
+            try:
+                out = self._run_json(["spaces", "connections", "list", "--space", space])
+            except Exception as e:
+                raise classify_cli_error(e) from None
+            return list(out or [])
+        return with_retry(call, self.retry)
 
     def get_connection(self, space: str, name: str) -> dict:
         try:
-            return self._cli_obj()._run(["spaces", "connections", "get", "--space", space, "--name", name], expect_json=True)
+            return self._run_json(["spaces", "connections", "get", "--space", space, "--name", name])
         except Exception as e:
-            raise SourceError("GET_FAILED", sanitize(e)) from None
+            raise classify_cli_error(e) from None       # el orquestador reintenta si es retriable

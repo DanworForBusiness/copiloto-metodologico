@@ -366,7 +366,11 @@ class DatasphereCli:
         self.env["HOME"] = str(self.home_dir)
         self.launcher = launcher or resolve_datasphere_cli_launcher(self.project_root)
 
-    def _invoke_cli(self, args: list[str]) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+    def _invoke_cli(self, args: list[str], *, timeout: float | None = None) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+        # `timeout` es OPT-IN (default None = comportamiento histórico idéntico: subprocess.run(timeout=None)).
+        # Solo el adaptador de conectividad lo pasa; los consumidores existentes (publicación de modelos) no se
+        # ven afectados. Al vencer, subprocess.run lanza TimeoutExpired (no es OSError) y propaga sin disparar
+        # el fallback npx — quien llama con timeout la clasifica como error estructurado.
         cmd = [*self.launcher.command, *args]
         try:
             proc = subprocess.run(
@@ -375,6 +379,7 @@ class DatasphereCli:
                 env=self.env,
                 capture_output=True,
                 text=True,
+                timeout=timeout,
             )
             return proc, cmd
         except OSError as exc:
@@ -392,6 +397,7 @@ class DatasphereCli:
                     env=self.env,
                     capture_output=True,
                     text=True,
+                    timeout=timeout,
                 )
                 return proc, fallback_cmd
             except OSError as fallback_exc:
@@ -400,7 +406,7 @@ class DatasphereCli:
                     f"ni el fallback npx: {fallback_exc}"
                 ) from fallback_exc
 
-    def _run(self, args: list[str], *, expect_json: bool = False) -> Any:
+    def _run(self, args: list[str], *, expect_json: bool = False, timeout: float | None = None) -> Any:
         family: str | None = None
         operation = args[0] if args else "unknown"
         technical_name: str | None = None
@@ -413,7 +419,7 @@ class DatasphereCli:
                     technical_name = args[idx + 1]
 
         started = time.perf_counter()
-        proc, cmd = self._invoke_cli(args)
+        proc, cmd = self._invoke_cli(args, timeout=timeout)   # timeout opt-in; TimeoutExpired propaga al llamador
         elapsed_ms = (time.perf_counter() - started) * 1000.0
         parse_ms = 0.0
         parsed: Any = None
@@ -526,7 +532,7 @@ class DatasphereCli:
             ) from exc
         _say(f"Preflight autorización: OK - acceso al Space {space}")
 
-    def login(self) -> None:
+    def login(self, *, timeout: float | None = None) -> None:
         self._run(
             [
                 "login",
@@ -536,7 +542,8 @@ class DatasphereCli:
                 "--host", self.host,
                 "--authorization-flow", "client_credentials",
                 "--force",
-            ]
+            ],
+            timeout=timeout,
         )
 
     def list_spaces(self) -> list[str]:
