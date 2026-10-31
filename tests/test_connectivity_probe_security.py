@@ -87,6 +87,7 @@ class FakeCli:
         self.calls = []                # (ds_args, timeout, t_al_llamar)
         self.login_secret_files = []   # contenido del --secrets-file visto durante la llamada
         self.preexisting_secrets = []  # ¿había secrets.json en el perfil ANTES del login?
+        self.login_homes = []          # home que resolvió el CLI en cada login (dónde escribe su perfil)
         self.ignore_timeout = False
 
     def __call__(self, cmd, **kw):
@@ -105,6 +106,7 @@ class FakeCli:
         return proc
 
     def _persist_login(self, ds_args, env):
+        self.login_homes.append(str(_cli_home(env)))
         cache = _cli_home(env) / ".@sap" / "datasphere-cli" / ".cache"
         self.preexisting_secrets.append((cache / "secrets.json").exists())
         if "--secrets-file" in ds_args:
@@ -373,20 +375,59 @@ def test_h2_owned_workdir_removed_and_secret_refs_dropped_on_close(monkeypatch, 
     assert not owned.exists() and src.client_secret is None and cli.client_secret is None
 
 
-def test_h2_probe_detects_real_profile_modification(monkeypatch, tmp_path, real_profile):
-    # Control: modo histórico (sin aislamiento) ⇒ el CLI escribe en el perfil "real" ⇒ la sonda lo detecta.
+def test_h2_legacy_mode_write_target_depends_on_platform(monkeypatch, tmp_path, real_profile):
+    # Modo HISTÓRICO (isolated_profile=False): solo redefine HOME. Node resuelve el home con USERPROFILE en Windows y con HOME en
+    # POSIX ⇒ en Windows el CLI escribe en el perfil REAL (la causa raíz de H2); en Linux cae en el workspace. Expectativa explícita
+    # por plataforma (no un skip): ambas ramas se verifican, una en cada sistema (Windows local, Linux en CI).
     clock = Clock()
     budget = _budget(clock)
     src, fake = _source(monkeypatch, tmp_path, clock=clock, budget=budget, legacy=True)
     out = _probe(src, budget, clock, real=real_profile / ".@sap" / "datasphere-cli")
+    login_home = Path(fake.login_homes[0])
+    if os.name == "nt":
+        assert login_home == real_profile                                    # USERPROFILE no se redirige
+        assert out.real_profile_modified is True and out.exit_code == 5      # …y la sonda lo detecta
+    else:
+        assert login_home.is_relative_to(tmp_path / "wd")                    # HOME redirigido al workspace
+        assert out.real_profile_modified is False and out.exit_code == 0
+
+
+@pytest.mark.parametrize("tamper", ["new_file", "modify_existing", "delete_existing"])
+def test_h2_probe_detects_deliberate_real_profile_write(monkeypatch, tmp_path, real_profile, tamper):
+    # Detección POSITIVA, en cualquier plataforma: un CLI que ignorara el aislamiento y tocara el perfil real durante la ejecución
+    # se detecta (sin falsos negativos: archivo nuevo, archivo existente modificado con el mismo tamaño, archivo borrado).
+    cache = real_profile / ".@sap" / "datasphere-cli" / ".cache"
+    settings = cache / "settings.json"
+
+    def intruder(ds_args):
+        if ds_args[:1] == ["login"]:
+            if tamper == "new_file":
+                (cache / "secrets.json").write_text("[]", encoding="utf-8")
+            elif tamper == "modify_existing":
+                old = settings.read_text(encoding="utf-8")
+                time.sleep(0.02)                                             # mtime distinto aunque el tamaño no cambie
+                settings.write_text(old[::-1], encoding="utf-8")
+            else:
+                settings.unlink()
+        return None                                                          # el resto del CLI falso responde normal
+    clock = Clock()
+    budget = _budget(clock)
+    src, fake = _source(monkeypatch, tmp_path, clock=clock, budget=budget, script=intruder)   # modo AISLADO (default)
+    out = _probe(src, budget, clock, real=real_profile / ".@sap" / "datasphere-cli")
     assert out.real_profile_modified is True and out.exit_code == 5
-    # Con aislamiento (default) la misma ejecución NO toca el perfil real.
-    clock2 = Clock()
-    budget2 = _budget(clock2)
-    src2, _ = _source(monkeypatch, tmp_path, clock=clock2, budget=budget2, work_dir=tmp_path / "wd2")
-    real2 = real_profile / ".@sap" / "datasphere-cli"
-    out2 = _probe(src2, budget2, clock2, real=real2)
-    assert out2.real_profile_modified is False and out2.exit_code == 0
+
+
+def test_h2_isolated_mode_never_touches_real_profile(monkeypatch, tmp_path, real_profile):
+    # Modo AISLADO (default del adaptador de conectividad): en TODAS las plataformas el CLI escribe solo en el workspace efímero.
+    clock = Clock()
+    budget = _budget(clock)
+    src, fake = _source(monkeypatch, tmp_path, clock=clock, budget=budget, work_dir=tmp_path / "wd2")
+    real = real_profile / ".@sap" / "datasphere-cli"
+    before = profile_fingerprint(real)
+    out = _probe(src, budget, clock, real=real)
+    assert all(Path(h).is_relative_to(tmp_path / "wd2") for h in fake.login_homes) and fake.login_homes
+    assert out.real_profile_modified is False and out.exit_code == 0
+    assert profile_fingerprint(real) == before
 
 
 # ═══════════════════════ H3 — reintentos y presupuestos ═════════════════════
