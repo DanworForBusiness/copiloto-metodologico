@@ -1,0 +1,29 @@
+{
+  "name": "S4PREM",
+  "space_name": "DESARROLLO",
+  "typeId": "SAPS4HANAOP",
+  "adapter": "ABAPAdapter",
+  "credentialMode": "technicaluser",
+  "location": "agent",
+  "agentName": "AGENT_SHARED",
+  "agentGroupName": null,
+  "agentStatus": "CONNECTED",
+  "content": {
+    "objects": {
+      "S4PREM": {
+        "configuration": {
+          "ConnectionProperties": {
+            "ConnectionInfo": {
+              "connectionType": "applicationServer",
+              "host": "erp-p-dev.invalid",
+              "port": "",
+              "systemnumber": "00",
+              "client": "120",
+              "sysid": "EPD"
+            }
+          }
+        }
+      }
+    }
+  }
+}

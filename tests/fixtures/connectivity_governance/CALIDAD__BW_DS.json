@@ -1,0 +1,29 @@
+{
+  "name": "BW_DS",
+  "space_name": "CALIDAD",
+  "typeId": "SAPBW",
+  "adapter": "ABAPAdapter",
+  "credentialMode": "technicaluser",
+  "location": "agent",
+  "agentName": "AGENT_SHARED",
+  "agentGroupName": null,
+  "agentStatus": "CONNECTED",
+  "content": {
+    "objects": {
+      "BW_DS": {
+        "configuration": {
+          "ConnectionProperties": {
+            "ConnectionInfo": {
+              "connectionType": "applicationServer",
+              "host": "bw-host.invalid",
+              "port": "",
+              "systemnumber": "00",
+              "client": "100",
+              "sysid": "BWX"
+            }
+          }
+        }
+      }
+    }
+  }
+}

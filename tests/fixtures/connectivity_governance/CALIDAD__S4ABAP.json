@@ -1,0 +1,29 @@
+{
+  "name": "S4ABAP",
+  "space_name": "CALIDAD",
+  "typeId": "ABAP",
+  "adapter": "ABAPAdapter",
+  "credentialMode": "technicaluser",
+  "location": "agent",
+  "agentName": "AGENT_SHARED",
+  "agentGroupName": null,
+  "agentStatus": "CONNECTED",
+  "content": {
+    "objects": {
+      "S4ABAP": {
+        "configuration": {
+          "ConnectionProperties": {
+            "ConnectionInfo": {
+              "connectionType": "applicationServer",
+              "host": "erp-a-qas.invalid",
+              "port": "",
+              "systemnumber": "00",
+              "client": "200",
+              "sysid": "EAQ"
+            }
+          }
+        }
+      }
+    }
+  }
+}
