@@ -29,7 +29,8 @@ class Exhaustiveness(Enum):
     de ejecución: una ejecución COMPLETE no implica un inventario exhaustivo (ver `compute_exhaustiveness`)."""
     VERIFIED = "VERIFIED"            # la fuente puede probar completitud (cursor/total contrastado, o datos conocidos)
     UNVERIFIABLE = "UNVERIFIABLE"    # todas las llamadas OK pero sin señal verificable de completitud (p. ej. CLI sin cursor/total)
-    INCOMPLETE = "INCOMPLETE"        # se sabe que falta algo (espacio inaccesible, listado/ get con error, truncación)
+    INCOMPLETE = "INCOMPLETE"        # la extracción NO se completó respecto del alcance solicitado (espacio inaccesible,
+                                     # listado/get con error, etc.). NO afirma CUÁNTAS conexiones faltan: solo que falta.
 
 
 @dataclass(frozen=True)
