@@ -15,6 +15,12 @@ from typing import Optional
 from .model import ObservedConnection
 
 
+def _member_has_explicit_profile(member) -> bool:
+    """True si el miembro declara un perfil homologado EXPLÍCITO (agente, grupo o físico esperado).
+    Un miembro que sólo asigna la familia (equivalencia) sin perfil NO permite juzgar conformidad."""
+    return any(x is not None for x in (member.expected_agent, member.expected_agent_group, member.expected_physical))
+
+
 @dataclass(frozen=True)
 class ExpectedMember:
     """Un entorno homologado dentro de una familia lógica."""
@@ -38,11 +44,17 @@ class GovernedException:
 
 @dataclass(frozen=True)
 class LogicalSystem:
-    """Una familia SAP gobernada (p. ej. S4_FAMILIA con miembros DEV/QAS/PRD)."""
+    """Una familia SAP gobernada (p. ej. S4_FAMILIA con miembros DEV/QAS/PRD).
+
+    `review_by` (ISO, opcional) = vigencia de la homologación: si está vencida respecto de `as_of`, el
+    perfil esperado deja de ser aplicable para juzgar conformidad (ver `active_profile_for`). Sin
+    `review_by` la homologación se considera permanente (vigente).
+    """
     logical_system_id: str
     description: str
     members: tuple = ()                 # ExpectedMember
     exceptions: tuple = ()              # GovernedException
+    review_by: Optional[str] = None     # vigencia de la homologación
 
 
 @dataclass(frozen=True)
@@ -61,6 +73,7 @@ class HomologationContract:
         return sys.logical_system_id if sys else None
 
     def expected_for(self, conn: ObservedConnection) -> Optional[ExpectedMember]:
+        """El miembro homologado aplicable a este entorno/conexión (sin exigir perfil ni vigencia)."""
         sys = self._system_of(conn)
         if not sys:
             return None
@@ -68,6 +81,19 @@ class HomologationContract:
             if m.environment == conn.identity.environment and conn.identity.connection_name in m.related_connections:
                 return m
         return None
+
+    def active_profile_for(self, conn: ObservedConnection) -> Optional[ExpectedMember]:
+        """El perfil homologado contra el que SÍ se puede juzgar conformidad: debe ser **explícito**
+        (declara agente/grupo/físico esperado), **vigente** (homologación no vencida vs `as_of`) y
+        **aplicable** (al entorno + conexión). La mera pertenencia a una familia lógica (equivalencia)
+        NO devuelve perfil: equivalencia != conformidad."""
+        sys = self._system_of(conn)
+        if not sys or not self._system_active(sys):
+            return None
+        member = self.expected_for(conn)
+        if member is None or not _member_has_explicit_profile(member):
+            return None
+        return member
 
     def active_exception_for(self, conn: ObservedConnection) -> Optional[GovernedException]:
         """Excepción que cubre esta conexión Y está vigente (`review_by` >= `as_of`)."""
@@ -94,6 +120,14 @@ class HomologationContract:
         if not self.as_of or not exc.review_by:
             return False
         return exc.review_by >= self.as_of
+
+    def _system_active(self, sys: LogicalSystem) -> bool:
+        # Homologación sin `review_by` = permanente (vigente). Con `review_by`: vigente si no venció vs `as_of`.
+        if not sys.review_by:
+            return True
+        if not self.as_of:
+            return False            # hay vencimiento declarado pero no se puede juzgar → fail-closed
+        return sys.review_by >= self.as_of
 
 
 # Contrato vacío de conveniencia: "no hay homologación cargada".

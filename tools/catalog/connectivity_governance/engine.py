@@ -96,20 +96,23 @@ def _profile_matches(conn: ObservedConnection, expected) -> bool:
 
 # ── Eje 3.1: conformidad arquitectónica ──────────────────────────────────────
 def _conformance(conn, all_conns, contract, divergence):
-    expected = contract.expected_for(conn) if contract else None
-    if expected is not None:                      # contrato ACTIVE con perfil esperado homologado
+    # Perfil homologado EXPLÍCITO, VIGENTE y APLICABLE. La mera equivalencia lógica (pertenecer a una
+    # familia) NO devuelve perfil → equivalencia != conformidad (invariante 1).
+    expected = contract.active_profile_for(conn) if contract else None
+    if expected is not None:
         if _profile_matches(conn, expected):
-            return Conformance.CONFORME, None, "lo observado coincide con el perfil homologado"
+            return Conformance.CONFORME, None, "lo observado coincide con el perfil homologado vigente"
+        # Contradice el perfil → NO_CONFORME SIEMPRE. Una excepción gobernada vigente autoriza la desviación
+        # (se anota), pero NO cambia la evaluación técnica (invariante 2).
         exc = contract.active_exception_for(conn)
         if exc:
-            # Contradice el perfil, pero hay excepción gobernada vigente → se presenta como excepción.
             return Conformance.NO_CONFORME, f"{exc.rationale} (aprob. {exc.approver}, revisar antes de {exc.review_by})", \
-                "contradice el perfil homologado pero tiene excepción gobernada vigente"
-        return Conformance.NO_CONFORME, None, "lo observado contradice el perfil homologado (sin excepción vigente)"
-    # Sin perfil esperado (sin contrato, o el contrato no fija perfil para este miembro):
+                "contradice el perfil homologado; hay excepción gobernada vigente que AUTORIZA la desviación (sigue NO_CONFORME)"
+        return Conformance.NO_CONFORME, None, "lo observado contradice el perfil homologado vigente (sin excepción vigente)"
+    # Sin perfil homologado aplicable (sin contrato, o el contrato sólo asigna familia / está vencido):
     if divergence is not None:
-        return Conformance.DIVERGENTE, None, "divergencia observada sin perfil homologado: pendiente de revisión"
-    return Conformance.NO_EVALUABLE, None, "sin contrato ni divergencia observable: sin base para juzgar conformidad"
+        return Conformance.DIVERGENTE, None, "divergencia observada sin perfil homologado aplicable: pendiente de revisión"
+    return Conformance.NO_EVALUABLE, None, "sin perfil homologado aplicable ni divergencia observable: sin base para juzgar conformidad"
 
 
 # ── Eje 3.3: cobertura y confianza de evidencia ──────────────────────────────
@@ -134,7 +137,11 @@ def _labels(conformance, operational, evidence, governed_exception) -> tuple:
     elif conformance == Conformance.DIVERGENTE:
         labels.append("Diferente — requiere revisión")
     elif conformance == Conformance.NO_CONFORME:
-        labels.append("Excepción gobernada" if governed_exception else "No homologada")
+        # El veredicto técnico es NO_CONFORME SIEMPRE. Si hay excepción vigente, se añade como anotación
+        # (autoriza la desviación) SIN ocultar la no conformidad (invariante 2: excepción != conformidad).
+        labels.append("No homologada")
+        if governed_exception:
+            labels.append("Excepción gobernada vigente")
     else:
         labels.append("No evaluable")
     if operational == Operational.DESCONECTADO:
