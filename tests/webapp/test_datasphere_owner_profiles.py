@@ -153,7 +153,7 @@ def test_the_selector_maps_profile_fields_onto_existing_form_fields():
     mapped = re.findall(r'setField\(form, p, "(\w+)", profile\.(\w+)\)', js)
     assert mapped == [("host", "host"), ("token_url", "token_url"), ("client_id", "client_id"), ("client", "client")]
     for field, _src in mapped:
-        assert f'field("{field}"' in macro                                                         # el input existe en la macro compartida
+        assert re.search(rf'field\((?:p, )?"{field}"', macro)                                      # el input existe en la macro compartida
     assert "Configurado desde SharePoint" in js and "secret.disabled = true" in js and "secret.disabled = false" in js
 
 

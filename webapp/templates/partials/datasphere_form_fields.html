@@ -7,9 +7,10 @@
    `scope_help` = copy del disclosure "Alcance de evidencia" (la única diferencia semántica entre ambas herramientas).
    `profiles_url` = endpoint de perfiles de clientes; el SERVIDOR lo pasa SOLO si el usuario es APP_OWNER y la fuente SharePoint está
    configurada (si no, el selector no existe en el HTML). El selector es de SOLO metadatos seguros: el Client Secret nunca llega al navegador.
-   SECRETO: el Client Secret es `type="password"`, no se renderiza de vuelta. #}
-{% macro datasphere_form_fields(p, form, feature_options, scope_help, profiles_url="") %}
-{% macro field(name, label, kind="text", placeholder="", first=False, field_name="", value="") %}
+   SECRETO: el Client Secret es `type="password"`, no se renderiza de vuelta.
+   `datasphere_connection_fields` = SOLO el selector de perfil + el grupo "Conexión Datasphere" (tenant + OAuth). La reutiliza también la
+   extracción de conexiones del módulo 01 (prefijo "dsc"); `datasphere_form_fields` la incluye tal cual (mismo marcado de siempre). #}
+{% macro ds_field(p, name, label, kind="text", placeholder="", first=False, field_name="", value="") %}
 <div{% if not first %} class="catalog-picker--secondary"{% endif %}>{# separación entre campos: margen estándar del picker secundario #}
 <label class="tool-label" for="{{ p }}-{{ name }}">{{ label }}</label>
 <div class="tree-picker-row">
@@ -19,6 +20,7 @@
 </div>
 </div>
 {% endmacro %}
+{% macro datasphere_connection_fields(p, form, profiles_url="") %}
 {% if profiles_url %}
 {# Selector "Cliente" (solo dueño): MISMOS primitivos del selector del Catálogo (`.tree-picker` + `.tool-label` + `.tree-picker-row` + select; el
    `.tree-picker` aporta el divisor gris de cierre). Sin `name`: no se envía; solo `profile_id` (opaco) viaja con el POST. #}
@@ -34,15 +36,17 @@
 {% endif %}
 <div class="tree-picker catalog-picker--secondary">
   <span class="admin-result-title">Conexión Datasphere</span>
-  {{ field("host", "URL del tenant", "url", "https://mi-tenant.eu10.hcs.cloud.sap", first=True, value=form.get("host", "")) }}
-  {{ field("token_url", "Token URL (OAuth)", "url", "https://mi-tenant.authentication.eu10.hana.ondemand.com/oauth/token", value=form.get("token_url", "")) }}
-  {{ field("client_id", "Client ID", "text", "sb-5d74c5f-XXXX", field_name="datasphere_client_id", value=form.get("client_id", "")) }}
-  {{ field("client_secret", "Client Secret", "password", "5ff624c2-XXXX", field_name="datasphere_client_secret") }}
+  {{ ds_field(p, "host", "URL del tenant", "url", "https://mi-tenant.eu10.hcs.cloud.sap", first=True, value=form.get("host", "")) }}
+  {{ ds_field(p, "token_url", "Token URL (OAuth)", "url", "https://mi-tenant.authentication.eu10.hana.ondemand.com/oauth/token", value=form.get("token_url", "")) }}
+  {{ ds_field(p, "client_id", "Client ID", "text", "sb-5d74c5f-XXXX", field_name="datasphere_client_id", value=form.get("client_id", "")) }}
+  {{ ds_field(p, "client_secret", "Client Secret", "password", "5ff624c2-XXXX", field_name="datasphere_client_secret") }}
 </div>
-<div class="tree-picker catalog-picker--secondary">
+{% endmacro %}
+{% macro datasphere_form_fields(p, form, feature_options, scope_help, profiles_url="") %}
+{{ datasphere_connection_fields(p, form, profiles_url) }}<div class="tree-picker catalog-picker--secondary">
   <span class="admin-result-title">Alcance</span>
-  {{ field("space", "Space ID", "text", "PRODUCCION", first=True, value=form.get("space", "")) }}
-  {{ field("root_object", "Artefacto / Objeto", "text", "AM_Compras", field_name="datasphere_root_object", value=form.get("root_object", "")) }}
+  {{ ds_field(p, "space", "Space ID", "text", "PRODUCCION", first=True, value=form.get("space", "")) }}
+  {{ ds_field(p, "root_object", "Artefacto / Objeto", "text", "AM_Compras", field_name="datasphere_root_object", value=form.get("root_object", "")) }}
   {# Alcance de evidencia: OPCIONAL y colapsado. Reusa el disclosure del Hub (`details.admin-tool`) y las casillas del Hub (`.dashboard-checkbox-*`).
      Solo familias opcionales con sus identificadores canónicos; las estructurales (modelos, vistas, tablas) las pide siempre el servidor.
      El marcador `datasphere_features_submitted` distingue "todas destildadas" de "campo no enviado" (= todas, como hoy). #}
@@ -62,6 +66,6 @@
 {# último grupo SIN `.tree-picker`: no lleva la línea separadora previa al botón (los labels reusan `.tool-label`, mismo estilo) #}
 <div class="catalog-picker--secondary">
   <span class="admin-result-title">Destino</span>
-  {{ field("client", "Nombre de Cliente", "text", "Pampa", first=True, value=form.get("client", "")) }}
+  {{ ds_field(p, "client", "Nombre de Cliente", "text", "Pampa", first=True, value=form.get("client", "")) }}
 </div>
 {% endmacro %}
