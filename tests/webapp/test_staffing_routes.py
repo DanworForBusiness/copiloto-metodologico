@@ -731,8 +731,9 @@ def test_staffing_page_emits_exactly_one_usage_event_with_context(monkeypatch, t
     assert ev["scope"] == "operations" and ev["area"] == "staffing"
     assert ev["module"] == "OP01"
     assert ev["user"] == "staffing-test@danwor.com"           # identidad autenticada de la sesión
-    assert ev["payload"] == {}                                # sin dataset de Staffing
-    assert "graph_token" not in json.dumps(ev) and "token" not in ev["payload"]  # sin token
+    # Envelope v2 (Métricas de Uso v2): `attrs` (whitelist del catálogo) en vez de `payload`.
+    assert ev["attrs"] == {}                                  # sin dataset de Staffing
+    assert "graph_token" not in json.dumps(ev) and "token" not in ev["attrs"]  # sin token
 
 
 class _ConfigIncompleteService:
@@ -764,7 +765,7 @@ def test_staffing_diagnostics_stay_verbose_only_and_receive_context(monkeypatch,
     assert len(diag) == 1
     assert diag[0]["scope"] == "operations" and diag[0]["area"] == "staffing"
     assert diag[0]["module"] == "OP01"
-    assert diag[0]["payload"].get("operation") == "initial"
+    assert diag[0]["attrs"].get("operation") == "initial"  # envelope v2: attrs
     assert secret_token not in json.dumps(diag[0])            # el token nunca se loguea
 
 

@@ -339,6 +339,46 @@ function dwBeacon(event, payload = {}, once = false) {
   } catch (e) { /* nunca romper la experiencia por telemetría */ }
 }
 
+// ── Page view (Métricas de Uso v2) ───────────────────────────────────────────
+// UNA `page_view` por carga de documento, con el `view_id` que el servidor
+// generó en el render (base.html window.DW_VIEW_ID) y el tipo de navegación
+// (Navigation Timing: navigate|reload|back_forward|prerender). NO depende de
+// DW_VERBOSE: las visitas son la métrica básica. Sin view_id (página sin
+// sesión) no se manda nada. Solo `location.pathname` (nunca query string).
+// La agregación cuenta view_id DISTINTOS, así que un reenvío nunca duplica la
+// visita; los `reload` se registran pero no cuentan como visita.
+// Prerender: se difiere hasta que la página se ACTIVA (`prerenderingchange`),
+// así un prerender que el usuario nunca vio no llega como visita.
+(function dwPageView() {
+  const viewId = window.DW_VIEW_ID || "";
+  if (!viewId) return;
+  let sent = false;
+  const send = () => {
+    if (sent) return;
+    sent = true;
+    try {
+      const nav = (performance.getEntriesByType && performance.getEntriesByType("navigation")[0]) || null;
+      const body = JSON.stringify({
+        event: "page_view",
+        view_id: viewId,
+        nav_type: (nav && nav.type) || "navigate",
+        path: location.pathname,
+        module_id: window.DW_MODULE_ID || "",
+      });
+      if (navigator.sendBeacon) {
+        navigator.sendBeacon("/telemetry/event", new Blob([body], { type: "application/json" }));
+      } else {
+        fetch("/telemetry/event", { method: "POST", headers: { "Content-Type": "application/json" }, body, keepalive: true });
+      }
+    } catch (e) { /* nunca romper la experiencia por telemetría */ }
+  };
+  if (document.prerendering) {
+    document.addEventListener("prerenderingchange", send, { once: true });
+  } else {
+    send();
+  }
+})();
+
 // Interacciones de navegación/consumo (VERBOSE). Un solo listener delegado en
 // captura: continuar al módulo, saltar por el índice/roadmap/nav lateral
 // persistente, y links externos del contenido (qué activo se llevó al

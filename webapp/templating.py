@@ -68,6 +68,29 @@ class _StaticVersion:
 templates.env.globals["static_version"] = _StaticVersion()
 templates.env.globals["verbose_telemetry"] = is_verbose()
 templates.env.globals["config"] = config
+
+
+def _dw_view_id(request=None) -> str:
+    """`view_id` POR RENDER (Métricas de Uso v2): un uuid4 hex nuevo en cada
+    llamada — base.html lo llama una vez por documento y lo deja en
+    `window.DW_VIEW_ID`; app.js manda UN `page_view` con ese id. Sin ventanas
+    de tiempo ni cachés en memoria: la agregación cuenta `view_id` distintos,
+    así que un beacon repetido nunca duplica la visita.
+
+    Vacío sin sesión válida (login, error sin usuario): sin id, app.js no
+    manda nada — solo se miden páginas autenticadas. Nunca levanta (un render
+    sin `request` en el contexto también devuelve vacío)."""
+    try:
+        from webapp.services import auth_service
+        if request is None or not hasattr(request, "cookies") or not auth_service.session_user(request):
+            return ""
+    except Exception:  # noqa: BLE001 — la telemetría nunca rompe un render
+        return ""
+    import uuid
+    return uuid.uuid4().hex
+
+
+templates.env.globals["dw_view_id"] = _dw_view_id
 # URL ÚNICA de las fuentes institucionales del Hub (Inter + JetBrains Mono): la consumen base.html y los documentos propios del Hub que no extienden base (Presentaciones, R1).
 templates.env.globals["hub_fonts_url"] = "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500&display=swap"
 

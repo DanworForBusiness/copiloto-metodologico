@@ -57,7 +57,7 @@ from fastapi import Request
 from webapp import access, commercial_access, operations_access
 from webapp.services import auth_service, module_registry
 from webapp.services.activity_context import (
-    AREA_ACADEMY, AREA_ASSISTANT, AREA_AUTH, AREA_CATALOG,
+    AREA_ACADEMY, AREA_ASSISTANT, AREA_AUTH, AREA_CATALOG, AREA_HUB,
     AREA_METHODOLOGY, AREA_REPORTING, AREA_UNKNOWN,
     SCOPE_COMMERCIAL, SCOPE_COPILOT, SCOPE_OPERATIONS, SCOPE_PLATFORM, SCOPE_UNKNOWN,
 )
@@ -172,7 +172,9 @@ def metrics_visibility_for(user: dict | None) -> tuple[frozenset[str], frozenset
     criterio que antes, solo que ahora cubre TODOS los módulos de ese
     workspace en `module_registry`, no una lista de áreas copiada a mano."""
     allowed_scopes = {SCOPE_PLATFORM, SCOPE_COPILOT, SCOPE_UNKNOWN}
-    allowed_areas = {AREA_AUTH, AREA_METHODOLOGY, AREA_ASSISTANT, AREA_ACADEMY, AREA_CATALOG, AREA_UNKNOWN}
+    # AREA_HUB (Métricas de Uso v2): `page_view` de pantallas propias de la
+    # plataforma (inicio, novedades, admin) — compartida igual que `auth`.
+    allowed_areas = {AREA_AUTH, AREA_HUB, AREA_METHODOLOGY, AREA_ASSISTANT, AREA_ACADEMY, AREA_CATALOG, AREA_UNKNOWN}
     for workspace, is_authorized in _WORKSPACE_AUTHORIZATION.items():
         if not is_authorized(user):
             continue

@@ -24,8 +24,8 @@ import yaml
 from config import ACTIVITY_LOG_DIR, FEEDBACK_LOG_DIR
 from webapp.services import module_registry
 from webapp.services.activity_context import (
-    area_label, context_of, scope_label, module_label,
-    normalize_event, event_class as _classify_event,
+    area_label, scope_label, module_label, normalize_record,
+    event_class as _classify_event,
     EVENT_CLASS_USAGE, EVENT_MODULE_VIEWED, EVENT_LABELS,
     AREA_REPORTING,
     SCOPE_COMMERCIAL, SCOPE_OPERATIONS,
@@ -71,9 +71,8 @@ _FILE_DATE_RE = re.compile(r"activity_(\d{8})\.jsonl$")
 # Acá no renderizamos nada, así que directamente se descarta para mostrar texto plano.
 _TONE_TAG_RE = re.compile(r"\{dw-(black|gold|white|green|red)\}", re.I)
 
-# Eventos que llevan una referencia de módulo/stem en el payload (module_selected
-# usa "module", el resto usa "stem"). El resto de los eventos (login, catalog_view,
-# tree_*) no son atribuibles a un módulo puntual.
+# (El módulo histórico desde payload.module/payload.stem de los v1 se resuelve
+# ahora en `activity_context.legacy_payload_module`, dentro de normalize_record.)
 def _answer_html(text: str) -> str:
     """Renderiza la respuesta (markdown) a HTML para mostrarla en la historia con
     el MISMO formato que el panel del asistente (negritas, listas), no texto plano
@@ -87,7 +86,6 @@ def _answer_html(text: str) -> str:
         return ""
 
 
-_MODULE_KEY_EVENTS = {"module_selected", "section_analyze", "assistant_query", "tree_started"}
 _TOP_N = 10
 _RECENT_QUESTIONS_N = 20
 
@@ -124,6 +122,9 @@ _EVENT_DESCRIPTIONS = {
     # de un módulo), ahora un solo evento genérico y reusable en vez de
     # repetir la ubicación en el nombre.
     "module_viewed": "Vista de módulo: se entró a un módulo navegable (Copiloto o, p. ej., Asignaciones en Operaciones). Una por cada vez que se entra.",
+    # Métricas de Uso v2: la métrica de VISITA nueva (una por carga de página
+    # autenticada, con view_id; incluye recargas — los agregados v2 las excluyen).
+    "page_view": "Vistas de página (v2): una por cada carga de una página del Hub con sesión, incluidas las recargas.",
     "module_continue": "Veces que se usó el cue de “continuar” para avanzar dentro de un módulo.",
     "module_reached_end": "Veces que se llegó al final de un módulo (lectura completa).",
     "academy_selected": "Veces que se abrió una página de Academy.",
@@ -167,18 +168,6 @@ def _log_files(low: str, high: str) -> list[tuple[str, Path]]:
         if low <= day <= high:
             hits.append((day, path))
     return sorted(hits)
-
-
-def _legacy_payload_module(raw_event: str, payload: dict[str, Any]) -> str:
-    """Fallback LEGACY para eventos que nunca tuvieron `module` de primera
-    clase en el envelope y lo llevaban dentro de `payload` (`module_selected`
-    → payload.module; `section_analyze`/`assistant_query`/`tree_started` →
-    payload.stem). Se evalúa sobre el RAW event name (antes de
-    `normalize_event`) — el set no cambia por el corrective A2, los eventos
-    NUEVOS ya traen `module` como campo top-level y nunca llegan acá."""
-    if raw_event not in _MODULE_KEY_EVENTS:
-        return ""
-    return str(payload.get("module") or payload.get("stem") or "").strip()
 
 
 def _read_feedback(date_from: str, date_to: str) -> dict[str, dict]:
@@ -382,6 +371,40 @@ def _read_reaction_comments(date_from: str, date_to: str) -> dict[str, dict[str,
     return by_area_user
 
 
+def _assistant_reply(reply_id: str):
+    """Respuesta del asistente en `assistant_store` (proceso actual), o None.
+    Import lazy: este service no depende del runtime del Copiloto al importar
+    (y en tests se reemplaza esta función)."""
+    if not reply_id:
+        return None
+    try:
+        from webapp.copilot_runtime import assistant_store
+        return assistant_store.reply(reply_id)
+    except Exception:  # noqa: BLE001 — KeyError (no está) o runtime no disponible
+        return None
+
+
+def _story_text(ev: dict) -> tuple[str, str]:
+    """(pregunta, respuesta) de un `assistant_query` para "Historia de
+    preguntas".
+
+    - v1: del payload CRUDO (`legacy_payload`) — las conversaciones
+      históricas se siguen viendo exactamente como antes.
+    - v2: el log ya no guarda el texto (whitelist del catálogo); se busca en
+      `assistant_store` por `reply_id`. LIMITACIÓN conocida: ese store es en
+      memoria del proceso, así que tras un reinicio/deploy las conversaciones
+      v2 anteriores dejan de tener texto y no aparecen en este panel (siguen
+      contando en KPIs/eventos). Persistir el transcript es una decisión de
+      la fase de dashboard, no de esta."""
+    if ev.get("v") != 2:
+        legacy = ev.get("legacy_payload") or {}
+        return str(legacy.get("question") or "").strip(), str(legacy.get("answer") or "")
+    reply = _assistant_reply(str(ev["payload"].get("reply_id") or "").strip())
+    if reply is None:
+        return "", ""
+    return str(getattr(reply, "question", "") or "").strip(), str(getattr(reply, "answer", "") or "")
+
+
 def _read_events(date_from: str, date_to: str) -> list[dict]:
     """Parsea los JSONL del rango a una lista de eventos normalizados (día,
     tipo, usuario, nombre, ts, payload, module, raw_module, event_class).
@@ -421,47 +444,21 @@ def _read_events(date_from: str, date_to: str) -> list[dict]:
                 raw = json.loads(line)
             except (json.JSONDecodeError, ValueError):
                 continue
-            raw_event = str(raw.get("event") or "").strip()
-            if not raw_event:
+            # Métricas de Uso v2: UN solo normalizador para v1 y v2
+            # (`activity_context.normalize_record`) — contexto, rename,
+            # módulo canónico y `attrs` filtrados por la whitelist del
+            # catálogo. Este lector solo adapta esa forma a las claves que el
+            # dashboard actual ya consume (`payload`, `name`…).
+            rec = normalize_record(raw)
+            if rec is None:
                 continue
-            payload = raw.get("payload") or {}
-            if not isinstance(payload, dict):
-                payload = {}
-            user = str(raw.get("user") or "").strip()
-            name = str(raw.get("name") or "").strip()
-            # Seam de normalización de contexto (Batch A1): scope/area para
-            # registros nuevos (campos explícitos) Y viejos (clasificados por
-            # event) vía la ÚNICA función canónica context_of — no se esparce
-            # lógica event→scope/area por las métricas del dashboard. Sigue
-            # evaluándose sobre el RAW event name (`_HISTORICAL` está keyed
-            # por nombres crudos, p. ej. "staffing_overview_viewed").
-            scope, area = context_of(raw)
-            canonical_event, injected_module, injected_operation = normalize_event(raw_event)
-            if injected_operation and not payload.get("operation"):
-                payload = {**payload, "operation": injected_operation}
-            explicit_module = str(raw.get("module") or "").strip()
-            raw_module = explicit_module or injected_module or _legacy_payload_module(raw_event, payload)
-            # MODULE IDENTIFIER CONVENTION V2 — Fase 2: `raw_module` preserva
-            # el mejor valor histórico disponible (igual que antes, sin
-            # tocar la extracción); `module` es su resolución canónica si
-            # `module_registry` la reconoce, o el mismo valor sin cambios si
-            # no — nunca se fabrica un ID para un módulo desconocido.
-            resolved_module = module_registry.resolve(raw_module) if raw_module else None
-            module = resolved_module.module_id if resolved_module else raw_module
-            events.append({
-                "day": day,
-                "event": canonical_event,
-                "raw_event": raw_event,
-                "user": user,
-                "name": name,
-                "ts_utc": str(raw.get("ts_utc") or ""),
-                "payload": payload,
-                "module": module,
-                "raw_module": raw_module,
-                "scope": scope,
-                "area": area,
-                "event_class": _classify_event(canonical_event),
-            })
+            # `payload` (lo que leen Reacciones/árboles/catalog_kind) = attrs
+            # filtrados + `section` (en v2 es campo de primera clase; v1 lo
+            # llevaba dentro del payload, ver `_reaction_subject`).
+            payload = dict(rec["attrs"])
+            if rec["section"] and "section" not in payload:
+                payload["section"] = rec["section"]
+            events.append({**rec, "day": day, "payload": payload})
     return events
 
 
@@ -612,6 +609,7 @@ _TREE_PATH_EVENTS = {"tree_step", "tree_outcome"}
 def _tree_summary(
     all_events: list[dict], user: str, module: str,
     run_page: int = 1, run_page_size: int = _DEFAULT_STORY_PAGE_SIZE,
+    display: dict[str, str] | None = None,
 ) -> dict:
     """Reconstruye la actividad de árboles de decisión a partir de dos eventos:
     - `tree_started` (BASIC-VERBOSE): trae `tree_id`, `tree_title`, `panel`, `stem`
@@ -676,7 +674,7 @@ def _tree_summary(
                 "tree_id": tid,
                 "title": title_by_id.get(tid, tid or "—"),
                 "module": run_module,
-                "user": ev["name"] or ev["user"],
+                "user": ev["name"] or (display or {}).get(ev["user"]) or ev["user"],
                 "ts_utc": ev["ts_utc"],
                 "steps": [],
                 "outcome": None,
@@ -915,6 +913,9 @@ def build_summary(
     ts_min: str | None = None
     ts_max: str | None = None
     files_scanned = len({ev["day"] for ev in all_events})
+    # v2 ya no repite el display name en cada línea (viaja en el `login`):
+    # las historias/recorridos resuelven la etiqueta por identidad estable.
+    story_display = _display_names(all_events)
 
     for ev in events:
         # Boundary del dashboard de USO (ver comentario arriba de los
@@ -995,7 +996,11 @@ def build_summary(
             if kind:
                 catalog_kind_counts[kind] += 1
         elif ev["event"] == "assistant_query":
-            question = str(ev["payload"].get("question") or "").strip()
+            # Texto de la conversación: v1 lo traía en el payload CRUDO
+            # (`legacy_payload`, solo para este panel); v2 ya NO lo escribe en
+            # el log — se busca en `assistant_store` por `reply_id`. Ver
+            # `_story_text`.
+            question, story_answer = _story_text(ev)
             if question:
                 conv_id = str(ev["payload"].get("conversation_id") or "").strip()
                 reply_id = str(ev["payload"].get("reply_id") or "").strip()
@@ -1003,7 +1008,7 @@ def build_summary(
                 if key not in assistant_conversations:
                     assistant_conversations[key] = {
                         "question": question[:200],
-                        "user": ev["name"] or ev["user"],
+                        "user": ev["name"] or story_display.get(ev["user"]) or ev["user"],
                         "turns": [],
                     }
                     assistant_order.append(key)
@@ -1019,7 +1024,7 @@ def build_summary(
                     "bypass": bool(ev["payload"].get("bypass")),
                     "llm": bool(ev["payload"].get("llm")),
                     "api_cost": bool(ev["payload"].get("api_cost")),
-                    "answer": (_ans := _TONE_TAG_RE.sub("", str(ev["payload"].get("answer") or "")).strip()),
+                    "answer": (_ans := _TONE_TAG_RE.sub("", story_answer).strip()),
                     "answer_html": _answer_html(_ans),
                     "feedback": feedback_by_reply.get(reply_id),
                 })
@@ -1079,7 +1084,7 @@ def build_summary(
     start = (page - 1) * page_size
     assistant_stories = [assistant_conversations[k] for k in all_keys_desc[start:start + page_size]]
 
-    trees = _tree_summary(scoped_all_events, user, module, run_page, run_page_size)
+    trees = _tree_summary(scoped_all_events, user, module, run_page, run_page_size, display=story_display)
 
     # Desglose interactivo: al clickear un evento en el panel izquierdo, el
     # derecho muestra su detalle. catalog_view abre por tipo de vista (`kind`);

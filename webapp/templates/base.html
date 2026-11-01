@@ -4,6 +4,7 @@
 <style>[x-cloak]{display:none!important}</style>
 <script>/* Telemetría fina cliente activa solo en LOG_ACTIVITY=VERBOSE (lo lee app.js para el beacon de fin de módulo). */window.DW_VERBOSE={{ 'true' if verbose_telemetry else 'false' }};</script>
 <script>/* Hub Telemetry Origin Attribution gate (ver HANDOFF): identidad ESTABLE del módulo actual (module_registry.module_id, p. ej. "CM02"/"CP01") -- NUNCA el label visible. Cada router que quiere que su telemetría compartida (nav_jump, etc) se atribuya correctamente pasa `dw_module_id` en su contexto; sin eso, vacío -- el backend (telemetry.py) cae al comportamiento histórico Copiloto/Metodología, cero cambio para callers que no participan todavía. */window.DW_MODULE_ID={{ dw_module_id | default('') | tojson }};</script>
+<script>/* Métricas de Uso v2: id de ESTA vista (uno por render, ver templating.dw_view_id). Vacío sin sesión -> app.js no manda page_view. No depende de DW_VERBOSE: las visitas son la métrica básica. */window.DW_VIEW_ID={{ dw_view_id(request) | tojson }};</script>
 <link rel="icon" href="{{ url_for('static', path='favicon.ico') }}"><title>{% block title %}Copiloto Metodológico Danwor{% endblock %}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="{{ hub_fonts_url }}" rel="stylesheet">
