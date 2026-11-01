@@ -210,7 +210,7 @@ def test_f21_run_holds_for_owner_only_and_done_offers_capture(bucket, owner, mon
             "datasphere_client_id": "cid", "datasphere_client_secret": "s", "client": "Biogenesis", "space_id": ["DEV"]}
     url = "/modules/01_Arquitectura_y_Conectividad/connectivity-inventory/run"
     done = [json.loads(l) for l in owner.post(url, data=form, headers={"origin": "http://testserver"}).text.splitlines() if l.strip()][-1]
-    assert done["capture"]["suggested"] == "TNT-BIO-1" and done["capture"]["tenants"] == [{"tenant_id": "TNT-BIO-1", "display_name": ""}]
+    assert done["capture"]["expires_in_s"] == 1800 and done["capture"]["suggested"] == "TNT-BIO-1" and done["capture"]["tenants"] == [{"tenant_id": "TNT-BIO-1", "display_name": ""}]
     assert "host" not in json.dumps(done["capture"]).lower().replace("ghost", "")
     capsvc._PENDING.clear()
     c = _client("consultor@danwor.com")
@@ -224,3 +224,13 @@ def test_observed_source_records_documents_only_when_requested():
     assert p.listings is None and p.details is None
     p = svc._Progress(["DEV"], record=True)
     assert p.listings == {} and p.details == {}
+
+
+def test_capture_offer_reports_its_30_minute_expiry():
+    assert capsvc.PENDING_TTL_S == 30 * 60
+    src = (REPO / "webapp" / "routers" / "connectivity_inventory.py").read_text(encoding="utf-8")
+    assert '"expires_in_s": capsvc.PENDING_TTL_S' in src
+    js = (REPO / "webapp" / "static" / "connectivity_inventory.js").read_text(encoding="utf-8")
+    assert "Disponible para capturar durante " in js and "data-dsc-capture-expiry" in js
+    tpl = (REPO / "webapp" / "templates" / "partials" / "connectivity_inventory_tool.html").read_text(encoding="utf-8")
+    assert "data-dsc-capture-expiry" in tpl

@@ -105,8 +105,9 @@
        `.filter-toolbar-card` + `.feedback-field`; contenido dinámico con textContent. #}
     <div class="admin-result-block" data-dsc-capture hidden>
       <span class="admin-result-title">Capturar inventario</span>
-      <p class="admin-help">Opcional. Guarda el inventario normalizado (sin credenciales) asociado al tenant y al ambiente gobernado de cada Space, con tu motivo. No publica nada en el Catálogo. Disponible durante 30 minutos.</p>
+      <p class="admin-help">Opcional. Guarda el inventario normalizado (sin credenciales) asociado al tenant y al ambiente gobernado de cada Space, con tu motivo. No publica nada en el Catálogo.</p>
       <p class="admin-help" data-dsc-capture-summary></p>
+      <p class="admin-help" role="status" data-dsc-capture-expiry></p>
       <form class="hc-profile-filters filter-toolbar-card" data-dsc-capture-form>
         <input type="hidden" name="operation_id"><input type="hidden" name="client"><input type="hidden" name="request_id">
         <div class="feedback-field">

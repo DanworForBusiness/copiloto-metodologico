@@ -205,6 +205,11 @@
     el(box, "[data-dsc-capture-summary]").textContent = cap.connections + " conexiones en " + cap.spaces + (cap.spaces === 1 ? " Space. " : " Spaces. ") +
       (cap.suggested ? "Tenant sugerido por el host vinculado: " + cap.suggested + "." :
        "El host de esta extracción no está vinculado a ningún tenant: vinculalo en «Tenants y ambientes» antes de capturar.");
+    // Vencimiento de la retención temporal (lo fija el servidor): pasado ese plazo, la extracción hay que ejecutarla de nuevo.
+    const minutes = Math.round((cap.expires_in_s || 0) / 60);
+    const until = new Date(Date.now() + (cap.expires_in_s || 0) * 1000).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
+    el(box, "[data-dsc-capture-expiry]").textContent = "Disponible para capturar durante " + minutes + " minutos (hasta las " + until +
+      "). Después vence y hay que volver a extraer.";
   }
   async function submitCapture(form) {
     const box = form.closest("[data-dsc-capture]");

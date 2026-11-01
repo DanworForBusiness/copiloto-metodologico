@@ -45,7 +45,7 @@
     {% endif %}
   </div>
   <div class="tree-picker-row" x-show="catalogView !== 'extract'">
-    <select id="catalog-conn-kind" x-model="catalogKind" @change="resetPick(); dwConnectivityKindChanged(catalogKind, $refs.sapOpen, $refs.registryOpen)">
+    <select id="catalog-conn-kind" autocomplete="off" x-model="catalogKind" @change="resetPick(); dwConnectivityKindChanged(catalogKind, $refs.sapOpen, $refs.registryOpen)">
       <option value="connections">Conexiones</option>
       <option value="clients">Clientes</option>
       <option value="sap_types">Disponibilidad SAP</option>

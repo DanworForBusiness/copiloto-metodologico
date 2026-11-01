@@ -260,3 +260,18 @@ def test_dropdown_offers_tenants_and_environments_only_to_readers(bucket):
     assert "$refs.registryOpen" in html
     reader = _render_tab(_fake_request("lector@danwor.com"))
     assert 'value="registry"' not in reader and 'data-catalog-kind="registry"' not in reader
+
+
+def test_reload_restores_dropdown_and_central_view_together(bucket):
+    """Recargar no deja estados contradictorios: la vista central se abre SOLO por HTMX (sin URL propia ni historial), así que una recarga
+    vuelve a mostrar el módulo; el dropdown 1 arranca siempre en «Conexiones» (Alpine) y no acepta el valor que el navegador restaura."""
+    html = _render_tab(_fake_request("owner@danwor.com"))
+    sel = html[html.index('<select id="catalog-conn-kind"'):]
+    sel = sel[:sel.index(">")]
+    assert 'autocomplete="off"' in sel and 'x-model="catalogKind"' in sel
+    assert "x-data=\"dwCatalogBrowse('connections')\"" in html
+    opener = html[html.index("data-registry-open"):]
+    opener = opener[:opener.index(">")]
+    assert "hx-push-url" not in opener and 'hx-target="#catalog-detail-slot"' in opener
+    view = _hx(_client("owner@danwor.com"), VIEW)
+    assert "hx-push-url" not in view

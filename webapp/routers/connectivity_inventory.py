@@ -100,7 +100,7 @@ def run_connectivity_inventory(
         if outcome.capture:                                                   # sin host ni nombres: solo tenants del cliente y conteos
             from webapp.services import connectivity_capture_service as capsvc
             opts = capsvc.options(values.client, outcome.capture["host"])
-            done["capture"] = {"client": values.client,                       # la operación viaja en done.operation_id
+            done["capture"] = {"client": values.client, "expires_in_s": capsvc.PENDING_TTL_S,   # la operación viaja en done.operation_id
                                "spaces": len(outcome.capture["spaces"]), "connections": outcome.capture["connections"], **opts}
         events.put(done)
         events.put(None)
