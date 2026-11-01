@@ -12,11 +12,19 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from functools import lru_cache
+from pathlib import Path
 
 log = logging.getLogger("danwor.sap_connection_catalog")
 
 FILE_NAME = "sap_connection_types.json"
+# Biblioteca LOCAL de íconos originales (copiados de la UI de SAP Datasphere con el nombre que declara `iconLocation`; sin metadatos). Se resuelve
+# por el nombre del archivo (`images/storages/<Nombre>.png` → `<ICON_DIR>/<Nombre>.png`, mayúsculas incluidas): nunca una URL del tenant. Si el
+# archivo no existe, el ícono queda `None` y la tarjeta muestra el monograma de respaldo.
+ICON_DIR = Path(__file__).resolve().parents[1] / "static" / "icons" / "vendors" / "sap-datasphere" / "connection-types"
+ICON_STATIC_PREFIX = "icons/vendors/sap-datasphere/connection-types/"
+ICON_SOURCE_PREFIX = "images/storages/"
 
 SOURCE_LABELS = {"SAP": "SAP", "NonSAP": "Non-SAP", "Partner": "Partner Tools"}
 CATEGORY_LABELS = {"CloudApp": "Cloud", "OnPremise": "On-Premise"}
@@ -47,6 +55,28 @@ NOTICE = ("Snapshot de referencia del catálogo de tipos de conexión de un tena
 CONDITIONAL_TEXT = "Disponibilidad condicional: en el tenant de referencia este tipo depende de una configuración habilitada."
 
 
+def icon_path(icon_location: str) -> str | None:
+    """Ruta relativa a /static del ícono local para `icon_location`, o None (sin archivo ⇒ monograma). Solo nombres simples bajo
+    `images/storages/` y archivos PNG presentes en la biblioteca: nada de rutas arbitrarias ni URLs."""
+    if not isinstance(icon_location, str) or not icon_location.startswith(ICON_SOURCE_PREFIX):
+        return None
+    name = icon_location[len(ICON_SOURCE_PREFIX):]
+    if not re.fullmatch(r"[A-Za-z0-9._-]+\.png", name) or name.startswith("."):
+        return None
+    return ICON_STATIC_PREFIX + name if (ICON_DIR / name).is_file() and name in _icon_names() else None
+
+
+@lru_cache(maxsize=1)
+def _icon_names() -> frozenset:
+    """Nombres EXACTOS presentes (en Windows el sistema de archivos ignora mayúsculas; en Linux no: se exige la coincidencia exacta en ambos)."""
+    return frozenset(p.name for p in ICON_DIR.glob("*.png")) if ICON_DIR.is_dir() else frozenset()
+
+
+def _monogram(type_id: str) -> str:
+    letters = [w[0] for w in re.split(r"[^A-Za-z0-9]+", type_id) if w]
+    return ("".join(letters[:2]) if len(letters) > 1 else type_id[:2]).upper()
+
+
 def _state_key(value) -> str:
     return {True: "true", False: "false"}.get(value, "null")
 
@@ -64,7 +94,9 @@ def _view_type(t: dict) -> dict:
         "type_id": t["type_id"],
         "title": t["display_name"] or t["type_id"],
         "display_name": t["display_name"],
-        "icon_location": t["icon_location"],                      # se conserva tal cual para la futura biblioteca de imágenes
+        "icon_location": t["icon_location"],                      # se conserva tal cual (clave de la biblioteca de íconos)
+        "icon_path": icon_path(t["icon_location"]),               # ícono local o None (monograma)
+        "monogram": _monogram(t["type_id"]),
         "sources": [{"code": s, "label": SOURCE_LABELS.get(s, s)} for s in t["sources"]],
         "categories": [{"code": c, "label": CATEGORY_LABELS.get(c, c)} for c in t["categories"]],
         "capabilities": [{"code": c, "label": CAPABILITY_LABELS.get(c, c)} for c in caps],

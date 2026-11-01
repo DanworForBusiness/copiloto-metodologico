@@ -168,18 +168,23 @@ def test_right_panel_keeps_sap_availability_only_as_navigation():
 
 def test_central_view_renders_filters_search_counter_and_cards():
     html = _central()
-    assert html.lstrip().startswith('<a class="catalog-back" href="#" onclick="return dwCatalogBack();">')   # mismo «← Volver» del panel central
+    assert html.lstrip().startswith('<div class="catalog-actionbar">')                          # barra de acciones de las vistas centrales
+    assert '<a class="catalog-back" href="#" onclick="return dwCatalogBack();">' in html          # mismo «← Volver» del panel central
+    assert '<section class="module-hero asr-hero sap-types-hero">' in html and '<h1 class="asr-title">' in html  # hero operativo de las vistas centrales
+    assert 'class="hc-profile-filters filter-toolbar-card sap-types-toolbar"' in html             # barra de filtros compartida del Hub
+    assert "catalog-feature-chip--on" not in html and html.count('status-badge status-badge--otro') > 37   # atributos neutros, no «éxito»
     assert "Disponibilidad SAP" in html and 'x-data="dwSapTypes(37)"' in html and "data-sap-view" in html
-    groups = re.findall(r'id="sap-filter-(\w+)">([^<]+)</span>', html)
+    groups = re.findall(r'<label id="sap-filter-(\w+)">([^<]+)</label>', html)
     assert groups == [("capabilities", "Capacidades"), ("categories", "Categorías"), ("sources", "Orígenes"), ("requirements", "Requisitos")]
     assert html.count('type="checkbox"') == sum(len(v) for v in sap_connection_catalog.catalog("datasphere_core")["filters"].values())
-    assert 'id="catalog-sap-search"' in html and "Tipos de conexión (37 de 37)" in html and "catalog-flows-list--grid" in html
+    assert 'id="catalog-sap-search"' in html and "data-sap-count" in html and ">37 de 37</span>" in html and "catalog-flows-list--grid" in html
     doc = json.loads(PACK_JSON.read_text(encoding="utf-8"))
     assert re.findall(r'data-sap-type="([^"]+)"', html) == [t["type_id"] for t in doc["connection_types"]]
     assert re.findall(r'data-icon-location="([^"]+)"', html) == [t["icon_location"] for t in doc["connection_types"]]
     assert html.count("data-sap-conditional") == 1 and "No garantiza disponibilidad en todos los tenants" in html
     assert 'data-sap-requirement="dp_agent_required:null"' in html and "No declarado" in html
-    assert "<img" not in html                                                # todavía sin biblioteca de imágenes
+    srcs = re.findall(r'<img class="sap-type-icon" src="([^"]+)"', html)
+    assert len(srcs) == 37 and all(src.startswith("http://testserver/static/icons/vendors/sap-datasphere/connection-types/") for src in srcs)
 
 
 def test_central_view_direct_navigation_and_session():
@@ -213,6 +218,66 @@ def test_a_tampered_snapshot_fails_closed(monkeypatch, tmp_path):
         assert "Sin snapshot de referencia" in r.text and "data-sap-type" not in r.text
     finally:
         sap_connection_catalog.catalog.cache_clear()
+
+
+# ═══════════════ biblioteca local de íconos originales ═══════════════
+ICON_DIR = REPO / "webapp" / "static" / "icons" / "vendors" / "sap-datasphere" / "connection-types"
+
+
+def _png_chunks(data):
+    import struct
+    assert data[:8] == b"\x89PNG\r\n\x1a\n"
+    pos, out = 8, []
+    while pos < len(data):
+        ln, typ = struct.unpack(">I4s", data[pos:pos + 8])
+        out.append(typ.decode("latin1"))
+        pos += 12 + ln
+        if typ == b"IEND":
+            break
+    assert pos == len(data), "datos después de IEND"
+    return out
+
+
+def test_icon_library_matches_the_unique_icon_locations_exactly():
+    doc = json.loads(PACK_JSON.read_text(encoding="utf-8"))
+    expected = {Path(t["icon_location"]).name for t in doc["connection_types"]}
+    present = {p.name for p in ICON_DIR.iterdir()}
+    assert len(expected) == 20 and present == expected                     # ni faltantes ni sobrantes; mayúsculas EXACTAS (Linux)
+    for p in ICON_DIR.iterdir():
+        data = p.read_bytes()
+        chunks = _png_chunks(data)
+        assert chunks[0] == "IHDR" and chunks[-1] == "IEND" and len(data) <= 64 * 1024, p.name
+        assert not set(chunks) & {"eXIf", "iTXt", "tEXt", "zTXt", "tIME"}, p.name          # sin metadatos
+        assert not re.search(rb"https?://", data), p.name
+
+
+def test_icon_resolution_is_local_exact_and_safe():
+    sap_connection_catalog._icon_names.cache_clear()
+    path = sap_connection_catalog.icon_path
+    assert path("images/storages/Google.png") == "icons/vendors/sap-datasphere/connection-types/Google.png"
+    for bad in ("images/storages/google.png", "images/storages/../app.js", "images/storages/x/../../a.png", "https://tenant/x.png",
+                "images/storages/Missing.png", "", None):
+        assert path(bad) is None, bad
+    sap_connection_catalog.catalog.cache_clear()
+    assert all(t["icon_path"] for t in sap_connection_catalog.catalog("datasphere_core")["types"])
+
+
+def test_missing_icons_fall_back_to_the_monogram(monkeypatch, tmp_path):
+    monkeypatch.setattr(sap_connection_catalog, "ICON_DIR", tmp_path)
+    sap_connection_catalog._icon_names.cache_clear()
+    sap_connection_catalog.catalog.cache_clear()
+    try:
+        html = _central()
+        assert "<img" not in html and html.count("data-sap-icon-fallback") == 37
+        assert re.search(r'data-sap-icon-fallback>SA</span>', html)                          # SAPBW → «SA» (sin inventar)
+    finally:
+        sap_connection_catalog._icon_names.cache_clear()
+        sap_connection_catalog.catalog.cache_clear()
+
+
+def test_icons_are_served_locally():
+    r = _owner().get("/static/icons/vendors/sap-datasphere/connection-types/SAP-Generic.png")
+    assert r.status_code == 200 and r.headers["content-type"] == "image/png" and r.content[:8] == b"\x89PNG\r\n\x1a\n"
 
 
 # ═══════════════ comportamiento en el cliente (filtros combinables, búsqueda, contador) ═══════════════

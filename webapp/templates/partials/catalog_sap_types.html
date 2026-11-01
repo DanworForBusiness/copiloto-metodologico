@@ -1,82 +1,98 @@
 {# Explorador «Disponibilidad SAP» del Catálogo de conectividad (módulo 01), para el PANEL CENTRAL. Fuente ÚNICA: snapshot saneado del content
-   pack (`sap`, ver webapp/services/sap_connection_catalog.py; contrato sap-connection-types/v1). Inspirado en el selector nativo de SAP Datasphere
-   («Create Connection»: filtros por grupo a la izquierda, búsqueda y grilla a la derecha) con los primitivos del Hub (`.dashboard-checkbox-*`,
-   `.whatsnew-filter`, `.catalog-card`, `.catalog-pill`, `.catalog-feature-chip`, `.catalog-card__notes`, estado vacío compartido).
+   pack (`sap`, ver webapp/services/sap_connection_catalog.py; contrato sap-connection-types/v1). Composición de las páginas centrales del Hub,
+   sin biblioteca de estilos propia: aviso `.callout--note`; filtros de PÁGINA antes del agrupador (`.hc-profile-filters.filter-toolbar-card` +
+   `.feedback-field`, como Presentaciones/CCHH) con casillas `.dashboard-checkbox-*`; agrupador `.dashboard-section` con contador; tarjetas `.catalog-card` en grilla;
+   atributos informativos como `.status-badge` NEUTRO (no verde de éxito) y la disponibilidad condicional en ámbar (`--tentativo`).
    Filtro en el cliente (`dwSapTypes`, app.js). El detalle técnico se despliega DENTRO de la tarjeta: filtros y búsqueda se conservan.
-   `data-icon-location` conserva `iconLocation` tal cual para la futura biblioteca de imágenes: todavía no se renderiza ninguna imagen. #}
+   Íconos: biblioteca LOCAL /static/icons/vendors/sap-datasphere/connection-types/ resuelta por `iconLocation` (sap_connection_catalog.icon_path);
+   `data-icon-location` conserva el valor original del snapshot. #}
 {% if not sap.types %}
 {% with state_kind="empty", state_title="Sin snapshot de referencia", state_text="No hay un catálogo de tipos de conexión de SAP disponible para este pack." %}{% include "partials/catalog_state.html" %}{% endwith %}
 {% else %}
-<div x-data="dwSapTypes({{ sap.total }})" data-sap-types data-sap-view>
-  <p class="admin-help" data-sap-notice>{{ sap.notice }}</p>
-  <div class="sap-types-layout">
-    <aside class="sap-types-filters" aria-label="Filtros" data-sap-filters>
+<div class="sap-types-view" x-data="dwSapTypes({{ sap.total }})" data-sap-types data-sap-view>
+  <aside class="callout callout--note" data-sap-notice><div class="callout__body"><p>{{ sap.notice }}</p></div></aside>
+  {#- Filtros de PÁGINA: la MISMA barra compartida de Presentaciones/CCHH/Operaciones (`.hc-profile-filters.filter-toolbar-card` + `.feedback-field`,
+      input de texto y botón secundario); debajo, los grupos de casillas en columnas de ancho mínimo legible. -#}
+  <form class="hc-profile-filters filter-toolbar-card sap-types-toolbar" role="search" data-sap-filters @submit.prevent>
+    <div class="feedback-field feedback-field--wide">
+      <label for="catalog-sap-search">Buscar</label>
+      <input type="text" id="catalog-sap-search" x-model="q" @input="apply()" @keydown.escape="clear()" aria-label="Buscar por nombre o typeId" placeholder="Nombre visible o typeId..." autocomplete="off">
+    </div>
+    <button type="button" class="btn-secondary" @click="clear()" :disabled="!active">Limpiar</button>
+    <div class="sap-types-toolbar__groups">
       {% for key, label in (("capabilities", "Capacidades"), ("categories", "Categorías"), ("sources", "Orígenes"), ("requirements", "Requisitos")) %}
-      <div class="sap-types-group" role="group" aria-labelledby="sap-filter-{{ key }}">
-        <span class="admin-result-title" id="sap-filter-{{ key }}">{{ label }}</span>
-        <div class="dashboard-checkbox-group">
+      <div class="feedback-field">
+        <label id="sap-filter-{{ key }}">{{ label }}</label>
+        <div class="dashboard-checkbox-group" role="group" aria-labelledby="sap-filter-{{ key }}">
           {% for o in sap.filters[key] %}
           <label class="dashboard-checkbox-option">
             <input type="checkbox" value="{{ o.value }}" x-model="filters.{{ key }}" @change="apply()" data-sap-filter="{{ key }}">
-            <span>{{ o.label }}</span><span class="sap-types-group__count">{{ o.count }}</span>
+            {{ o.label }}
           </label>
           {% endfor %}
         </div>
       </div>
       {% endfor %}
-    </aside>
-    <div class="sap-types-results">
-      <div class="tree-picker catalog-picker--secondary">
-        <label for="catalog-sap-search">Buscar</label>
-        <div class="whatsnew-filters whatsnew-filters--inline">
-          <div class="whatsnew-filter whatsnew-filter--fill">
-            <input type="search" id="catalog-sap-search" x-model="q" @input="apply()" @keydown.escape="clear()" aria-label="Buscar por nombre o typeId" placeholder="Nombre o typeId..." autocomplete="off">
-          </div>
-          <button type="button" class="whatsnew-filter__clear" @click="clear()" :disabled="!active">✕ Limpiar</button>
-        </div>
-      </div>
-      <p class="admin-help" role="status" aria-live="polite" data-sap-count x-text="'Tipos de conexión (' + shown + ' de ' + total + ')'">Tipos de conexión ({{ sap.total }} de {{ sap.total }})</p>
-      <ul class="catalog-flows-list catalog-flows-list--grid" x-ref="list">
-        {% for t in sap.types %}
-        <li class="catalog-card catalog-connection-card" tabindex="0" data-sap-type="{{ t.type_id }}" data-icon-location="{{ t.icon_location }}"
-            data-search="{{ t.data_search }}" data-sources="{{ t.data_sources }}" data-categories="{{ t.data_categories }}"
-            data-capabilities="{{ t.data_capabilities }}" data-requirements="{{ t.data_requirements }}"
-            @click="toggle($el)" @keyup.enter="toggle($el)">
-          <p class="catalog-card__head"><strong>{{ t.title }}</strong></p>
-          <p class="catalog-card__meta">typeId: {{ t.type_id }}</p>
-          <div class="catalog-connection-badges">
-            {% for s in t.sources %}<span class="catalog-pill catalog-pill--muted">{{ s.label }}</span>{% endfor %}
-            {% for c in t.categories %}<span class="catalog-pill catalog-pill--muted">{{ c.label }}</span>{% endfor %}
-            {% if t.conditional %}<span class="catalog-pill catalog-pill--ok" data-sap-conditional title="{{ sap.conditional_text }}">Disponibilidad condicional</span>{% endif %}
-          </div>
-          <div class="catalog-feature-row">
-            {% for c in t.capabilities %}<span class="catalog-feature-chip catalog-feature-chip--on" title="{{ c.code }}">{{ c.label }}</span>{% endfor %}
-          </div>
-          {% if t.declared_requirements %}
-          <p class="catalog-card__apto">{% for r in t.declared_requirements %}{{ r.label }}: {{ r.state_label|lower }}{% if not loop.last %} · {% endif %}{% endfor %}</p>
-          {% endif %}
-          <details class="catalog-card__notes" @click.stop>
-            <summary>Detalle técnico</summary>
-            <ul>
-              <li><strong>typeId</strong><br><span class="catalog-note__ev">{{ t.type_id }}{% if t.display_name %} · nombre visible de la UI de SAP: {{ t.display_name }}{% else %} · sin nombre visible en el snapshot{% endif %}</span></li>
-              <li><strong>Origen / categoría</strong><br><span class="catalog-note__ev">{% for s in t.sources %}{{ s.code }}{% if not loop.last %}, {% endif %}{% endfor %} · {% for c in t.categories %}{{ c.code }}{% if not loop.last %}, {% endif %}{% endfor %}</span></li>
-              <li><strong>Capacidades</strong><br><span class="catalog-note__ev">{% for c in t.capabilities %}{{ c.label }} ({{ c.code }}){% if not loop.last %} · {% endif %}{% endfor %}</span></li>
-              <li><strong>Requisitos y atributos</strong>
-                {% for r in t.requirements %}<br><span class="catalog-note__ev" data-sap-requirement="{{ r.key }}:{{ r.state }}">{{ r.label }} ({{ r.code }}): {{ r.state_label }}</span>{% endfor %}
-              </li>
-              <li><strong>Disponibilidad</strong><br><span class="catalog-note__ev">{% if t.conditional %}{{ sap.conditional_text }}{% else %}Condición no declarada en el snapshot (no implica disponibilidad en todos los tenants).{% endif %}</span></li>
-              {% if t.adapter_id %}<li><strong>Adapter</strong><br><span class="catalog-note__ev">{{ t.adapter_id }}</span></li>{% endif %}
-              {% if t.partner %}<li><strong>Partner</strong><br><span class="catalog-note__ev">{{ t.partner.id }}{% if t.partner.api_version is not none %} · API v{{ t.partner.api_version }}{% endif %}</span></li>{% endif %}
-              {% if t.generic_framework_type %}<li><strong>Framework genérico</strong><br><span class="catalog-note__ev">{{ t.generic_framework_type.ccm_type_id }} · versión {{ t.generic_framework_type.ccm_type_version }}</span></li>{% endif %}
-              {% if t.default_parameters %}<li><strong>Parámetros por defecto</strong><br><span class="catalog-note__ev">{{ t.default_parameters|join(", ") }}</span></li>{% endif %}
-              <li><strong>iconLocation</strong><br><span class="catalog-note__ev">{{ t.icon_location }}</span></li>
-            </ul>
-          </details>
-        </li>
-        {% endfor %}
-      </ul>
-      <div x-show="shown === 0" x-cloak>{% with state_kind="empty", state_title="Sin coincidencias", state_text="Ningún tipo de conexión cumple la búsqueda y los filtros. Probá con otros criterios o presioná Limpiar." %}{% include "partials/catalog_state.html" %}{% endwith %}</div>
     </div>
+  </form>
+  <div class="dashboard-sections">
+  <details class="dashboard-section" open>
+    <summary class="dashboard-section__head">
+      <span class="dashboard-section__caret"></span>
+      <span class="dashboard-section__title">Tipos de conexión</span>
+      <span class="dashboard-section__count" role="status" aria-live="polite" data-sap-count x-text="shown + ' de ' + total">{{ sap.total }} de {{ sap.total }}</span>
+    </summary>
+    <div class="dashboard-section__body">
+    <ul class="catalog-flows-list catalog-flows-list--grid" x-ref="list">
+    {% for t in sap.types %}
+    <li class="catalog-card catalog-connection-card sap-type-card" tabindex="0" data-sap-type="{{ t.type_id }}" data-icon-location="{{ t.icon_location }}"
+        data-search="{{ t.data_search }}" data-sources="{{ t.data_sources }}" data-categories="{{ t.data_categories }}"
+        data-capabilities="{{ t.data_capabilities }}" data-requirements="{{ t.data_requirements }}"
+        @click="toggle($el)" @keyup.enter="toggle($el)">
+      {#- Frente LIMPIO, como la tarjeta del selector de SAP: nombre + ícono original (biblioteca local /static; si falta o no carga, monograma).
+          Todo lo demás vive en «Ver features» (mismo desplegable que los tiles de Conexiones) y en «Detalle técnico». Nunca una URL del tenant. -#}
+      <p class="catalog-card__head"><strong>{{ t.title }}</strong></p>
+      <div class="sap-type-card__art">
+        {% if t.icon_path %}<img class="sap-type-icon" src="{{ url_for('static', path=t.icon_path) }}?v={{ static_version }}" alt="" width="56" height="56" loading="lazy" decoding="async" data-sap-icon onerror="this.hidden=true;this.nextElementSibling.hidden=false;"><span class="sap-type-icon sap-type-icon--fallback" aria-hidden="true" data-sap-icon-fallback hidden>{{ t.monogram }}</span>{% else %}<span class="sap-type-icon sap-type-icon--fallback" aria-hidden="true" data-sap-icon-fallback>{{ t.monogram }}</span>{% endif %}
+      </div>
+      {% if t.conditional %}<p class="sap-type-card__flag"><span class="status-badge status-badge--tentativo" data-sap-conditional title="{{ sap.conditional_text }}">Disponibilidad condicional</span></p>{% endif %}
+      <details class="catalog-card__notes catalog-card__features" @click.stop>
+        <summary>Ver features</summary>
+        <p class="catalog-card__meta">typeId: {{ t.type_id }}</p>
+        <div class="catalog-connection-badges">
+          {% for s in t.sources %}<span class="catalog-pill catalog-pill--muted">{{ s.label }}</span>{% endfor %}
+          {% for c in t.categories %}<span class="catalog-pill catalog-pill--muted">{{ c.label }}</span>{% endfor %}
+        </div>
+        <div class="sap-type-card__capabilities" aria-label="Capacidades">
+          {% for c in t.capabilities %}<span class="status-badge status-badge--otro" title="{{ c.code }}">{{ c.label }}</span>{% endfor %}
+        </div>
+        {% if t.declared_requirements %}
+        <p class="catalog-card__apto">{% for r in t.declared_requirements %}{{ r.label }}: {{ r.state_label|lower }}{% if not loop.last %} · {% endif %}{% endfor %}</p>
+        {% endif %}
+      </details>
+      <details class="catalog-card__notes" @click.stop>
+        <summary>Detalle técnico</summary>
+        <ul>
+          <li><strong>typeId</strong><br><span class="catalog-note__ev">{{ t.type_id }}{% if t.display_name %} · nombre visible de la UI de SAP: {{ t.display_name }}{% else %} · sin nombre visible en el snapshot{% endif %}</span></li>
+          <li><strong>Origen / categoría</strong><br><span class="catalog-note__ev">{% for s in t.sources %}{{ s.code }}{% if not loop.last %}, {% endif %}{% endfor %} · {% for c in t.categories %}{{ c.code }}{% if not loop.last %}, {% endif %}{% endfor %}</span></li>
+          <li><strong>Capacidades</strong><br><span class="catalog-note__ev">{% for c in t.capabilities %}{{ c.label }} ({{ c.code }}){% if not loop.last %} · {% endif %}{% endfor %}</span></li>
+          <li><strong>Requisitos y atributos</strong>
+            {% for r in t.requirements %}<br><span class="catalog-note__ev" data-sap-requirement="{{ r.key }}:{{ r.state }}">{{ r.label }} ({{ r.code }}): {{ r.state_label }}</span>{% endfor %}
+          </li>
+          <li><strong>Disponibilidad</strong><br><span class="catalog-note__ev">{% if t.conditional %}{{ sap.conditional_text }}{% else %}Condición no declarada en el snapshot (no implica disponibilidad en todos los tenants).{% endif %}</span></li>
+          {% if t.adapter_id %}<li><strong>Adapter</strong><br><span class="catalog-note__ev">{{ t.adapter_id }}</span></li>{% endif %}
+          {% if t.partner %}<li><strong>Partner</strong><br><span class="catalog-note__ev">{{ t.partner.id }}{% if t.partner.api_version is not none %} · API v{{ t.partner.api_version }}{% endif %}</span></li>{% endif %}
+          {% if t.generic_framework_type %}<li><strong>Framework genérico</strong><br><span class="catalog-note__ev">{{ t.generic_framework_type.ccm_type_id }} · versión {{ t.generic_framework_type.ccm_type_version }}</span></li>{% endif %}
+          {% if t.default_parameters %}<li><strong>Parámetros por defecto</strong><br><span class="catalog-note__ev">{{ t.default_parameters|join(", ") }}</span></li>{% endif %}
+          <li><strong>iconLocation</strong><br><span class="catalog-note__ev">{{ t.icon_location }}</span></li>
+        </ul>
+      </details>
+    </li>
+    {% endfor %}
+    </ul>
+    <div x-show="shown === 0" x-cloak>{% with state_kind="empty", state_title="Sin coincidencias", state_text="Ningún tipo de conexión cumple la búsqueda y los filtros. Probá con otros criterios o presioná Limpiar." %}{% include "partials/catalog_state.html" %}{% endwith %}</div>
+    </div>
+  </details>
   </div>
 </div>
 {% endif %}
