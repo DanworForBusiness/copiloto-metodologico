@@ -1048,6 +1048,15 @@ def _catalog_is_odata(conn) -> bool:
     return _catalog_conn_norm_key(getattr(conn, "type_id", "")) == "odata"
 
 
+def _sap_type_capabilities(type_id: str) -> set:
+    """Capacidades que el contrato `sap-connection-types/v1` declara para el tipo (soporte del TIPO, no disponibilidad de una conexión)."""
+    from webapp.services import sap_connection_catalog
+    for t in sap_connection_catalog.catalog(DEFAULT_PACK).get("types") or []:
+        if t.get("type_id") == type_id:
+            return {c["code"] for c in t.get("capabilities") or []}
+    return set()
+
+
 def _catalog_connection_rows(mod, conn, include_space: bool = False) -> list[tuple[str, str, str]]:
     info = getattr(conn, "info", {}) or {}
     gateway = getattr(conn, "gateway", {}) or {}
@@ -1143,6 +1152,41 @@ def _catalog_connection_rows(mod, conn, include_space: bool = False) -> list[tup
             ("row", "Replication Flows", "Sí" if _catalog_has_feature(mod, conn, "Replication Flows") else "No"),
         ])
         return rows
+
+    if _catalog_conn_norm_key(getattr(conn, "type_id", "")) == "sapsf":
+        # SAP SuccessFactors: conector cloud OData con OAuth. Ni campos ABAP (servidor, mandante, sysid) ni DP Agent / Cloud Connector, que no
+        # aplican. Solo atributos del documento saneado; lo que falta se informa como no disponible. Features: la capacidad SOPORTADA por el tipo
+        # sale del contrato `sap-connection-types/v1`; lo que la conexión declara en su export se muestra aparte y un flag ausente no es «No».
+        missing = "No disponible"
+
+        def val(value, code: bool = False) -> str:
+            return _catalog_md_value(value, code) if str(value or "").strip() else missing
+        method = _catalog_conn_lookup(info, "authentication") or _catalog_conn_lookup(auth, "auth_type")
+        method_label = "OAuth 2.0" if "oauth" in str(method or "").lower() else (method or missing)
+        supported = _sap_type_capabilities("SAPSF")
+        rows.extend([
+            ("group", "Conectividad", ""),
+            ("row", "Connection type", _catalog_md_value(getattr(conn, "type_id", "") or getattr(conn, "type_label", ""))),
+            ("row", "URL", val(_catalog_conn_lookup(info, "url"), True)),
+            ("row", "Versión", val(_catalog_conn_lookup(info, "version"))),
+            ("group", "Autenticación", ""),
+            ("row", "Método", method_label),
+            ("row", "Grant Type", val(_catalog_conn_lookup(info, "oauth2GrantType"), True)),
+            ("row", "Token Endpoint", val(_catalog_conn_lookup(info, "oauth2TokenEndpoint"), True)),
+            ("row", "Company ID", val(_catalog_conn_lookup(info, "oauth2CompanyId"), True)),
+            ("group", "Features", ""),
+        ])
+        for label, capability, keys in (("Remote tables", "HanaSdi", ("remoteTables",)),
+                                        ("Data flows", "DataflowSource", ("dataflows",)),
+                                        ("Replication Flows", "ReplicationflowSource", ("replicationflows",))):
+            declared = _catalog_conn_lookup(feats, *keys)
+            by_type = "soportado por el tipo" if capability in supported else "no soportado por el tipo"
+            if declared:
+                rows.append(("row", label, f"{_catalog_bool_text(declared)} en esta conexión · {by_type}"))
+            else:
+                rows.append(("row", label, f"{by_type.capitalize()} · no informado por esta conexión"))
+        return rows
+
 
     if _catalog_is_odata(conn):
         # Origen OData: la conectividad es la URL del servicio + versión (no los campos

@@ -253,7 +253,7 @@ def test_import_keeps_url_scheme_and_sanitizes_embedded_json():
     embedded = json.loads(clean["configuration"])
     ui = embedded["ConnectionProperties"]["UI"]
     assert ui["URL"] == "https://api19.sapsf.com/odata/v2" and ui["version"] == "V2" and ui["authentication"]["auth_type"] == "OAuth2"
-    assert "oauth2TokenEndpoint" not in ui["oauth2"] and "oauth2UserId" not in ui["oauth2"]
+    assert ui["oauth2"]["oauth2TokenEndpoint"] == "https://api19.sapsf.com/oauth/token" and "oauth2UserId" not in ui["oauth2"]   # endpoint = URL pública
     assert clean["content"]["objects"]["SSFF"]["configuration"]["ConnectionProperties"]["UI"]["URL"] == "https://api19.sapsf.com/odata/v2"
     assert cup.unsafe_properties({"configuration": json.dumps({"note": "password=x"})}) == ["configuration.note"]
 

@@ -419,6 +419,13 @@ def _connection_info(detail: dict[str, Any]) -> dict[str, Any]:
             auth = auth.get("auth_type") or auth.get("authType") or ""
         if auth not in (None, "") and "authentication" not in info:
             info["authentication"] = auth
+        # SAP SuccessFactors (typeId SAPSF): la ficha muestra el flujo OAuth (grant type, token endpoint, company id) del documento ya saneado.
+        oauth2 = ui.get("oauth2")
+        if str(detail.get("typeId") or "").upper() == "SAPSF" and isinstance(oauth2, dict):
+            for key in ("oauth2GrantType", "oauth2TokenEndpoint", "oauth2CompanyId"):
+                value = oauth2.get(key)
+                if value not in (None, "") and not isinstance(value, (dict, list)) and key not in info:
+                    info[key] = value
     # `kind` (p.ej. repository.remote) clasifica el acceso a datos del origen.
     kind = first.get("kind")
     if kind not in (None, "") and "kind" not in info:

@@ -321,3 +321,38 @@ def test_whats_new_deep_link_opens_sap_availability_with_the_dropdown_in_sync(mo
         assert "x-data=\"dwCatalogBrowse('connections')\"" in owner.get(url).text
     js = (REPO / "webapp" / "static" / "app.js").read_text(encoding="utf-8")
     assert 'if (defaultKind === "sap_types")' in js and "dwConnectivityKindChanged(this.catalogKind, this.$refs.sapOpen)" in js
+
+
+def test_sapsf_card_shows_its_own_connectivity_auth_and_features():
+    """Ficha SAPSF: URL/versión + OAuth (grant type, token endpoint, company id); sin campos ABAP ni DP Agent / Cloud Connector. Lo faltante
+    figura como no disponible; las features separan el soporte del TIPO (contrato sap-connection-types/v1) de lo que declara la conexión."""
+    from tools.catalog import catalog_service as cs
+    conn = cs.CatalogConnectionEntry(path="p", cliente="Contreras", space="PRD", connection="SSFF", type_id="SAPSF",
+                                     info={"url": "https://api19.sapsf.com/odata/v2", "version": "V2", "authentication": "OAuth2",
+                                           "oauth2GrantType": "saml_bearer", "oauth2CompanyId": "contrerash"},
+                                     authentication={"auth_type": "OAuth2"}, feature_values={"dataflows": "Sí", "replicationflows": "No"})
+    rows = {label: value for kind, label, value in main._catalog_connection_rows(cs, conn) if kind == "row"}
+    groups = [label for kind, label, _v in main._catalog_connection_rows(cs, conn) if kind == "group"]
+    assert groups == ["Identificación", "Conectividad", "Autenticación", "Features"]
+    assert rows["URL"] == "`https://api19.sapsf.com/odata/v2`" and rows["Versión"] == "V2" and rows["Método"] == "OAuth 2.0"
+    assert rows["Grant Type"] == "`saml_bearer`" and rows["Company ID"] == "`contrerash`" and rows["Token Endpoint"] == "No disponible"
+    assert not {"Application Server", "System Number", "Mandante", "Idioma", "Configurado", "Data Provisioning Agent"} & set(rows)
+    assert rows["Remote tables"] == "Soportado por el tipo · no informado por esta conexión"           # flag ausente ≠ «No»
+    assert rows["Data flows"] == "Sí en esta conexión · soportado por el tipo"
+    assert rows["Replication Flows"] == "No en esta conexión · no soportado por el tipo"
+
+
+def test_abap_card_keeps_its_template():
+    from tools.catalog import catalog_service as cs
+    conn = cs.CatalogConnectionEntry(path="p", cliente="X", space="DEV", connection="ERP", type_id="ABAP", info={"host": "erp.local", "client": "100"})
+    labels = [label for _k, label, _v in main._catalog_connection_rows(cs, conn)]
+    assert {"Application Server", "System Number", "Mandante", "Cloud Connector", "Remote Tables"} <= set(labels) and "Token Endpoint" not in labels
+
+
+def test_sapsf_sanitization_keeps_oauth_endpoint_and_company_but_drops_secrets():
+    from webapp.services import connectivity_catalog_update as cup
+    oauth2 = {"oauth2GrantType": "saml_bearer", "oauth2TokenEndpoint": "https://api19.sapsf.com/oauth/token", "oauth2CompanyId": "contrerash",
+              "oauth2UserId": "u1", "oauth2ClientSecret": "s", "accessToken": "t", "samlAssertion": "PHNhbWw+"}
+    clean = cup._strip({"oauth2": oauth2})["oauth2"]
+    assert clean == {"oauth2GrantType": "saml_bearer", "oauth2TokenEndpoint": "https://api19.sapsf.com/oauth/token", "oauth2CompanyId": "contrerash"}
+    assert cup.unsafe_properties({"oauth2": oauth2}) == []

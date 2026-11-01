@@ -37,7 +37,15 @@ LABEL = {NEW: "Nueva", CHANGED: "Modificada", UNCHANGED: "Sin cambios", INSUFFIC
 SELECTABLE = (NEW, CHANGED)
 _GROUP_TEXT = {"type": "tipo", "adapter": "adaptador", "endpoint": "destino", "connectivity": "conectividad", "capabilities": "capacidades",
                "security": "seguridad", "parameters": "parámetros", "descriptive": "descripción"}
-_SECRET_KEY = re.compile(r"(password|passwd|secret|token|credential|private.?key|user(name|id)?$)", re.I)   # también oauth2UserId, technicalUser…
+_SECRET_KEY = re.compile(r"(password|passwd|secret|token|credential|private.?key|assertion|user(name|id)?$)", re.I)   # también oauth2UserId, SAML assertions…
+_URL_KEY = re.compile(r"(endpoint|url|uri)$", re.I)          # p. ej. oauth2TokenEndpoint: su valor es una URL pública, no un token
+
+
+def _sensitive(key, value) -> bool:
+    """Propiedad que se ELIMINA al sanear. Excepción: un endpoint/URL cuyo valor es una URL simple se conserva reducida a esquema/host/ruta."""
+    if not _SECRET_KEY.search(str(key)):
+        return False
+    return not (_URL_KEY.search(str(key)) and isinstance(value, str) and _URL.match(value.strip()))
 
 
 class UpdateRejected(ValueError):
@@ -68,7 +76,7 @@ def protected_rels(pool) -> frozenset:
 def _strip(value):
     """Documento del CLI sin credenciales (claves sensibles fuera, recursivo). Lo que no se puede garantizar limpio no se publica."""
     if isinstance(value, dict):
-        return {k: _strip(v) for k, v in value.items() if not _SECRET_KEY.search(str(k))}
+        return {k: _strip(v) for k, v in value.items() if not _sensitive(k, v)}
     if isinstance(value, list):
         return [_strip(v) for v in value]
     embedded = _embedded_json(value)
@@ -106,11 +114,11 @@ def unsafe_properties(value, path: str = "") -> list:
     out = []
     if isinstance(value, dict):
         for k, v in value.items():
-            if _SECRET_KEY.search(str(k)):
+            if _sensitive(k, v):
                 continue                                                  # se elimina al sanear
             here = f"{path}.{k}" if path else str(k)
-            if obs._FORBIDDEN.search(str(k)):
-                out.append(here)
+            if obs._FORBIDDEN.search(str(k)) and not (isinstance(v, str) and _URL.match(v.strip())):
+                out.append(here)                                          # (un endpoint con «token» en el nombre y una URL como valor no bloquea)
             else:
                 out += unsafe_properties(v, here)
     elif isinstance(value, list):
