@@ -205,8 +205,10 @@
       setHidden(form, true);
       Array.from(form.elements).forEach((i) => { if (i.name === "selected") i.disabled = true; });
       const done = el(view, "[data-review-done]");
-      done.textContent = "✓ Publicadas " + data.published.length + " conexión(es) en el Catálogo" +
-        (data.durability === "remote" ? " (confirmado en el almacenamiento)." : " (guardado local; la persistencia remota no se confirmó).");
+      const n = data.published.length;
+      el(done, "[data-review-done-msg]").textContent = (n === 1 ? "Se incorporó 1 conexión" : "Se incorporaron " + n + " conexiones") + " al Catálogo." +
+        (data.durability === "remote" ? " Persistencia remota confirmada." : "");
+      setHidden(el(done, "[data-review-done-warn]"), data.durability === "remote");   // aviso aparte, no un fallo
       setHidden(done, false);
     } catch (_e) {
       error.textContent = "Error de red: recargá antes de reintentar."; setHidden(error, false);

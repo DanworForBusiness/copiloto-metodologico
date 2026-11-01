@@ -215,3 +215,27 @@ def test_review_layout_separates_table_and_approval(cat):
     assert 'form="review-approve-form"' in html and 'id="review-approve-form"' in html
     table = html[html.index("data-review-table"):html.index("</table>")]
     assert "review-rationale" not in table                                              # motivo y botón fuera del listado
+
+
+def test_publication_result_uses_hub_callouts_for_success_and_remote_warning(cat):
+    _prepare()
+    html = _client("owner@danwor.com").get(f"/modules/{STEM}/connectivity-inventory/review/op1").text
+    done = html[html.index("data-review-done hidden"):]
+    assert 'class="callout callout--success"' in done and 'class="callout callout--warn"' in done and "data-review-done-warn hidden" in done
+    js = (REPO / "webapp" / "static" / "connectivity_inventory.js").read_text(encoding="utf-8")
+    assert 'setHidden(el(done, "[data-review-done-warn]"), data.durability === "remote")' in js
+
+
+def test_scope_and_considerations_are_grouped_with_real_data(cat):
+    listing, det = _raw()
+    view = cup.prepare("op1", executor="owner@danwor.com", client="Sintetico", inventory={**INV, "status": "PARTIAL"},
+                       listings={"DEV": listing, "QAS": None}, details=det)
+    groups = {g["title"]: g["items"] for g in view["considerations"]}
+    assert list(groups) == ["Comparación con el Catálogo existente", "Cobertura de la extracción", "Equivalencia entre ambientes"]
+    assert "1 conexiones publicadas en el Hub para Sintetico" in groups["Comparación con el Catálogo existente"][0]
+    cov = " ".join(groups["Cobertura de la extracción"])
+    assert "DEV, QAS (sin acceso: QAS)" in cov and "3 con detalle leído de 3 listadas" in cov and "errores parciales" in cov
+    assert "no implica una no conformidad" in " ".join(groups["Equivalencia entre ambientes"])
+    assert view["limits"]                                                                # códigos/procedencia originales intactos
+    html = _client("owner@danwor.com").get(f"/modules/{STEM}/connectivity-inventory/review/op1").text
+    assert "Alcance y consideraciones" in html and "Evidencias y limitaciones" not in html

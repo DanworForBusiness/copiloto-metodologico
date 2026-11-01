@@ -129,7 +129,8 @@ def prepare(operation_id: str, *, executor: str, client: str, inventory: dict, l
                                      status=inventory["status"], exhaustiveness=inventory["exhaustiveness"], listings=listings, details=details,
                                      operation_id=operation_id)
     requested = current["coverage"]["requested_spaces"]
-    result = rc.reconcile(current, _published(client), rc.GovernedScope(None, {s: "—" for s in requested}))
+    baseline = _published(client)
+    result = rc.reconcile(current, baseline, rc.GovernedScope(None, {s: "—" for s in requested}))
     docs = {k: _strip(v) for k, v in details.items() if isinstance(v, dict)}
     items = {(s, i.get("name")): _strip(i) for s, rows in listings.items() for i in (rows or []) if isinstance(i, dict)}
     verdicts = {}
@@ -167,6 +168,7 @@ def prepare(operation_id: str, *, executor: str, client: str, inventory: dict, l
         limits.append("Spaces inaccesibles: " + ", ".join(cov["inaccessible_spaces"]) + " — sus conexiones quedan sin evidencia, nunca como bajas.")
     limits.append("Sin contrato de homologación: el assessment F1 informa divergencias, nunca «no conforme».")
     view = {"operation_id": operation_id, "client": client, "rows": rows, "limits": limits,
+            "considerations": _considerations(client, cov, len(baseline["connections"]), rows, set(result["limits"])),
             "counts": {c: sum(1 for r in rows if r["class"] == c) for c in LABEL}}
     t = now()
     with _LOCK:
@@ -176,6 +178,34 @@ def prepare(operation_id: str, *, executor: str, client: str, inventory: dict, l
             del _PENDING[min(_PENDING, key=lambda k: _PENDING[k]["held_at"])]
         _PENDING[operation_id] = {"executor": executor.lower(), "client": client, "docs": docs, "items": items, "view": view, "held_at": t}
     return view
+
+
+def _considerations(client: str, cov: dict, published: int, rows: list, codes: set) -> list:
+    """PRESENTACIÓN de «Alcance y consideraciones», agrupada por concepto y con los datos REALES del resultado (los códigos y la procedencia
+    originales siguen en `limits` y en la reconciliación). Solo los conceptos que aplican."""
+    groups = []
+    ref = (f"La referencia son las {published} conexiones publicadas en el Hub para {client}" if published
+           else f"{client} no tiene conexiones publicadas en el Hub: todo lo leído se compara contra un Catálogo vacío")
+    groups.append({"title": "Comparación con el Catálogo existente", "items": [
+        ref + ", no necesariamente el estado más reciente de SAP Datasphere: el Catálogo no registra fecha de evidencia ni cobertura."]})
+    requested, inaccessible = cov["requested_spaces"], cov["inaccessible_spaces"]
+    items = [f"Spaces consultados: {', '.join(requested)}" + (f" (sin acceso: {', '.join(inaccessible)})." if inaccessible else "."),
+             f"Conexiones recuperadas: {cov['read_connections']} con detalle leído de {cov['discovered_connections']} listadas."]
+    if inaccessible:
+        items.append("Las conexiones de los Spaces sin acceso quedan sin evidencia; nunca se consideran bajas.")
+    if cov["status"] == "PARTIAL":
+        items.append("La extracción terminó con errores parciales: revisá la cobertura antes de aprobar.")
+    if "current:EXHAUSTIVENESS_UNVERIFIABLE" in codes:
+        items.append("SAP no permite probar que el listado esté completo: una conexión publicada que no aparece no se da de baja.")
+    groups.append({"title": "Cobertura de la extracción", "items": items})
+    if any(r["f1"] for r in rows):
+        divergent = sum(1 for r in rows if r["f1"] and r["f1"]["conformance"] == "DIVERGENTE")
+        items = ["No hay evidencia de homologación registrada para este cliente: el assessment no puede afirmar que conexiones de distintos "
+                 "ambientes sean equivalentes, y esa ausencia no implica una no conformidad."]
+        if divergent:
+            items.append(f"{divergent} conexión(es) muestran diferencias entre ambientes que conviene revisar.")
+        groups.append({"title": "Equivalencia entre ambientes", "items": items})
+    return groups
 
 
 def _limit_text(code: str) -> str:
