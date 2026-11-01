@@ -61,10 +61,9 @@
       {% else %}
       <p class="catalog-note__ev">La publicación en el Catálogo la aprueba el dueño.</p>
       {% endif %}
-      {#- Resultado con el `.callout` del Hub: éxito (incorporada al Catálogo) y, aparte, aviso si Spaces no confirmó la persistencia remota. -#}
+      {#- Resultado con el `.callout` del Hub: la conexión quedó incorporada al Catálogo (la durabilidad remota queda en la respuesta y en la actividad). -#}
       <div data-review-done hidden>
         <div class="callout callout--success" role="status"><div class="callout__body"><p data-review-done-msg></p></div></div>
-        <div class="callout callout--warn" role="status" data-review-done-warn hidden><div class="callout__body"><p>La persistencia remota no se confirmó: el cambio quedó guardado en el Catálogo local y se reintenta automáticamente. Hasta entonces no consta en el almacenamiento remoto.</p></div></div>
       </div>
     </div>
   </details>

@@ -217,13 +217,13 @@ def test_review_layout_separates_table_and_approval(cat):
     assert "review-rationale" not in table                                              # motivo y botón fuera del listado
 
 
-def test_publication_result_uses_hub_callouts_for_success_and_remote_warning(cat):
+def test_publication_result_uses_a_single_hub_success_callout(cat):
     _prepare()
     html = _client("owner@danwor.com").get(f"/modules/{STEM}/connectivity-inventory/review/op1").text
     done = html[html.index("data-review-done hidden"):]
-    assert 'class="callout callout--success"' in done and 'class="callout callout--warn"' in done and "data-review-done-warn hidden" in done
+    assert 'class="callout callout--success"' in done and "callout--warn" not in done
     js = (REPO / "webapp" / "static" / "connectivity_inventory.js").read_text(encoding="utf-8")
-    assert 'setHidden(el(done, "[data-review-done-warn]"), data.durability === "remote")' in js
+    assert "Persistencia remota" not in js and "data-review-done-warn" not in js
 
 
 def test_scope_and_considerations_are_grouped_with_real_data(cat):
