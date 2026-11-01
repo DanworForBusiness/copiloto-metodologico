@@ -1,0 +1,1037 @@
+{
+  "schema": "sap-connection-types/v1",
+  "source": {
+    "kind": "sap_datasphere_connection_type_catalog",
+    "nature": "reference_snapshot",
+    "note": "Snapshot de referencia del catálogo de tipos de conexión de un tenant de SAP Datasphere. La disponibilidad real depende del tenant, su licencia y su configuración."
+  },
+  "count": 37,
+  "connection_types": [
+    {
+      "type_id": "ABAP",
+      "display_name": "SAP ABAP",
+      "display_name_source": "sap_ui_capture",
+      "icon_location": "images/storages/SAP-Generic.png",
+      "categories": [
+        "OnPremise",
+        "CloudApp"
+      ],
+      "sources": [
+        "SAP"
+      ],
+      "capabilities": [
+        "HanaSdi",
+        "DataflowSource",
+        "ReplicationflowSource"
+      ],
+      "requirements": {
+        "dp_agent_required": true,
+        "dis_replication_required": null,
+        "ip_allowlisting_required": null,
+        "advanced_mode": true,
+        "generic_framework": null
+      },
+      "availability": {
+        "conditional_on_feature_toggle": null
+      },
+      "adapter_id": "ABAPAdapter"
+    },
+    {
+      "type_id": "ADL",
+      "display_name": "Microsoft Azure Data Lake Storage Gen2",
+      "display_name_source": "sap_ui_capture",
+      "icon_location": "images/storages/Azure.png",
+      "categories": [
+        "CloudApp"
+      ],
+      "sources": [
+        "NonSAP"
+      ],
+      "capabilities": [
+        "DataflowSource",
+        "ReplicationflowTarget",
+        "ReplicationflowSource"
+      ],
+      "requirements": {
+        "dp_agent_required": null,
+        "dis_replication_required": null,
+        "ip_allowlisting_required": null,
+        "advanced_mode": null,
+        "generic_framework": null
+      },
+      "availability": {
+        "conditional_on_feature_toggle": null
+      },
+      "adapter_id": null
+    },
+    {
+      "type_id": "AdverityDatatap",
+      "display_name": "Adverity",
+      "display_name_source": "sap_ui_capture",
+      "icon_location": "images/storages/Adverity.png",
+      "categories": [
+        "CloudApp"
+      ],
+      "sources": [
+        "Partner"
+      ],
+      "capabilities": [
+        "PartnerSchema"
+      ],
+      "requirements": {
+        "dp_agent_required": null,
+        "dis_replication_required": null,
+        "ip_allowlisting_required": null,
+        "advanced_mode": null,
+        "generic_framework": null
+      },
+      "availability": {
+        "conditional_on_feature_toggle": null
+      },
+      "adapter_id": null,
+      "partner": {
+        "id": "AdverityDatatap",
+        "api_version": 1
+      }
+    },
+    {
+      "type_id": "PRECOG",
+      "display_name": "Precog",
+      "display_name_source": "sap_ui_capture",
+      "icon_location": "images/storages/Precog.png",
+      "categories": [
+        "CloudApp"
+      ],
+      "sources": [
+        "Partner"
+      ],
+      "capabilities": [
+        "PartnerSchema"
+      ],
+      "requirements": {
+        "dp_agent_required": null,
+        "dis_replication_required": null,
+        "ip_allowlisting_required": null,
+        "advanced_mode": null,
+        "generic_framework": null
+      },
+      "availability": {
+        "conditional_on_feature_toggle": null
+      },
+      "adapter_id": null,
+      "partner": {
+        "id": "Precog",
+        "api_version": 1
+      }
+    },
+    {
+      "type_id": "ATHENA",
+      "display_name": "Amazon Athena",
+      "display_name_source": "sap_ui_capture",
+      "icon_location": "images/storages/aws-athena.png",
+      "categories": [
+        "CloudApp"
+      ],
+      "sources": [
+        "NonSAP"
+      ],
+      "capabilities": [
+        "HanaSdi"
+      ],
+      "requirements": {
+        "dp_agent_required": false,
+        "dis_replication_required": true,
+        "ip_allowlisting_required": null,
+        "advanced_mode": null,
+        "generic_framework": null
+      },
+      "availability": {
+        "conditional_on_feature_toggle": null
+      },
+      "adapter_id": null
+    },
+    {
+      "type_id": "AZURESQL",
+      "display_name": "Microsoft Azure SQL Database",
+      "display_name_source": "sap_ui_capture",
+      "icon_location": "images/storages/Azure.png",
+      "categories": [
+        "CloudApp"
+      ],
+      "sources": [
+        "NonSAP"
+      ],
+      "capabilities": [
+        "HanaSdi",
+        "DataflowSource",
+        "ReplicationflowSource"
+      ],
+      "requirements": {
+        "dp_agent_required": true,
+        "dis_replication_required": null,
+        "ip_allowlisting_required": true,
+        "advanced_mode": null,
+        "generic_framework": null
+      },
+      "availability": {
+        "conditional_on_feature_toggle": null
+      },
+      "adapter_id": "MssqlLogReaderAdapter"
+    },
+    {
+      "type_id": "BIGQUERY",
+      "display_name": "Google BigQuery",
+      "display_name_source": "sap_ui_capture",
+      "icon_location": "images/storages/Google.png",
+      "categories": [
+        "CloudApp"
+      ],
+      "sources": [
+        "NonSAP"
+      ],
+      "capabilities": [
+        "HanaSdi",
+        "DataflowSource",
+        "ReplicationflowTarget"
+      ],
+      "requirements": {
+        "dp_agent_required": false,
+        "dis_replication_required": true,
+        "ip_allowlisting_required": null,
+        "advanced_mode": null,
+        "generic_framework": null
+      },
+      "availability": {
+        "conditional_on_feature_toggle": null
+      },
+      "adapter_id": null
+    },
+    {
+      "type_id": "CDI",
+      "display_name": "Cloud Data Integration",
+      "display_name_source": "sap_ui_capture",
+      "icon_location": "images/storages/SAP-Generic.png",
+      "categories": [
+        "CloudApp"
+      ],
+      "sources": [
+        "SAP"
+      ],
+      "capabilities": [
+        "HanaSdi",
+        "DataflowSource"
+      ],
+      "requirements": {
+        "dp_agent_required": true,
+        "dis_replication_required": null,
+        "ip_allowlisting_required": null,
+        "advanced_mode": true,
+        "generic_framework": null
+      },
+      "availability": {
+        "conditional_on_feature_toggle": null
+      },
+      "adapter_id": "CloudDataIntegrationAdapter"
+    },
+    {
+      "type_id": "GCS",
+      "display_name": "Google Cloud Storage",
+      "display_name_source": "sap_ui_capture",
+      "icon_location": "images/storages/Google.png",
+      "categories": [
+        "CloudApp"
+      ],
+      "sources": [
+        "NonSAP"
+      ],
+      "capabilities": [
+        "DataflowSource",
+        "ReplicationflowTarget",
+        "ReplicationflowSource"
+      ],
+      "requirements": {
+        "dp_agent_required": null,
+        "dis_replication_required": null,
+        "ip_allowlisting_required": null,
+        "advanced_mode": null,
+        "generic_framework": null
+      },
+      "availability": {
+        "conditional_on_feature_toggle": null
+      },
+      "adapter_id": null
+    },
+    {
+      "type_id": "GENERICHTTP",
+      "display_name": "Generic HTTP",
+      "display_name_source": "sap_ui_capture",
+      "icon_location": "images/storages/http.png",
+      "categories": [
+        "CloudApp",
+        "OnPremise"
+      ],
+      "sources": [
+        "SAP"
+      ],
+      "capabilities": [
+        "ApiTasks"
+      ],
+      "requirements": {
+        "dp_agent_required": null,
+        "dis_replication_required": true,
+        "ip_allowlisting_required": null,
+        "advanced_mode": null,
+        "generic_framework": null
+      },
+      "availability": {
+        "conditional_on_feature_toggle": null
+      },
+      "adapter_id": null
+    },
+    {
+      "type_id": "GENERICJDBC",
+      "display_name": "Generic JDBC",
+      "display_name_source": "sap_ui_capture",
+      "icon_location": "images/storages/JDBC-Generic.png",
+      "categories": [
+        "OnPremise",
+        "CloudApp"
+      ],
+      "sources": [
+        "NonSAP"
+      ],
+      "capabilities": [
+        "HanaSdi"
+      ],
+      "requirements": {
+        "dp_agent_required": true,
+        "dis_replication_required": true,
+        "ip_allowlisting_required": null,
+        "advanced_mode": null,
+        "generic_framework": null
+      },
+      "availability": {
+        "conditional_on_feature_toggle": null
+      },
+      "adapter_id": "CamelJdbcAdapter"
+    },
+    {
+      "type_id": "HANA",
+      "display_name": "SAP HANA",
+      "display_name_source": "sap_ui_capture",
+      "icon_location": "images/storages/SAP-Generic.png",
+      "categories": [
+        "OnPremise",
+        "CloudApp"
+      ],
+      "sources": [
+        "SAP"
+      ],
+      "capabilities": [
+        "HanaSdi",
+        "DataflowSource",
+        "ReplicationflowSource",
+        "ReplicationflowTarget",
+        "ModelTransfer"
+      ],
+      "requirements": {
+        "dp_agent_required": true,
+        "dis_replication_required": null,
+        "ip_allowlisting_required": null,
+        "advanced_mode": true,
+        "generic_framework": null
+      },
+      "availability": {
+        "conditional_on_feature_toggle": null
+      },
+      "adapter_id": "HanaAdapter"
+    },
+    {
+      "type_id": "HDFS",
+      "display_name": null,
+      "display_name_source": null,
+      "icon_location": "images/storages/HDFS.png",
+      "categories": [
+        "CloudApp"
+      ],
+      "sources": [
+        "NonSAP"
+      ],
+      "capabilities": [
+        "DataflowSource"
+      ],
+      "requirements": {
+        "dp_agent_required": null,
+        "dis_replication_required": null,
+        "ip_allowlisting_required": null,
+        "advanced_mode": null,
+        "generic_framework": null
+      },
+      "availability": {
+        "conditional_on_feature_toggle": null
+      },
+      "adapter_id": null
+    },
+    {
+      "type_id": "HDLDB",
+      "display_name": null,
+      "display_name_source": null,
+      "icon_location": "images/storages/SAP-Generic.png",
+      "categories": [
+        "CloudApp"
+      ],
+      "sources": [
+        "SAP"
+      ],
+      "capabilities": [
+        "HanaSdi",
+        "DataflowSource"
+      ],
+      "requirements": {
+        "dp_agent_required": false,
+        "dis_replication_required": null,
+        "ip_allowlisting_required": null,
+        "advanced_mode": null,
+        "generic_framework": null
+      },
+      "availability": {
+        "conditional_on_feature_toggle": null
+      },
+      "adapter_id": null
+    },
+    {
+      "type_id": "HDL_FILES",
+      "display_name": null,
+      "display_name_source": null,
+      "icon_location": "images/storages/SAP-Generic.png",
+      "categories": [
+        "CloudApp"
+      ],
+      "sources": [
+        "SAP"
+      ],
+      "capabilities": [
+        "DataflowSource",
+        "ReplicationflowTarget",
+        "ReplicationflowSource"
+      ],
+      "requirements": {
+        "dp_agent_required": null,
+        "dis_replication_required": null,
+        "ip_allowlisting_required": null,
+        "advanced_mode": null,
+        "generic_framework": null
+      },
+      "availability": {
+        "conditional_on_feature_toggle": null
+      },
+      "adapter_id": null
+    },
+    {
+      "type_id": "MSSQL",
+      "display_name": null,
+      "display_name_source": null,
+      "icon_location": "images/storages/MicrosoftSQL.png",
+      "categories": [
+        "OnPremise"
+      ],
+      "sources": [
+        "NonSAP"
+      ],
+      "capabilities": [
+        "HanaSdi",
+        "DataflowSource",
+        "ReplicationflowSource"
+      ],
+      "requirements": {
+        "dp_agent_required": true,
+        "dis_replication_required": null,
+        "ip_allowlisting_required": null,
+        "advanced_mode": true,
+        "generic_framework": null
+      },
+      "availability": {
+        "conditional_on_feature_toggle": null
+      },
+      "adapter_id": "MssqlLogReaderAdapter"
+    },
+    {
+      "type_id": "MYSQL",
+      "display_name": null,
+      "display_name_source": null,
+      "icon_location": "images/storages/MySQL.png",
+      "categories": [
+        "CloudApp"
+      ],
+      "sources": [
+        "NonSAP"
+      ],
+      "capabilities": [
+        "ReplicationflowSource"
+      ],
+      "requirements": {
+        "dp_agent_required": null,
+        "dis_replication_required": true,
+        "ip_allowlisting_required": null,
+        "advanced_mode": null,
+        "generic_framework": true
+      },
+      "availability": {
+        "conditional_on_feature_toggle": true
+      },
+      "adapter_id": null,
+      "generic_framework_type": {
+        "ccm_type_id": "MYSQL",
+        "ccm_type_version": "3.0.0"
+      }
+    },
+    {
+      "type_id": "ODATA",
+      "display_name": null,
+      "display_name_source": null,
+      "icon_location": "images/storages/OData.png",
+      "categories": [
+        "OnPremise",
+        "CloudApp"
+      ],
+      "sources": [
+        "NonSAP"
+      ],
+      "capabilities": [
+        "HanaSdi",
+        "DataflowSource"
+      ],
+      "requirements": {
+        "dp_agent_required": false,
+        "dis_replication_required": null,
+        "ip_allowlisting_required": null,
+        "advanced_mode": null,
+        "generic_framework": null
+      },
+      "availability": {
+        "conditional_on_feature_toggle": null
+      },
+      "adapter_id": "ODataAdapter"
+    },
+    {
+      "type_id": "ONELAKE",
+      "display_name": null,
+      "display_name_source": null,
+      "icon_location": "images/storages/Azure.png",
+      "categories": [
+        "CloudApp"
+      ],
+      "sources": [
+        "NonSAP"
+      ],
+      "capabilities": [
+        "ReplicationflowSource"
+      ],
+      "requirements": {
+        "dp_agent_required": null,
+        "dis_replication_required": true,
+        "ip_allowlisting_required": null,
+        "advanced_mode": null,
+        "generic_framework": null
+      },
+      "availability": {
+        "conditional_on_feature_toggle": null
+      },
+      "adapter_id": null
+    },
+    {
+      "type_id": "OPEN_CONNECTORS",
+      "display_name": null,
+      "display_name_source": null,
+      "icon_location": "images/storages/OpenConnectors.png",
+      "categories": [
+        "CloudApp"
+      ],
+      "sources": [
+        "SAP"
+      ],
+      "capabilities": [
+        "DataflowSource"
+      ],
+      "requirements": {
+        "dp_agent_required": null,
+        "dis_replication_required": null,
+        "ip_allowlisting_required": null,
+        "advanced_mode": null,
+        "generic_framework": null
+      },
+      "availability": {
+        "conditional_on_feature_toggle": null
+      },
+      "adapter_id": null
+    },
+    {
+      "type_id": "ORACLEDB",
+      "display_name": null,
+      "display_name_source": null,
+      "icon_location": "images/storages/Oracle.png",
+      "categories": [
+        "OnPremise"
+      ],
+      "sources": [
+        "NonSAP"
+      ],
+      "capabilities": [
+        "HanaSdi",
+        "DataflowSource",
+        "ReplicationflowSource"
+      ],
+      "requirements": {
+        "dp_agent_required": true,
+        "dis_replication_required": null,
+        "ip_allowlisting_required": null,
+        "advanced_mode": true,
+        "generic_framework": null
+      },
+      "availability": {
+        "conditional_on_feature_toggle": null
+      },
+      "adapter_id": "OracleLogReaderAdapter"
+    },
+    {
+      "type_id": "REDSHIFT",
+      "display_name": null,
+      "display_name_source": null,
+      "icon_location": "images/storages/AmazonRedshift.png",
+      "categories": [
+        "CloudApp"
+      ],
+      "sources": [
+        "NonSAP"
+      ],
+      "capabilities": [
+        "HanaSdi",
+        "DataflowSource"
+      ],
+      "requirements": {
+        "dp_agent_required": true,
+        "dis_replication_required": null,
+        "ip_allowlisting_required": true,
+        "advanced_mode": null,
+        "generic_framework": null
+      },
+      "availability": {
+        "conditional_on_feature_toggle": null
+      },
+      "adapter_id": "CamelJdbcAdapter"
+    },
+    {
+      "type_id": "S3",
+      "display_name": null,
+      "display_name_source": null,
+      "icon_location": "images/storages/awss3_small.png",
+      "categories": [
+        "CloudApp"
+      ],
+      "sources": [
+        "NonSAP"
+      ],
+      "capabilities": [
+        "DataflowSource",
+        "ReplicationflowTarget",
+        "ReplicationflowSource"
+      ],
+      "requirements": {
+        "dp_agent_required": null,
+        "dis_replication_required": null,
+        "ip_allowlisting_required": null,
+        "advanced_mode": null,
+        "generic_framework": null
+      },
+      "availability": {
+        "conditional_on_feature_toggle": null
+      },
+      "adapter_id": null
+    },
+    {
+      "type_id": "SAPBW",
+      "display_name": null,
+      "display_name_source": null,
+      "icon_location": "images/storages/SAP-Generic.png",
+      "categories": [
+        "OnPremise"
+      ],
+      "sources": [
+        "SAP"
+      ],
+      "capabilities": [
+        "HanaSdi",
+        "DataflowSource",
+        "ReplicationflowSource"
+      ],
+      "requirements": {
+        "dp_agent_required": true,
+        "dis_replication_required": true,
+        "ip_allowlisting_required": null,
+        "advanced_mode": true,
+        "generic_framework": null
+      },
+      "availability": {
+        "conditional_on_feature_toggle": null
+      },
+      "adapter_id": "ABAPAdapter"
+    },
+    {
+      "type_id": "SAPECC",
+      "display_name": null,
+      "display_name_source": null,
+      "icon_location": "images/storages/SAP-Generic.png",
+      "categories": [
+        "OnPremise"
+      ],
+      "sources": [
+        "SAP"
+      ],
+      "capabilities": [
+        "HanaSdi",
+        "DataflowSource",
+        "ReplicationflowSource"
+      ],
+      "requirements": {
+        "dp_agent_required": true,
+        "dis_replication_required": true,
+        "ip_allowlisting_required": null,
+        "advanced_mode": true,
+        "generic_framework": null
+      },
+      "availability": {
+        "conditional_on_feature_toggle": null
+      },
+      "adapter_id": "ABAPAdapter"
+    },
+    {
+      "type_id": "SAPSF",
+      "display_name": null,
+      "display_name_source": null,
+      "icon_location": "images/storages/SAP-Generic.png",
+      "categories": [
+        "CloudApp"
+      ],
+      "sources": [
+        "SAP"
+      ],
+      "capabilities": [
+        "HanaSdi",
+        "DataflowSource"
+      ],
+      "requirements": {
+        "dp_agent_required": false,
+        "dis_replication_required": true,
+        "ip_allowlisting_required": null,
+        "advanced_mode": null,
+        "generic_framework": null
+      },
+      "availability": {
+        "conditional_on_feature_toggle": null
+      },
+      "adapter_id": "ODataAdapter",
+      "default_parameters": [
+        "fromDate",
+        "toDate"
+      ]
+    },
+    {
+      "type_id": "SAPS4HANACLOUD",
+      "display_name": null,
+      "display_name_source": null,
+      "icon_location": "images/storages/SAP-Generic.png",
+      "categories": [
+        "CloudApp"
+      ],
+      "sources": [
+        "SAP"
+      ],
+      "capabilities": [
+        "HanaSdi",
+        "ModelTransfer",
+        "DataflowSource",
+        "ReplicationflowSource"
+      ],
+      "requirements": {
+        "dp_agent_required": true,
+        "dis_replication_required": null,
+        "ip_allowlisting_required": null,
+        "advanced_mode": null,
+        "generic_framework": null
+      },
+      "availability": {
+        "conditional_on_feature_toggle": null
+      },
+      "adapter_id": "CloudDataIntegrationAdapter"
+    },
+    {
+      "type_id": "SAPS4HANAOP",
+      "display_name": null,
+      "display_name_source": null,
+      "icon_location": "images/storages/SAP-Generic.png",
+      "categories": [
+        "OnPremise"
+      ],
+      "sources": [
+        "SAP"
+      ],
+      "capabilities": [
+        "HanaSdi",
+        "ModelTransfer",
+        "DataflowSource",
+        "ReplicationflowSource"
+      ],
+      "requirements": {
+        "dp_agent_required": true,
+        "dis_replication_required": null,
+        "ip_allowlisting_required": null,
+        "advanced_mode": true,
+        "generic_framework": null
+      },
+      "availability": {
+        "conditional_on_feature_toggle": null
+      },
+      "adapter_id": "ABAPAdapter"
+    },
+    {
+      "type_id": "SAPFIELDGLASS",
+      "display_name": null,
+      "display_name_source": null,
+      "icon_location": "images/storages/SAP-Generic.png",
+      "categories": [
+        "CloudApp"
+      ],
+      "sources": [
+        "SAP"
+      ],
+      "capabilities": [
+        "HanaSdi",
+        "DataflowSource"
+      ],
+      "requirements": {
+        "dp_agent_required": true,
+        "dis_replication_required": null,
+        "ip_allowlisting_required": null,
+        "advanced_mode": null,
+        "generic_framework": null
+      },
+      "availability": {
+        "conditional_on_feature_toggle": null
+      },
+      "adapter_id": "CloudDataIntegrationAdapter"
+    },
+    {
+      "type_id": "SAPMARKETINGCLOUD",
+      "display_name": null,
+      "display_name_source": null,
+      "icon_location": "images/storages/SAP-Generic.png",
+      "categories": [
+        "CloudApp"
+      ],
+      "sources": [
+        "SAP"
+      ],
+      "capabilities": [
+        "HanaSdi",
+        "DataflowSource"
+      ],
+      "requirements": {
+        "dp_agent_required": true,
+        "dis_replication_required": null,
+        "ip_allowlisting_required": null,
+        "advanced_mode": null,
+        "generic_framework": null
+      },
+      "availability": {
+        "conditional_on_feature_toggle": null
+      },
+      "adapter_id": "CloudDataIntegrationAdapter"
+    },
+    {
+      "type_id": "SAPBWMODELTRANSFER",
+      "display_name": null,
+      "display_name_source": null,
+      "icon_location": "images/storages/SAP-Generic.png",
+      "categories": [
+        "OnPremise"
+      ],
+      "sources": [
+        "SAP"
+      ],
+      "capabilities": [
+        "ModelTransfer"
+      ],
+      "requirements": {
+        "dp_agent_required": true,
+        "dis_replication_required": null,
+        "ip_allowlisting_required": null,
+        "advanced_mode": null,
+        "generic_framework": null
+      },
+      "availability": {
+        "conditional_on_feature_toggle": null
+      },
+      "adapter_id": "HanaAdapter"
+    },
+    {
+      "type_id": "SIGNAVIO",
+      "display_name": null,
+      "display_name_source": null,
+      "icon_location": "images/storages/SAP-Generic.png",
+      "categories": [
+        "CloudApp"
+      ],
+      "sources": [
+        "SAP"
+      ],
+      "capabilities": [
+        "ReplicationflowTarget"
+      ],
+      "requirements": {
+        "dp_agent_required": null,
+        "dis_replication_required": null,
+        "ip_allowlisting_required": null,
+        "advanced_mode": null,
+        "generic_framework": null
+      },
+      "availability": {
+        "conditional_on_feature_toggle": null
+      },
+      "adapter_id": null
+    },
+    {
+      "type_id": "SFTP",
+      "display_name": null,
+      "display_name_source": null,
+      "icon_location": "images/storages/Sftp.png",
+      "categories": [
+        "OnPremise",
+        "CloudApp"
+      ],
+      "sources": [
+        "NonSAP"
+      ],
+      "capabilities": [
+        "DataflowSource",
+        "ReplicationflowTarget",
+        "ReplicationflowSource"
+      ],
+      "requirements": {
+        "dp_agent_required": null,
+        "dis_replication_required": null,
+        "ip_allowlisting_required": null,
+        "advanced_mode": null,
+        "generic_framework": null
+      },
+      "availability": {
+        "conditional_on_feature_toggle": null
+      },
+      "adapter_id": null
+    },
+    {
+      "type_id": "WASB",
+      "display_name": null,
+      "display_name_source": null,
+      "icon_location": "images/storages/Azure.png",
+      "categories": [
+        "CloudApp"
+      ],
+      "sources": [
+        "NonSAP"
+      ],
+      "capabilities": [
+        "DataflowSource"
+      ],
+      "requirements": {
+        "dp_agent_required": null,
+        "dis_replication_required": null,
+        "ip_allowlisting_required": null,
+        "advanced_mode": null,
+        "generic_framework": null
+      },
+      "availability": {
+        "conditional_on_feature_toggle": null
+      },
+      "adapter_id": null
+    },
+    {
+      "type_id": "KAFKA",
+      "display_name": null,
+      "display_name_source": null,
+      "icon_location": "images/storages/kafka.png",
+      "categories": [
+        "CloudApp"
+      ],
+      "sources": [
+        "NonSAP"
+      ],
+      "capabilities": [
+        "ReplicationflowTarget"
+      ],
+      "requirements": {
+        "dp_agent_required": null,
+        "dis_replication_required": null,
+        "ip_allowlisting_required": null,
+        "advanced_mode": null,
+        "generic_framework": null
+      },
+      "availability": {
+        "conditional_on_feature_toggle": null
+      },
+      "adapter_id": null
+    },
+    {
+      "type_id": "CONFLUENT",
+      "display_name": null,
+      "display_name_source": null,
+      "icon_location": "images/storages/Confluent.png",
+      "categories": [
+        "CloudApp"
+      ],
+      "sources": [
+        "NonSAP"
+      ],
+      "capabilities": [
+        "ReplicationflowTarget",
+        "ReplicationflowSource"
+      ],
+      "requirements": {
+        "dp_agent_required": null,
+        "dis_replication_required": null,
+        "ip_allowlisting_required": null,
+        "advanced_mode": null,
+        "generic_framework": null
+      },
+      "availability": {
+        "conditional_on_feature_toggle": null
+      },
+      "adapter_id": null
+    },
+    {
+      "type_id": "SNOWFLAKE",
+      "display_name": null,
+      "display_name_source": null,
+      "icon_location": "images/storages/snowflake.png",
+      "categories": [
+        "CloudApp"
+      ],
+      "sources": [
+        "NonSAP"
+      ],
+      "capabilities": [
+        "ReplicationflowSource"
+      ],
+      "requirements": {
+        "dp_agent_required": null,
+        "dis_replication_required": null,
+        "ip_allowlisting_required": null,
+        "advanced_mode": null,
+        "generic_framework": null
+      },
+      "availability": {
+        "conditional_on_feature_toggle": null
+      },
+      "adapter_id": null
+    }
+  ]
+}
