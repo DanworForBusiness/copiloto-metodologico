@@ -14,6 +14,7 @@
       <span class="catalog-card__verdict catalog-card__verdict--{{ g.verdict|catalog_verdict_tone }}">{{ g.verdict|catalog_verdict_label }}</span>
     </p>
     <p class="catalog-card__apto">{{ g.verdict|catalog_verdict_text }}</p>
+    {% if g.missing_requirements %}<p class="catalog-card__meta" data-missing-requirements>Falta: {{ g.missing_requirements|join(", ") }}</p>{% endif %}
     {% if g.connection_label %}
     <p class="catalog-card__meta">{{ g.connection_label }} · {{ g.count }} {{ "conexión" if g.count == 1 else "conexiones" }}</p>
     {% else %}

@@ -21,8 +21,6 @@
   // Hitos con trabajo en curso (el spinner solo gira en estos; mismo criterio `WORKING` que el módulo 04). Los finales
   // (completed | partial | failed) dejan su texto visible y el spinner quieto.
   const WORKING = new Set(["preflight", "listing", "reading", "summarizing"]);
-  const PHYS = ["host", "sysid", "systemnumber", "client"];
-  const AGENT = ["agent_name", "location"];
 
   function el(root, sel) { return root.querySelector(sel); }
   function setHidden(node, hidden) { if (node) node.hidden = !!hidden; }
@@ -35,7 +33,6 @@
     });
     tbody.appendChild(tr);
   }
-  function yesNo(v) { return v ? "Sí" : "—"; }
   function counts(obj) {
     const parts = Object.entries(obj || {}).map(([k, n]) => k + ": " + n);
     return parts.length ? parts.join(" · ") : "ninguno";
@@ -44,10 +41,8 @@
   function renderSummary(panel, summary) {
     const preflight = el(panel, "[data-dsc-preflight]");
     const overview = el(panel, "[data-dsc-overview]");
-    const conns = el(panel, "[data-dsc-connections]");
     preflight.textContent = "";
     overview.textContent = "";
-    conns.textContent = "";
     if (!summary) return false;
     const checks = summary.preflight || {};
     // Mínimo para extraer (mismo criterio del servidor): OAuth y Listar conexiones en OK. Con eso, un «Listar Spaces» fallido se
@@ -73,14 +68,6 @@
         row(overview, ["Presupuesto usado", "solicitudes " + b.requests_used + "/" + b.max_requests + " · reintentos " + b.retries_used + "/" +
           b.max_total_retries + " · " + b.elapsed_s + " s / " + b.max_duration_s + " s"], true);
       }
-      (inv.connections || []).forEach((c) => {
-        row(conns, [c.ref, c.space_ref]
-          .concat(PHYS.map((k) => yesNo((c.physical_present || {})[k])))
-          .concat(AGENT.map((k) => yesNo((c.agent_present || {})[k]))));
-      });
-      setHidden(el(panel, "[data-dsc-conn-wrap]"), !(inv.connections || []).length);
-    } else {
-      setHidden(el(panel, "[data-dsc-conn-wrap]"), true);
     }
     setHidden(el(panel, "[data-dsc-overview-wrap]"), !overview.children.length);   // sin filas (p. ej. OAuth fallido) no hay bloque vacío
     return true;

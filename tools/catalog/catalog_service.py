@@ -629,11 +629,49 @@ def _primary_connection_scenario(scenarios: dict[str, list[CatalogConnectionEntr
     return sorted(scenarios.items(), key=sort_key)[0]
 
 
+# Requisitos de configuración POR TIPO de conector (scoring del Catálogo; no es el assessment F1). Un tipo listado acá se evalúa SOLO por sus
+# atributos: DP Agent / Cloud Connector no se exigen. Los demás tipos (ABAP, ECC, S/4HANA…) conservan la regla de siempre.
+_TYPE_REQUIREMENTS = {"SAPSF": ("url", "version", "oauth")}
+_REQUIREMENT_LABEL = {"url": "URL", "version": "versión", "oauth": "autenticación OAuth"}
+
+
+def _valid_url(raw) -> bool:
+    from urllib.parse import urlparse
+    text = str(raw or "").strip()
+    if not text or any(ch.isspace() for ch in text):
+        return False
+    parsed = urlparse(text if "://" in text else "//" + text)
+    try:
+        host = parsed.hostname or ""
+    except ValueError:
+        return False
+    return "." in host and ("://" not in text or parsed.scheme in ("http", "https"))
+
+
+def missing_type_requirements(type_id: str, conns: list[CatalogConnectionEntry]) -> list[str] | None:
+    """Atributos que faltan para los requisitos del tipo (None si el tipo no tiene requisitos propios)."""
+    reqs = _TYPE_REQUIREMENTS.get((type_id or "").upper())
+    if reqs is None:
+        return None
+    missing = []
+    for c in conns:
+        info, auth = c.info or {}, c.authentication or {}
+        present = {"url": _valid_url(info.get("url")), "version": bool(str(info.get("version") or "").strip()),
+                   "oauth": "oauth" in str(auth.get("auth_type") or info.get("authentication") or "").lower()}
+        missing += [_REQUIREMENT_LABEL[r] for r in reqs if not present[r]]
+    return list(dict.fromkeys(missing))
+
+
 def _connection_group_verdict(
     primary_conns: list[CatalogConnectionEntry],
     feature_states: list[dict[str, object]],
     alerts: list[dict],
 ) -> str:
+    missing = missing_type_requirements(primary_conns[0].type_id if primary_conns else "", primary_conns)
+    if missing is not None:                                          # tipo con requisitos propios: solo sus atributos deciden
+        if alerts:
+            return "parcial"
+        return "evidencia-insuficiente" if missing else "buena"
     if alerts or any((not c.dp_agent and not c.cloud_connector) for c in primary_conns):
         return "parcial"
     if feature_states and all(bool(item.get("enabled")) for item in feature_states):
@@ -686,9 +724,11 @@ def connection_client_groups(entries: list[CatalogConnectionEntry]) -> list[dict
             connection_label = primary_label
         feature_states = _connection_feature_states(primary_conns)
         verdict = _connection_group_verdict(primary_conns, feature_states, alerts)
+        missing = missing_type_requirements(primary_conns[0].type_id if primary_conns else "", primary_conns) or []
         features = [str(item["label"]) for item in feature_states]
         out.append({
             "cliente": cliente,
+            "missing_requirements": missing,
             "connections": primary_conns,
             "spaces": spaces,
             "connection_label": connection_label,

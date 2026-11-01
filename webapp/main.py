@@ -145,6 +145,7 @@ _CATALOG_VERDICT_TEXT = {
     "plena": "Referencia Danwor — reutilizable",
     "buena": "Reutilizable con notas",
     "parcial": "Inspiración conceptual con reservas — no copiar tal cual",
+    "evidencia-insuficiente": "Falta evidencia para evaluar la configuración",
 }
 
 

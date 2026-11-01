@@ -91,15 +91,7 @@
           </table>
         </div>
       </div>
-      <div class="admin-result-block" data-dsc-conn-wrap hidden>
-        <span class="admin-result-title">Conexiones</span>
-        <div class="admin-table-wrap">
-          <table class="admin-table admin-table--compact" aria-label="Presencia de metadatos por conexión">
-            <thead><tr><th>Conexión</th><th>Space</th><th>Host</th><th>SID</th><th>Nro. sistema</th><th>Mandante</th><th>DP Agent</th><th>Ubicación</th></tr></thead>
-            <tbody data-dsc-connections></tbody>
-          </table>
-        </div>
-      </div>
+      {#- El detalle por conexión vive en la revisión central «Conexiones extraídas». -#}
     </div>
     {# Actividad: MISMO bloque «Detalle técnico» del módulo 04 (`.admin-tool` + `.admin-result-output`). Recibe solo la actividad SANEADA
        que arma el servidor (ordinales, conteos y códigos) y, al cerrar, el código de error y la operación. #}

@@ -37,7 +37,7 @@ LABEL = {NEW: "Nueva", CHANGED: "Modificada", UNCHANGED: "Sin cambios", INSUFFIC
 SELECTABLE = (NEW, CHANGED)
 _GROUP_TEXT = {"type": "tipo", "adapter": "adaptador", "endpoint": "destino", "connectivity": "conectividad", "capabilities": "capacidades",
                "security": "seguridad", "parameters": "parámetros", "descriptive": "descripción"}
-_SECRET_KEY = re.compile(r"(password|passwd|secret|token|credential|private.?key|^user(name)?$)", re.I)
+_SECRET_KEY = re.compile(r"(password|passwd|secret|token|credential|private.?key|user(name|id)?$)", re.I)   # también oauth2UserId, technicalUser…
 
 
 class UpdateRejected(ValueError):
@@ -71,9 +71,31 @@ def _strip(value):
         return {k: _strip(v) for k, v in value.items() if not _SECRET_KEY.search(str(k))}
     if isinstance(value, list):
         return [_strip(v) for v in value]
-    if isinstance(value, str) and "://" in value:
-        return obs.url_endpoint(value) or ""                 # URL sin usuario/contraseña/parámetros (mismo recorte que el contrato F2.2a)
+    embedded = _embedded_json(value)
+    if embedded is not None:                                 # JSON serializado dentro de un texto (p. ej. `configuration`): se sanea por dentro
+        return json.dumps(_strip(embedded), ensure_ascii=False)
+    if isinstance(value, str) and _URL.match(value.strip()):
+        return _reduce_url(value)
     return value
+
+
+_URL = re.compile(r"^(jdbc:)?[A-Za-z][\w+.-]*://\S+$", re.I)            # URL simple (también JDBC); un texto que solo contiene URLs no lo es
+
+
+def _embedded_json(value):
+    if isinstance(value, str) and value.strip()[:1] in ("{", "["):
+        try:
+            return json.loads(value)
+        except ValueError:
+            return None
+    return None
+
+
+def _reduce_url(value: str) -> str:
+    """URL sin usuario/contraseña/parámetros (mismo recorte que el contrato F2.2a), conservando el esquema http/https."""
+    endpoint = obs.url_endpoint(value) or ""
+    scheme = value.strip().split("://", 1)[0].lower()
+    return f"{scheme}://{endpoint}" if endpoint and scheme in ("http", "https") else endpoint
 
 
 def unsafe_properties(value, path: str = "") -> list:
@@ -94,7 +116,9 @@ def unsafe_properties(value, path: str = "") -> list:
     elif isinstance(value, list):
         for v in value:
             out += unsafe_properties(v, f"{path}[]")
-    elif isinstance(value, str) and "://" not in value and obs._FORBIDDEN.search(value):
+    elif _embedded_json(value) is not None:
+        out += unsafe_properties(_embedded_json(value), path)
+    elif isinstance(value, str) and not _URL.match(value.strip()) and obs._FORBIDDEN.search(value):
         out.append(path or "(valor)")
     return sorted(set(out))
 

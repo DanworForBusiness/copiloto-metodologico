@@ -201,7 +201,7 @@ def test_sanitization_blocks_only_real_markers_and_reports_property_names():
         "clientId": "abc", "password": "p", "credentials_mode": "technicaluser"}}}
     assert cup.unsafe_properties(sapsf) == []
     clean = cup._strip(sapsf)
-    assert "password" not in json.dumps(clean) and clean["configuration"]["ConnectionProperties"]["oauth2Endpoint"] == "api.successfactors.example/oauth/token"
+    assert "password" not in json.dumps(clean) and clean["configuration"]["ConnectionProperties"]["oauth2Endpoint"] == "https://api.successfactors.example/oauth/token"
     leaky = {"name": "X", "configuration": {"note": "password=hunter2"}, "items": [{"label": "secret value"}]}
     assert cup.unsafe_properties(leaky) == ["configuration.note", "items[].label"]
     assert "hunter2" not in " ".join(cup.unsafe_properties(leaky))
@@ -239,3 +239,37 @@ def test_scope_and_considerations_are_grouped_with_real_data(cat):
     assert view["limits"]                                                                # códigos/procedencia originales intactos
     html = _client("owner@danwor.com").get(f"/modules/{STEM}/connectivity-inventory/review/op1").text
     assert "Alcance y consideraciones" in html and "Evidencias y limitaciones" not in html
+
+
+def test_import_keeps_url_scheme_and_sanitizes_embedded_json():
+    """Formato real de SAPSF: `configuration` llega como JSON SERIALIZADO en un texto. Se sanea por dentro (fuera credenciales) y la URL conserva
+    su esquema; URL, versión y tipo de autenticación quedan para el scoring."""
+    inner = {"ConnectionProperties": {"UI": {"URL": "https://u:p@api19.sapsf.com/odata/v2?x=1", "version": "V2",
+                                             "authentication": {"auth_type": "OAuth2"}, "oauth2": {"oauth2GrantType": "saml_bearer",
+                                             "oauth2TokenEndpoint": "https://api19.sapsf.com/oauth/token", "oauth2UserId": "someone"}}}}
+    doc = {"typeId": "SAPSF", "configuration": json.dumps(inner), "content": {"objects": {"SSFF": {"configuration": inner}}}}
+    assert cup.unsafe_properties(doc) == []
+    clean = cup._strip(doc)
+    embedded = json.loads(clean["configuration"])
+    ui = embedded["ConnectionProperties"]["UI"]
+    assert ui["URL"] == "https://api19.sapsf.com/odata/v2" and ui["version"] == "V2" and ui["authentication"]["auth_type"] == "OAuth2"
+    assert "oauth2TokenEndpoint" not in ui["oauth2"] and "oauth2UserId" not in ui["oauth2"]
+    assert clean["content"]["objects"]["SSFF"]["configuration"]["ConnectionProperties"]["UI"]["URL"] == "https://api19.sapsf.com/odata/v2"
+    assert cup.unsafe_properties({"configuration": json.dumps({"note": "password=x"})}) == ["configuration.note"]
+
+
+def test_sapsf_scoring_depends_on_its_own_requirements():
+    """Scoring del Catálogo (no F1): SAPSF con URL válida, versión y OAuth ⇒ BUENA sin exigir DP Agent ni Cloud Connector; sin evidencia ⇒
+    se informa qué falta (nunca PARCIAL por defecto). ABAP conserva su regla."""
+    from tools.catalog import catalog_service as cs
+    E = cs.CatalogConnectionEntry
+    ok = E(path="p", cliente="Contreras", space="PRD", connection="SSFF", type_id="SAPSF",
+           info={"url": "api19.sapsf.com/odata/v2", "version": "V2", "authentication": "OAuth2"}, authentication={"auth_type": "OAuth2"})
+    g = cs.connection_client_groups([ok])[0]
+    assert g["verdict"] == "buena" and g["missing_requirements"] == []
+    gap = E(path="p", cliente="Contreras", space="PRD", connection="SSFF", type_id="SAPSF", info={"url": "no es una url"},
+            authentication={"auth_type": "Basic"})
+    g = cs.connection_client_groups([gap])[0]
+    assert g["verdict"] == "evidencia-insuficiente" and g["missing_requirements"] == ["URL", "versión", "autenticación OAuth"]
+    abap = E(path="a", cliente="X", space="DEV", connection="ERP", type_id="ABAP")
+    assert cs.connection_client_groups([abap])[0]["verdict"] == "parcial"        # sin DP Agent ni Cloud Connector: regla ABAP intacta
