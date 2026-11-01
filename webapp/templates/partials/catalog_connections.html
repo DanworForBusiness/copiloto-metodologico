@@ -1,22 +1,23 @@
-{# Resultado del dropdown de Arquitectura/Conectividad: conexiones agrupadas por cliente. #}
+{# Resultado del dropdown de Arquitectura/Conectividad: conexiones agrupadas por cliente. Con `by_type` (opción «Clientes» del Catálogo de
+   conectividad) los MISMOS tiles se agrupan por tipo de conexión de un cliente: título = tipo y detalle con el typeId de cada grupo. #}
 {% if not groups %}
 <p class="empty-panel">{% if type_label %}Sin conexiones detectadas para "{{ type_label }}".{% else %}Elegí un origen.{% endif %}</p>
 {% else %}
 <ul class="catalog-flows-list catalog-connections-list">
   {% for g in groups %}
   <li class="catalog-card catalog-connection-card catalog-card--{{ g.verdict|catalog_verdict_tone }}" tabindex="0"
-      hx-get="/catalog/connections/detail?cliente={{ g.cliente|urlencode }}&type_id={{ type_id|urlencode }}&pack={{ pack|default('datasphere_core') }}"
+      hx-get="/catalog/connections/detail?cliente={{ g.cliente|urlencode }}&type_id={{ (g.type_id if by_type else type_id)|urlencode }}&pack={{ pack|default('datasphere_core') }}"
       hx-target="#catalog-detail-slot" hx-swap="innerHTML" hx-trigger="click, keyup[key=='Enter']">
     <p class="catalog-card__head">
       <span class="catalog-meta-dot catalog-meta-dot--{{ g.verdict|catalog_verdict_tone }}" aria-hidden="true"></span>
-      <strong>{{ g.cliente }}</strong>
+      <strong>{{ g.type_label if by_type else g.cliente }}</strong>
       <span class="catalog-card__verdict catalog-card__verdict--{{ g.verdict|catalog_verdict_tone }}">{{ g.verdict|catalog_verdict_label }}</span>
     </p>
     <p class="catalog-card__apto">{{ g.verdict|catalog_verdict_text }}</p>
     {% if g.connection_label %}
     <p class="catalog-card__meta">{{ g.connection_label }} · {{ g.count }} {{ "conexión" if g.count == 1 else "conexiones" }}</p>
     {% else %}
-    <p class="catalog-card__meta">{{ type_label }} en {{ g.spaces|join(" · ") }} · {{ g.count }} {{ "conexión" if g.count == 1 else "conexiones" }}</p>
+    <p class="catalog-card__meta">{{ g.type_label if by_type else type_label }} en {{ g.spaces|join(" · ") }} · {{ g.count }} {{ "conexión" if g.count == 1 else "conexiones" }}</p>
     {% endif %}
     <div class="catalog-connection-badges">
       <span class="catalog-pill catalog-pill--{{ 'ok' if g.dp_agent else 'muted' }}">DP Agent: {{ 'Sí' if g.dp_agent else 'No' }}</span>

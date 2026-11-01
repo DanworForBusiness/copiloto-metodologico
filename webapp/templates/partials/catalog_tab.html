@@ -3,53 +3,131 @@
 {% set module_number = document.summary.number|string %}
 {% set is_architecture_catalog = module_number == "01" or document.summary.stem.startswith("01_") %}
 {% set is_security_catalog = module_number == "02" or document.summary.stem.startswith("02_") %}
+{% macro search_row(sid) %}
+<div x-show="showSearch" x-cloak>
+  <label for="{{ sid }}">Buscar</label>
+  <div class="whatsnew-filters whatsnew-filters--inline">
+    <div class="whatsnew-filter whatsnew-filter--fill">
+      <input type="search" id="{{ sid }}" data-catalog-search x-model="q" @input="search()" @keydown.escape="clearSearch()" aria-label="Buscar en el catálogo" placeholder="Buscar..." autocomplete="off">
+    </div>
+    <button type="button" class="whatsnew-filter__clear" @click="clearSearch()">✕ Limpiar</button>
+  </div>
+</div>
+{% endmacro -%}
+{% macro no_match() %}
+<div x-show="noMatch" x-cloak>{% with state_kind="empty", state_title="Sin coincidencias", state_text="Ningún tile coincide con la búsqueda. Probá con otra palabra o presioná Limpiar." %}{% include "partials/catalog_state.html" %}{% endwith %}</div>
+{% endmacro -%}
 {% if is_architecture_catalog %}
-{#- Extracción AD-HOC de conexiones (F2.1): estado `catalogView = 'extract'` del Catálogo, mismo patrón que el «+» de publicación del
-    módulo 04 y con su MISMA regla de visibilidad (`can_execute`). Sin permiso, el marcado es EXACTAMENTE el de siempre. -#}
+{#- Catálogo de CONECTIVIDAD (módulo 01): dropdown 1 con la MISMA mecánica que «Catálogo de datos» del 04 (`dwCatalogBrowse`), arrancando en
+    «Conexiones» para conservar el comportamiento de siempre. Tres capas SEPARADAS: Conexiones y Clientes = Catálogo PUBLICADO
+    (catalog_local/arquitectura); Disponibilidad SAP = snapshot de referencia saneado del content pack. Los inventarios temporales de F2.1
+    no se muestran acá (quedan pendientes de gobierno, F2.2–F2.4).
+    Extracción AD-HOC de conexiones (F2.1): estado `catalogView = 'extract'`, mismo patrón que el «+» de publicación del módulo 04 y con su
+    MISMA regla de visibilidad (`can_execute`). -#}
 {%- set conn = dsc_tool(request, document.summary.stem) if (document is defined and document) else {"can_execute": False} -%}
-{% if conn.can_execute %}
-<div class="tree-picker catalog-picker--connections" :class="catalogView === 'extract' && 'catalog-picker--bare'">
+{%- set sap = sap_connection_catalog(pack) %}
+<div x-data="dwCatalogBrowse('connections')" @htmx:after-swap.camel="search()">
+<div class="tree-picker catalog-picker--kind catalog-picker--connections" :class="catalogView === 'extract' && 'catalog-picker--bare'">
   <div class="tree-picker-head">
-    <label for="catalog-type-id">Origen / tipo de conexión</label>
+    <label for="catalog-conn-kind">Catálogo de conectividad</label>
+    <p class="dashboard-subhead catalog-filter-legend" x-show="hasPick && catalogView !== 'extract'" x-cloak>
+      <span class="dashboard-subhead__filter">Filtrado por <strong x-text="pickedLabel" :title="'Filtrado por ' + pickedLabel"></strong>
+        <button type="button" class="dashboard-subhead__reset" @click="clearPick()" :title="'Quitar el filtro: ' + pickedLabel" :aria-label="'Quitar el filtro por ' + kindLabel + ': ' + pickedLabel">✕</button>
+      </span>
+    </p>
+    {% if conn.can_execute %}
     <button type="button" class="table-action-btn chart-tooltip-anchor tree-picker-head__action" x-show="catalogView !== 'extract'" @click="catalogView = 'extract'" aria-label="Extraer conexiones de un tenant">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
       <span class="chart-tooltip" aria-hidden="true"><p>Extraer conexiones de un tenant</p></span>
     </button>
     <button type="button" class="table-action-btn table-action-btn--text tree-picker-head__action" x-show="catalogView === 'extract'" x-cloak @click="catalogView = 'browse'" id="catalog-extract-back">← Volver</button>
+    {% endif %}
   </div>
   <div class="tree-picker-row" x-show="catalogView !== 'extract'">
-    <select id="catalog-type-id" name="type_id"
-            hx-get="/catalog/connections?pack={{ pack }}" hx-target="#catalog-flows" hx-swap="innerHTML" hx-trigger="change">
-      <option value="">Elegí un origen...</option>
-      {% for t in catalog_connection_types %}<option value="{{ t.value }}">{{ t.label }}</option>{% endfor %}
+    <select id="catalog-conn-kind" x-model="catalogKind" @change="resetPick(); dwConnectivityKindChanged(catalogKind, $refs.sapOpen)">
+      <option value="connections">Conexiones</option>
+      <option value="clients">Clientes</option>
+      <option value="sap_types">Disponibilidad SAP</option>
     </select>
   </div>
 </div>
+{% if conn.can_execute %}
 <div x-show="catalogView === 'extract'" x-cloak id="catalog-extract-state">
   {% include "partials/connectivity_inventory_tool.html" %}
 </div>
-<div x-show="catalogView !== 'extract'" x-cloak>
-{% else %}
-<div class="tree-picker catalog-picker--connections">
-  <label for="catalog-type-id">Origen / tipo de conexión</label>
-  <div class="tree-picker-row">
-    <select id="catalog-type-id" name="type_id"
-            hx-get="/catalog/connections?pack={{ pack }}" hx-target="#catalog-flows" hx-swap="innerHTML" hx-trigger="change">
-      <option value="">Elegí un origen...</option>
-      {% for t in catalog_connection_types %}<option value="{{ t.value }}">{{ t.label }}</option>{% endfor %}
-    </select>
+{% endif %}
+<div x-show="catalogView !== 'extract'">
+
+  <div x-show="catalogKind === 'connections'" data-catalog-kind="connections">
+    <div class="tree-picker catalog-picker--secondary" :class="picked && 'catalog-picker--search'">
+      <div x-show="!picked">
+      <label for="catalog-type-id">Origen / tipo de conexión</label>
+      <div class="tree-picker-row">
+        <select id="catalog-type-id" name="type_id" @change="pick($event)"
+                hx-get="/catalog/connections?pack={{ pack }}" hx-target="#catalog-flows" hx-swap="innerHTML" hx-trigger="change">
+          <option value="">Elegí un origen...</option>
+          {% for t in catalog_connection_types %}<option value="{{ t.value }}">{{ t.label }}</option>{% endfor %}
+        </select>
+      </div>
+      </div>
+      {{ search_row('catalog-search-connections') }}
+    </div>
+    <div id="catalog-flows" class="catalog-flows" data-catalog-results x-show="!noMatch">
+      <div class="tool-empty">
+        <span>{{ catalog_connection_types|length }} {{ "origen disponible" if catalog_connection_types|length == 1 else "orígenes disponibles" }}</span>
+        <p>{% if catalog_connection_types %}Elegí un tipo de conexión para ver qué clientes lo usan y con qué capacidades operativas.{% else %}No se detectaron conexiones generadas para el catálogo de arquitectura.{% endif %}</p>
+      </div>
+    </div>
+    {{ no_match() }}
+    <p class="tool-suggest__link"><a href="/catalog/guide/como-publicar-origenes?pack={{ pack }}"><strong>¿Falta un Origen?</strong> Cómo publicarlo →</a></p>
   </div>
-</div>
-{% endif -%}
-<div id="catalog-flows" class="catalog-flows">
-  <div class="tool-empty">
-    <span>{{ catalog_connection_types|length }} {{ "origen disponible" if catalog_connection_types|length == 1 else "orígenes disponibles" }}</span>
-    <p>{% if catalog_connection_types %}Elegí un tipo de conexión para ver qué clientes lo usan y con qué capacidades operativas.{% else %}No se detectaron conexiones generadas para el catálogo de arquitectura.{% endif %}</p>
+
+  <div x-show="catalogKind === 'clients'" x-cloak data-catalog-kind="clients">
+    {#- Conexiones PUBLICADAS de un cliente, agrupadas por tipo (`connections_for_client`): mismos tiles y mismo detalle que «Conexiones».
+        Ya vienen renderizadas (el volumen es chico y no hace falta una ruta nueva); el cliente elegido marca su bloque como resultados
+        (`data-catalog-results`), así el buscador y «Sin coincidencias» del 04 operan solo sobre ese cliente. -#}
+    <div class="tree-picker catalog-picker--secondary" :class="picked && 'catalog-picker--search'">
+      <div x-show="!picked">
+      <label for="catalog-conn-client">Cliente</label>
+      <div class="tree-picker-row">
+        <select id="catalog-conn-client" name="cliente" @change="pick($event)">
+          <option value="">Elegí el cliente...</option>
+          {% for c in catalog_connection_clients or [] %}<option value="{{ c.cliente }}">{{ c.cliente }}</option>{% endfor %}
+        </select>
+      </div>
+      </div>
+      {{ search_row('catalog-search-conn-clients') }}
+    </div>
+    <div class="catalog-flows" x-show="!picked">
+      <div class="tool-empty">
+        <span>{{ (catalog_connection_clients or [])|length }} {{ "cliente disponible" if (catalog_connection_clients or [])|length == 1 else "clientes disponibles" }}</span>
+        <p>Elegí el cliente para ver sus conexiones publicadas, agrupadas por tipo de conexión.</p>
+      </div>
+    </div>
+    {% for c in catalog_connection_clients or [] %}
+    <div class="catalog-flows" data-conn-client="{{ c.cliente }}" x-show="picked === {{ c.cliente|tojson|forceescape }} && !noMatch" x-cloak
+         :data-catalog-results="picked === {{ c.cliente|tojson|forceescape }} ? '' : null">
+      {% with groups=c.groups, by_type=True, type_id="", type_label="" %}{% include "partials/catalog_connections.html" %}{% endwith %}
+    </div>
+    {% endfor %}
+    {{ no_match() }}
   </div>
+
+  <div x-show="catalogKind === 'sap_types'" x-cloak data-catalog-kind="sap_types">
+    {#- Disponibilidad SAP se CONSULTA en el panel central (el explorador es el contenido final): acá queda solo la opción de navegación. Elegirla
+        dispara este mismo enlace (`dw-sap-open`, ver dwConnectivityKindChanged); el enlace también la reabre después de «← Volver». -#}
+    <div class="catalog-flows">
+      <div class="tool-empty">
+        <span>{{ sap.total }} tipos de conexión</span>
+        <p>Snapshot de referencia del catálogo de tipos de conexión de SAP Datasphere. Se consulta en el panel central, con búsqueda y filtros.</p>
+      </div>
+    </div>
+    <p class="tool-suggest__link"><a href="/catalog/sap-types?pack={{ pack }}" x-ref="sapOpen" data-sap-open
+       hx-get="/catalog/sap-types?pack={{ pack }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" hx-trigger="click, dw-sap-open" @click.prevent><strong>Disponibilidad SAP</strong> Abrir en el panel central →</a></p>
+  </div>
+
 </div>
-<p class="tool-suggest__link"><a href="/catalog/guide/como-publicar-origenes?pack={{ pack }}"><strong>¿Falta un Origen?</strong> Cómo publicarlo →</a></p>
-{% if conn.can_execute %}</div>
-{% endif -%}
+</div>
 {% elif is_security_catalog %}
 <div class="tree-picker catalog-picker--security">
   <label for="catalog-security-family">Catálogo de seguridad</label>
@@ -78,20 +156,8 @@
 {# Filtro del SEGUNDO dropdown + buscador en vivo (`dwCatalogBrowse`, app.js): elegido el valor del 2.º dropdown este se reemplaza por «Buscar…» + «Limpiar» y aparece la leyenda
    «Filtrado por <catálogo> ✕» (primitivo `.dashboard-subhead__filter/__reset` de Métricas de uso). El buscador filtra en el cliente los tiles YA renderizados (cualquier texto del tile,
    sin distinguir mayúsculas ni tildes); nunca recarga ni cambia el contenido del catálogo. Data Products no tiene 2.º dropdown: su buscador está disponible desde el inicio. #}
-{% macro search_row(sid) %}
-<div x-show="showSearch" x-cloak>
-  <label for="{{ sid }}">Buscar</label>
-  <div class="whatsnew-filters whatsnew-filters--inline">
-    <div class="whatsnew-filter whatsnew-filter--fill">
-      <input type="search" id="{{ sid }}" data-catalog-search x-model="q" @input="search()" @keydown.escape="clearSearch()" aria-label="Buscar en el catálogo" placeholder="Buscar..." autocomplete="off">
-    </div>
-    <button type="button" class="whatsnew-filter__clear" @click="clearSearch()">✕ Limpiar</button>
-  </div>
-</div>
-{% endmacro %}
-{% macro no_match() %}
-<div x-show="noMatch" x-cloak>{% with state_kind="empty", state_title="Sin coincidencias", state_text="Ningún tile coincide con la búsqueda. Probá con otra palabra o presioná Limpiar." %}{% include "partials/catalog_state.html" %}{% endwith %}</div>
-{% endmacro %}
+{# search_row: definida al inicio de este archivo (compartida con el Catálogo de conectividad del módulo 01). #}
+{# no_match: ídem. #}
 <div x-data="dwCatalogBrowse()" @htmx:after-swap.camel="search()">
   {# UN solo encabezado para los dos estados (mismo primitivo de fila): título a la izquierda y, a la derecha, la acción propia del estado
      — browse: "+" (publicar) · publish: "← Volver" (a browse). Ambas son acciones neutras (`.table-action-btn`), sin caja ni dorado. #}

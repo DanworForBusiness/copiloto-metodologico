@@ -135,6 +135,15 @@ def _catalog_connection_types() -> list:
     return mod.connection_types(entries) if mod else []
 
 
+def _catalog_connection_clients() -> list:
+    """Opción «Clientes» del Catálogo de conectividad (módulo 01): cada cliente con conexiones PUBLICADAS y sus grupos por tipo
+    (`catalog_service.connection_type_groups_for_client`, sobre `connections_for_client`). Sin inventarios temporales de F2.1."""
+    mod, entries = _catalog_architecture_connections()
+    if not mod:
+        return []
+    return [{"cliente": c, "groups": mod.connection_type_groups_for_client(entries, c)} for c in mod.connection_clients(entries)]
+
+
 @lru_cache(maxsize=1)
 def _catalog_data_products_entries():
     """Cacheado: el parser de Data Products lee frontmatter YAML grande

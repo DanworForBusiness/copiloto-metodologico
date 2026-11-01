@@ -2078,6 +2078,7 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 #reporting-main-content:hover .section-feedback__bar,
 #staffing-rows:hover .section-feedback__bar,
 #commercial-main-content:hover .section-feedback__bar,
+.sap-types-page:hover .section-feedback__bar,   /* Catálogo de conectividad → Disponibilidad SAP (vista central) */
 .section-feedback__bar:hover,
 .section-feedback__bar:focus-within {
   opacity: 1;
@@ -2445,6 +2446,34 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
    en total con el relleno y el separador anteriores). Sin margen propio, el primer tile arranca a los 14px normales de una lista. */
 .catalog-picker--search .whatsnew-filters { margin: 0; }
 .catalog-flows-list > li[hidden] { display: none; }
+/* «Disponibilidad SAP» (Catálogo de conectividad, módulo 01) en el PANEL CENTRAL: solo COMPOSICIÓN de primitivos existentes (callout, barra
+   `.hc-profile-filters.filter-toolbar-card`, `.dashboard-section`, `.catalog-card`, `.status-badge`). En el centro rigen los tokens SEMÁNTICOS del contenido
+   (content.css, por tema), no los del panel lateral (`--card` & cía.), que son los que leen `.catalog-card` y sus piezas. */
+.sap-types-view { display: grid; gap: 20px;
+  --card: var(--content-tile); --ink: var(--content-ink); --soft: var(--content-ink-soft); --dim: var(--content-ink-dim); --line: var(--content-line); }
+.sap-types-view .dashboard-section { margin: 0; }
+.sap-types-toolbar__groups { flex: 1 1 100%; display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); align-items: start; gap: 16px 28px; margin-top: 6px; }
+.sap-types-toolbar__groups .dashboard-checkbox-option { display: flex; font-weight: 400; }   /* `.feedback-field label` la ponía en 650; la marcada se resalta igual que en el Hub */
+/* Grilla de tarjetas LIMPIAS (nombre + ícono, como el selector de SAP): ancho mínimo legible; el ancho disponible decide cuántas entran. */
+.catalog-flows-list--grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); align-items: start; }
+.sap-type-card .catalog-card__head { min-height: 2.6em; }
+/* Tarjeta BLANCA como en el selector de SAP: el ícono original (PNG transparente) se integra sin placa ni borde; al pasar el mouse toma el color
+   de tarjeta del tema (`--card` = `--content-tile`). En tema oscuro la tarjeta conserva su color y el ícono lleva fondo claro para que los logos
+   de trazo oscuro (Confluent, Kafka, HTTP…) sigan legibles. */
+.sap-types-view .sap-type-card { background: #fff; }
+.sap-types-view .sap-type-card:hover, .sap-types-view .sap-type-card:focus-visible { background: var(--card); }
+.sap-type-card__art { display: grid; place-items: center; height: 76px; margin: 8px 0 2px; border-radius: 8px; }
+.content-theme-dark .sap-types-view .sap-type-card { background: var(--card); }
+.content-theme-dark .sap-types-view .sap-type-card:hover, .content-theme-dark .sap-types-view .sap-type-card:focus-visible { background: #202023; }
+.content-theme-dark .sap-type-card__art { background: #fff; }
+.sap-type-icon { width: 56px; height: 56px; object-fit: contain; }
+.sap-type-icon--fallback { display: grid; place-items: center; color: #55555c; font: 700 .9rem var(--mono); letter-spacing: .03em; }
+.sap-type-icon--fallback[hidden] { display: none; }
+.sap-type-card__flag { margin: 8px 0 0; }
+.sap-type-card__capabilities { display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0 0; }
+.sap-types-view .status-badge { white-space: nowrap; }
+.sap-types-view .catalog-card__features .catalog-card__meta { margin: 8px 0 0; }
+
 /* El buscador ocupa el ancho del 2.º dropdown (el `.whatsnew-filter--fill` estira al contenedor; el input se ajusta a él). */
 .catalog-picker--secondary .whatsnew-filter--fill input[type="search"] { width: 100%; }
 .catalog-picker--bare + #catalog-publish-state form > input[type="hidden"] + .tree-picker,

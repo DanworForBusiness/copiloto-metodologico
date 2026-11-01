@@ -555,6 +555,22 @@ def connections_for_client(entries: list[CatalogConnectionEntry], cliente: str) 
     )
 
 
+def connection_clients(entries: list[CatalogConnectionEntry]) -> list[str]:
+    """Clientes con conexiones PUBLICADAS en el Catálogo de arquitectura (selector «Clientes» del módulo 01)."""
+    return sorted({e.cliente for e in entries if e.cliente}, key=str.lower)
+
+
+def connection_type_groups_for_client(entries: list[CatalogConnectionEntry], cliente: str) -> list[dict]:
+    """Conexiones publicadas de UN cliente agrupadas por tipo: un grupo por typeId con la MISMA forma que `connection_client_groups`
+    (+ `type_id`/`type_label`), para reutilizar el tile y el detalle existentes. No crea relaciones: solo reagrupa `connections_for_client`."""
+    conns = connections_for_client(entries, cliente)
+    out = []
+    for type_id in dict.fromkeys(e.type_id for e in conns if e.type_id):   # ya ordenados por etiqueta de tipo
+        for group in connection_client_groups([e for e in conns if e.type_id == type_id]):
+            out.append({**group, "type_id": type_id, "type_label": connection_type_label(type_id)})
+    return out
+
+
 def connection_client_detail(
     entries: list[CatalogConnectionEntry],
     cliente: str,
