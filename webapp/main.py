@@ -1871,6 +1871,39 @@ def catalog_flow_retire(request: Request, flow: str = Form(""), pack: str = Form
     return templates.TemplateResponse(request=request, name="partials/catalog_retired_tile.html", context={**ctx, "ok": True})
 
 
+@app.post("/catalog/connections/retire", response_class=HTMLResponse, include_in_schema=False)
+def catalog_connections_retire(request: Request, ids: str = Form(""), pack: str = Form(DEFAULT_PACK)):
+    """Retira (LÓGICAMENTE) del Catálogo las conexiones de un tile del Catálogo de conectividad: MISMO mecanismo y política que el retiro de tiles de
+    Dominios (`catalog_governance`: tombstone en `.retired/`, persistido; una regeneración no lo resucita; volver a importar con el «+» lo levanta).
+    Nunca toca SAP Datasphere ni borra fichas. Sin sesión 401; mismo origen; sin permiso 403 aunque la conexión no exista."""
+    import types
+    user = auth_service.session_user(request)
+    if not user:
+        raise HTTPException(401, "Sin sesión")
+    if not same_origin_guard.is_same_origin_write(request):
+        raise HTTPException(403, "Origen no permitido")
+    wanted = [i.strip() for i in (ids or "").split(",") if i.strip()]
+    if not wanted or not all(catalog_governance.can_retire(user, i) for i in wanted):
+        raise HTTPException(403, "No autorizado")
+    _mod, entries = _catalog_architecture_connections()
+    by_id = {e.entry_id: e for e in entries}
+    if any(i not in by_id for i in wanted):
+        raise HTTPException(404, "La conexión ya no está en el Catálogo")
+    actor = str(user.get("sub") or user.get("email") or "")
+    chosen = [by_id[i] for i in wanted]
+    shown = types.SimpleNamespace(cliente=chosen[0].cliente, consumo=[f"{c.space} · {c.connection}" for c in chosen])
+    ctx = {"entry": shown, "pack": _pack(pack), "files": "kept", "restore_hint": "volvé a importarla con el «+» del Catálogo de conectividad"}
+    try:
+        for c in chosen:
+            catalog_governance.retire(types.SimpleNamespace(entry_id=c.entry_id, cliente=c.cliente, dominio=f"{c.space} · {c.connection}"), actor)
+    except catalog_governance.GovernanceStorageError:
+        _invalidate_catalog_cache()
+        return templates.TemplateResponse(request=request, name="partials/catalog_retired_tile.html", context={**ctx, "ok": False})
+    _invalidate_catalog_cache()
+    log_activity("catalog_connection_retired", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG, cliente=chosen[0].cliente, connections=wanted)
+    return templates.TemplateResponse(request=request, name="partials/catalog_retired_tile.html", context={**ctx, "ok": True})
+
+
 @app.get("/catalog/lob", response_class=HTMLResponse, include_in_schema=False)
 def catalog_lob(request: Request, lob: str = "", pack: str = Query(DEFAULT_PACK)):
     """Flujos de una LÍNEA DE NEGOCIO (tercera modalidad del Catálogo, junto a Dominios y Data Products). Solo LEE la clasificación v2 PERSISTIDA

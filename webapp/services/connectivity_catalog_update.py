@@ -313,6 +313,13 @@ def approve(operation_id: str, *, actor: str, selected: list, rationale: str) ->
                     pass
             raise
     try:
+        from tools.catalog import catalog_service as _cs
+        from webapp.services import catalog_governance
+        catalog_governance.lift_retirement([_cs.CatalogConnectionEntry(path="", cliente=p["client"], space=r["space"], connection=r["name"],
+                                                                       type_id="").entry_id for r in chosen])   # volver a importar levanta el retiro
+    except Exception:  # noqa: BLE001 — best-effort, como al republicar un modelo
+        pass
+    try:
         from webapp import main as hub_main
         hub_main._invalidate_catalog_cache()
     except Exception:  # noqa: BLE001

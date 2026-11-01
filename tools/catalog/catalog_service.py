@@ -151,6 +151,11 @@ class CatalogConnectionEntry:
     def type_label(self) -> str:
         return connection_type_label(self.type_id)
 
+    @property
+    def entry_id(self) -> str:
+        """Identidad estable de UNA conexión publicada (cliente + Space + conexión): la usa el retiro lógico del Catálogo (catalog_governance)."""
+        return "conn-" + "--".join(_slug(x) or "x" for x in (self.cliente, self.space, self.connection))
+
 
 
 @dataclass
