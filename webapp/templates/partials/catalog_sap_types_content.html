@@ -2,6 +2,7 @@
    (`hx-get` → #catalog-detail-slot; «← Volver» = dwCatalogBack). Barra `.catalog-actionbar` de las vistas centrales y encabezado con el
    MISMO markup que las secciones de los módulos (`{dw-black}` / `{dw-gold}` → `.tone-black` / `.tone-gold`): `.methodology` +
    `.content-heading` (eyebrow + h2) + bajada `.section-subtitle` con su separador vertical. Tamaño, familia y colores salen de esas reglas. #}
+<div class="sap-types-page">
 <div class="catalog-actionbar">
   <a class="catalog-back" href="#" onclick="return dwCatalogBack();">&larr; Volver</a>
 </div>
@@ -10,3 +11,7 @@
   <blockquote class="section-subtitle"><p>Explorá los tipos de conector que ofrece SAP Datasphere: qué capacidades declara cada uno (Data Flows, Replication Flows, Remote Tables, Model Import, API Tasks), si es Cloud u On-Premise, su origen y qué requisitos técnicos declara. Abrí una tarjeta para ver sus features y su detalle técnico. <span data-sap-notice>{{ sap.notice }}</span></p></blockquote>
 </article>
 {% include "partials/catalog_sap_types.html" %}
+{#- Botonera de feedback de sección del Hub, FUERA del agrupador y de la vista (con los tokens del contenido, como en las secciones): MISMO
+    parcial del detalle del Catálogo; se ilumina al pasar el mouse por la página (`.sap-types-page`, misma regla que Reporting/Comercial). -#}
+{% if sap.types %}{% with cliente="", dominio="Disponibilidad SAP", slug="disponibilidad-sap", fb_prompt="¿Qué te pareció esta sección?" %}{% include "partials/catalog_section_feedback.html" %}{% endwith %}{% endif %}
+</div>

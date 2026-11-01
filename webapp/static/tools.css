@@ -2078,6 +2078,7 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 #reporting-main-content:hover .section-feedback__bar,
 #staffing-rows:hover .section-feedback__bar,
 #commercial-main-content:hover .section-feedback__bar,
+.sap-types-page:hover .section-feedback__bar,   /* Catálogo de conectividad → Disponibilidad SAP (vista central) */
 .section-feedback__bar:hover,
 .section-feedback__bar:focus-within {
   opacity: 1;

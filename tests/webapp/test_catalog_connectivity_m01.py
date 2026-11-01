@@ -168,7 +168,7 @@ def test_right_panel_keeps_sap_availability_only_as_navigation():
 
 def test_central_view_renders_filters_search_counter_and_cards():
     html = _central()
-    assert html.lstrip().startswith('<div class="catalog-actionbar">')                          # barra de acciones de las vistas centrales
+    assert html.lstrip().startswith('<div class="sap-types-page">') and '<div class="catalog-actionbar">' in html   # barra de acciones de las vistas centrales
     assert '<a class="catalog-back" href="#" onclick="return dwCatalogBack();">' in html          # mismo «← Volver» del panel central
     assert '<header class="content-heading has-subtitle">' in html and '<blockquote class="section-subtitle">' in html  # encabezado de sección del Hub
     assert '<span class="tone-black">Tipos de conexión de </span><span class="tone-gold">SAP Datasphere</span>' in html   # {dw-black} / {dw-gold}
@@ -191,7 +191,10 @@ def test_central_view_renders_filters_search_counter_and_cards():
 def test_central_view_ends_with_the_section_feedback_bar_and_records_it(monkeypatch, tmp_path):
     html = _central()
     bar = html[html.index('id="catalog-sfb-disponibilidad-sap"'):]
-    assert html.index('id="catalog-sfb-disponibilidad-sap"') > html.rindex('data-sap-type=')          # al final de la grilla
+    fb_at = html.index('id="catalog-sfb-disponibilidad-sap"')
+    assert fb_at > html.rindex("</details>") and fb_at > html.rindex('data-sap-type=')                   # FUERA del agrupador, al final
+    view = html[html.index("data-sap-view"):fb_at]
+    assert view.count("<div") <= view.count("</div>")                                                   # y fuera de la vista (tokens del Hub)
     assert 'hx-post="/catalog/section-feedback"' in bar and 'name="slug" value="disponibilidad-sap"' in bar
     assert "¿Qué te pareció esta sección?" in bar
     from webapp.routers import feedback as fb
