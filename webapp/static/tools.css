@@ -2450,17 +2450,24 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
    (content.css, por tema), no los del panel lateral (`--card` & cía.), que son los que leen `.catalog-card` y sus piezas. */
 .sap-types-view { display: grid; gap: 20px;
   --card: var(--content-tile); --ink: var(--content-ink); --soft: var(--content-ink-soft); --dim: var(--content-ink-dim); --line: var(--content-line); }
-.sap-types-view > .callout, .sap-types-view .dashboard-section { margin: 0; }
+.sap-types-view .dashboard-section { margin: 0; }
 .sap-types-toolbar__groups { flex: 1 1 100%; display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); align-items: start; gap: 16px 28px; margin-top: 6px; }
-.sap-types-toolbar__groups .dashboard-checkbox-option { display: flex; }
+.sap-types-toolbar__groups .dashboard-checkbox-option { display: flex; font-weight: 400; }   /* `.feedback-field label` la ponía en 650; la marcada se resalta igual que en el Hub */
 /* Título de la vista: misma escala que los h1 de las páginas centrales de CCHH (human_capital.css: clamp(1.7rem, 2.6vw, 2.3rem)); `.asr-title` sola no
    alcanza porque `.module-hero h1` (app.css) tiene más especificidad, y no se toca el informe de Assessment. */
 .module-hero.sap-types-hero h1 { font-size: clamp(1.7rem, 2.6vw, 2.3rem); line-height: 1.1; }
 /* Grilla de tarjetas LIMPIAS (nombre + ícono, como el selector de SAP): ancho mínimo legible; el ancho disponible decide cuántas entran. */
 .catalog-flows-list--grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); align-items: start; }
 .sap-type-card .catalog-card__head { min-height: 2.6em; }
-/* Ícono ORIGINAL sobre placa blanca en ambos temas (los logos están pensados para fondo claro, como en SAP) o monograma de respaldo. */
-.sap-type-card__art { display: grid; place-items: center; height: 76px; margin: 8px 0 2px; background: #fff; border: 1px solid var(--line); border-radius: 8px; }
+/* Tarjeta BLANCA como en el selector de SAP: el ícono original (PNG transparente) se integra sin placa ni borde; al pasar el mouse toma el color
+   de tarjeta del tema (`--card` = `--content-tile`). En tema oscuro la tarjeta conserva su color y el ícono lleva fondo claro para que los logos
+   de trazo oscuro (Confluent, Kafka, HTTP…) sigan legibles. */
+.sap-types-view .sap-type-card { background: #fff; }
+.sap-types-view .sap-type-card:hover, .sap-types-view .sap-type-card:focus-visible { background: var(--card); }
+.sap-type-card__art { display: grid; place-items: center; height: 76px; margin: 8px 0 2px; border-radius: 8px; }
+.content-theme-dark .sap-types-view .sap-type-card { background: var(--card); }
+.content-theme-dark .sap-types-view .sap-type-card:hover, .content-theme-dark .sap-types-view .sap-type-card:focus-visible { background: #202023; }
+.content-theme-dark .sap-type-card__art { background: #fff; }
 .sap-type-icon { width: 56px; height: 56px; object-fit: contain; }
 .sap-type-icon--fallback { display: grid; place-items: center; color: #55555c; font: 700 .9rem var(--mono); letter-spacing: .03em; }
 .sap-type-icon--fallback[hidden] { display: none; }

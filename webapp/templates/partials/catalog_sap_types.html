@@ -1,6 +1,6 @@
 {# Explorador «Disponibilidad SAP» del Catálogo de conectividad (módulo 01), para el PANEL CENTRAL. Fuente ÚNICA: snapshot saneado del content
    pack (`sap`, ver webapp/services/sap_connection_catalog.py; contrato sap-connection-types/v1). Composición de las páginas centrales del Hub,
-   sin biblioteca de estilos propia: aviso `.callout--note`; filtros de PÁGINA antes del agrupador (`.hc-profile-filters.filter-toolbar-card` +
+   sin biblioteca de estilos propia: filtros de PÁGINA antes del agrupador (`.hc-profile-filters.filter-toolbar-card` +
    `.feedback-field`, como Presentaciones/CCHH) con casillas `.dashboard-checkbox-*`; agrupador `.dashboard-section` con contador; tarjetas `.catalog-card` en grilla;
    atributos informativos como `.status-badge` NEUTRO (no verde de éxito) y la disponibilidad condicional en ámbar (`--tentativo`).
    Filtro en el cliente (`dwSapTypes`, app.js). El detalle técnico se despliega DENTRO de la tarjeta: filtros y búsqueda se conservan.
@@ -10,7 +10,6 @@
 {% with state_kind="empty", state_title="Sin snapshot de referencia", state_text="No hay un catálogo de tipos de conexión de SAP disponible para este pack." %}{% include "partials/catalog_state.html" %}{% endwith %}
 {% else %}
 <div class="sap-types-view" x-data="dwSapTypes({{ sap.total }})" data-sap-types data-sap-view>
-  <aside class="callout callout--note" data-sap-notice><div class="callout__body"><p>{{ sap.notice }}</p></div></aside>
   {#- Filtros de PÁGINA: la MISMA barra compartida de Presentaciones/CCHH/Operaciones (`.hc-profile-filters.filter-toolbar-card` + `.feedback-field`,
       input de texto y botón secundario); debajo, los grupos de casillas en columnas de ancho mínimo legible. -#}
   <form class="hc-profile-filters filter-toolbar-card sap-types-toolbar" role="search" data-sap-filters @submit.prevent>
