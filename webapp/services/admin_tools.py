@@ -432,7 +432,12 @@ def _run_catalog_generation(graph_token: str = "") -> tuple[str, list[str]]:
             # catalog_local (runtime, no se commitea).
             cache = os.getenv("DANWOR_CATALOG_CSN_CACHE", "").strip() or str(Path(out) / ".csn_cache")
             Path(cache).mkdir(parents=True, exist_ok=True)
-            messages = [gen.fetch_csn_folder(csn_url, graph_token, cache)]
+            # Conexiones aprobadas desde el «+» del Catálogo de conexiones: SharePoint no las sobrescribe ni las poda (`skip_rels`, mecanismo existente).
+            from webapp.services import connectivity_catalog_update as _cup
+            protected = _cup.protected_rels(cache)
+            messages = [gen.fetch_csn_folder(csn_url, graph_token, cache, skip_rels=protected)]
+            if protected:
+                messages.append(f"[conexiones] {len(protected)} archivo(s) publicados desde el «+» protegidos: SharePoint no los reemplaza ni los elimina.")
             role_matrix_url = (SHAREPOINT_SECURITY_ROLE_MATRIX_URL or "").strip()
             role_matrix_client = (SHAREPOINT_SECURITY_ROLE_MATRIX_CLIENT or "Danone").strip() or "Danone"
             if role_matrix_url:

@@ -44,6 +44,19 @@ class UpdateRejected(ValueError):
     pass
 
 
+# Archivos del pool escritos por el «+» (rutas relativas al pool). La regeneración desde SharePoint los pasa como `skip_rels` a
+# `fetch_csn_folder` (mecanismo existente): ni se sobrescriben ni se podan; así una regeneración no deshace una aprobación en silencio.
+LEDGER = ".connectivity_publications.json"
+
+
+def protected_rels(pool) -> frozenset:
+    path = Path(pool) / LEDGER
+    try:
+        return frozenset(json.loads(path.read_text(encoding="utf-8")).get("rels", []))
+    except (OSError, ValueError, AttributeError):
+        return frozenset()
+
+
 def _strip(value):
     """Documento del CLI sin credenciales (claves sensibles fuera, recursivo). Lo que no se puede garantizar limpio no se publica."""
     if isinstance(value, dict):
@@ -188,6 +201,8 @@ def approve(operation_id: str, *, actor: str, selected: list, rationale: str) ->
                     _write(conn_dir / f"conn_space_{space}_{r['name']}.json",
                            json.dumps(p["docs"][(space, r["name"])], ensure_ascii=False, indent=2).encode("utf-8"), undo, durability)
                 _write(listing_path, json.dumps(listing, ensure_ascii=False, indent=2).encode("utf-8"), undo, durability)
+            pool_rels = sorted({p.relative_to(pool).as_posix() for p, _prev in undo})
+            _write(pool / LEDGER, json.dumps({"rels": sorted(protected_rels(pool) | set(pool_rels))}, indent=2).encode("utf-8"), undo, durability)
             catalog = gsc.load_spaces_and_connections(client_root).get(client_dir.replace("_", " "))
             if catalog is None:
                 raise RuntimeError("el generador no reconoce el pool del cliente")

@@ -1445,7 +1445,7 @@ def fetch_csn_folder(sharing_url: str, token: str, dest_dir, *, only_kinds=None,
     # Prune: archivos que estaban en el caché y ya no están en SharePoint (solo del alcance pedido: lo de fuera se sembró arriba). Con prune=False se CONSERVAN.
     pruned = 0
     for old_rel in absent:
-        if not prune:
+        if not prune or old_rel in skip_rels:                                 # `skip_rels`: ni se bajan ni se tocan — tampoco se podan
             folder_now[old_rel] = folder_prev[old_rel]
             continue
         stale = dest / old_rel

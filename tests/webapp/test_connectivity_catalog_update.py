@@ -153,3 +153,41 @@ def test_routes_review_for_executor_and_approval_owner_only(cat):
 def test_progress_log_starts_non_empty_and_records_phases():
     js = (REPO / "webapp" / "static" / "connectivity_inventory.js").read_text(encoding="utf-8")
     assert 'log.textContent = status.dataset.runningText + "\\n"' in js and 'log.textContent += "» " + event.v' in js
+
+
+def test_sharepoint_regeneration_preserves_connections_published_from_plus(cat, monkeypatch):
+    """La regeneración desde SharePoint (fetch incremental + poda) no puede deshacer en silencio lo aprobado con el «+»: los archivos del pool
+    escritos por la aprobación viajan como `skip_rels` y quedan intactos; el Catálogo regenerado conserva las conexiones publicadas."""
+    import sys
+    from tests.test_catalog_apis_only_sync import FakeGraph
+    sys.path.insert(0, str(REPO / "tools" / "catalog"))
+    import catalog_service as cs
+    import generate_catalog as gen
+    listing, det = _raw()
+    det = dict(det)
+    det[("DEV", cat["first"])] = {**det[("DEV", cat["first"])], "businessName": "Renombrada"}
+    view = _prepare(details=det)
+    cup.approve("op1", actor="owner@danwor.com", selected=[r["id"] for r in view["rows"] if r["selectable"]], rationale="alta")
+    conn = cat["pool"] / "Sintetico" / "Conexiones"
+    protected = cup.protected_rels(cat["pool"])
+    assert {f"Sintetico/Conexiones/conn_space_DEV.json"} | {f"Sintetico/Conexiones/conn_space_DEV_{n}.json" for n in ("ERP_ABAP", "PG_JDBC", "SVC_ODATA")} <= protected
+    before = {p.name: p.read_bytes() for p in conn.iterdir()}
+    # SharePoint conoce la versión VIEJA (listado de 1 conexión, detalle sin renombrar) y ya la había bajado antes (manifest).
+    old_detail = (SRC / f"conn_space_DEV_{cat['first']}.json").read_text(encoding="utf-8")
+    old_listing = json.dumps(listing[:1])
+    (cat["pool"] / ".download_manifest").write_text(json.dumps({"folder": {
+        "Sintetico/Conexiones/conn_space_DEV.json": "L1", f"Sintetico/Conexiones/conn_space_DEV_{cat['first']}.json": "D1",
+        "Sintetico/Conexiones/conn_space_DEV_PG_JDBC.json": "P1"}}), encoding="utf-8")
+    g = FakeGraph()
+    folder = g.folder(g.folder("root", "Sintetico"), "Conexiones")
+    g.file(folder, "conn_space_DEV.json", old_listing, "L2")                       # cambió en SharePoint → se descargaría encima
+    g.file(folder, f"conn_space_DEV_{cat['first']}.json", old_detail, "D2")        # ídem: revertiría la actualización aprobada
+    monkeypatch.setattr(cs, "_graph_get_json", g.get_json)                         # PG_JDBC no está en SharePoint → se podaría
+    monkeypatch.setattr(cs, "_download_text", g.download)
+    gen.fetch_csn_folder("https://x.sharepoint.com/:f:/s/x/csn", "tok", cat["pool"], skip_rels=protected)
+    assert {p.name: p.read_bytes() for p in conn.iterdir()} == before                # nada sobrescrito ni podado
+    gsc.generate_all(cat["pool"], cat["root"])
+    mds = cat["root"] / "arquitectura" / "Sintetico" / "conexiones"
+    assert len(list(mds.glob("DEV__*.md"))) == 3 and "Renombrada" in cat["md"].read_text(encoding="utf-8")
+    src = (REPO / "webapp" / "services" / "admin_tools.py").read_text(encoding="utf-8")
+    assert "gen.fetch_csn_folder(csn_url, graph_token, cache, skip_rels=protected)" in src
