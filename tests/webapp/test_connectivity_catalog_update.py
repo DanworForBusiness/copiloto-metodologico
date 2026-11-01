@@ -191,3 +191,27 @@ def test_sharepoint_regeneration_preserves_connections_published_from_plus(cat, 
     assert len(list(mds.glob("DEV__*.md"))) == 3 and "Renombrada" in cat["md"].read_text(encoding="utf-8")
     src = (REPO / "webapp" / "services" / "admin_tools.py").read_text(encoding="utf-8")
     assert "gen.fetch_csn_folder(csn_url, graph_token, cache, skip_rels=protected)" in src
+
+
+def test_sanitization_blocks_only_real_markers_and_reports_property_names():
+    """Saneamiento: las propiedades sensibles se eliminan; una URL de endpoint (p. ej. OAuth de SuccessFactors, `/oauth/token`) se reduce a
+    host/ruta y no bloquea; un marcador en un valor de texto conservado SÍ bloquea, y se informa la PROPIEDAD, nunca el valor."""
+    sapsf = {"name": "SSFF", "typeId": "SAPSF", "configuration": {"ConnectionProperties": {
+        "url": "https://api.successfactors.example/odata/v2", "oauth2Endpoint": "https://api.successfactors.example/oauth/token",
+        "clientId": "abc", "password": "p", "credentials_mode": "technicaluser"}}}
+    assert cup.unsafe_properties(sapsf) == []
+    clean = cup._strip(sapsf)
+    assert "password" not in json.dumps(clean) and clean["configuration"]["ConnectionProperties"]["oauth2Endpoint"] == "api.successfactors.example/oauth/token"
+    leaky = {"name": "X", "configuration": {"note": "password=hunter2"}, "items": [{"label": "secret value"}]}
+    assert cup.unsafe_properties(leaky) == ["configuration.note", "items[].label"]
+    assert "hunter2" not in " ".join(cup.unsafe_properties(leaky))
+
+
+def test_review_layout_separates_table_and_approval(cat):
+    _prepare()
+    r = _client("owner@danwor.com").get(f"/modules/{STEM}/connectivity-inventory/review/op1")
+    html = r.text
+    assert html.index("data-review-counts") < html.index("data-review-table") < html.index("data-review-approval")
+    assert 'form="review-approve-form"' in html and 'id="review-approve-form"' in html
+    table = html[html.index("data-review-table"):html.index("</table>")]
+    assert "review-rationale" not in table                                              # motivo y botón fuera del listado

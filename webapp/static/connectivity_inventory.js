@@ -187,7 +187,7 @@
     const error = el(form, "[data-review-error]");
     const button = el(form, "[data-review-submit]");
     setHidden(error, true);
-    const selected = Array.from(form.querySelectorAll('input[name="selected"]:checked')).map((i) => i.value);
+    const selected = Array.from(form.elements).filter((i) => i.name === "selected" && i.checked).map((i) => i.value);   // casillas de la tabla (atributo `form`)
     if (!selected.length) { error.textContent = "Elegí al menos una conexión."; setHidden(error, false); return; }
     const ok = await dwConfirm({ title: "Publicar en el Catálogo", confirmLabel: "Publicar",
       message: "Se crean o actualizan " + selected.length + " conexión(es) del Catálogo. No se borra ninguna y se conserva lo cargado a mano." });
@@ -203,6 +203,7 @@
         error.textContent = data.detail || "No se pudo publicar."; setHidden(error, false); return;
       }
       setHidden(form, true);
+      Array.from(form.elements).forEach((i) => { if (i.name === "selected") i.disabled = true; });
       const done = el(view, "[data-review-done]");
       done.textContent = "✓ Publicadas " + data.published.length + " conexión(es) en el Catálogo" +
         (data.durability === "remote" ? " (confirmado en el almacenamiento)." : " (guardado local; la persistencia remota no se confirmó).");

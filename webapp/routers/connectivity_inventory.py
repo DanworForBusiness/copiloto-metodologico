@@ -76,7 +76,7 @@ def run_connectivity_inventory(
     events: queue.Queue = queue.Queue()
     owner = asd.owner_email(request)
     # F2.2c: solo el DUEÑO puede capturar; para él la observación normalizada queda pendiente (opt-in posterior, en memoria).
-    capture_for = str(user.get("sub") or "").strip().lower() if access.is_owner_user(user) else ""
+    capture_for = ""                                    # captura F2.2c retirada de la experiencia de extracción (servicios intactos, sin uso acá)
 
     def worker() -> None:
         nonlocal secret
@@ -99,11 +99,6 @@ def run_connectivity_inventory(
                 "duration_s": outcome.duration_s, "summary": outcome.summary}
         if outcome.review:                                                    # solo conteos: el detalle (con nombres) va por su ruta, no por el stream B1
             done["catalog_review"] = {"counts": outcome.review["counts"]}
-        if outcome.capture:                                                   # sin host ni nombres: solo tenants del cliente y conteos
-            from webapp.services import connectivity_capture_service as capsvc
-            opts = capsvc.options(values.client, outcome.capture["host"])
-            done["capture"] = {"client": values.client, "expires_in_s": capsvc.PENDING_TTL_S,   # la operación viaja en done.operation_id
-                               "spaces": len(outcome.capture["spaces"]), "connections": outcome.capture["connections"], **opts}
         events.put(done)
         events.put(None)
 

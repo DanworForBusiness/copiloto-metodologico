@@ -76,8 +76,27 @@ def _strip(value):
     return value
 
 
-def _clean(doc) -> bool:
-    return not obs._FORBIDDEN.search(re.sub(r'"(credential_mode|auth_type)"', "", json.dumps(doc, ensure_ascii=False)))
+def unsafe_properties(value, path: str = "") -> list:
+    """Rutas (SOLO nombres de propiedad, nunca valores) que impiden garantizar el saneamiento del documento ORIGINAL: una propiedad que `_strip`
+    conserva y cuyo nombre o valor de texto contiene un marcador de credenciales. Las propiedades sensibles se eliminan (no bloquean) y las URLs
+    se reducen a host/ruta sin usuario, contraseña ni parámetros (una palabra como «token» en la RUTA de un endpoint OAuth no es un secreto).
+    Lista vacía = documento publicable."""
+    out = []
+    if isinstance(value, dict):
+        for k, v in value.items():
+            if _SECRET_KEY.search(str(k)):
+                continue                                                  # se elimina al sanear
+            here = f"{path}.{k}" if path else str(k)
+            if obs._FORBIDDEN.search(str(k)):
+                out.append(here)
+            else:
+                out += unsafe_properties(v, here)
+    elif isinstance(value, list):
+        for v in value:
+            out += unsafe_properties(v, f"{path}[]")
+    elif isinstance(value, str) and "://" not in value and obs._FORBIDDEN.search(value):
+        out.append(path or "(valor)")
+    return sorted(set(out))
 
 
 def _published(client: str) -> dict:
@@ -133,12 +152,13 @@ def prepare(operation_id: str, *, executor: str, client: str, inventory: dict, l
         if cls == NEW and cur_index.get(key, {}).get("detail_state") != obs.DETAIL_READ:
             cls = INSUFFICIENT
         v = verdicts.get(key)
-        safe = key in docs and _clean(docs[key])
+        unsafe = unsafe_properties(details[key]) if key in docs else []
+        safe = key in docs and not unsafe
         rows.append({"id": f"{key[0]}::{key[1]}", "space": key[0], "name": key[1], "class": cls, "label": LABEL[cls], "changed": changed,
                      "type_id": ((cur_index.get(key) or {}).get("fields", {}).get("type_id") or {}).get("value"),
                      "f1": None if v is None else {"conformance": v.conformance.value, "operational": v.operational.value,
                                                    "evidence": v.evidence.value, "labels": list(v.labels)},
-                     "selectable": cls in SELECTABLE and safe, "sanitized": safe})
+                     "selectable": cls in SELECTABLE and safe, "sanitized": safe, "unsafe": unsafe[:5]})
     rows.sort(key=lambda r: (list(LABEL).index(r["class"]), r["space"], r["name"]))
     cov = current["coverage"]
     limits = [f"{'Extracción' if side == 'current' else 'Catálogo publicado'}: {_limit_text(code)}"
