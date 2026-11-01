@@ -110,6 +110,7 @@
     submit.setAttribute("aria-busy", "true");
     setHidden(progress, false);
     status.textContent = status.dataset.runningText;
+    log.textContent = status.dataset.runningText + "\n";        // «Detalle técnico» arranca con el estado de inicio (no vacío)
     setHidden(spinner, false);
 
     let done = null;
@@ -138,6 +139,8 @@
             log.scrollTop = log.scrollHeight;
           } else if (event.t === "phase") {
             status.textContent = event.v;                          // hito realmente observado (sin porcentajes)
+            log.textContent += "» " + event.v + "\n";              // el mismo hito queda en «Detalle técnico», en el orden en que el servidor lo observó
+            log.scrollTop = log.scrollHeight;
             setHidden(spinner, !WORKING.has(event.phase));
             finalPhase = WORKING.has(event.phase) ? "" : event.v;
           } else if (event.t === "done") {
@@ -172,6 +175,43 @@
     }
     setHidden(result, !renderSummary(panel, done.summary));
     renderCapture(panel, done.capture, done.operation_id);
+    if (done.catalog_review && window.htmx) {                       // comparación + assessment F1 en el panel central (mismo mecanismo del Catálogo)
+      const stem = (form.getAttribute("action").match(/\/modules\/([^/]+)\//) || [])[1];
+      window.htmx.ajax("GET", "/modules/" + stem + "/connectivity-inventory/review/" + encodeURIComponent(done.operation_id),
+                       { target: "#catalog-detail-slot", swap: "innerHTML" });
+    }
+  }
+
+  async function submitReview(form) {
+    const view = form.closest("[data-conn-review]");
+    const error = el(form, "[data-review-error]");
+    const button = el(form, "[data-review-submit]");
+    setHidden(error, true);
+    const selected = Array.from(form.querySelectorAll('input[name="selected"]:checked')).map((i) => i.value);
+    if (!selected.length) { error.textContent = "Elegí al menos una conexión."; setHidden(error, false); return; }
+    const ok = await dwConfirm({ title: "Publicar en el Catálogo", confirmLabel: "Publicar",
+      message: "Se crean o actualizan " + selected.length + " conexión(es) del Catálogo. No se borra ninguna y se conserva lo cargado a mano." });
+    if (!ok) return;
+    const body = new URLSearchParams(new FormData(form));
+    body.set("operation_id", view.dataset.operationId);
+    button.disabled = true;
+    try {
+      const response = await fetch(view.dataset.approveUrl, { method: "POST", body, credentials: "same-origin", cache: "no-store",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" } });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.status !== "PUBLISHED") {
+        error.textContent = data.detail || "No se pudo publicar."; setHidden(error, false); return;
+      }
+      setHidden(form, true);
+      const done = el(view, "[data-review-done]");
+      done.textContent = "✓ Publicadas " + data.published.length + " conexión(es) en el Catálogo" +
+        (data.durability === "remote" ? " (confirmado en el almacenamiento)." : " (guardado local; la persistencia remota no se confirmó).");
+      setHidden(done, false);
+    } catch (_e) {
+      error.textContent = "Error de red: recargá antes de reintentar."; setHidden(error, false);
+    } finally {
+      button.disabled = false;
+    }
   }
 
   // ── F2.2c: captura gobernada OPT-IN (solo llega `done.capture` para el dueño) ─────
@@ -308,6 +348,11 @@
 
   document.addEventListener("submit", (event) => {
     const form = event.target;
+    if (form instanceof HTMLFormElement && form.hasAttribute("data-review-form")) {
+      event.preventDefault();
+      submitReview(form);
+      return;
+    }
     if (form instanceof HTMLFormElement && form.hasAttribute("data-dsc-capture-form")) {
       event.preventDefault();
       submitCapture(form);

@@ -192,6 +192,7 @@ class ExtractionOutcome:
     operation_id: str | None = None
     duration_s: float = 0.0
     summary: dict | None = None                # SOLO review_summary (B1)
+    review: dict | None = None                 # propuesta de actualización del Catálogo (comparación + assessment F1; ver connectivity_catalog_update)
     capture: dict | None = None                # F2.2c: observación PENDIENTE de captura (solo dueño, opt-in; ver connectivity_capture_service)
 
 
@@ -342,7 +343,7 @@ def run(values: ExtractionValues, client_secret: str, *, user_email: str = "", o
         sleep=time.sleep, capture_for: str = "") -> ExtractionOutcome:
     """Valida y extrae (solo lectura). Devuelve SOLO el resumen saneado; el secreto no se guarda ni se devuelve. ``on_phase(fase)`` y
     ``on_line(texto)`` reciben, en tiempo real, los hitos observados y la actividad saneada (formulario inválido ⇒ ninguno)."""
-    progress = _Progress(values.spaces, on_phase, on_line, record=bool(capture_for))
+    progress = _Progress(values.spaces, on_phase, on_line, record=True)   # documentos SOLO en memoria: comparación con el Catálogo + captura opt-in
     try:
         outcome = _run(values, client_secret, user_email=user_email, progress=progress, sleep=sleep, capture_for=capture_for)
     finally:
@@ -410,11 +411,19 @@ def _run(values: ExtractionValues, client_secret: str, *, user_email: str, progr
             from webapp.services import connectivity_capture_service as capsvc
             held = capsvc.hold(op_id, owner=capture_for, client=values.client, host=urlparse(values.host).hostname or "",
                                inventory=out.inventory, listings=progress.listings or {}, details=progress.details or {})
+        review = None
+        if status in ("COMPLETE", "PARTIAL"):
+            try:
+                from webapp.services import connectivity_catalog_update as cup
+                review = cup.prepare(op_id, executor=user_email, client=values.client, inventory=out.inventory,
+                                     listings=progress.listings or {}, details=progress.details or {})
+            except Exception as exc:                     # noqa: BLE001 — la extracción vale igual; solo no hay propuesta
+                log.warning("connectivity_inventory op=%s catalog_review=FAILED exc=%s", op_id, type(exc).__name__)
         if status == "COMPLETE":
-            return ExtractionOutcome("SUCCESS", None, "", "", operation_id=op_id, duration_s=duration, summary=summary, capture=held)
+            return ExtractionOutcome("SUCCESS", None, "", "", operation_id=op_id, duration_s=duration, summary=summary, capture=held, review=review)
         if status == "PARTIAL":
             return ExtractionOutcome("PARTIAL", None, "La extracción terminó con errores parciales: revisá la cobertura.",
-                                     "Extracción parcial", operation_id=op_id, duration_s=duration, summary=summary, capture=held)
+                                     "Extracción parcial", operation_id=op_id, duration_s=duration, summary=summary, capture=held, review=review)
         return _failed("INVENTORY_FAILED", op_id, started, summary)
     except SafetyError:
         log.warning("connectivity_inventory op=%s status=FAILED code=WORKSPACE_CLEANUP_FAILED", op_id)

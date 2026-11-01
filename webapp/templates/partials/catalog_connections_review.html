@@ -1,0 +1,42 @@
+{# Revisión de una extracción del «+» del Catálogo de conexiones (módulo 01), en el PANEL CENTRAL: comparación con las conexiones publicadas del
+   cliente + assessment F1 + selección y aprobación (solo el dueño). Mismos primitivos que «Tenants y ambientes» (encabezado `.methodology`,
+   `.dashboard-section`, `.matrix-scroll`, `.status-badge`, barra `.filter-toolbar-card`). El envío lo maneja connectivity_inventory.js. #}
+<div class="connectivity-registry-page" data-conn-review data-operation-id="{{ rv.operation_id }}" data-approve-url="/modules/{{ stem }}/connectivity-inventory/approve">
+<div class="catalog-actionbar"><a class="catalog-back" href="#" onclick="return dwCatalogBack();">&larr; Volver</a></div>
+<article class="methodology sap-types-intro">
+  <header class="content-heading has-subtitle"><div class="content-heading-copy"><span class="section-eyebrow eyebrow">Catálogo de conectividad · Actualización · {{ rv.client }}</span><h2><span class="tone-black">Conexiones</span> <span class="tone-gold">extraídas</span></h2></div></header>
+  <blockquote class="section-subtitle"><p>Comparación de la extracción contra las conexiones publicadas del cliente y assessment F1. Nada cambia en el Catálogo hasta que el dueño apruebe; las conexiones no observadas no se dan de baja. Disponible durante {{ ttl_min }} minutos.</p></blockquote>
+</article>
+<div class="methodology connectivity-registry-view">
+  <p class="catalog-note__ev" data-review-counts>{% for k, label in (("NUEVA", "Nuevas"), ("MODIFICADA", "Modificadas"), ("SIN_CAMBIOS", "Sin cambios"), ("EVIDENCIA_INSUFICIENTE", "Evidencia insuficiente"), ("NO_OBSERVADA", "Publicadas no observadas")) %}{{ label }} {{ rv.counts[k] }}{% if not loop.last %} · {% endif %}{% endfor %}</p>
+  <details class="dashboard-section">
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Evidencias y limitaciones</span><span class="dashboard-section__count">{{ rv.limits|length }}</span></summary>
+    <div class="dashboard-section__body"><ul>{% for l in rv.limits %}<li>{{ l }}</li>{% endfor %}</ul></div>
+  </details>
+  <form class="hc-profile-filters filter-toolbar-card" data-review-form>
+    <div class="matrix-scroll feedback-field--wide"><table data-review-table>
+      <thead><tr>{% if is_owner %}<th></th>{% endif %}<th>Space</th><th>Conexión</th><th>Tipo</th><th>Resultado</th><th>Cambios</th><th>Assessment F1</th></tr></thead>
+      <tbody>
+        {% for r in rv.rows %}<tr data-review-row="{{ r.id }}">
+          {% if is_owner %}<td>{% if r.selectable %}<input type="checkbox" name="selected" value="{{ r.id }}" checked aria-label="Publicar {{ r.name }}">{% endif %}</td>{% endif %}
+          <td><code>{{ r.space }}</code></td><td><code>{{ r.name }}</code></td><td>{{ r.type_id or '—' }}</td>
+          <td><span class="status-badge {{ 'status-badge--tentativo' if r.class in ('MODIFICADA', 'EVIDENCIA_INSUFICIENTE') else 'status-badge--otro' }}">{{ r.label }}</span>{% if r.class in ('NUEVA', 'MODIFICADA') and not r.sanitized %} <span class="catalog-note__ev">no publicable: saneamiento no garantizado</span>{% endif %}</td>
+          <td>{{ r.changed|join(', ') or '—' }}</td>
+          <td>{% if r.f1 %}{{ r.f1.labels|join(' · ') }} <span class="catalog-note__ev">(operativo {{ r.f1.operational|lower }} · evidencia {{ r.f1.evidence|lower }})</span>{% else %}—{% endif %}</td>
+        </tr>{% endfor %}
+      </tbody>
+    </table></div>
+    {% if is_owner and rv.counts.NUEVA + rv.counts.MODIFICADA %}
+    <div class="feedback-field feedback-field--wide">
+      <label for="review-rationale">Motivo</label>
+      <input type="text" id="review-rationale" name="rationale" required maxlength="300" autocomplete="off" placeholder="Por qué se actualiza el Catálogo (obligatorio)">
+    </div>
+    <button type="submit" class="btn-primary" data-review-submit>Publicar en el Catálogo</button>
+    <div class="feedback-error" role="alert" data-review-error hidden></div>
+    {% elif not is_owner %}
+    <p class="catalog-note__ev feedback-field--wide">La publicación en el Catálogo la aprueba el dueño.</p>
+    {% endif %}
+  </form>
+  <p class="dashboard-subhead" role="status" data-review-done hidden></p>
+</div>
+</div>
