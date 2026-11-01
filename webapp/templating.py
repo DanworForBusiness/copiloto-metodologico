@@ -115,3 +115,14 @@ def _connectivity_registry_can_read(request) -> bool:
 
 
 templates.env.globals["connectivity_registry_can_read"] = _connectivity_registry_can_read
+
+
+def _connections_retirable(request, conns) -> bool:
+    """¿Puede ESTE usuario retirar del Catálogo las conexiones de un tile? MISMO predicado que el retiro de tiles de Dominios
+    (`catalog_governance.can_retire`) y que el endpoint `/catalog/connections/retire`."""
+    from webapp.services import auth_service, catalog_governance
+    user = auth_service.session_user(request) if request is not None else None
+    return bool(conns) and all(catalog_governance.can_retire(user, c.entry_id) for c in conns)
+
+
+templates.env.globals["connections_retirable"] = _connections_retirable

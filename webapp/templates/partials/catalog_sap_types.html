@@ -54,7 +54,6 @@
       <div class="sap-type-card__art">
         {% if t.icon_path %}<img class="sap-type-icon" src="{{ url_for('static', path=t.icon_path) }}?v={{ static_version }}" alt="" width="56" height="56" loading="lazy" decoding="async" data-sap-icon onerror="this.hidden=true;this.nextElementSibling.hidden=false;"><span class="sap-type-icon sap-type-icon--fallback" aria-hidden="true" data-sap-icon-fallback hidden>{{ t.monogram }}</span>{% else %}<span class="sap-type-icon sap-type-icon--fallback" aria-hidden="true" data-sap-icon-fallback>{{ t.monogram }}</span>{% endif %}
       </div>
-      {% if t.conditional %}<p class="sap-type-card__flag"><span class="status-badge status-badge--tentativo" data-sap-conditional title="{{ sap.conditional_text }}">Disponibilidad condicional</span></p>{% endif %}
       <details class="catalog-card__notes catalog-card__features" @click.stop>
         <summary>Ver features</summary>
         <p class="catalog-card__meta">typeId: {{ t.type_id }}</p>

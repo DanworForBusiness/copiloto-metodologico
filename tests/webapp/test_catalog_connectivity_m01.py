@@ -182,7 +182,7 @@ def test_central_view_renders_filters_search_counter_and_cards():
     doc = json.loads(PACK_JSON.read_text(encoding="utf-8"))
     assert re.findall(r'data-sap-type="([^"]+)"', html) == [t["type_id"] for t in doc["connection_types"]]
     assert re.findall(r'data-icon-location="([^"]+)"', html) == [t["icon_location"] for t in doc["connection_types"]]
-    assert html.count("data-sap-conditional") == 1 and "No garantiza disponibilidad en todos los tenants" in html
+    assert "data-sap-conditional" not in html and "No garantiza disponibilidad en todos los tenants" in html   # sin badge en el tile: la condición vive en «Detalle técnico»
     assert 'data-sap-requirement="dp_agent_required:null"' in html and "No declarado" in html
     srcs = re.findall(r'<img class="sap-type-icon" src="([^"]+)"', html)
     assert len(srcs) == 37 and all(src.startswith("http://testserver/static/icons/vendors/sap-datasphere/connection-types/") for src in srcs)
@@ -304,3 +304,53 @@ def test_icons_are_served_locally():
 def test_sap_types_filters_and_search_harness():
     r = subprocess.run(["node", str(HARNESS)], capture_output=True, text=True, timeout=60, encoding="utf-8")
     assert r.returncode == 0, r.stdout + r.stderr
+
+
+def test_whats_new_deep_link_opens_sap_availability_with_the_dropdown_in_sync(monkeypatch):
+    """El enlace de What's New abre el módulo 01 en Catálogo con «Disponibilidad SAP» elegida: el dropdown arranca en `sap_types` y el navegador
+    abre la vista central con el MISMO mecanismo que la selección manual. Sin el parámetro (o con otro valor), arranca en «Conexiones»."""
+    from webapp.services import whats_new_service as wn
+    entry = next(e for e in wn.entries() if e["ref"] == "catalogo-conectividad-sap")
+    assert entry["link"] == "/modules/01_Arquitectura_y_Conectividad?pack=datasphere_core&tab=catalogo&catalog_kind=sap_types"
+    monkeypatch.setattr(catalog_reads, "_catalog_domains", lambda: ["Dominio"])          # la pestaña Catálogo existe (como con el catálogo real)
+    owner = _owner()
+    deep = owner.get(entry["link"]).text
+    assert "x-data=\"dwCatalogBrowse('sap_types')\"" in deep
+    for url in ("/modules/01_Arquitectura_y_Conectividad?pack=datasphere_core&tab=catalogo",
+                "/modules/01_Arquitectura_y_Conectividad?pack=datasphere_core&tab=catalogo&catalog_kind=<script>"):
+        assert "x-data=\"dwCatalogBrowse('connections')\"" in owner.get(url).text
+    js = (REPO / "webapp" / "static" / "app.js").read_text(encoding="utf-8")
+    assert 'if (defaultKind === "sap_types")' in js and "dwConnectivityKindChanged(this.catalogKind, this.$refs.sapOpen)" in js
+
+
+def test_sapsf_card_shows_its_own_connectivity_auth_and_features():
+    """Ficha SAPSF: URL/versión + OAuth (grant type, token endpoint, company id); sin campos ABAP ni DP Agent / Cloud Connector. Lo faltante
+    figura como no disponible; las features separan el soporte del TIPO (contrato sap-connection-types/v1) de lo que declara la conexión."""
+    from tools.catalog import catalog_service as cs
+    conn = cs.CatalogConnectionEntry(path="p", cliente="Contreras", space="PRD", connection="SSFF", type_id="SAPSF",
+                                     info={"url": "https://api19.sapsf.com/odata/v2", "version": "V2", "authentication": "OAuth2",
+                                           "oauth2GrantType": "saml_bearer", "oauth2CompanyId": "contrerash"},
+                                     authentication={"auth_type": "OAuth2"}, feature_values={"dataflows": "Sí", "replicationflows": "No"})
+    rows = {label: value for kind, label, value in main._catalog_connection_rows(cs, conn) if kind == "row"}
+    groups = [label for kind, label, _v in main._catalog_connection_rows(cs, conn) if kind == "group"]
+    assert groups == ["Identificación", "Conectividad", "Autenticación", "Features"]
+    assert rows["URL"] == "`https://api19.sapsf.com/odata/v2`" and rows["Versión"] == "V2" and rows["Método"] == "OAuth 2.0"
+    assert rows["Grant Type"] == "`saml_bearer`" and rows["Company ID"] == "`contrerash`" and rows["Token Endpoint"] == "No disponible"
+    assert not {"Application Server", "System Number", "Mandante", "Idioma", "Configurado", "Data Provisioning Agent"} & set(rows)
+    assert (rows["Remote tables"], rows["Data flows"], rows["Replication Flows"]) == ("Sí", "Sí", "No")   # capacidades de SAPSF en el JSON de conectividad SAP
+
+
+def test_abap_card_keeps_its_template():
+    from tools.catalog import catalog_service as cs
+    conn = cs.CatalogConnectionEntry(path="p", cliente="X", space="DEV", connection="ERP", type_id="ABAP", info={"host": "erp.local", "client": "100"})
+    labels = [label for _k, label, _v in main._catalog_connection_rows(cs, conn)]
+    assert {"Application Server", "System Number", "Mandante", "Cloud Connector", "Remote Tables"} <= set(labels) and "Token Endpoint" not in labels
+
+
+def test_sapsf_sanitization_keeps_oauth_endpoint_and_company_but_drops_secrets():
+    from webapp.services import connectivity_catalog_update as cup
+    oauth2 = {"oauth2GrantType": "saml_bearer", "oauth2TokenEndpoint": "https://api19.sapsf.com/oauth/token", "oauth2CompanyId": "contrerash",
+              "oauth2UserId": "u1", "oauth2ClientSecret": "s", "accessToken": "t", "samlAssertion": "PHNhbWw+"}
+    clean = cup._strip({"oauth2": oauth2})["oauth2"]
+    assert clean == {"oauth2GrantType": "saml_bearer", "oauth2TokenEndpoint": "https://api19.sapsf.com/oauth/token", "oauth2CompanyId": "contrerash"}
+    assert cup.unsafe_properties({"oauth2": oauth2}) == []

@@ -21,8 +21,6 @@
   // Hitos con trabajo en curso (el spinner solo gira en estos; mismo criterio `WORKING` que el módulo 04). Los finales
   // (completed | partial | failed) dejan su texto visible y el spinner quieto.
   const WORKING = new Set(["preflight", "listing", "reading", "summarizing"]);
-  const PHYS = ["host", "sysid", "systemnumber", "client"];
-  const AGENT = ["agent_name", "location"];
 
   function el(root, sel) { return root.querySelector(sel); }
   function setHidden(node, hidden) { if (node) node.hidden = !!hidden; }
@@ -35,7 +33,6 @@
     });
     tbody.appendChild(tr);
   }
-  function yesNo(v) { return v ? "Sí" : "—"; }
   function counts(obj) {
     const parts = Object.entries(obj || {}).map(([k, n]) => k + ": " + n);
     return parts.length ? parts.join(" · ") : "ninguno";
@@ -44,10 +41,8 @@
   function renderSummary(panel, summary) {
     const preflight = el(panel, "[data-dsc-preflight]");
     const overview = el(panel, "[data-dsc-overview]");
-    const conns = el(panel, "[data-dsc-connections]");
     preflight.textContent = "";
     overview.textContent = "";
-    conns.textContent = "";
     if (!summary) return false;
     const checks = summary.preflight || {};
     // Mínimo para extraer (mismo criterio del servidor): OAuth y Listar conexiones en OK. Con eso, un «Listar Spaces» fallido se
@@ -73,14 +68,6 @@
         row(overview, ["Presupuesto usado", "solicitudes " + b.requests_used + "/" + b.max_requests + " · reintentos " + b.retries_used + "/" +
           b.max_total_retries + " · " + b.elapsed_s + " s / " + b.max_duration_s + " s"], true);
       }
-      (inv.connections || []).forEach((c) => {
-        row(conns, [c.ref, c.space_ref]
-          .concat(PHYS.map((k) => yesNo((c.physical_present || {})[k])))
-          .concat(AGENT.map((k) => yesNo((c.agent_present || {})[k]))));
-      });
-      setHidden(el(panel, "[data-dsc-conn-wrap]"), !(inv.connections || []).length);
-    } else {
-      setHidden(el(panel, "[data-dsc-conn-wrap]"), true);
     }
     setHidden(el(panel, "[data-dsc-overview-wrap]"), !overview.children.length);   // sin filas (p. ej. OAuth fallido) no hay bloque vacío
     return true;
@@ -110,6 +97,7 @@
     submit.setAttribute("aria-busy", "true");
     setHidden(progress, false);
     status.textContent = status.dataset.runningText;
+    log.textContent = status.dataset.runningText + "\n";        // «Detalle técnico» arranca con el estado de inicio (no vacío)
     setHidden(spinner, false);
 
     let done = null;
@@ -138,6 +126,8 @@
             log.scrollTop = log.scrollHeight;
           } else if (event.t === "phase") {
             status.textContent = event.v;                          // hito realmente observado (sin porcentajes)
+            log.textContent += "» " + event.v + "\n";              // el mismo hito queda en «Detalle técnico», en el orden en que el servidor lo observó
+            log.scrollTop = log.scrollHeight;
             setHidden(spinner, !WORKING.has(event.phase));
             finalPhase = WORKING.has(event.phase) ? "" : event.v;
           } else if (event.t === "done") {
@@ -172,6 +162,44 @@
     }
     setHidden(result, !renderSummary(panel, done.summary));
     renderCapture(panel, done.capture, done.operation_id);
+    if (done.catalog_review && window.htmx) {                       // comparación + assessment F1 en el panel central (mismo mecanismo del Catálogo)
+      const stem = (form.getAttribute("action").match(/\/modules\/([^/]+)\//) || [])[1];
+      window.htmx.ajax("GET", "/modules/" + stem + "/connectivity-inventory/review/" + encodeURIComponent(done.operation_id),
+                       { target: "#catalog-detail-slot", swap: "innerHTML" });
+    }
+  }
+
+  async function submitReview(form) {
+    const view = form.closest("[data-conn-review]");
+    const error = el(form, "[data-review-error]");
+    const button = el(form, "[data-review-submit]");
+    setHidden(error, true);
+    const selected = Array.from(form.elements).filter((i) => i.name === "selected" && i.checked).map((i) => i.value);   // casillas de la tabla (atributo `form`)
+    if (!selected.length) { error.textContent = "Elegí al menos una conexión."; setHidden(error, false); return; }
+    const ok = await dwConfirm({ title: "Publicar en el Catálogo", confirmLabel: "Publicar",
+      message: "Se crean o actualizan " + selected.length + " conexión(es) del Catálogo. No se borra ninguna y se conserva lo cargado a mano." });
+    if (!ok) return;
+    const body = new URLSearchParams(new FormData(form));
+    body.set("operation_id", view.dataset.operationId);
+    button.disabled = true;
+    try {
+      const response = await fetch(view.dataset.approveUrl, { method: "POST", body, credentials: "same-origin", cache: "no-store",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" } });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.status !== "PUBLISHED") {
+        error.textContent = data.detail || "No se pudo publicar."; setHidden(error, false); return;
+      }
+      setHidden(form, true);
+      Array.from(form.elements).forEach((i) => { if (i.name === "selected") i.disabled = true; });
+      const done = el(view, "[data-review-done]");
+      const n = data.published.length;
+      el(done, "[data-review-done-msg]").textContent = (n === 1 ? "Se incorporó 1 conexión" : "Se incorporaron " + n + " conexiones") + " al Catálogo.";
+      setHidden(done, false);
+    } catch (_e) {
+      error.textContent = "Error de red: recargá antes de reintentar."; setHidden(error, false);
+    } finally {
+      button.disabled = false;
+    }
   }
 
   // ── F2.2c: captura gobernada OPT-IN (solo llega `done.capture` para el dueño) ─────
@@ -308,6 +336,11 @@
 
   document.addEventListener("submit", (event) => {
     const form = event.target;
+    if (form instanceof HTMLFormElement && form.hasAttribute("data-review-form")) {
+      event.preventDefault();
+      submitReview(form);
+      return;
+    }
     if (form instanceof HTMLFormElement && form.hasAttribute("data-dsc-capture-form")) {
       event.preventDefault();
       submitCapture(form);

@@ -195,27 +195,23 @@ def test_unassigned_space_is_reported_without_scope_not_as_change(bucket, owner,
 
 
 # ═══════════════ integración con el run F2.1 ═══════════════
-def test_f21_run_holds_for_owner_only_and_done_offers_capture(bucket, owner, monkeypatch):
+def test_f21_run_no_longer_offers_capture_in_the_extraction(bucket, owner, monkeypatch):
+    """La captura F2.2c se retiró de la experiencia de extracción (sus servicios siguen): ni el dueño recibe la oferta ni se retiene nada."""
     from webapp.services import connectivity_inventory_service as svc
-    listing, det = _raw()
+    seen = {}
 
     def fake_run(values, secret, *, user_email="", on_phase=None, on_line=None, sleep=None, capture_for=""):
-        held = capsvc.hold("opF", owner=capture_for, client=values.client, host="bio-devqa.eu10.hcs.cloud.sap", inventory=_inv(),
-                           listings={"DEV": listing}, details=det) if capture_for else None
-        return svc.ExtractionOutcome("SUCCESS", operation_id="opF", summary={"inventory": {"status": "COMPLETE"}}, capture=held)
+        seen["capture_for"] = capture_for
+        return svc.ExtractionOutcome("SUCCESS", operation_id="opF", summary={"inventory": {"status": "COMPLETE"}})
     monkeypatch.setattr(svc, "run", fake_run)
     monkeypatch.setattr(svc, "tool_enabled", lambda stem: True)
-    _setup_registry(owner)
     form = {"host": "https://bio-devqa.eu10.hcs.cloud.sap", "token_url": "https://x.authentication.eu10.hana.ondemand.com/oauth/token",
             "datasphere_client_id": "cid", "datasphere_client_secret": "s", "client": "Biogenesis", "space_id": ["DEV"]}
     url = "/modules/01_Arquitectura_y_Conectividad/connectivity-inventory/run"
     done = [json.loads(l) for l in owner.post(url, data=form, headers={"origin": "http://testserver"}).text.splitlines() if l.strip()][-1]
-    assert done["capture"]["expires_in_s"] == 1800 and done["capture"]["suggested"] == "TNT-BIO-1" and done["capture"]["tenants"] == [{"tenant_id": "TNT-BIO-1", "display_name": ""}]
-    assert "host" not in json.dumps(done["capture"]).lower().replace("ghost", "")
-    capsvc._PENDING.clear()
-    c = _client("consultor@danwor.com")
-    done = [json.loads(l) for l in c.post(url, data=form, headers={"origin": "http://testserver"}).text.splitlines() if l.strip()][-1]
-    assert "capture" not in done and capsvc._PENDING == {}
+    assert "capture" not in done and seen["capture_for"] == "" and capsvc._PENDING == {}
+    tpl = (REPO / "webapp" / "templates" / "partials" / "connectivity_inventory_tool.html").read_text(encoding="utf-8")
+    assert "data-dsc-capture" not in tpl
 
 
 def test_observed_source_records_documents_only_when_requested():
@@ -224,13 +220,3 @@ def test_observed_source_records_documents_only_when_requested():
     assert p.listings is None and p.details is None
     p = svc._Progress(["DEV"], record=True)
     assert p.listings == {} and p.details == {}
-
-
-def test_capture_offer_reports_its_30_minute_expiry():
-    assert capsvc.PENDING_TTL_S == 30 * 60
-    src = (REPO / "webapp" / "routers" / "connectivity_inventory.py").read_text(encoding="utf-8")
-    assert '"expires_in_s": capsvc.PENDING_TTL_S' in src
-    js = (REPO / "webapp" / "static" / "connectivity_inventory.js").read_text(encoding="utf-8")
-    assert "Disponible para capturar durante " in js and "data-dsc-capture-expiry" in js
-    tpl = (REPO / "webapp" / "templates" / "partials" / "connectivity_inventory_tool.html").read_text(encoding="utf-8")
-    assert "data-dsc-capture-expiry" in tpl

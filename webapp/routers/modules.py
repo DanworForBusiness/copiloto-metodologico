@@ -75,7 +75,7 @@ _MODULE_TABS = {"section", "tree", "catalogo", "assistant"}
 
 
 @router.get("/modules/{stem}", response_class=HTMLResponse)
-def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK), tab: str = "", tool: str = "", catalog_action: str = ""):
+def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK), tab: str = "", tool: str = "", catalog_action: str = "", catalog_kind: str = ""):
     diagnostic = access.is_diagnostic(request)
     # Fuera de modo diagnóstico, el marco es siempre el productivo (Datasphere).
     selected = resolve_pack(pack) if diagnostic else DEFAULT_PACK
@@ -128,6 +128,9 @@ def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK), ta
         and _dsp_pub.tool_enabled(document.summary.stem) and _dsp_pub.can_execute(request)
         else ""
     )
+    # Opción inicial del Catálogo de conectividad (módulo 01) vía URL (?tab=catalogo&catalog_kind=sap_types, enlace de What's New): lista blanca
+    # de UN valor; el navegador abre su vista central con el MISMO mecanismo que la selección manual (dwCatalogBrowse → dwConnectivityKindChanged).
+    initial_catalog_kind = "sap_types" if (catalog_kind or "").strip().lower() == "sap_types" and initial_tab == "catalogo" else ""
     # `module_viewed` (nombre canónico transversal — ver activity_context /
     # ACTIVITY corrective): reemplaza al histórico `module_selected`, mismo
     # disparador (una vista de módulo). MODULE IDENTIFIER CONVENTION V2 —
@@ -274,6 +277,7 @@ def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK), ta
             "initial_tab": initial_tab,
             "initial_tool": initial_tool,
             "initial_catalog_action": initial_catalog_action,
+            "initial_catalog_kind": initial_catalog_kind,
             "whatsnew_unseen": whatsnew.is_unseen(request, selected),
         },
     )

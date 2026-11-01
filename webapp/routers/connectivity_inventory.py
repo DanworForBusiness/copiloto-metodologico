@@ -76,7 +76,7 @@ def run_connectivity_inventory(
     events: queue.Queue = queue.Queue()
     owner = asd.owner_email(request)
     # F2.2c: solo el DUEÑO puede capturar; para él la observación normalizada queda pendiente (opt-in posterior, en memoria).
-    capture_for = str(user.get("sub") or "").strip().lower() if access.is_owner_user(user) else ""
+    capture_for = ""                                    # captura F2.2c retirada de la experiencia de extracción (servicios intactos, sin uso acá)
 
     def worker() -> None:
         nonlocal secret
@@ -97,11 +97,8 @@ def run_connectivity_inventory(
         done = {"t": "done", "state": outcome.state, "error_code": outcome.error_code, "message": outcome.message,
                 "title": outcome.title, "errors": outcome.errors, "operation_id": outcome.operation_id,
                 "duration_s": outcome.duration_s, "summary": outcome.summary}
-        if outcome.capture:                                                   # sin host ni nombres: solo tenants del cliente y conteos
-            from webapp.services import connectivity_capture_service as capsvc
-            opts = capsvc.options(values.client, outcome.capture["host"])
-            done["capture"] = {"client": values.client, "expires_in_s": capsvc.PENDING_TTL_S,   # la operación viaja en done.operation_id
-                               "spaces": len(outcome.capture["spaces"]), "connections": outcome.capture["connections"], **opts}
+        if outcome.review:                                                    # solo conteos: el detalle (con nombres) va por su ruta, no por el stream B1
+            done["catalog_review"] = {"counts": outcome.review["counts"]}
         events.put(done)
         events.put(None)
 
@@ -117,3 +114,42 @@ def run_connectivity_inventory(
 
     return StreamingResponse(stream(), media_type="application/x-ndjson",
                              headers={**_HEADERS, "X-Accel-Buffering": "no"})
+
+
+# ───────────────────────────── revisión y publicación en el Catálogo ─────────────────────────────
+@router.get("/modules/{stem}/connectivity-inventory/review/{operation_id}", include_in_schema=False)
+def catalog_review(request: Request, stem: str, operation_id: str, pack: str = "datasphere_core"):
+    """Comparación con el Catálogo publicado + assessment F1 de UNA extracción (solo quien la ejecutó). Vista del panel central."""
+    from webapp.services import connectivity_catalog_update as cup
+    from webapp.templating import templates
+    user = auth_service.session_user(request)
+    if not user:
+        raise HTTPException(401, "Sin sesión")
+    if not svc.tool_enabled(stem) or not svc.can_execute(request):
+        raise HTTPException(403, "No autorizado")
+    p = cup.pending(operation_id, asd.owner_email(request))
+    if p is None:
+        raise HTTPException(404, "La revisión ya no está disponible")
+    return templates.TemplateResponse(request=request, name="partials/catalog_connections_review.html", headers=_HEADERS,
+                                      context={"rv": p["view"], "stem": stem, "pack": pack, "is_owner": access.is_owner_user(user),
+                                               "ttl_min": cup.TTL_S // 60})
+
+
+@router.post("/modules/{stem}/connectivity-inventory/approve", include_in_schema=False)
+def catalog_approve(request: Request, stem: str, operation_id: str = Form(...), selected: list[str] = Form([]), rationale: str = Form("")):
+    """Publica en el Catálogo las conexiones elegidas. SOLO el dueño, con motivo; nunca bajas ni duplicados (ver connectivity_catalog_update)."""
+    from fastapi.responses import JSONResponse
+    from webapp.services import connectivity_catalog_update as cup
+    user = _authorize(request, stem)
+    if not access.is_owner_user(user):
+        raise HTTPException(403, "Solo el dueño aprueba cambios en el Catálogo")
+    try:
+        out = cup.approve(operation_id, actor=asd.owner_email(request), selected=list(selected), rationale=rationale)
+    except cup.UpdateRejected as exc:
+        return JSONResponse({"detail": str(exc)}, status_code=409, headers=_HEADERS)
+    except Exception as exc:  # noqa: BLE001 — el Catálogo quedó como estaba (deshacer)
+        log_activity("connectivity_catalog_publish", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG, state="FAILED", error=type(exc).__name__)
+        return JSONResponse({"detail": "No se pudo publicar; el Catálogo quedó como estaba."}, status_code=500, headers=_HEADERS)
+    log_activity("connectivity_catalog_publish", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG, state="SUCCESS",
+                 operation_id=operation_id, published=len(out["published"]), durability=out["durability"], rationale=rationale.strip()[:300])
+    return JSONResponse({"status": "PUBLISHED", **out}, headers=_HEADERS)

@@ -145,6 +145,7 @@ _CATALOG_VERDICT_TEXT = {
     "plena": "Referencia Danwor — reutilizable",
     "buena": "Reutilizable con notas",
     "parcial": "Inspiración conceptual con reservas — no copiar tal cual",
+    "evidencia-insuficiente": "Falta evidencia para evaluar la configuración",
 }
 
 
@@ -1047,6 +1048,15 @@ def _catalog_is_odata(conn) -> bool:
     return _catalog_conn_norm_key(getattr(conn, "type_id", "")) == "odata"
 
 
+def _sap_type_capabilities(type_id: str) -> set:
+    """Capacidades que el contrato `sap-connection-types/v1` declara para el tipo (soporte del TIPO, no disponibilidad de una conexión)."""
+    from webapp.services import sap_connection_catalog
+    for t in sap_connection_catalog.catalog(DEFAULT_PACK).get("types") or []:
+        if t.get("type_id") == type_id:
+            return {c["code"] for c in t.get("capabilities") or []}
+    return set()
+
+
 def _catalog_connection_rows(mod, conn, include_space: bool = False) -> list[tuple[str, str, str]]:
     info = getattr(conn, "info", {}) or {}
     gateway = getattr(conn, "gateway", {}) or {}
@@ -1142,6 +1152,34 @@ def _catalog_connection_rows(mod, conn, include_space: bool = False) -> list[tup
             ("row", "Replication Flows", "Sí" if _catalog_has_feature(mod, conn, "Replication Flows") else "No"),
         ])
         return rows
+
+    if _catalog_conn_norm_key(getattr(conn, "type_id", "")) == "sapsf":
+        # SAP SuccessFactors: conector cloud OData con OAuth. Ni campos ABAP (servidor, mandante, sysid) ni DP Agent / Cloud Connector, que no
+        # aplican. Solo atributos del documento saneado; lo que falta se informa como no disponible. Features: la capacidad SOPORTADA por el tipo
+        # salen del contrato `sap-connection-types/v1` (Sí/No, como en el resto de las fichas).
+        missing = "No disponible"
+
+        def val(value, code: bool = False) -> str:
+            return _catalog_md_value(value, code) if str(value or "").strip() else missing
+        method = _catalog_conn_lookup(info, "authentication") or _catalog_conn_lookup(auth, "auth_type")
+        method_label = "OAuth 2.0" if "oauth" in str(method or "").lower() else (method or missing)
+        supported = _sap_type_capabilities("SAPSF")
+        rows.extend([
+            ("group", "Conectividad", ""),
+            ("row", "Connection type", _catalog_md_value(getattr(conn, "type_id", "") or getattr(conn, "type_label", ""))),
+            ("row", "URL", val(_catalog_conn_lookup(info, "url"), True)),
+            ("row", "Versión", val(_catalog_conn_lookup(info, "version"))),
+            ("group", "Autenticación", ""),
+            ("row", "Método", method_label),
+            ("row", "Grant Type", val(_catalog_conn_lookup(info, "oauth2GrantType"), True)),
+            ("row", "Token Endpoint", val(_catalog_conn_lookup(info, "oauth2TokenEndpoint"), True)),
+            ("row", "Company ID", val(_catalog_conn_lookup(info, "oauth2CompanyId"), True)),
+            ("group", "Features", ""),
+        ])
+        for label, capability in (("Remote tables", "HanaSdi"), ("Data flows", "DataflowSource"), ("Replication Flows", "ReplicationflowSource")):
+            rows.append(("row", label, "Sí" if capability in supported else "No"))   # capacidades del tipo en sap-connection-types/v1
+        return rows
+
 
     if _catalog_is_odata(conn):
         # Origen OData: la conectividad es la URL del servicio + versión (no los campos
@@ -1867,6 +1905,39 @@ def catalog_flow_retire(request: Request, flow: str = Form(""), pack: str = Form
     _invalidate_catalog_cache()
     log_activity("catalog_entry_retired", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG, entry_id=entry_id, cliente=entry.cliente, dominio=entry.dominio,
                  files_requested=want_files, files_deleted=(purged or {}).get("deleted", 0))
+    return templates.TemplateResponse(request=request, name="partials/catalog_retired_tile.html", context={**ctx, "ok": True})
+
+
+@app.post("/catalog/connections/retire", response_class=HTMLResponse, include_in_schema=False)
+def catalog_connections_retire(request: Request, ids: str = Form(""), pack: str = Form(DEFAULT_PACK)):
+    """Retira (LÓGICAMENTE) del Catálogo las conexiones de un tile del Catálogo de conectividad: MISMO mecanismo y política que el retiro de tiles de
+    Dominios (`catalog_governance`: tombstone en `.retired/`, persistido; una regeneración no lo resucita; volver a importar con el «+» lo levanta).
+    Nunca toca SAP Datasphere ni borra fichas. Sin sesión 401; mismo origen; sin permiso 403 aunque la conexión no exista."""
+    import types
+    user = auth_service.session_user(request)
+    if not user:
+        raise HTTPException(401, "Sin sesión")
+    if not same_origin_guard.is_same_origin_write(request):
+        raise HTTPException(403, "Origen no permitido")
+    wanted = [i.strip() for i in (ids or "").split(",") if i.strip()]
+    if not wanted or not all(catalog_governance.can_retire(user, i) for i in wanted):
+        raise HTTPException(403, "No autorizado")
+    _mod, entries = _catalog_architecture_connections()
+    by_id = {e.entry_id: e for e in entries}
+    if any(i not in by_id for i in wanted):
+        raise HTTPException(404, "La conexión ya no está en el Catálogo")
+    actor = str(user.get("sub") or user.get("email") or "")
+    chosen = [by_id[i] for i in wanted]
+    shown = types.SimpleNamespace(cliente=chosen[0].cliente, consumo=[f"{c.space} · {c.connection}" for c in chosen])
+    ctx = {"entry": shown, "pack": _pack(pack), "files": "kept", "restore_hint": "volvé a importarla con el «+» del Catálogo de conectividad"}
+    try:
+        for c in chosen:
+            catalog_governance.retire(types.SimpleNamespace(entry_id=c.entry_id, cliente=c.cliente, dominio=f"{c.space} · {c.connection}"), actor)
+    except catalog_governance.GovernanceStorageError:
+        _invalidate_catalog_cache()
+        return templates.TemplateResponse(request=request, name="partials/catalog_retired_tile.html", context={**ctx, "ok": False})
+    _invalidate_catalog_cache()
+    log_activity("catalog_connection_retired", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG, cliente=chosen[0].cliente, connections=wanted)
     return templates.TemplateResponse(request=request, name="partials/catalog_retired_tile.html", context={**ctx, "ok": True})
 
 

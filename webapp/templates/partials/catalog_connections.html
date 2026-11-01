@@ -12,8 +12,21 @@
       <span class="catalog-meta-dot catalog-meta-dot--{{ g.verdict|catalog_verdict_tone }}" aria-hidden="true"></span>
       <strong>{{ g.type_label if by_type else g.cliente }}</strong>
       <span class="catalog-card__verdict catalog-card__verdict--{{ g.verdict|catalog_verdict_tone }}">{{ g.verdict|catalog_verdict_label }}</span>
+      {#- Retirar del Catálogo: MISMO botón, diálogo y gobierno que los tiles de Dominios (retiro LÓGICO, nunca en SAP). Retira las conexiones de
+          ESTE tile, identificadas por cliente + Space + conexión. -#}
+      {% if request is defined and connections_retirable(request, g.connections) %}
+      <button type="button" class="table-action-btn table-action-btn--danger chart-tooltip-anchor catalog-card__action" data-catalog-retire
+              hx-post="/catalog/connections/retire" hx-vals='{"ids": "{{ g.connections|map(attribute='entry_id')|join(',') }}", "pack": "{{ pack|default('datasphere_core') }}"}' hx-trigger="confirmed" hx-target="closest li" hx-swap="outerHTML"
+              data-dw-confirm-title="Retirar del catálogo" data-dw-confirm-ok="Retirar"
+              data-dw-confirm-message="¿Retirar del Catálogo {{ 'la conexión' if g.connections|length == 1 else 'las conexiones' }} de «{{ g.cliente }}»: {% for c in g.connections %}{{ c.space }} · {{ c.connection }}{% if not loop.last %}, {% endif %}{% endfor %}?&#10;Deja de listarse en el Catálogo Danwor. No se borra nada en SAP Datasphere y se restaura volviendo a importarla con el «+»."
+              aria-label="Retirar del catálogo">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+        <span class="chart-tooltip" aria-hidden="true"><p>Retirar del catálogo</p></span>
+      </button>
+      {% endif %}
     </p>
     <p class="catalog-card__apto">{{ g.verdict|catalog_verdict_text }}</p>
+    {% if g.missing_requirements %}<p class="catalog-card__meta" data-missing-requirements>Falta: {{ g.missing_requirements|join(", ") }}</p>{% endif %}
     {% if g.connection_label %}
     <p class="catalog-card__meta">{{ g.connection_label }} · {{ g.count }} {{ "conexión" if g.count == 1 else "conexiones" }}</p>
     {% else %}

@@ -125,7 +125,8 @@ def _catalog_architecture_connections():
             _sys.path.insert(0, svc_dir)
         import catalog_service as mod
         cat_dir = os.getenv("DANWOR_CATALOG_DIR", "").strip() or str(BASE_DIR / "catalog_local")
-        return mod, mod.load_architecture_connections(cat_dir)
+        from webapp.services import catalog_governance
+        return mod, catalog_governance.visible_entries(mod.load_architecture_connections(cat_dir), cat_dir)   # sin las conexiones retiradas
     except Exception:
         return None, []
 

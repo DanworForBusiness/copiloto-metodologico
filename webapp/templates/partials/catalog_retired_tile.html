@@ -4,6 +4,6 @@
   <p class="catalog-card__head"><strong>{{ entry.cliente }}</strong>{% if entry.consumo %}<span class="catalog-card__consumo"> · {{ entry.consumo|join(", ") }}</span>{% endif %}</p>
   {% if ok and files == "deleted" %}<p class="catalog-card__meta">Retirado del Catálogo y sus archivos fueron eliminados. Para recuperarlo, volvé a generar el catálogo o a publicar el modelo.</p>
   {% elif ok and files == "failed" %}<p class="catalog-card__meta">Retirado del Catálogo, pero no se pudieron eliminar sus archivos (se conservan intactos). Avisá al administrador del Hub si necesitás eliminarlos.</p>
-  {% elif ok %}<p class="catalog-card__meta">Retirado del Catálogo. Deja de listarse; para restaurarlo, volvé a publicar el modelo.</p>
+  {% elif ok %}<p class="catalog-card__meta">Retirado del Catálogo. Deja de listarse; para restaurarlo, {{ restore_hint|default("volvé a publicar el modelo") }}.</p>
   {% else %}<p class="catalog-card__meta">No se pudo retirar: el registro no se confirmó. El tile sigue publicado; reintentá en unos minutos.</p>{% endif %}
 </li>
