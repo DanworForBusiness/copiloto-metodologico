@@ -188,6 +188,22 @@ def test_central_view_renders_filters_search_counter_and_cards():
     assert len(srcs) == 37 and all(src.startswith("http://testserver/static/icons/vendors/sap-datasphere/connection-types/") for src in srcs)
 
 
+def test_central_view_ends_with_the_section_feedback_bar_and_records_it(monkeypatch, tmp_path):
+    html = _central()
+    bar = html[html.index('id="catalog-sfb-disponibilidad-sap"'):]
+    assert html.index('id="catalog-sfb-disponibilidad-sap"') > html.rindex('data-sap-type=')          # al final de la grilla
+    assert 'hx-post="/catalog/section-feedback"' in bar and 'name="slug" value="disponibilidad-sap"' in bar
+    assert "¿Qué te pareció esta sección?" in bar
+    from webapp.routers import feedback as fb
+    monkeypatch.setattr(fb, "FEEDBACK_LOG_DIR", tmp_path)
+    r = _owner().post("/catalog/section-feedback", data={"cliente": "", "dominio": "Disponibilidad SAP", "slug": "disponibilidad-sap",
+                                                        "rating": "up", "fb_prompt": "¿Qué te pareció esta sección?", "pack": "datasphere_core"},
+                      headers={"Origin": "http://testserver"})
+    assert r.status_code == 200 and "Gracias" in r.text
+    saved = list(tmp_path.glob("catalog_section_*.yaml"))
+    assert len(saved) == 1 and "disponibilidad-sap" in saved[0].read_text(encoding="utf-8")
+
+
 def test_central_view_direct_navigation_and_session():
     sap_connection_catalog.catalog.cache_clear()
     full = _owner().get("/catalog/sap-types?pack=datasphere_core")
