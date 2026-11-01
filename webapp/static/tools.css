@@ -2453,9 +2453,6 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 .sap-types-view .dashboard-section { margin: 0; }
 .sap-types-toolbar__groups { flex: 1 1 100%; display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); align-items: start; gap: 16px 28px; margin-top: 6px; }
 .sap-types-toolbar__groups .dashboard-checkbox-option { display: flex; font-weight: 400; }   /* `.feedback-field label` la ponía en 650; la marcada se resalta igual que en el Hub */
-/* Título de la vista: misma escala que los h1 de las páginas centrales de CCHH (human_capital.css: clamp(1.7rem, 2.6vw, 2.3rem)); `.asr-title` sola no
-   alcanza porque `.module-hero h1` (app.css) tiene más especificidad, y no se toca el informe de Assessment. */
-.module-hero.sap-types-hero h1 { font-size: clamp(1.7rem, 2.6vw, 2.3rem); line-height: 1.1; }
 /* Grilla de tarjetas LIMPIAS (nombre + ícono, como el selector de SAP): ancho mínimo legible; el ancho disponible decide cuántas entran. */
 .catalog-flows-list--grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); align-items: start; }
 .sap-type-card .catalog-card__head { min-height: 2.6em; }

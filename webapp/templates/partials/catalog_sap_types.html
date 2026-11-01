@@ -17,7 +17,7 @@
       <label for="catalog-sap-search">Buscar</label>
       <input type="text" id="catalog-sap-search" x-model="q" @input="apply()" @keydown.escape="clear()" aria-label="Buscar por nombre o typeId" placeholder="Nombre visible o typeId..." autocomplete="off">
     </div>
-    <button type="button" class="btn-secondary" @click="clear()" :disabled="!active">Limpiar</button>
+    <button type="button" class="whatsnew-filter__clear" @click="clear()">✕ Limpiar</button>
     <div class="sap-types-toolbar__groups">
       {% for key, label in (("capabilities", "Capacidades"), ("categories", "Categorías"), ("sources", "Orígenes"), ("requirements", "Requisitos")) %}
       <div class="feedback-field">

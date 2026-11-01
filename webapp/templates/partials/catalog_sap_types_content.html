@@ -1,17 +1,12 @@
 {# Vista CENTRAL «Disponibilidad SAP» (Catálogo de conectividad, módulo 01). Se carga con el mecanismo de siempre del panel central
-   (`hx-get` → #catalog-detail-slot; «← Volver» = dwCatalogBack). Composición de las páginas centrales existentes, sin estilos propios:
-   barra `.catalog-actionbar` + hero operativo del informe de Assessment (`.module-hero.asr-hero` + `h1.asr-title`, divisor y aire calibrados)
-   con el subtítulo `.hero-lead.full-page-subtitle` de Presentaciones/CRM dentro del hero. #}
+   (`hx-get` → #catalog-detail-slot; «← Volver» = dwCatalogBack). Barra `.catalog-actionbar` de las vistas centrales y encabezado con el
+   MISMO markup que las secciones de los módulos (`{dw-black}` / `{dw-gold}` → `.tone-black` / `.tone-gold`): `.methodology` +
+   `.content-heading` (eyebrow + h2) + bajada `.section-subtitle` con su separador vertical. Tamaño, familia y colores salen de esas reglas. #}
 <div class="catalog-actionbar">
   <a class="catalog-back" href="#" onclick="return dwCatalogBack();">&larr; Volver</a>
 </div>
-<section class="module-hero asr-hero sap-types-hero">
-  <p class="eyebrow">Cat&aacute;logo de conectividad &middot; Disponibilidad SAP</p>
-  <h1 class="asr-title">Tipos de conexi&oacute;n de SAP Datasphere</h1>
-  <p class="hero-lead full-page-subtitle">Explor&aacute; los tipos de conector que ofrece SAP Datasphere: qu&eacute; capacidades declara cada uno (Data Flows, Replication Flows, Remote Tables, Model Import, API Tasks), si es Cloud u On-Premise, su origen y qu&eacute; requisitos t&eacute;cnicos declara. Abr&iacute; una tarjeta para ver sus features y su detalle t&eacute;cnico.</p>
-  <div class="hero-meta">
-    <span>{{ sap.total }} tipos de conexi&oacute;n</span>
-    <span data-sap-notice title="{{ sap.notice }}">Snapshot de referencia</span>
-  </div>
-</section>
+<article class="methodology sap-types-intro">
+  <header class="content-heading has-subtitle"><div class="content-heading-copy"><span class="section-eyebrow">Catálogo de conectividad · Disponibilidad SAP</span><h2><span class="tone-black">Tipos de conexión de </span><span class="tone-gold">SAP Datasphere</span></h2></div></header>
+  <blockquote class="section-subtitle"><p>Explorá los tipos de conector que ofrece SAP Datasphere: qué capacidades declara cada uno (Data Flows, Replication Flows, Remote Tables, Model Import, API Tasks), si es Cloud u On-Premise, su origen y qué requisitos técnicos declara. Abrí una tarjeta para ver sus features y su detalle técnico. <span data-sap-notice>{{ sap.notice }}</span></p></blockquote>
+</article>
 {% include "partials/catalog_sap_types.html" %}

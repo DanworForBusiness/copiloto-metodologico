@@ -170,7 +170,8 @@ def test_central_view_renders_filters_search_counter_and_cards():
     html = _central()
     assert html.lstrip().startswith('<div class="catalog-actionbar">')                          # barra de acciones de las vistas centrales
     assert '<a class="catalog-back" href="#" onclick="return dwCatalogBack();">' in html          # mismo «← Volver» del panel central
-    assert '<section class="module-hero asr-hero sap-types-hero">' in html and '<h1 class="asr-title">' in html  # hero operativo de las vistas centrales
+    assert '<header class="content-heading has-subtitle">' in html and '<blockquote class="section-subtitle">' in html  # encabezado de sección del Hub
+    assert '<span class="tone-black">Tipos de conexión de </span><span class="tone-gold">SAP Datasphere</span>' in html   # {dw-black} / {dw-gold}
     assert 'class="hc-profile-filters filter-toolbar-card sap-types-toolbar"' in html             # barra de filtros compartida del Hub
     assert "catalog-feature-chip--on" not in html and html.count('status-badge status-badge--otro') > 37   # atributos neutros, no «éxito»
     assert "Disponibilidad SAP" in html and 'x-data="dwSapTypes(37)"' in html and "data-sap-view" in html
