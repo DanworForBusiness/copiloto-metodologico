@@ -1185,8 +1185,8 @@ def test_whats_new_announces_the_assessment_with_a_cta_to_the_real_tool_target(o
     assert e["detail"].startswith("Conectáte a tus modelos de datos")
     assert not re.search(r"scor|puntaje|madurez|CSN|run_export|result_id|directorio", e["detail"], re.I)       # producto, no implementación
     assert e["link"] == f"/modules/{STEM}?pack=datasphere_core&tool=assessment"
-    newest = wn.entries("datasphere_core")[0]
-    assert newest["ref"] == "datasphere-assessment"                                                          # la más nueva (convención: fecha desc)
+    refs = [x["ref"] for x in wn.entries("datasphere_core")]
+    assert refs[:2] == ["catalogo-conectividad-sap", "datasphere-assessment"]                               # fecha desc: 2026-11-01 publicó Disponibilidad SAP encima
     for old_ref in ("data-products-bdc", "d6147d5", "0722a31", "catalogos-danwor"):
         assert old_ref in items                                                                              # las anteriores siguen intactas
 
