@@ -1156,7 +1156,7 @@ def _catalog_connection_rows(mod, conn, include_space: bool = False) -> list[tup
     if _catalog_conn_norm_key(getattr(conn, "type_id", "")) == "sapsf":
         # SAP SuccessFactors: conector cloud OData con OAuth. Ni campos ABAP (servidor, mandante, sysid) ni DP Agent / Cloud Connector, que no
         # aplican. Solo atributos del documento saneado; lo que falta se informa como no disponible. Features: la capacidad SOPORTADA por el tipo
-        # sale del contrato `sap-connection-types/v1`; lo que la conexión declara en su export se muestra aparte y un flag ausente no es «No».
+        # salen del contrato `sap-connection-types/v1` (Sí/No, como en el resto de las fichas).
         missing = "No disponible"
 
         def val(value, code: bool = False) -> str:
@@ -1176,15 +1176,8 @@ def _catalog_connection_rows(mod, conn, include_space: bool = False) -> list[tup
             ("row", "Company ID", val(_catalog_conn_lookup(info, "oauth2CompanyId"), True)),
             ("group", "Features", ""),
         ])
-        for label, capability, keys in (("Remote tables", "HanaSdi", ("remoteTables",)),
-                                        ("Data flows", "DataflowSource", ("dataflows",)),
-                                        ("Replication Flows", "ReplicationflowSource", ("replicationflows",))):
-            declared = _catalog_conn_lookup(feats, *keys)
-            by_type = "soportado por el tipo" if capability in supported else "no soportado por el tipo"
-            if declared:
-                rows.append(("row", label, f"{_catalog_bool_text(declared)} en esta conexión · {by_type}"))
-            else:
-                rows.append(("row", label, f"{by_type.capitalize()} · no informado por esta conexión"))
+        for label, capability in (("Remote tables", "HanaSdi"), ("Data flows", "DataflowSource"), ("Replication Flows", "ReplicationflowSource")):
+            rows.append(("row", label, "Sí" if capability in supported else "No"))   # capacidades del tipo en sap-connection-types/v1
         return rows
 
 

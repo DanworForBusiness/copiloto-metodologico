@@ -337,9 +337,7 @@ def test_sapsf_card_shows_its_own_connectivity_auth_and_features():
     assert rows["URL"] == "`https://api19.sapsf.com/odata/v2`" and rows["Versión"] == "V2" and rows["Método"] == "OAuth 2.0"
     assert rows["Grant Type"] == "`saml_bearer`" and rows["Company ID"] == "`contrerash`" and rows["Token Endpoint"] == "No disponible"
     assert not {"Application Server", "System Number", "Mandante", "Idioma", "Configurado", "Data Provisioning Agent"} & set(rows)
-    assert rows["Remote tables"] == "Soportado por el tipo · no informado por esta conexión"           # flag ausente ≠ «No»
-    assert rows["Data flows"] == "Sí en esta conexión · soportado por el tipo"
-    assert rows["Replication Flows"] == "No en esta conexión · no soportado por el tipo"
+    assert (rows["Remote tables"], rows["Data flows"], rows["Replication Flows"]) == ("Sí", "Sí", "No")   # capacidades de SAPSF en el JSON de conectividad SAP
 
 
 def test_abap_card_keeps_its_template():
