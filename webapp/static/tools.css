@@ -2445,6 +2445,16 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
    en total con el relleno y el separador anteriores). Sin margen propio, el primer tile arranca a los 14px normales de una lista. */
 .catalog-picker--search .whatsnew-filters { margin: 0; }
 .catalog-flows-list > li[hidden] { display: none; }
+/* «Disponibilidad SAP» (Catálogo de conectividad, módulo 01) en el PANEL CENTRAL: filtros por grupo a la izquierda (casillas `.dashboard-checkbox-*`)
+   y resultados a la derecha (búsqueda, contador y grilla de `.catalog-card`), como el selector nativo de SAP. En pantallas angostas, una columna. */
+.sap-types-layout { display: grid; grid-template-columns: minmax(160px, 196px) minmax(0, 1fr); gap: 22px; align-items: start; margin-top: 16px;
+  /* En el panel central rigen los tokens SEMÁNTICOS del contenido (content.css, por tema), no los del panel lateral (`--card` & cía.). */
+  --card: var(--content-tile); --ink: var(--content-ink); --soft: var(--content-ink-soft); --dim: var(--content-ink-dim); --line: var(--content-line); }
+.sap-types-filters { position: sticky; top: 12px; display: flex; flex-direction: column; gap: 16px; }
+.sap-types-group .dashboard-checkbox-option { display: flex; }
+.sap-types-group__count { margin-left: auto; color: var(--dim); font-weight: 500; }
+.catalog-flows-list--grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(185px, 1fr)); align-items: start; }
+@media (max-width: 900px) { .sap-types-layout { grid-template-columns: minmax(0, 1fr); } .sap-types-filters { position: static; } }
 /* El buscador ocupa el ancho del 2.º dropdown (el `.whatsnew-filter--fill` estira al contenedor; el input se ajusta a él). */
 .catalog-picker--secondary .whatsnew-filter--fill input[type="search"] { width: 100%; }
 .catalog-picker--bare + #catalog-publish-state form > input[type="hidden"] + .tree-picker,

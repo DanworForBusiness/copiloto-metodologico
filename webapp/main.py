@@ -1473,6 +1473,34 @@ def catalog_connection_detail(
     )
 
 
+@app.get("/catalog/sap-types", response_class=HTMLResponse, include_in_schema=False)
+def catalog_sap_types(request: Request, pack: str = Query(DEFAULT_PACK)):
+    # «Disponibilidad SAP» del Catálogo de conectividad (módulo 01): vista del PANEL CENTRAL sobre el snapshot saneado del pack
+    # (sap-connection-types/v1, validado; ver webapp/services/sap_connection_catalog). Determinístico y sin tokens. Mismo patrón que el
+    # detalle de conexiones: HTMX → fragmento en #catalog-detail-slot; navegación directa → página completa con shell + nav.
+    user = auth_service.session_user(request)
+    if not user:
+        return _login_redirect(request, _pack(pack))
+    from webapp.services import sap_connection_catalog
+    selected = _pack(pack) if _diagnostic(request) else DEFAULT_PACK
+    context = {"pack": selected, "sap": sap_connection_catalog.catalog(selected)}
+    if request.headers.get("HX-Request"):
+        return templates.TemplateResponse(request=request, name="partials/catalog_sap_types_content.html", context=context)
+    academy = [a for a in list_academy(selected) if not a.nav_hidden]
+    context.update({
+        "modules": list_modules(selected),
+        "appendices": [a for a in list_appendices(selected) if not a.nav_hidden],
+        "academy": academy,
+        "academy_assets": {a.stem: academy_asset_for(a.stem, selected) for a in academy},
+        "active_group": "", "active_stem": "",
+        "readonly": _readonly(request), "user": user,
+        "current_workspace": workspaces.COPILOT,
+        "available_workspaces": workspaces.available_workspaces(user),
+        "pack_label": content_pack_short_label(selected),
+    })
+    return templates.TemplateResponse(request=request, name="catalog_sap_types_page.html", context=context)
+
+
 
 
 

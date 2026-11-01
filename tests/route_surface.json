@@ -27,6 +27,7 @@
   "GET /catalog/flow/assessment.md",
   "GET /catalog/guide/{slug}",
   "GET /catalog/lob",
+  "GET /catalog/sap-types",
   "GET /catalog/security",
   "GET /catalog/security/detail",
   "GET /catalog/sql",

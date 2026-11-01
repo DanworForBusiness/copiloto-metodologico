@@ -1,5 +1,6 @@
 """Catálogo de conectividad del módulo 01: dropdown «Catálogo de conectividad» (Conexiones · Clientes · Disponibilidad SAP) con la mecánica
-del 04; Clientes sobre conexiones PUBLICADAS (`connections_for_client`); Disponibilidad SAP SOLO desde el snapshot saneado del pack."""
+del 04; Clientes sobre conexiones PUBLICADAS (`connections_for_client`); Disponibilidad SAP SOLO desde el snapshot saneado del pack y en el PANEL
+CENTRAL (`GET /catalog/sap-types` → #catalog-detail-slot): en el panel derecho queda únicamente como opción de navegación."""
 from __future__ import annotations
 
 import json
@@ -10,8 +11,10 @@ from types import SimpleNamespace
 
 import pytest
 
+from fastapi.testclient import TestClient
+
 import webapp.main as main
-from webapp.services import catalog_reads, sap_connection_catalog
+from webapp.services import auth_service, catalog_reads, sap_connection_catalog
 
 REPO = Path(__file__).resolve().parents[2]
 PACK_JSON = REPO / "content_packs" / "datasphere_core" / "sap_connection_types.json"
@@ -49,6 +52,19 @@ def render(number, stem, **over):
 def _sap_section(html):
     start = html.index('data-catalog-kind="sap_types"')
     return html[start:]
+
+
+def _owner():
+    c = TestClient(main.app)
+    c.cookies.set(auth_service.COOKIE_NAME, auth_service.create_session({"email": "owner@danwor.com", "name": "T", "first_name": "T", "family_name": "U"}))
+    return c
+
+
+def _central():
+    sap_connection_catalog.catalog.cache_clear()
+    r = _owner().get("/catalog/sap-types?pack=datasphere_core", headers={"HX-Request": "true"})
+    assert r.status_code == 200
+    return r.text
 
 
 # ═══════════════ navegación (dropdown 1) ═══════════════
@@ -140,25 +156,47 @@ def test_requirements_are_presented_in_three_states():
     assert t["ABAP"]["title"] == "SAP ABAP"
 
 
-def test_sap_cards_render_with_notice_conditional_badge_and_original_icon_location():
+def test_right_panel_keeps_sap_availability_only_as_navigation():
     sap_connection_catalog.catalog.cache_clear()
-    sec = _sap_section(render(*M01))
+    html = render(*M01)
+    sec = _sap_section(html)
+    assert "data-sap-type" not in html and "data-sap-filter" not in html and "dwSapTypes" not in html     # sin tarjetas, filtros ni resultados
+    assert 'hx-get="/catalog/sap-types?pack=datasphere_core" hx-target="#catalog-detail-slot" hx-swap="innerHTML" hx-trigger="click, dw-sap-open"' in sec
+    assert "37 tipos de conexión" in sec
+    assert "dwConnectivityKindChanged(catalogKind, $refs.sapOpen)" in html                               # elegir la opción abre / salir cierra
+
+
+def test_central_view_renders_filters_search_counter_and_cards():
+    html = _central()
+    assert html.lstrip().startswith('<a class="catalog-back" href="#" onclick="return dwCatalogBack();">')   # mismo «← Volver» del panel central
+    assert "Disponibilidad SAP" in html and 'x-data="dwSapTypes(37)"' in html and "data-sap-view" in html
+    groups = re.findall(r'id="sap-filter-(\w+)">([^<]+)</span>', html)
+    assert groups == [("capabilities", "Capacidades"), ("categories", "Categorías"), ("sources", "Orígenes"), ("requirements", "Requisitos")]
+    assert html.count('type="checkbox"') == sum(len(v) for v in sap_connection_catalog.catalog("datasphere_core")["filters"].values())
+    assert 'id="catalog-sap-search"' in html and "Tipos de conexión (37 de 37)" in html and "catalog-flows-list--grid" in html
     doc = json.loads(PACK_JSON.read_text(encoding="utf-8"))
-    assert re.findall(r'data-sap-type="([^"]+)"', sec) == [t["type_id"] for t in doc["connection_types"]]
-    assert re.findall(r'data-icon-location="([^"]+)"', sec) == [t["icon_location"] for t in doc["connection_types"]]
-    assert sec.count("data-sap-conditional") == 1 and "No garantiza disponibilidad en todos los tenants" in sec
-    assert 'data-sap-requirement="dp_agent_required:null"' in sec and "No declarado" in sec
-    assert "<img" not in sec                                                 # todavía sin biblioteca de imágenes
-    assert "37 de 37 tipos de conexión" in sec and 'x-data="dwSapTypes(37)"' in sec
+    assert re.findall(r'data-sap-type="([^"]+)"', html) == [t["type_id"] for t in doc["connection_types"]]
+    assert re.findall(r'data-icon-location="([^"]+)"', html) == [t["icon_location"] for t in doc["connection_types"]]
+    assert html.count("data-sap-conditional") == 1 and "No garantiza disponibilidad en todos los tenants" in html
+    assert 'data-sap-requirement="dp_agent_required:null"' in html and "No declarado" in html
+    assert "<img" not in html                                                # todavía sin biblioteca de imágenes
 
 
-def test_sap_section_never_exposes_tenant_or_operational_data():
+def test_central_view_direct_navigation_and_session():
     sap_connection_catalog.catalog.cache_clear()
-    sec = _sap_section(render(*M01))
-    assert not re.search(r"\b\d{1,3}(?:\.\d{1,3}){3}\b", sec)                  # IPs
-    assert not re.search(r"\b[a-z][a-z0-9+.-]*://", sec, re.I)                 # URLs (iFrame de partners, etc.)
+    full = _owner().get("/catalog/sap-types?pack=datasphere_core")
+    assert full.status_code == 200 and "<title>Disponibilidad SAP" in full.text and 'id="content"' in full.text and "data-sap-view" in full.text
+    anon = TestClient(main.app).get("/catalog/sap-types?pack=datasphere_core", follow_redirects=False)
+    assert anon.status_code in (302, 303, 307) and "data-sap-type" not in anon.text
+
+
+def test_central_view_never_exposes_tenant_or_operational_data():
+    view = _central()
+    view = view[view.index("data-sap-view"):]
+    assert not re.search(r"\d{1,3}(?:\.\d{1,3}){3}", view)                  # IPs
+    assert not re.search(r"[a-z][a-z0-9+.-]*://", view, re.I)                 # URLs (iFrame de partners, etc.)
     for marker in ("dpAgents", "agentName", "ipAddresses", "featureFlag", "iFrame", "ocnInstances", "ocnConfigured", "connected"):
-        assert marker not in sec, marker
+        assert marker not in view, marker
 
 
 def test_a_tampered_snapshot_fails_closed(monkeypatch, tmp_path):
@@ -171,7 +209,8 @@ def test_a_tampered_snapshot_fails_closed(monkeypatch, tmp_path):
     sap_connection_catalog.catalog.cache_clear()
     try:
         assert sap_connection_catalog.catalog("datasphere_core")["types"] == []
-        assert "Sin snapshot de referencia" in _sap_section(render(*M01))
+        r = _owner().get("/catalog/sap-types?pack=datasphere_core", headers={"HX-Request": "true"})
+        assert "Sin snapshot de referencia" in r.text and "data-sap-type" not in r.text
     finally:
         sap_connection_catalog.catalog.cache_clear()
 

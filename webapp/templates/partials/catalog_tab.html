@@ -44,7 +44,7 @@
     {% endif %}
   </div>
   <div class="tree-picker-row" x-show="catalogView !== 'extract'">
-    <select id="catalog-conn-kind" x-model="catalogKind" @change="resetPick()">
+    <select id="catalog-conn-kind" x-model="catalogKind" @change="resetPick(); dwConnectivityKindChanged(catalogKind, $refs.sapOpen)">
       <option value="connections">Conexiones</option>
       <option value="clients">Clientes</option>
       <option value="sap_types">Disponibilidad SAP</option>
@@ -114,7 +114,16 @@
   </div>
 
   <div x-show="catalogKind === 'sap_types'" x-cloak data-catalog-kind="sap_types">
-    {% include "partials/catalog_sap_types.html" %}
+    {#- Disponibilidad SAP se CONSULTA en el panel central (el explorador es el contenido final): acá queda solo la opción de navegación. Elegirla
+        dispara este mismo enlace (`dw-sap-open`, ver dwConnectivityKindChanged); el enlace también la reabre después de «← Volver». -#}
+    <div class="catalog-flows">
+      <div class="tool-empty">
+        <span>{{ sap.total }} tipos de conexión</span>
+        <p>Snapshot de referencia del catálogo de tipos de conexión de SAP Datasphere. Se consulta en el panel central, con búsqueda y filtros.</p>
+      </div>
+    </div>
+    <p class="tool-suggest__link"><a href="/catalog/sap-types?pack={{ pack }}" x-ref="sapOpen" data-sap-open
+       hx-get="/catalog/sap-types?pack={{ pack }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" hx-trigger="click, dw-sap-open" @click.prevent><strong>Disponibilidad SAP</strong> Abrir en el panel central →</a></p>
   </div>
 
 </div>

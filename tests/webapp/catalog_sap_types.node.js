@@ -1,5 +1,5 @@
 // Ejecuta el `dwSapTypes` REAL (extraído de webapp/static/app.js, con el `DwCatalogSearch.fold` real) contra tarjetas mínimas y verifica la
-// búsqueda por nombre visible/typeId (sin mayúsculas ni tildes), los filtros combinables (todos deben cumplirse), el contador y «Limpiar».
+// búsqueda por nombre visible/typeId (sin mayúsculas ni tildes), los filtros por grupo (O dentro del grupo, Y entre grupos), el contador y «Limpiar».
 // También verifica que `dwCatalogBrowse` arranque en el catálogo pedido (módulo 01) y en ninguno sin argumento (módulo 04, sin cambios).
 // Uso: node tests/webapp/catalog_sap_types.node.js  (exit 0 = OK)
 const fs = require("fs");
@@ -51,22 +51,26 @@ check(visible().join() === "GENERICHTTP", "búsqueda por typeId");
 c.q = "sap abap"; c.apply();
 check(visible().join() === "ABAP", "varias palabras: todas deben aparecer");
 c.clear();
-c.filters.sources = "NonSAP"; c.apply();
+c.filters.sources = ["NonSAP"]; c.apply();
 check(visible().join() === "BIGQUERY,MYSQL", "filtro de origen");
-c.filters.capabilities = "ReplicationflowSource"; c.apply();
-check(visible().join() === "MYSQL", "origen + capacidad se combinan (AND)");
-c.filters.capabilities = ""; c.filters.requirements = "dp_agent_required:false"; c.apply();
+c.filters.capabilities = ["ReplicationflowSource"]; c.apply();
+check(visible().join() === "MYSQL", "grupos distintos se combinan (Y)");
+c.filters.capabilities = ["ReplicationflowSource", "ApiTasks"]; c.filters.sources = []; c.apply();
+check(visible().join() === "ABAP,MYSQL,GENERICHTTP", "opciones del MISMO grupo se suman (O)");
+c.filters.capabilities = []; c.filters.requirements = ["dp_agent_required:false"]; c.apply();
 check(visible().join() === "BIGQUERY", "requisito en estado «no requerido»");
-c.filters.sources = ""; c.filters.requirements = "dp_agent_required:true"; c.apply();
+c.filters.requirements = ["dp_agent_required:true"]; c.apply();
 check(visible().join() === "ABAP", "requisito en estado «requerido» (no confunde «no declarado»)");
-c.filters.requirements = "availability:conditional"; c.apply();
+c.filters.requirements = ["availability:conditional"]; c.apply();
 check(visible().join() === "MYSQL", "disponibilidad condicional");
-c.filters.requirements = ""; c.filters.categories = "OnPremise"; c.apply();
+c.filters.requirements = []; c.filters.categories = ["OnPremise"]; c.apply();
 check(visible().join() === "ABAP,GENERICHTTP", "categoría On-Premise (código exacto, no subcadena)");
-c.filters.categories = "Cloud"; c.apply();
+c.filters.categories = ["Cloud"]; c.apply();
 check(c.shown === 0, "un código parcial no coincide (CloudApp ≠ Cloud)");
+check(c.active === true, "hay criterios activos (habilita «Limpiar»)");
 c.clear();
-check(c.shown === 5 && c.q === "" && Object.values(c.filters).every((v) => v === ""), "«Limpiar» restablece búsqueda y filtros");
+check(c.shown === 5 && c.q === "" && Object.values(c.filters).every((v) => Array.isArray(v) && v.length === 0) && c.active === false,
+      "«Limpiar» restablece búsqueda y filtros");
 const details = { open: false };
 c.toggle({ querySelector: () => details });
 check(details.open === true, "click en la tarjeta abre su detalle técnico");

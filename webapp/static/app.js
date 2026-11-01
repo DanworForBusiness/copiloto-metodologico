@@ -1005,21 +1005,23 @@ function dwCatalogBrowse(defaultKind) {
     },
   };
 }
-// «Disponibilidad SAP» (Catálogo de conectividad, módulo 01): tarjetas YA renderizadas por el servidor desde el snapshot saneado. Búsqueda en
-// vivo por nombre visible o typeId (`data-search`, sin mayúsculas ni tildes: `DwCatalogSearch.fold`) + filtros combinables por código del
-// snapshot (`data-sources|categories|capabilities|requirements`): una tarjeta se muestra solo si cumple TODO. Nunca pide nada al servidor.
+// «Disponibilidad SAP» (Catálogo de conectividad, módulo 01): vista del PANEL CENTRAL con las tarjetas YA renderizadas por el servidor desde el
+// snapshot saneado. Búsqueda en vivo por nombre visible o typeId (`data-search`, sin mayúsculas ni tildes: `DwCatalogSearch.fold`) + filtros por grupo
+// (casillas, como el selector nativo de SAP): dentro de un grupo basta UNA opción marcada (O); entre grupos deben cumplirse todos (Y). Los valores son
+// códigos del snapshot (`data-sources|categories|capabilities|requirements`). Nunca pide nada al servidor.
 function dwSapTypes(total) {
   return {
-    q: "", filters: { sources: "", categories: "", capabilities: "", requirements: "" }, total: total || 0, shown: total || 0,
+    q: "", filters: { capabilities: [], categories: [], sources: [], requirements: [] }, total: total || 0, shown: total || 0,
     init() { this.apply(); },                                   // el navegador puede restaurar valores de los controles al volver a la página
+    get active() { return Object.values(this.filters).some(v => v.length) || !!this.q; },
     apply() {
       const tokens = DwCatalogSearch.fold(this.q).split(/\s+/).filter(Boolean);
-      const wanted = Object.entries(this.filters).filter(([, v]) => v);
+      const wanted = Object.entries(this.filters).filter(([, v]) => v.length);
       let shown = 0;
       (this.$refs.list ? Array.from(this.$refs.list.children) : []).forEach(li => {
         const text = DwCatalogSearch.fold(li.dataset.search);
         const ok = tokens.every(t => text.includes(t))
-          && wanted.every(([key, value]) => (li.dataset[key] || "").split(" ").includes(value));
+          && wanted.every(([key, values]) => { const own = (li.dataset[key] || "").split(" "); return values.some(v => own.includes(v)); });
         li.hidden = !ok;
         if (ok) shown++;
       });
@@ -1027,13 +1029,25 @@ function dwSapTypes(total) {
     },
     clear() {
       this.q = "";
-      Object.keys(this.filters).forEach(k => { this.filters[k] = ""; });
+      Object.keys(this.filters).forEach(k => { this.filters[k] = []; });
       this.apply();
     },
     toggle(li) { const d = li.querySelector("details"); if (d) d.open = !d.open; },
   };
 }
 window.dwSapTypes = dwSapTypes;
+
+// Dropdown 1 del Catálogo de conectividad: elegir «Disponibilidad SAP» la ABRE en el panel central con el mecanismo de siempre (el `hx-get` del
+// enlace `opener` hacia #catalog-detail-slot); salir de esa opción cierra la vista central si es la que está abierta (`dwCatalogBack`), sin dejar
+// contenido residual. Las demás vistas centrales (detalle de una conexión) no se tocan.
+function dwConnectivityKindChanged(kind, opener) {
+  if (kind === "sap_types") {
+    if (opener && window.htmx) window.htmx.trigger(opener, "dw-sap-open");
+  } else if (document.querySelector("#catalog-detail-slot [data-sap-view]")) {
+    window.dwCatalogBack();
+  }
+}
+window.dwConnectivityKindChanged = dwConnectivityKindChanged;
 document.body.addEventListener("htmx:load", syncAssistantFeedbackState);
 
 // Reordenamiento drag-and-drop de grupos colapsables dentro de un dashboard.
