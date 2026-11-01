@@ -1,0 +1,244 @@
+{# Vista CENTRAL «Tenants y ambientes» (Catálogo de conectividad, módulo 01, F2.2c.1) sobre el registro gobernado `connectivity-registry/v1`.
+   Mismo mecanismo y encabezado que «Disponibilidad SAP» (hx-get → #catalog-detail-slot; «← Volver» = dwCatalogBack; `.methodology` +
+   `.content-heading` + `.section-subtitle`). Solo COMPOSICIÓN de primitivos del Hub: barra `.hc-profile-filters.filter-toolbar-card` +
+   `.feedback-field` (selector y formularios), `.dashboard-section` con contador, tablas `.matrix-scroll`, `.status-badge`, `.feedback-error`,
+   `.section-analysis-loading` y el diálogo compartido `dwConfirmChoice`. Lectura: quien accede al cliente; formularios: SOLO el dueño
+   (la autorización real la impone el backend). Los envíos los maneja `dwRegistryForms` (app.js). #}
+{%- macro ts(v) -%}{{ (v or '')[:16]|replace('T', ' ') }}{% if v %} UTC{% endif %}{%- endmacro -%}
+{%- macro provenance() -%}
+<div class="feedback-field">
+  <label>Procedencia</label>
+  <select name="provenance_kind"><option value="owner_declaration">Declaración del responsable</option><option value="evidence_review">Revisión de evidencia</option></select>
+</div>
+<div class="feedback-field">
+  <label>Referencia de evidencia <span class="catalog-note__ev">(opcional)</span></label>
+  <input type="text" name="evidence_ref" maxlength="200" autocomplete="off" placeholder="Ticket, acta o documento">
+</div>
+{%- endmacro -%}
+{%- macro form_tail(label) -%}
+<div class="feedback-field feedback-field--wide">
+  <label>Motivo</label>
+  <input type="text" name="rationale" required maxlength="500" autocomplete="off" placeholder="Por qué se registra este cambio (obligatorio)">
+</div>
+{{ provenance() }}
+<input type="hidden" name="request_id" value="{{ cr.request_id() }}">
+<button type="submit" class="btn-primary">{{ label }}</button>
+<div class="section-analysis-loading" role="status" data-cr-progress hidden><span class="section-analysis-spinner"></span><span class="section-analysis-loading-copy">Registrando y confirmando…</span></div>
+<div class="feedback-error" role="alert" data-cr-error hidden><strong data-cr-error-title></strong> <span data-cr-error-msg></span></div>
+{%- endmacro -%}
+<div class="connectivity-registry-page" data-registry-view
+     data-view-url="/catalog/connectivity-registry?pack={{ pack }}&client={{ cr.client|urlencode }}">
+<div class="catalog-actionbar">
+  <a class="catalog-back" href="#" onclick="return dwCatalogBack();">&larr; Volver</a>
+</div>
+<article class="methodology sap-types-intro">
+  <header class="content-heading has-subtitle"><div class="content-heading-copy"><span class="section-eyebrow eyebrow">Catálogo de conectividad · Tenants y ambientes</span><h2><span class="tone-black">Tenants</span> <span class="tone-gold">y ambientes</span></h2></div></header>
+  <blockquote class="section-subtitle" data-registry-notice><p>Registro gobernado de qué tenant pertenece a cada cliente, por qué hosts se accede y qué ambiente (DEV, QAS o PRD) cumple cada Space. <strong>Registrar un ambiente no homologa conexiones</strong>: no declara que las conexiones de un Space equivalgan a las de otro ambiente. Cada cambio queda en el historial con su motivo; nada se borra.</p></blockquote>
+</article>
+
+<div class="methodology connectivity-registry-view">
+  <form class="hc-profile-filters filter-toolbar-card" hx-get="/catalog/connectivity-registry" hx-target="#catalog-detail-slot" hx-swap="innerHTML" hx-trigger="change" data-registry-client-form>
+    <input type="hidden" name="pack" value="{{ pack }}">
+    <div class="feedback-field feedback-field--wide">
+      <label for="registry-client">Cliente</label>
+      <select id="registry-client" name="client">
+        <option value="">Elegí el cliente...</option>
+        {% for c in cr.clients %}<option value="{{ c }}" {% if c == cr.client %}selected{% endif %}>{{ c }}</option>{% endfor %}
+      </select>
+    </div>
+  </form>
+
+  {% if cr.error %}
+  <div data-registry-error>{% with state_kind="error", state_title="Registro no disponible", state_text=cr.error %}{% include "partials/catalog_state.html" %}{% endwith %}</div>
+  {% elif not cr.client %}
+  {% with state_kind="prompt", state_title="Elegí un cliente", state_text="Se listan los clientes con conexiones publicadas en el Catálogo o con tenants ya registrados." %}{% include "partials/catalog_state.html" %}{% endwith %}
+  {% else %}
+
+  {% if cr.notice %}<p class="dashboard-subhead" role="status" data-registry-ok><strong>✓</strong> {{ cr.notice }}</p>{% endif %}
+
+  {% if cr.is_owner and cr.rejected %}
+  <div class="feedback-error" role="alert" data-registry-rejected><strong>{{ cr.rejected|length }} evento{{ 's' if cr.rejected|length != 1 }} rechazado{{ 's' if cr.rejected|length != 1 }} por el registro.</strong>
+    Quedaron guardados pero no se aplican (por ejemplo, por una escritura simultánea):
+    <ul>{% for r in cr.rejected %}<li><code>{{ r.event_id[:11] }}</code> · {{ r.label }} — {{ r.text }}</li>{% endfor %}</ul>
+  </div>
+  {% endif %}
+
+  <div class="dashboard-sections">
+  {% if cr.is_owner %}
+  <details class="dashboard-section" {% if not cr.tenants %}open{% endif %}>
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Registrar tenant</span></summary>
+    <div class="dashboard-section__body">
+      <form class="hc-profile-filters filter-toolbar-card" data-cr-form data-cr-action="register-tenant"
+            data-cr-confirm-title="Registrar tenant" data-cr-confirm="El identificador es inmutable: no se puede editar ni reutilizar. Un registro equivocado solo se puede desactivar." data-cr-confirm-label="Registrar">
+        <input type="hidden" name="client" value="{{ cr.client }}">
+        <div class="feedback-field">
+          <label>Identificador del tenant</label>
+          <input type="text" name="tenant_id" required maxlength="80" pattern="[A-Za-z0-9][A-Za-z0-9._\-]{0,79}" autocomplete="off" placeholder="p. ej. TNT-{{ cr.client|upper|replace(' ', '')|truncate(8, True, '') }}-1">
+        </div>
+        <div class="feedback-field">
+          <label>Nombre visible <span class="catalog-note__ev">(opcional)</span></label>
+          <input type="text" name="display_name" maxlength="120" autocomplete="off">
+        </div>
+        <p class="catalog-note__ev feedback-field--wide">Identificador estable que definís vos: no es el host, ni el nombre comercial, ni el ambiente.</p>
+        {{ form_tail("Registrar tenant") }}
+      </form>
+    </div>
+  </details>
+  {% endif %}
+
+  {% if not cr.tenants %}
+  {% with state_kind="empty", state_title="Sin tenants registrados", state_text="Este cliente todavía no tiene tenants en el registro." %}{% include "partials/catalog_state.html" %}{% endwith %}
+  {% endif %}
+
+  {% for t in cr.tenants %}
+  <details class="dashboard-section" data-registry-tenant="{{ t.tenant_id }}" {% if t.tenant_id == cr.open_tenant %}open{% endif %}>
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span>
+      <span class="dashboard-section__title"><code>{{ t.tenant_id }}</code>{% if t.display_name %} · {{ t.display_name }}{% endif %}</span>
+      {% if t.active %}
+        {% for env in cr.environments %}<span class="status-badge status-badge--otro" title="Spaces asignados a {{ env }}">{{ env }} {{ t.env_counts[env] }}</span>{% endfor %}
+      {% else %}<span class="status-badge status-badge--tentativo">Desactivado</span>{% endif %}
+    </summary>
+    <div class="dashboard-section__body">
+      {% if not t.active %}
+      <p class="catalog-note__ev">Desactivado el {{ ts(t.deactivation.decided_at) }} por {{ t.deactivation.actor }}: {{ t.deactivation.rationale }}. El identificador no se reutiliza y el tenant queda fuera del alcance gobernado.</p>
+      {% endif %}
+      <div class="matrix-scroll"><table>
+        <thead><tr><th>Host vinculado</th><th>Desde</th><th>Por</th></tr></thead>
+        <tbody>
+          {% for h in t.hosts %}<tr><td><code>{{ h.host }}</code></td><td>{{ ts(h.bound_at) }}</td><td>{{ h.bound_by }}</td></tr>
+          {% else %}<tr><td colspan="3">Sin hosts vigentes.</td></tr>{% endfor %}
+        </tbody>
+      </table></div>
+      <div class="matrix-scroll"><table>
+        <thead><tr><th>Space</th><th>Ambiente</th><th>Asignado por</th><th>Desde</th><th>Procedencia</th></tr></thead>
+        <tbody>
+          {% for s in t.spaces_list %}<tr><td><code>{{ s.space }}</code></td><td><span class="status-badge status-badge--otro">{{ s.environment }}</span></td><td>{{ s.assigned_by }}</td><td>{{ ts(s.assigned_at) }}</td>
+            <td>{{ 'Revisión de evidencia' if s.provenance.kind == 'evidence_review' else 'Declaración del responsable' }}{% if s.provenance.evidence_ref %} · {{ s.provenance.evidence_ref }}{% endif %}</td></tr>
+          {% else %}<tr><td colspan="5">Sin asignaciones vigentes.</td></tr>{% endfor %}
+        </tbody>
+      </table></div>
+
+      {% if cr.is_owner and t.active %}
+      {% set tid = t.tenant_id %}
+      <details class="dashboard-section">
+        <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Administrar</span></summary>
+        <div class="dashboard-section__body">
+          <form class="hc-profile-filters filter-toolbar-card" data-cr-form data-cr-action="bind-host">
+            <input type="hidden" name="client" value="{{ cr.client }}"><input type="hidden" name="tenant_id" value="{{ tid }}">
+            <div class="feedback-field"><label>Vincular host</label>
+              <input type="text" name="host" required maxlength="253" autocomplete="off" placeholder="tenant.eu10.hcs.cloud.sap" data-cr-host></div>
+            {{ form_tail("Vincular host") }}
+          </form>
+          {% if t.hosts %}
+          <form class="hc-profile-filters filter-toolbar-card" data-cr-form data-cr-action="unbind-host"
+                data-cr-confirm-title="Desvincular host" data-cr-confirm="Se desvincula {sel} de {{ tid }}. El host queda libre y el vínculo anterior permanece en el historial." data-cr-confirm-label="Desvincular">
+            <input type="hidden" name="client" value="{{ cr.client }}"><input type="hidden" name="tenant_id" value="{{ tid }}">
+            <div class="feedback-field"><label>Desvincular host</label>
+              <select name="target_event_id" required data-cr-subject>{% for h in t.hosts %}<option value="{{ h.event_id }}">{{ h.host }}</option>{% endfor %}</select></div>
+            {{ form_tail("Desvincular") }}
+          </form>
+          {% endif %}
+          <form class="hc-profile-filters filter-toolbar-card" data-cr-form data-cr-action="assign-space">
+            <input type="hidden" name="client" value="{{ cr.client }}"><input type="hidden" name="tenant_id" value="{{ tid }}">
+            <div class="feedback-field"><label>Asignar Space</label>
+              <input type="text" name="space" required maxlength="100" pattern="[A-Za-z0-9_.\-]{1,100}" autocomplete="off" placeholder="Nombre técnico exacto del Space"></div>
+            <div class="feedback-field"><label>Ambiente</label>
+              <select name="environment" required><option value="">Elegí...</option>{% for env in cr.environments %}<option value="{{ env }}">{{ env }}</option>{% endfor %}</select></div>
+            {{ form_tail("Asignar") }}
+          </form>
+          {% if t.spaces_list %}
+          <form class="hc-profile-filters filter-toolbar-card" data-cr-form data-cr-action="assign-space"
+                data-cr-confirm-title="Reasignar ambiente" data-cr-confirm="Se reasigna {sel}. La asignación anterior queda en el historial." data-cr-confirm-label="Reasignar">
+            <input type="hidden" name="client" value="{{ cr.client }}"><input type="hidden" name="tenant_id" value="{{ tid }}">
+            <div class="feedback-field"><label>Reasignar Space</label>
+              <select name="assignment" required data-cr-subject>{% for s in t.spaces_list %}<option value="{{ s.event_id }}::{{ s.space }}">{{ s.space }} · hoy {{ s.environment }}</option>{% endfor %}</select></div>
+            <div class="feedback-field"><label>Nuevo ambiente</label>
+              <select name="environment" required><option value="">Elegí...</option>{% for env in cr.environments %}<option value="{{ env }}">{{ env }}</option>{% endfor %}</select></div>
+            {{ form_tail("Reasignar") }}
+          </form>
+          <form class="hc-profile-filters filter-toolbar-card" data-cr-form data-cr-action="revoke-assignment"
+                data-cr-confirm-title="Revocar asignación" data-cr-confirm="Se revoca la asignación de {sel}. El Space queda sin ambiente gobernado; la asignación revocada permanece en el historial." data-cr-confirm-label="Revocar">
+            <input type="hidden" name="client" value="{{ cr.client }}"><input type="hidden" name="tenant_id" value="{{ tid }}">
+            <div class="feedback-field"><label>Revocar asignación</label>
+              <select name="target_event_id" required data-cr-subject>{% for s in t.spaces_list %}<option value="{{ s.event_id }}">{{ s.space }} · {{ s.environment }}</option>{% endfor %}</select></div>
+            {{ form_tail("Revocar") }}
+          </form>
+          {% endif %}
+          <form class="hc-profile-filters filter-toolbar-card" data-cr-form data-cr-action="deactivate-tenant"
+                data-cr-confirm-title="Desactivar tenant" data-cr-confirm="Se desactiva {{ tid }}. No admite cambios nuevos, queda fuera del alcance gobernado y su identificador no se reutiliza." data-cr-confirm-label="Desactivar">
+            <input type="hidden" name="client" value="{{ cr.client }}"><input type="hidden" name="tenant_id" value="{{ tid }}">
+            {% if t.can_deactivate %}
+            <p class="catalog-note__ev feedback-field--wide">Desactivar corrige un registro equivocado sin borrar su historia.</p>
+            {{ form_tail("Desactivar tenant") }}
+            {% else %}
+            <p class="catalog-note__ev feedback-field--wide" data-cr-deactivate-blocked>Para desactivar este tenant, primero desvinculá sus hosts y revocá sus asignaciones vigentes.</p>
+            {% endif %}
+          </form>
+        </div>
+      </details>
+      {% endif %}
+
+      {#- F2.2c — Capturas del inventario (evidencia, no decisión) y reconciliación F2.2a de la más reciente con el alcance gobernado VIGENTE.
+          Las ausencias solo orientan la revisión: nunca son bajas. Nada de esto se publica en el Catálogo. -#}
+      {% set cv = t.captures %}
+      <details class="dashboard-section" data-registry-captures {% if cv.captures %}open{% endif %}>
+        <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Capturas y reconciliación</span><span class="dashboard-section__count">{{ cv.captures|length }}</span></summary>
+        <div class="dashboard-section__body">
+          {% if cv.error %}
+          {% with state_kind="error", state_title="Capturas no disponibles", state_text=cv.error %}{% include "partials/catalog_state.html" %}{% endwith %}
+          {% elif not cv.captures %}
+          <p class="catalog-note__ev">Sin capturas. Se capturan desde «Extraer conexiones» (+) del Catálogo de conectividad, al terminar una extracción.</p>
+          {% else %}
+          {% set r = cv.reconciliation %}
+          <p class="catalog-note__ev" data-registry-reconciliation>Última captura contra {{ r.baseline_label }}. Coincidentes {{ r.summary.MATCHED }} · solo en la captura {{ r.summary.ONLY_IN_CURRENT }} · solo en la base {{ r.summary.ONLY_IN_BASELINE }} · sin evidencia {{ r.summary.NO_EVIDENCE }} · fuera de alcance {{ r.summary.OUT_OF_SCOPE }} · sin ambiente gobernado {{ r.summary.SCOPE_UNRESOLVED }} · cambios técnicos {{ r.summary.technical_changes }}.
+            Una conexión que no aparece no es una baja: solo suma prioridad de revisión.</p>
+          {% if r.limits %}<ul class="catalog-note__ev">{% for l in r.limits %}<li>{{ l }}</li>{% endfor %}</ul>{% endif %}
+          {% if r.notable %}
+          <div class="matrix-scroll"><table data-registry-reconciliation-items>
+            <thead><tr><th>Space</th><th>Conexión</th><th>Ambiente</th><th>Resultado</th><th>Detalle</th></tr></thead>
+            <tbody>
+              {% for i in r.notable %}<tr>
+                <td><code>{{ i.key.space }}</code></td><td><code>{{ i.key.connection_name }}</code></td><td>{{ i.environment or '—' }}</td>
+                <td><span class="status-badge {{ 'status-badge--tentativo' if i.outcome in ('ONLY_IN_BASELINE', 'NO_EVIDENCE') or i.technical == 'CHANGED' else 'status-badge--otro' }}">{{ {'MATCHED': 'Coincide', 'ONLY_IN_CURRENT': 'Solo en la captura', 'ONLY_IN_BASELINE': 'Solo en la base', 'NO_EVIDENCE': 'Sin evidencia', 'OUT_OF_SCOPE': 'Fuera de alcance', 'SCOPE_UNRESOLVED': 'Sin ambiente gobernado'}[i.outcome] }}</span></td>
+                <td>{% if i.outcome == 'MATCHED' %}{% if i.technical == 'CHANGED' %}Cambio técnico{% endif %}{% if i.parameters == 'CHANGED' %} · parámetros{% endif %}{% if i.descriptive == 'CHANGED' %} · descriptivo{% endif %}
+                  {% elif i.absence %}Ausencias consecutivas: {{ i.absence.consecutive_absences }} · prioridad de revisión {{ i.absence.review_priority }}
+                  {% elif i.missing_side %}Sin evidencia en {{ 'la base' if i.missing_side == 'baseline' else 'la captura' }}{% else %}—{% endif %}</td>
+              </tr>{% endfor %}
+            </tbody>
+          </table></div>
+          {% endif %}
+          <div class="matrix-scroll"><table data-registry-capture-list>
+            <thead><tr><th>Capturada</th><th>Por</th><th>Estado</th><th>Exhaustividad</th><th>Spaces</th><th>Conexiones</th><th>Motivo</th></tr></thead>
+            <tbody>
+              {% for c in cv.captures %}<tr>
+                <td>{{ ts(c.captured_at) }}</td><td>{{ c.captured_by }}</td><td>{{ c.status }}</td><td>{{ c.exhaustiveness }}</td>
+                <td>{% for s in c.spaces %}<code>{{ s }}</code> {{ c.space_environments[s] or 'sin ambiente' }}{% if s in c.inaccessible %} (inaccesible){% endif %}{% if not loop.last %} · {% endif %}{% endfor %}</td>
+                <td>{{ c.read }}/{{ c.connections }}</td><td>{{ c.rationale }}</td>
+              </tr>{% endfor %}
+            </tbody>
+          </table></div>
+          {% endif %}
+        </div>
+      </details>
+      <details class="dashboard-section">
+        <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Historial</span><span class="dashboard-section__count">{{ t.history_view|length }}</span></summary>
+        <div class="dashboard-section__body">
+          <div class="matrix-scroll"><table data-registry-history>
+            <thead><tr><th>Evento</th><th>Detalle</th><th>Fecha</th><th>Por</th><th>Motivo</th></tr></thead>
+            <tbody>
+              {% for h in t.history_view %}<tr>
+                <td>{{ h.label }}</td>
+                <td>{% if h.host %}<code>{{ h.host }}</code>{% elif h.space %}<code>{{ h.space }}</code>{% if h.environment %} → {{ h.environment }}{% endif %}{% if h.previous_environment %} (antes {{ h.previous_environment }}){% endif %}{% else %}—{% endif %}</td>
+                <td>{{ ts(h.decided_at) }}</td><td>{{ h.actor }}</td><td>{{ h.rationale }}</td>
+              </tr>{% endfor %}
+            </tbody>
+          </table></div>
+        </div>
+      </details>
+    </div>
+  </details>
+  {% endfor %}
+  </div>
+  {% endif %}
+</div>
+</div>

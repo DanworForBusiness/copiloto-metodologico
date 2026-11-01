@@ -163,7 +163,7 @@ def test_right_panel_keeps_sap_availability_only_as_navigation():
     assert "data-sap-type" not in html and "data-sap-filter" not in html and "dwSapTypes" not in html     # sin tarjetas, filtros ni resultados
     assert 'hx-get="/catalog/sap-types?pack=datasphere_core" hx-target="#catalog-detail-slot" hx-swap="innerHTML" hx-trigger="click, dw-sap-open"' in sec
     assert "37 tipos de conexión" in sec
-    assert "dwConnectivityKindChanged(catalogKind, $refs.sapOpen)" in html                               # elegir la opción abre / salir cierra
+    assert "dwConnectivityKindChanged(catalogKind, $refs.sapOpen, $refs.registryOpen)" in html                               # elegir la opción abre / salir cierra
 
 
 def test_central_view_renders_filters_search_counter_and_cards():

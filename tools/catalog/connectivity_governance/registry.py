@@ -7,13 +7,17 @@ procedencia; nada se actualiza ni se borra (un cambio es un evento nuevo que ref
 Dimensiones SEPARADAS (no se derivan unas de otras):
   * IDENTIDAD TÉCNICA del tenant: `tenant_id` opaco y estable, declarado por el responsable. NO depende del host, del nombre comercial ni del ambiente.
   * ACCESO: `HOST_BOUND` vincula un host al tenant (puede haber varios; un host pertenece a UN solo tenant). Cambiar de host no cambia la identidad.
+    `HOST_UNBOUND` (F2.2c.1) desvincula referenciando el `HOST_BOUND` VIGENTE: corrige un vínculo equivocado o libera el host, sin borrar historia.
+  * CORRECCIÓN DE IDENTIDAD (F2.2c.1): el `tenant_id` es INMUTABLE y nunca se reutiliza; un registro equivocado se DESACTIVA (`TENANT_DEACTIVATED`),
+    solo si no le quedan hosts ni asignaciones vigentes. Un tenant desactivado no admite eventos nuevos y no entra en el alcance gobernado.
   * AMBIENTE: `SPACE_ASSIGNED` asigna (tenant, Space) → environment del vocabulario cerrado. Nunca se infiere de nombres de Space ni de URLs.
   * Fuera de este registro: el DESTINO FÍSICO de cada conexión (host/SID/mandante, que sale de las observaciones) y la FAMILIA LÓGICA SAP
     (`connectivity-homologation/v1`, F0). El registro no los guarda ni los deduce.
 
 Reglas de conflicto (fail-closed en el replay; los eventos rechazados quedan listados con su motivo, nunca se aplican):
   tenant_id único global y de UN cliente · host único global · un Space tiene a lo sumo UNA asignación vigente por tenant; reasignar exige
-  `supersedes_event_id` = la vigente · revocar exige `revokes_event_id` = una asignación vigente · un cliente nunca opera sobre tenants de otro ·
+  `supersedes_event_id` = la vigente · revocar exige `revokes_event_id` = una asignación vigente · desvincular exige `unbinds_event_id` = un
+  vínculo vigente · desactivar exige tenant activo y sin vínculos ni asignaciones vigentes · un cliente nunca opera sobre tenants de otro ·
   `event_id` repetido: idéntico ⇒ idempotente, distinto ⇒ conflicto.
 """
 from __future__ import annotations
@@ -28,7 +32,9 @@ TENANT_REGISTERED = "TENANT_REGISTERED"
 HOST_BOUND = "HOST_BOUND"
 SPACE_ASSIGNED = "SPACE_ASSIGNED"
 ASSIGNMENT_REVOKED = "ASSIGNMENT_REVOKED"
-KINDS = (TENANT_REGISTERED, HOST_BOUND, SPACE_ASSIGNED, ASSIGNMENT_REVOKED)
+HOST_UNBOUND = "HOST_UNBOUND"
+TENANT_DEACTIVATED = "TENANT_DEACTIVATED"
+KINDS = (TENANT_REGISTERED, HOST_BOUND, SPACE_ASSIGNED, ASSIGNMENT_REVOKED, HOST_UNBOUND, TENANT_DEACTIVATED)
 
 ENVIRONMENTS = ("DEV", "QAS", "PRD")                 # vocabulario CERRADO; se asigna, nunca se infiere
 PROVENANCE_KINDS = ("owner_declaration", "evidence_review")
@@ -82,7 +88,8 @@ def validate_event(event) -> None:
     common = {"schema", "event_id", "kind", "client", "actor", "decided_at", "rationale", "provenance"}
     specific = {TENANT_REGISTERED: {"tenant_id", "display_name"}, HOST_BOUND: {"tenant_id", "host"},
                 SPACE_ASSIGNED: {"tenant_id", "space", "environment", "supersedes_event_id"},
-                ASSIGNMENT_REVOKED: {"tenant_id", "revokes_event_id"}}[kind]
+                ASSIGNMENT_REVOKED: {"tenant_id", "revokes_event_id"}, HOST_UNBOUND: {"tenant_id", "unbinds_event_id"},
+                TENANT_DEACTIVATED: {"tenant_id"}}[kind]
     if set(event) != common | specific:
         raise RegistryError(f"campos fuera del contrato para {kind}: {sorted(set(event) ^ (common | specific))}")
     _text(event["event_id"], "event_id", _ID)
@@ -106,6 +113,8 @@ def validate_event(event) -> None:
             _text(event["supersedes_event_id"], "supersedes_event_id", _ID)
     if kind == ASSIGNMENT_REVOKED:
         _text(event["revokes_event_id"], "revokes_event_id", _ID)
+    if kind == HOST_UNBOUND:
+        _text(event["unbinds_event_id"], "unbinds_event_id", _ID)
 
 
 def _event(kind: str, *, event_id, client, actor, decided_at, rationale, provenance, **specific) -> dict:
@@ -131,6 +140,14 @@ def revoke_assignment(*, tenant_id, revokes_event_id, **common) -> dict:
     return _event(ASSIGNMENT_REVOKED, tenant_id=tenant_id, revokes_event_id=revokes_event_id, **common)
 
 
+def unbind_host(*, tenant_id, unbinds_event_id, **common) -> dict:
+    return _event(HOST_UNBOUND, tenant_id=tenant_id, unbinds_event_id=unbinds_event_id, **common)
+
+
+def deactivate_tenant(*, tenant_id, **common) -> dict:
+    return _event(TENANT_DEACTIVATED, tenant_id=tenant_id, **common)
+
+
 # ───────────────────────────── replay ─────────────────────────────
 def replay(events: list) -> dict:
     """Estado derivado de TODOS los eventos (de uno o varios clientes), por replay DETERMINISTA (orden: decided_at, event_id — nunca el orden
@@ -145,7 +162,7 @@ def replay(events: list) -> dict:
         prev = by_id.get(ev["event_id"])
         if prev is not None:
             if canonical_json(prev) != canonical_json(ev):
-                rejected.append({"event_id": ev["event_id"], "reason": "DUPLICATE_ID_DIFFERENT_CONTENT"})
+                rejected.append({"event_id": ev["event_id"], "reason": "DUPLICATE_ID_DIFFERENT_CONTENT", "client": ev["client"], "kind": ev["kind"]})
             continue                                                       # idéntico ⇒ idempotente
         by_id[ev["event_id"]] = ev
         unique.append(ev)
@@ -154,29 +171,56 @@ def replay(events: list) -> dict:
     for ev in sorted(unique, key=lambda e: (_utc(e["decided_at"]), e["event_id"])):
         reason = _apply(ev, tenants, hosts)
         if reason:
-            rejected.append({"event_id": ev["event_id"], "reason": reason})
+            rejected.append({"event_id": ev["event_id"], "reason": reason, "client": ev["client"], "kind": ev["kind"]})
     return {"schema": SCHEMA, "tenants": tenants, "hosts": hosts, "rejected": rejected}
+
+
+def _log(tenant: dict, ev: dict, **extra) -> None:
+    """Historial del tenant: TODOS sus eventos aplicados, en orden de replay (forma uniforme; `space`/`host` en None si no aplican)."""
+    tenant["history"].append({"event_id": ev["event_id"], "kind": ev["kind"], "space": None, "environment": None, "host": None,
+                              "actor": ev["actor"], "decided_at": ev["decided_at"], "rationale": ev["rationale"],
+                              "provenance": ev["provenance"], **extra})
 
 
 def _apply(ev: dict, tenants: dict, hosts: dict) -> str | None:
     kind, tid, client = ev["kind"], ev["tenant_id"], ev["client"]
     if kind == TENANT_REGISTERED:
-        if tid in tenants:
+        if tid in tenants:                                                 # el id es inmutable y no se reutiliza (tampoco si está desactivado)
             return "TENANT_ALREADY_REGISTERED" if tenants[tid]["client"] == client else "TENANT_BELONGS_TO_ANOTHER_CLIENT"
         tenants[tid] = {"tenant_id": tid, "client": client, "display_name": ev["display_name"], "hosts": [], "spaces": {},
-                        "history": [], "registered_by": ev["actor"], "registered_at": ev["decided_at"], "event_id": ev["event_id"]}
+                        "history": [], "registered_by": ev["actor"], "registered_at": ev["decided_at"], "event_id": ev["event_id"],
+                        "active": True, "deactivation": None}
+        _log(tenants[tid], ev)
         return None
     tenant = tenants.get(tid)
     if tenant is None:
         return "TENANT_NOT_REGISTERED"
     if tenant["client"] != client:
         return "TENANT_BELONGS_TO_ANOTHER_CLIENT"                         # aislamiento entre clientes
+    if not tenant["active"]:
+        return "TENANT_DEACTIVATED"                                        # un registro desactivado no admite eventos nuevos
     if kind == HOST_BOUND:
         owner = hosts.get(ev["host"])
         if owner is not None:
             return None if owner == tid else "HOST_BOUND_TO_ANOTHER_TENANT"
         hosts[ev["host"]] = tid
-        tenant["hosts"].append({"host": ev["host"], "event_id": ev["event_id"], "bound_at": ev["decided_at"]})
+        tenant["hosts"].append({"host": ev["host"], "event_id": ev["event_id"], "bound_at": ev["decided_at"], "bound_by": ev["actor"]})
+        _log(tenant, ev, host=ev["host"])
+        return None
+    if kind == HOST_UNBOUND:
+        binding = next((h for h in tenant["hosts"] if h["event_id"] == ev["unbinds_event_id"]), None)
+        if binding is None:
+            return "UNBINDS_NON_ACTIVE_BINDING"
+        tenant["hosts"].remove(binding)
+        del hosts[binding["host"]]                                         # el host queda libre; el historial conserva ambos eventos
+        _log(tenant, ev, host=binding["host"], unbinds_event_id=ev["unbinds_event_id"])
+        return None
+    if kind == TENANT_DEACTIVATED:
+        if tenant["hosts"] or tenant["spaces"]:
+            return "TENANT_HAS_ACTIVE_BINDINGS"                            # primero se desvinculan hosts y se revocan asignaciones
+        tenant["active"] = False
+        tenant["deactivation"] = {"event_id": ev["event_id"], "actor": ev["actor"], "decided_at": ev["decided_at"], "rationale": ev["rationale"]}
+        _log(tenant, ev)
         return None
     if kind == SPACE_ASSIGNED:
         current = tenant["spaces"].get(ev["space"])
@@ -186,16 +230,15 @@ def _apply(ev: dict, tenants: dict, hosts: dict) -> str | None:
             return "SPACE_ALREADY_ASSIGNED"                                # reasignar exige referenciar la vigente
         tenant["spaces"][ev["space"]] = {"space": ev["space"], "environment": ev["environment"], "event_id": ev["event_id"],
                                          "assigned_by": ev["actor"], "assigned_at": ev["decided_at"], "provenance": ev["provenance"]}
-        tenant["history"].append({"event_id": ev["event_id"], "kind": kind, "space": ev["space"], "environment": ev["environment"],
-                                  "supersedes_event_id": ev["supersedes_event_id"], "actor": ev["actor"], "decided_at": ev["decided_at"]})
+        _log(tenant, ev, space=ev["space"], environment=ev["environment"], supersedes_event_id=ev["supersedes_event_id"],
+             previous_environment=current["environment"] if current else None)
         return None
     # ASSIGNMENT_REVOKED
     target = next((s for s in tenant["spaces"].values() if s["event_id"] == ev["revokes_event_id"]), None)
     if target is None:
         return "REVOKES_NON_ACTIVE_ASSIGNMENT"
     del tenant["spaces"][target["space"]]
-    tenant["history"].append({"event_id": ev["event_id"], "kind": kind, "space": target["space"], "environment": None,
-                              "revokes_event_id": ev["revokes_event_id"], "actor": ev["actor"], "decided_at": ev["decided_at"]})
+    _log(tenant, ev, space=target["space"], previous_environment=target["environment"], revokes_event_id=ev["revokes_event_id"])
     return None
 
 
@@ -228,6 +271,6 @@ def governed_scope(state: dict, client: str, tenant_id: str):
     """Alcance para `reconciliation.reconcile` (F2.2a): None si el tenant no está registrado para ese cliente."""
     from .reconciliation import GovernedScope
     tenant = state["tenants"].get(tenant_id)
-    if tenant is None or tenant["client"] != client:
+    if tenant is None or tenant["client"] != client or not tenant["active"]:
         return None
     return GovernedScope(tenant_id, space_environments(state, client, tenant_id))

@@ -264,6 +264,19 @@ def _catalog_values(entry) -> dict:
     }
 
 
+def bind_to_registry(doc: dict, *, tenant_id: str, space_environments: dict) -> dict:
+    """F2.2c: asocia una observación de extracción al tenant GOBERNADO y al environment GOBERNADO de cada Space (registro
+    `connectivity-registry/v1`). Copia nueva; no toca campos ni huellas. Un Space sin asignación vigente queda con environment null."""
+    if doc.get("provenance", {}).get("source_kind") == "published_catalog":
+        raise ObservationError("el Catálogo publicado no se asocia a un tenant")
+    out = json.loads(_canon(doc))
+    out["provenance"].update({"tenant_id": tenant_id, "tenant_governed": True})
+    for c in out["connections"]:
+        c["key"]["tenant_id"] = tenant_id
+        c["environment"] = space_environments.get(c["key"]["space"])
+    return out
+
+
 def from_published_catalog(entries, *, client: str, catalog_ref: str = "catalog_local/arquitectura") -> dict:
     """Observación desde el Catálogo publicado de UN cliente. Sin tenant (el Catálogo no lo registra), sin fecha de evidencia y sin cobertura
     declarada: la reconciliación la trata como base de procedencia LIMITADA, nunca como «último estado SAP»."""

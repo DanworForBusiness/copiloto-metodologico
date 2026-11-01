@@ -66,6 +66,7 @@ from webapp.routers import catalog_assessment as catalog_assessment_router
 from webapp.routers import datasphere_assessment as datasphere_assessment_router
 from webapp.routers import datasphere_publication as datasphere_publication_router
 from webapp.routers import connectivity_inventory as connectivity_inventory_router
+from webapp.routers import connectivity_registry as connectivity_registry_router
 from webapp.routers import governed_decisions as governed_decisions_router
 from webapp.routers import governed_contracts_ui as governed_contracts_ui_router
 from webapp.services import assessment_presenter
@@ -303,6 +304,7 @@ app.include_router(catalog_assessment_router.router)
 app.include_router(datasphere_assessment_router.router)
 app.include_router(datasphere_publication_router.router)
 app.include_router(connectivity_inventory_router.router)
+app.include_router(connectivity_registry_router.router)
 app.include_router(governed_decisions_router.router)
 app.include_router(governed_contracts_ui_router.router)
 
@@ -1499,6 +1501,42 @@ def catalog_sap_types(request: Request, pack: str = Query(DEFAULT_PACK)):
         "pack_label": content_pack_short_label(selected),
     })
     return templates.TemplateResponse(request=request, name="catalog_sap_types_page.html", context=context)
+
+
+@app.get("/catalog/connectivity-registry", response_class=HTMLResponse, include_in_schema=False)
+def catalog_connectivity_registry(request: Request, pack: str = Query(DEFAULT_PACK), client: str = Query(""), tenant: str = Query(""),
+                                  notice: str = Query("")):
+    # «Tenants y ambientes» del Catálogo de conectividad (módulo 01, F2.2c.1): vista del PANEL CENTRAL del registro gobernado
+    # `connectivity-registry/v1`. Mismo patrón que «Disponibilidad SAP» (HTMX → #catalog-detail-slot; navegación directa → página completa).
+    # Lectura: criterio de la extracción F2.1 + acceso por cliente (ver connectivity_registry_view); escritura owner-only en su router.
+    user = auth_service.session_user(request)
+    if not user:
+        return _login_redirect(request, _pack(pack))
+    from webapp.services import connectivity_registry_view as crv
+    if not crv.can_read(request):
+        raise HTTPException(403, "No autorizado")
+    if client and not crv.client_readable(request, client):
+        raise HTTPException(403, "No autorizado para este cliente")
+    selected = _pack(pack) if _diagnostic(request) else DEFAULT_PACK
+    context = {"pack": selected, "cr": crv.view_model(request, client=client.strip(), tenant_id=tenant.strip(), notice=notice,
+                                                      is_owner=access.is_owner_user(user))}
+    if request.headers.get("HX-Request"):
+        return templates.TemplateResponse(request=request, name="partials/catalog_connectivity_registry_content.html", context=context,
+                                          headers={"Cache-Control": "no-store"})
+    academy = [a for a in list_academy(selected) if not a.nav_hidden]
+    context.update({
+        "modules": list_modules(selected),
+        "appendices": [a for a in list_appendices(selected) if not a.nav_hidden],
+        "academy": academy,
+        "academy_assets": {a.stem: academy_asset_for(a.stem, selected) for a in academy},
+        "active_group": "", "active_stem": "",
+        "readonly": _readonly(request), "user": user,
+        "current_workspace": workspaces.COPILOT,
+        "available_workspaces": workspaces.available_workspaces(user),
+        "pack_label": content_pack_short_label(selected),
+    })
+    return templates.TemplateResponse(request=request, name="catalog_connectivity_registry_page.html", context=context,
+                                      headers={"Cache-Control": "no-store"})
 
 
 

@@ -24,7 +24,7 @@ import threading
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-from webapp import same_origin_guard
+from webapp import access, same_origin_guard
 from webapp.services import auth_service
 from webapp.services import connectivity_inventory_service as svc
 from webapp.services import datasphere_assessment_service as asd
@@ -75,11 +75,13 @@ def run_connectivity_inventory(
         del profile
     events: queue.Queue = queue.Queue()
     owner = asd.owner_email(request)
+    # F2.2c: solo el DUEÑO puede capturar; para él la observación normalizada queda pendiente (opt-in posterior, en memoria).
+    capture_for = str(user.get("sub") or "").strip().lower() if access.is_owner_user(user) else ""
 
     def worker() -> None:
         nonlocal secret
         try:
-            outcome = svc.run(values, secret, user_email=owner,
+            outcome = svc.run(values, secret, user_email=owner, capture_for=capture_for,
                               on_phase=lambda phase: events.put({"t": "phase", "phase": phase, "v": svc.PHASE_COPY[phase]}),
                               on_line=lambda line: events.put({"t": "line", "v": line}))
         finally:
@@ -92,9 +94,15 @@ def run_connectivity_inventory(
                      inventory_status=inv.get("status", ""), exhaustiveness=inv.get("exhaustiveness", ""),
                      extracted=cov.get("extracted_connections", 0), duration_s=outcome.duration_s,
                      operation_id=outcome.operation_id)
-        events.put({"t": "done", "state": outcome.state, "error_code": outcome.error_code, "message": outcome.message,
-                    "title": outcome.title, "errors": outcome.errors, "operation_id": outcome.operation_id,
-                    "duration_s": outcome.duration_s, "summary": outcome.summary})
+        done = {"t": "done", "state": outcome.state, "error_code": outcome.error_code, "message": outcome.message,
+                "title": outcome.title, "errors": outcome.errors, "operation_id": outcome.operation_id,
+                "duration_s": outcome.duration_s, "summary": outcome.summary}
+        if outcome.capture:                                                   # sin host ni nombres: solo tenants del cliente y conteos
+            from webapp.services import connectivity_capture_service as capsvc
+            opts = capsvc.options(values.client, outcome.capture["host"])
+            done["capture"] = {"client": values.client,                       # la operación viaja en done.operation_id
+                               "spaces": len(outcome.capture["spaces"]), "connections": outcome.capture["connections"], **opts}
+        events.put(done)
         events.put(None)
 
     threading.Thread(target=worker, name="connectivity-inventory", daemon=True).start()

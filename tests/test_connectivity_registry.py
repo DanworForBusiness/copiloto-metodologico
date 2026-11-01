@@ -202,7 +202,7 @@ def test_store_requires_owner_and_rejects_conflicts_before_writing(spaces):
 def test_store_is_idempotent_and_never_overwrites(spaces):
     ev = _base()[0]
     store.append_event(ev, authorized_owner=True)
-    assert store.append_event(ev, authorized_owner=True) == {"stored": False, "idempotent": True, "key": store.event_key(ev)}
+    assert store.append_event(ev, authorized_owner=True) == {"stored": False, "idempotent": True, "applied": True, "key": store.event_key(ev)}
     with pytest.raises(store.RegistryConflict, match="contenido distinto"):
         store.append_event({**ev, "display_name": "otro"}, authorized_owner=True)
 
@@ -226,3 +226,108 @@ def test_store_rejects_an_event_stored_under_another_clients_path(spaces):
 def test_registry_namespace_does_not_collide_with_judgment_ratifications():
     assert store.PREFIX.startswith(remote_store.GOVERNED_DECISIONS_NAMESPACE + "/_connectivity-registry/")
     assert "_connectivity-registry" not in {"Biogenesis", "Loma"}
+
+
+# ═══════════════ F2.2c.1 — desvinculación de hosts, desactivación de tenants, relectura posterior ═══════════════
+def test_host_unbound_frees_the_host_and_keeps_history():
+    events = _base() + [reg.unbind_host(tenant_id="TNT-BIO-1", unbinds_event_id="e2", **_c("u1", "2026-11-02T10:00:00Z", rationale="host equivocado"))]
+    st = reg.replay(events)
+    assert st["rejected"] == [] and st["tenants"]["TNT-BIO-1"]["hosts"] == [] and st["hosts"] == {}
+    kinds = [(h["kind"], h["host"]) for h in st["tenants"]["TNT-BIO-1"]["history"] if h["host"]]
+    assert kinds == [("HOST_BOUND", "bio-devqa.eu10.hcs.cloud.sap"), ("HOST_UNBOUND", "bio-devqa.eu10.hcs.cloud.sap")]
+    # el host liberado puede vincularse a OTRO tenant (corrección de una asociación equivocada)
+    events += [reg.register_tenant(tenant_id="TNT-BIO-2", **_c("t2", "2026-11-02T10:01:00Z")),
+               reg.bind_host(tenant_id="TNT-BIO-2", host="bio-devqa.eu10.hcs.cloud.sap", **_c("b2", "2026-11-02T10:02:00Z"))]
+    st = reg.replay(events)
+    assert st["rejected"] == [] and reg.tenant_for_host(st, "BIO-DEVQA.eu10.hcs.cloud.sap.") == "TNT-BIO-2"
+
+
+def test_host_unbound_requires_an_active_binding_of_that_tenant():
+    events = _base() + [reg.unbind_host(tenant_id="TNT-BIO-1", unbinds_event_id="e3", **_c("u1", "2026-11-02T10:00:00Z")),       # no es un vínculo
+                        reg.unbind_host(tenant_id="TNT-BIO-1", unbinds_event_id="e2", **_c("u2", "2026-11-02T10:01:00Z")),
+                        reg.unbind_host(tenant_id="TNT-BIO-1", unbinds_event_id="e2", **_c("u3", "2026-11-02T10:02:00Z"))]      # ya desvinculado
+    assert _reasons(reg.replay(events)) == {"u1": "UNBINDS_NON_ACTIVE_BINDING", "u3": "UNBINDS_NON_ACTIVE_BINDING"}
+    with pytest.raises(reg.RegistryError):
+        reg.unbind_host(tenant_id="TNT-BIO-1", unbinds_event_id="e2", host="x.y.z", **_c("u4", "2026-11-02T10:03:00Z"))
+
+
+def test_tenant_deactivation_is_blocked_while_bindings_or_assignments_are_active():
+    base = _base()
+    st = reg.replay(base + [reg.deactivate_tenant(tenant_id="TNT-BIO-1", **_c("d1", "2026-11-02T10:00:00Z"))])
+    assert _reasons(st) == {"d1": "TENANT_HAS_ACTIVE_BINDINGS"} and st["tenants"]["TNT-BIO-1"]["active"] is True
+    cleanup = [reg.unbind_host(tenant_id="TNT-BIO-1", unbinds_event_id="e2", **_c("u1", "2026-11-02T10:01:00Z")),
+               reg.revoke_assignment(tenant_id="TNT-BIO-1", revokes_event_id="e3", **_c("r1", "2026-11-02T10:02:00Z")),
+               reg.revoke_assignment(tenant_id="TNT-BIO-1", revokes_event_id="e4", **_c("r2", "2026-11-02T10:03:00Z")),
+               reg.deactivate_tenant(tenant_id="TNT-BIO-1", **_c("d2", "2026-11-02T10:04:00Z", rationale="tenant_id mal tipeado"))]
+    st = reg.replay(base + cleanup)
+    t = st["tenants"]["TNT-BIO-1"]
+    assert st["rejected"] == [] and t["active"] is False and t["deactivation"]["event_id"] == "d2"
+    assert reg.governed_scope(st, "Biogenesis", "TNT-BIO-1") is None
+    assert len(t["history"]) == len(base + cleanup)                                    # nada se borra
+
+
+def test_deactivated_tenant_accepts_no_events_and_its_id_is_never_reused():
+    events = [reg.register_tenant(tenant_id="TNT-X", **_c("a1", "2026-11-01T10:00:00Z")),
+              reg.deactivate_tenant(tenant_id="TNT-X", **_c("a2", "2026-11-01T10:01:00Z")),
+              reg.bind_host(tenant_id="TNT-X", host="x.hana.ondemand.com", **_c("a3", "2026-11-01T10:02:00Z")),
+              reg.assign_space(tenant_id="TNT-X", space="S", environment="DEV", **_c("a4", "2026-11-01T10:03:00Z")),
+              reg.deactivate_tenant(tenant_id="TNT-X", **_c("a5", "2026-11-01T10:04:00Z")),
+              reg.register_tenant(tenant_id="TNT-X", **_c("a6", "2026-11-01T10:05:00Z")),
+              reg.register_tenant(tenant_id="TNT-X", **{**_c("a7", "2026-11-01T10:06:00Z"), "client": "Loma"})]
+    assert _reasons(reg.replay(events)) == {"a3": "TENANT_DEACTIVATED", "a4": "TENANT_DEACTIVATED", "a5": "TENANT_DEACTIVATED",
+                                            "a6": "TENANT_ALREADY_REGISTERED", "a7": "TENANT_BELONGS_TO_ANOTHER_CLIENT"}
+
+
+def test_new_events_cannot_cross_clients():
+    events = _base() + [reg.unbind_host(tenant_id="TNT-BIO-1", unbinds_event_id="e2", **{**_c("x1", "2026-11-02T10:00:00Z"), "client": "Loma"}),
+                        reg.deactivate_tenant(tenant_id="TNT-BIO-1", **{**_c("x2", "2026-11-02T10:01:00Z"), "client": "Loma"})]
+    assert _reasons(reg.replay(events)) == {"x1": "TENANT_BELONGS_TO_ANOTHER_CLIENT", "x2": "TENANT_BELONGS_TO_ANOTHER_CLIENT"}
+
+
+def test_registry_events_reject_homologation_fields():
+    """Asignar un ambiente NO homologa conexiones: ningún evento admite campos de `connectivity-homologation/v1`."""
+    ev = _base()[2]
+    for field in ("logical_system_id", "related_connections", "expected_agent", "expected_physical", "connection_name"):
+        with pytest.raises(reg.RegistryError, match="campos fuera del contrato"):
+            reg.validate_event({**ev, field: "x"})
+
+
+def test_store_retry_with_same_event_id_is_idempotent_even_with_another_date(spaces):
+    ev = _base()[0]
+    store.append_event(ev, authorized_owner=True)
+    out = store.append_event({**ev, "decided_at": "2026-11-09T00:00:00Z"}, authorized_owner=True)
+    assert out == {"stored": False, "idempotent": True, "applied": True, "key": store.event_key(ev)} and len(spaces.objects) == 1
+
+
+def _race(monkeypatch, competitor):
+    """Simula OTRA escritura que entra entre el chequeo previo y el PUT (check-then-PUT no es atómico)."""
+    real_put = remote_store.put_governed_decision_object
+
+    def put(key, data):
+        real_put(store.event_key(competitor), reg.canonical_json(competitor).encode("utf-8"))
+        monkeypatch.setattr(remote_store, "put_governed_decision_object", real_put)
+        return real_put(key, data)
+    monkeypatch.setattr(remote_store, "put_governed_decision_object", put)
+
+
+def test_concurrent_write_that_loses_the_replay_is_reported_not_applied(spaces, monkeypatch):
+    for ev in _base()[:2]:
+        store.append_event(ev, authorized_owner=True)
+    rival = reg.assign_space(tenant_id="TNT-BIO-1", space="SANDBOX", environment="DEV", **_c("rival", "2026-11-02T10:00:00Z"))
+    mine = reg.assign_space(tenant_id="TNT-BIO-1", space="SANDBOX", environment="PRD", **_c("mine", "2026-11-02T10:00:05Z"))
+    _race(monkeypatch, rival)
+    with pytest.raises(store.ConcurrentConflict) as info:
+        store.append_event(mine, authorized_owner=True)
+    assert info.value.reason == "SPACE_ALREADY_ASSIGNED" and info.value.key == store.event_key(mine)
+    st = store.load_state()                                                             # quedó guardado, pero NO aplicado
+    assert store.event_key(mine) in spaces.objects and reg.space_environments(st, "Biogenesis", "TNT-BIO-1")["SANDBOX"] == "DEV"
+    assert {r["event_id"]: r["reason"] for r in st["rejected"]} == {"mine": "SPACE_ALREADY_ASSIGNED"}
+
+
+def test_concurrent_write_that_wins_the_replay_is_applied(spaces, monkeypatch):
+    for ev in _base()[:2]:
+        store.append_event(ev, authorized_owner=True)
+    rival = reg.bind_host(tenant_id="TNT-BIO-1", host="other.hana.ondemand.com", **_c("rival", "2026-11-02T10:00:05Z"))
+    mine = reg.unbind_host(tenant_id="TNT-BIO-1", unbinds_event_id="e2", **_c("mine", "2026-11-02T10:00:00Z"))
+    _race(monkeypatch, rival)
+    assert store.append_event(mine, authorized_owner=True)["applied"] is True

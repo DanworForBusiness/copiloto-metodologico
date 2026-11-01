@@ -2449,9 +2449,15 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 /* «Disponibilidad SAP» (Catálogo de conectividad, módulo 01) en el PANEL CENTRAL: solo COMPOSICIÓN de primitivos existentes (callout, barra
    `.hc-profile-filters.filter-toolbar-card`, `.dashboard-section`, `.catalog-card`, `.status-badge`). En el centro rigen los tokens SEMÁNTICOS del contenido
    (content.css, por tema), no los del panel lateral (`--card` & cía.), que son los que leen `.catalog-card` y sus piezas. */
-.sap-types-view { display: grid; gap: 20px;
+.sap-types-view, .connectivity-registry-view { display: grid; gap: 20px;
   --card: var(--content-tile); --ink: var(--content-ink); --soft: var(--content-ink-soft); --dim: var(--content-ink-dim); --line: var(--content-line); }
-.sap-types-view .dashboard-section { margin: 0; }
+.sap-types-view .dashboard-section, .connectivity-registry-view .dashboard-section { margin: 0; }
+/* «Tenants y ambientes» (F2.2c.1): misma composición; los formularios owner-only son la barra compartida `.filter-toolbar-card`, apilados. */
+.connectivity-registry-view .dashboard-section__body > .filter-toolbar-card + .filter-toolbar-card { margin-top: 12px; }
+.connectivity-registry-view .filter-toolbar-card > .feedback-error, .connectivity-registry-view .filter-toolbar-card > .section-analysis-loading { flex: 1 1 100%; margin: 0; }
+.connectivity-registry-view .dashboard-section__title code { font-size: inherit; }
+.connectivity-registry-view { grid-template-columns: minmax(0, 1fr); }                       /* las tablas anchas scrollean en su `.matrix-scroll`, no estiran la vista */
+.connectivity-registry-view .matrix-scroll { overflow-x: auto; }
 .sap-types-toolbar__groups { flex: 1 1 100%; display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); align-items: start; gap: 16px 28px; margin-top: 6px; }
 .sap-types-toolbar__groups .dashboard-checkbox-option { display: flex; font-weight: 400; }   /* `.feedback-field label` la ponía en 650; la marcada se resalta igual que en el Hub */
 /* Grilla de tarjetas LIMPIAS (nombre + ícono, como el selector de SAP): ancho mínimo legible; el ancho disponible decide cuántas entran. */
