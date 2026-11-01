@@ -39,6 +39,7 @@ from webapp.services.content_service import (
 )
 from webapp.services import admin_tools
 from webapp.services import activity_analytics
+from webapp.services import activity_dashboard
 from webapp.services import guides_service as guides
 from webapp.routers import system as system_router
 from webapp.routers import telemetry as telemetry_router
@@ -437,6 +438,38 @@ def _admin_result(request: Request, title: str, output: str):
     )
 
 
+def _activity_dashboard_context(
+    request: Request, allowed_scopes: frozenset[str], allowed_areas: frozenset[str],
+    *, date_from: str, date_to: str, user_filter: str, module_filter: str,
+    scope_filter: list[str], area_filter: list[str],
+) -> dict:
+    """Contexto COMPLETO del tablero (Métricas de Uso v2, fase 3): resuelve
+    período/vertical/módulo/sección/usuario/tipo desde los query params
+    (`activity_dashboard`), corre los paneles históricos (`build_summary`) con
+    ESE mismo filtro y arma el modelo v2 (KPIs, drill-down, inventario sin
+    actividad, detalle de eventos). La visibilidad (`allowed_scopes`/
+    `allowed_areas`) llega a AMBOS motores — nunca opcional."""
+    qp = request.query_params
+    params = {
+        "period": qp.get("period", ""), "date_from": date_from, "date_to": date_to,
+        "user": user_filter, "module": module_filter, "scope": scope_filter, "area": area_filter,
+        "vertical": qp.get("vertical", ""), "section": qp.get("section", ""), "kind": qp.get("kind", ""),
+        "epage": qp.get("epage", ""), "epage_size": qp.get("epage_size", ""),
+    }
+    today = activity_dashboard._today()
+    legacy = activity_dashboard.legacy_args(params, visible_verticals=allowed_scopes, today=today)
+    summary = activity_analytics.build_summary(
+        legacy["date_from"], legacy["date_to"], legacy["user"], legacy["module"],
+        scopes=legacy["scopes"], areas=legacy["areas"],
+        allowed_scopes=allowed_scopes, allowed_areas=allowed_areas,
+    )
+    dash = activity_dashboard.build(
+        params, summary=summary, visible_verticals=allowed_scopes, allowed_areas=allowed_areas,
+        log_dir=activity_analytics.ACTIVITY_LOG_DIR, today=today,
+    )
+    return {"summary": summary, "dash": dash, "date_from": legacy["date_from"], "date_to": legacy["date_to"]}
+
+
 @app.get("/admin/activity", response_class=HTMLResponse, include_in_schema=False)
 def admin_activity(
     request: Request, date_from: str = "", date_to: str = "",
@@ -445,12 +478,10 @@ def admin_activity(
 ):
     _require_hub_metrics(request)
     allowed_scopes, allowed_areas = _hub_metrics_visibility(request)
-    summary = activity_analytics.build_summary(
-        date_from, date_to, user_filter, module_filter,
-        scopes=scope_filter, areas=area_filter,
-        allowed_scopes=allowed_scopes, allowed_areas=allowed_areas,
+    ctx = _activity_dashboard_context(
+        request, allowed_scopes, allowed_areas, date_from=date_from, date_to=date_to,
+        user_filter=user_filter, module_filter=module_filter, scope_filter=scope_filter, area_filter=area_filter,
     )
-    ctx = {"summary": summary, "date_from": date_from, "date_to": date_to}
     if request.headers.get("HX-Request"):
         return templates.TemplateResponse(
             request=request, name="partials/admin_activity_content.html", context=ctx,
@@ -575,10 +606,9 @@ def operations_metrics(
     _require_hub_metrics(request)
     user = auth_service.session_user(request)
     allowed_scopes, allowed_areas = hub_metrics_access.metrics_visibility_for(user)
-    summary = activity_analytics.build_summary(
-        date_from, date_to, user_filter, module_filter,
-        scopes=scope_filter, areas=area_filter,
-        allowed_scopes=allowed_scopes, allowed_areas=allowed_areas,
+    ctx = _activity_dashboard_context(
+        request, allowed_scopes, allowed_areas, date_from=date_from, date_to=date_to,
+        user_filter=user_filter, module_filter=module_filter, scope_filter=scope_filter, area_filter=area_filter,
     )
     return templates.TemplateResponse(
         request=request, name="operations/metrics.html",
@@ -593,7 +623,7 @@ def operations_metrics(
             # a secas, MISMO campo que staffing.py/reporting.py calculan
             # para que el link se siga mostrando (activo) en esta página.
             "can_hub_metrics": True,
-            "summary": summary, "date_from": date_from, "date_to": date_to,
+            **ctx,
         },
     )
 

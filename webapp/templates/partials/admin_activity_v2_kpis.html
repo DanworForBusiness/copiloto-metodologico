@@ -1,0 +1,51 @@
+{# Métricas de Uso v2 (fase 3) — KPIs + tendencia de visitas/usuarios/acciones, desde los agregados diarios
+   (`activity_aggregates.query`, vía `activity_dashboard.build` → `dash`). Mismos primitivos del Resumen histórico
+   (`.activity-kpi-grid`/`.activity-kpi`, `.activity-chart`) y el segmentado nativo `.dashboard-view-switch`.
+   Las barras NO llevan `data-day` a propósito: el filtro por clic de día es de la Tendencia diaria histórica. #}
+<div class="activity-kpi-grid" data-activity-v2-kpis>
+  <div class="activity-kpi" title="Vistas de página distintas (un reload no suma una visita nueva).">
+    <span class="activity-kpi__value">{{ dash.kpis.visits }}</span>
+    <span class="activity-kpi__label">Visitas</span>
+  </div>
+  <div class="activity-kpi" title="Personas distintas en todo el período: alguien activo varios días cuenta una sola vez.">
+    <span class="activity-kpi__value">{{ dash.kpis.unique_users }}</span>
+    <span class="activity-kpi__label">Usuarios únicos</span>
+  </div>
+  <div class="activity-kpi" title="Tramos de uso con pausas de hasta 30 minutos; una sesión que cruza la medianoche cuenta una vez.">
+    <span class="activity-kpi__value">{{ dash.kpis.sessions }}</span>
+    <span class="activity-kpi__label">Sesiones</span>
+  </div>
+  <div class="activity-kpi">
+    <span class="activity-kpi__value">{{ dash.kpis.actions }}</span>
+    <span class="activity-kpi__label">Acciones</span>
+  </div>
+  <div class="activity-kpi" title="Resultados de operaciones: {{ dash.kpis.ok }} con éxito · {{ dash.kpis.fail }} con falla · {{ dash.kpis.partial }} parciales · {{ dash.kpis.outcomes_total }} en total.">
+    <span class="activity-kpi__value">{{ dash.kpis.ok }} / {{ dash.kpis.fail }}</span>
+    <span class="activity-kpi__label">Resultados (éxito / falla){% if dash.kpis.success_rate is not none %} · {{ dash.kpis.success_rate }}% de éxito{% endif %}</span>
+  </div>
+</div>
+
+{% if dash.trend.days %}
+<div class="activity-v2-trend" x-data="{ serie: 'visits' }">
+  <p class="dashboard-subhead">
+    Por día
+    <span class="dashboard-subhead__hint">· {{ dash.trend.days }} día(s) con actividad{% if dash.trend.truncated %} (los más recientes){% endif %}</span>
+  </p>
+  <div class="dashboard-view-switch" role="group" aria-label="Serie de la tendencia">
+    <button type="button" :class="serie === 'visits' && 'is-active'" @click="serie = 'visits'">Visitas</button>
+    <button type="button" :class="serie === 'users' && 'is-active'" @click="serie = 'users'">Usuarios</button>
+    <button type="button" :class="serie === 'actions' && 'is-active'" @click="serie = 'actions'">Acciones</button>
+  </div>
+  {% for key, label in (("visits", "visita(s)"), ("users", "usuario(s)"), ("actions", "acción(es)")) %}
+  <div class="activity-chart" x-show="serie === '{{ key }}'"{% if key != 'visits' %} x-cloak{% endif %} data-activity-v2-series="{{ key }}">
+    {% for row in dash.trend.series[key] %}
+    <div class="activity-chart__col" title="{{ row.day[6:8] }}/{{ row.day[4:6] }}/{{ row.day[:4] }}: {{ row.value }} {{ label }}">
+      <span class="activity-chart__count">{{ row.value }}</span>
+      <div class="activity-chart__bar" style="height:{{ row.pct }}%"></div>
+      <span class="activity-chart__label">{{ row.day[6:8] }}/{{ row.day[4:6] }}</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}

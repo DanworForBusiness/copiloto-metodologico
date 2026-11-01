@@ -1,0 +1,82 @@
+{# Métricas de Uso v2 (fase 3) — drill-down vertical → módulo → sección → eventos (`dash`, ver
+   activity_dashboard.build). Cada nivel es la MISMA ruta (/admin/activity) con más filtros: las filas y el
+   breadcrumb hacen hx-get al tablero entero con hx-push-url, así recargar o compartir la URL reconstruye la vista.
+   Las filas en 0 son el INVENTARIO real del Hub (module_registry, content pack, secciones `data-dw-section`) sin
+   actividad en el período — solo dentro de lo que el viewer puede ver. Primitivos: `.dashboard-section`,
+   `.matrix-scroll` + `.dashboard-table`, `.status-badge`, `.catalog-state`, paginador compartido. #}
+{% from "partials/pager.html" import render_pager %}
+{% macro drill_link(url, label) -%}
+<a href="{{ url }}" hx-get="{{ url }}" hx-target="#activity-dashboard" hx-swap="outerHTML" hx-push-url="true">{{ label }}</a>
+{%- endmacro %}
+<details class="dashboard-section" data-section-id="desglose" open>
+  <summary class="dashboard-section__head" draggable="true">
+    <span class="dashboard-section__grip" aria-hidden="true">⋮⋮</span>
+    <span class="dashboard-section__caret"></span>
+    <span class="dashboard-section__title">Desglose: vertical, módulo y sección</span>
+    {% if dash.level == "section" %}
+    <span class="dashboard-section__count">{{ dash.events.total }} registro(s)</span>
+    {% else %}
+    <span class="dashboard-section__count">{{ dash.rows|length }} fila(s) · {{ dash.zero_count }} sin actividad</span>
+    {% endif %}
+  </summary>
+  <div class="dashboard-section__body" data-activity-drill data-drill-level="{{ dash.level }}">
+    <nav class="dashboard-subhead activity-drill-breadcrumb" aria-label="Nivel del desglose">
+      {% for c in dash.breadcrumb %}
+        {% if not loop.first %}<span aria-hidden="true"> › </span>{% endif %}
+        {% if c.current %}<strong aria-current="page">{{ c.label }}</strong>{% else %}{{ drill_link(c.url, c.label) }}{% endif %}
+      {% endfor %}
+    </nav>
+
+    {% if dash.level != "section" %}
+    {% if dash.rows %}
+    <div class="matrix-scroll">
+      <table class="dashboard-table" data-drill-rows>
+        <thead><tr><th>{{ dash.rows_title }}</th><th>Visitas</th><th>Usuarios</th><th>Actividad</th><th>Estado</th></tr></thead>
+        <tbody>
+          {% for r in dash.rows %}
+          <tr data-drill-key="{{ r.key }}"{% if r.zero %} data-drill-zero{% endif %}>
+            <td><button type="button" class="dashboard-table-toggle" hx-get="{{ r.url }}" hx-target="#activity-dashboard" hx-swap="outerHTML" hx-push-url="true"
+                        title="Ver {{ r.label }}"><span class="caret">▸</span>{{ r.label }}</button></td>
+            <td>{{ r.visits }}</td>
+            <td>{{ r.users }}</td>
+            <td>{{ r.events }}</td>
+            <td>{% if r.zero %}<span class="status-badge status-badge--inactivo">Sin actividad</span>{% else %}<span class="status-badge status-badge--activo">Con actividad</span>{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    {% with state_kind="empty", state_title="Sin datos para este nivel", state_text="No hay actividad ni elementos del inventario visibles con este filtro." %}{% include "partials/catalog_state.html" %}{% endwith %}
+    {% endif %}
+    {% else %}
+    <div id="activity-v2-events" hx-select="#activity-v2-events">
+      {% if dash.events.rows %}
+      <div class="matrix-scroll">
+        <table class="dashboard-table" data-drill-events>
+          <thead><tr><th>Fecha y hora (UTC)</th><th>Usuario</th><th>Evento</th><th>Tipo</th><th>Resultado</th><th>Módulo</th><th>Datos</th></tr></thead>
+          <tbody>
+            {% for e in dash.events.rows %}
+            <tr>
+              <td><code>{{ e.ts }}</code></td>
+              <td{% if e.user %} title="{{ e.user }}"{% endif %}>{{ e.user_label }}</td>
+              <td title="{{ e.event }}">{{ e.label }}</td>
+              <td>{{ e.kind }}</td>
+              <td>{% if e.status %}<span class="status-badge status-badge--{{ e.status.tone }}">{{ e.status.label }}</span>{% else %}—{% endif %}</td>
+              <td>{{ e.module_label or "—" }}</td>
+              <td>{% for k, v in e.attrs %}<code>{{ k }}={{ v }}</code>{% if not loop.last %} · {% endif %}{% else %}—{% endfor %}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {{ render_pager(dash.events.pager, "#activity-v2-events", "Paginación de eventos", "Eventos por página") }}
+      {% else %}
+      {% with state_kind="empty", state_title="Sin eventos", state_text="No hubo actividad en esta sección con el período y los filtros elegidos." %}{% include "partials/catalog_state.html" %}{% endwith %}
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <p class="dashboard-subhead__hint">Detalle disponible por {{ dash.retention_months }} meses; los resúmenes diarios se conservan.</p>
+  </div>
+</details>

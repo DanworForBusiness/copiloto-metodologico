@@ -1014,7 +1014,11 @@ def build_summary(
             # el log — se busca en `assistant_store` por `reply_id`. Ver
             # `_story_text`.
             question, story_answer = _story_text(ev)
-            if question:
+            # Métricas de Uso v2 (fase 3): un `assistant_query` v2 cuyo texto ya
+            # no está en `assistant_store` (reinicio/deploy) se MUESTRA igual,
+            # con sus metadatos y la nota «texto no disponible» — antes se
+            # ocultaba. v1 sin pregunta sigue fuera, como siempre.
+            if question or ev.get("v") == 2:
                 conv_id = str(ev["payload"].get("conversation_id") or "").strip()
                 reply_id = str(ev["payload"].get("reply_id") or "").strip()
                 key = conv_id or f"_solo:{len(assistant_order)}"
@@ -1025,6 +1029,8 @@ def build_summary(
                         "turns": [],
                     }
                     assistant_order.append(key)
+                elif question and not assistant_conversations[key]["question"]:
+                    assistant_conversations[key]["question"] = question[:200]
                 assistant_conversations[key]["turns"].append({
                     "ts_utc": ev["ts_utc"],
                     # Cada turno guarda SU propia pregunta: dentro de una misma

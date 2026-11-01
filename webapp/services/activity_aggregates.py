@@ -39,6 +39,8 @@ from __future__ import annotations
 import json
 import logging
 from collections import Counter
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
@@ -54,9 +56,10 @@ log = logging.getLogger(__name__)
 RETENTION_MONTHS = 13
 SESSION_GAP_S = 30 * 60
 # Subir si cambia la FORMA del archivo de agregado: invalida los existentes.
-AGG_SCHEMA = 1
+# 2: `_status` lee primero `attrs.outcome` (fase 3).
+AGG_SCHEMA = 2
 _DIMENSIONS = ("vertical", "area", "module", "section", "kind", "event", "cls", "status", "user")
-_FILTER_KEYS = ("vertical", "module", "section", "user", "kind", "event", "cls")
+_FILTER_KEYS = ("vertical", "area", "module", "section", "user", "kind", "event", "cls")
 _MAX_PAGE_SIZE = 200
 
 
@@ -103,8 +106,41 @@ def _ts_seconds(ts_utc: str, day: str) -> int | None:
 
 # ── archivos ─────────────────────────────────────────────────────────────────
 
+# Dashboard (fase 3): una request del tablero lee TODO desde el MISMO
+# directorio que el resto de la página (`activity_analytics`) y reusa los días
+# ya cargados entre sus varias consultas (opciones de filtro + KPIs) — ver
+# `reading_from`. Fuera de ese contexto, comportamiento de siempre.
+_DIR_OVERRIDE: ContextVar[Path | None] = ContextVar("activity_agg_dir", default=None)
+_DAY_CACHE: ContextVar[dict | None] = ContextVar("activity_agg_day_cache", default=None)
+
+
+@contextmanager
+def reading_from(log_dir: Path | str | None):
+    """Contexto de UNA request del dashboard: fija el directorio de lectura y
+    memoiza `load_day` (solo en memoria, se descarta al salir)."""
+    dir_token = _DIR_OVERRIDE.set(Path(log_dir) if log_dir else None)
+    cache_token = _DAY_CACHE.set({})
+    try:
+        yield
+    finally:
+        _DAY_CACHE.reset(cache_token)
+        _DIR_OVERRIDE.reset(dir_token)
+
+
 def _log_dir() -> Path:
-    return Path(ACTIVITY_LOG_DIR)
+    return _DIR_OVERRIDE.get() or Path(ACTIVITY_LOG_DIR)
+
+
+def earliest_day() -> str | None:
+    """Primer día con fuente (JSONL o agregado persistido), 'YYYYMMDD', o None."""
+    base = _log_dir()
+    days = []
+    if base.is_dir():
+        days += [p.name[9:17] for p in base.glob("activity_*.jsonl") if p.name[9:17].isdigit()]
+        agg = base / "agg"
+        if agg.is_dir():
+            days += [p.stem for p in agg.glob("*.json") if p.stem.isdigit() and len(p.stem) == 8]
+    return min(days) if days else None
 
 
 def _source_path(day: str) -> Path:
@@ -154,6 +190,11 @@ def _status(rec: dict) -> str:
     if rec["kind"] != activity_catalog.KIND_OUTCOME:
         return ""
     attrs = rec["attrs"]
+    # `outcome` normalizado (activity_catalog.outcome_of) manda: es lo que los
+    # productores de operaciones largas escriben desde la fase 2.
+    outcome = str(attrs.get("outcome") or "").strip().lower()
+    if outcome in activity_catalog.OUTCOMES:
+        return outcome
     state = str(attrs.get("state") or attrs.get("status") or "").strip().lower()
     if state in ("success", "succeeded", "ok", "done", "published", "completed"):
         return "success"
@@ -230,6 +271,16 @@ def load_day(day: str, *, today: str | None = None) -> dict | None:
     recalcula y se reescribe (write-through a Spaces). None si no hubo
     actividad ese día (ni JSONL ni agregado)."""
     today = today or _today()
+    cache = _DAY_CACHE.get()
+    if cache is not None:
+        key = (str(_log_dir()), day, today)
+        if key not in cache:
+            cache[key] = _load_day(day, today)
+        return cache[key]
+    return _load_day(day, today)
+
+
+def _load_day(day: str, today: str) -> dict | None:
     source = _source_path(day)
     if day >= today:
         return compute_day(day) if source.is_file() else None
