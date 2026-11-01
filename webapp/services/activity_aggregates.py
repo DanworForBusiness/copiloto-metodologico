@@ -57,7 +57,7 @@ RETENTION_MONTHS = 13
 SESSION_GAP_S = 30 * 60
 # Subir si cambia la FORMA del archivo de agregado: invalida los existentes.
 # 2: `_status` lee primero `attrs.outcome` (fase 3).
-AGG_SCHEMA = 2
+AGG_SCHEMA = 3   # 3: estado también para acciones con `outcome` (KPI de operaciones)
 _DIMENSIONS = ("vertical", "area", "module", "section", "kind", "event", "cls", "status", "user")
 _FILTER_KEYS = ("vertical", "area", "module", "section", "user", "kind", "event", "cls")
 _MAX_PAGE_SIZE = 200
@@ -187,9 +187,12 @@ def _read_records(day: str) -> list[dict]:
 def _status(rec: dict) -> str:
     """Estado de un `outcome` (éxito/falla) a partir de los attrs que los
     productores ya escriben (`state`, `ok`, `error`…). Vacío para no-outcomes."""
+    attrs = rec["attrs"]
+    if rec["kind"] == activity_catalog.KIND_ACTION:              # acción con resultado declarado (p. ej. Capital Humano)
+        outcome = str(attrs.get("outcome") or "").strip().lower()
+        return outcome if outcome in activity_catalog.OUTCOMES else ""
     if rec["kind"] != activity_catalog.KIND_OUTCOME:
         return ""
-    attrs = rec["attrs"]
     # `outcome` normalizado (activity_catalog.outcome_of) manda: es lo que los
     # productores de operaciones largas escriben desde la fase 2.
     outcome = str(attrs.get("outcome") or "").strip().lower()
@@ -388,8 +391,12 @@ def query(start, end, filters: dict | None = None, *, visible_verticals: Iterabl
             if row["kind"] == activity_catalog.KIND_ACTION:
                 actions += count
                 day_actions += count
-            if row["kind"] == activity_catalog.KIND_OUTCOME:
+            # KPI de OPERACIONES: resultados de operaciones reales (no los recorridos de árboles, que tienen su panel) y acciones
+            # que declaran su resultado. Los diagnósticos técnicos ya quedan fuera por `cls=usage`.
+            if row["kind"] == activity_catalog.KIND_OUTCOME and row["event"] != "tree_outcome":
                 outcomes[row.get("status") or "done"] += count
+            elif row["kind"] == activity_catalog.KIND_ACTION and row.get("status") in activity_catalog.OUTCOMES:
+                outcomes[row["status"]] += count
             if row["user"]:
                 day_users.add(row["user"])
                 user_seconds.setdefault(row["user"], []).extend(epoch + s for s in row.get("ts") or [])

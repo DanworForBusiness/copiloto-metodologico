@@ -314,3 +314,23 @@ def test_v1_stories_still_render_and_v2_reads_text_from_assistant_store(logdir, 
     answers = {t["answer"] for st in s["assistant_stories"] for t in st["turns"]}
     assert answers == {"respuesta v1", "respuesta v2"}
     assert s["assistant_query_count"] == 2
+
+
+def test_operations_kpi_counts_real_operations_only(tmp_path, monkeypatch):
+    """KPI de operaciones: cuentan los resultados de operaciones reales y las acciones con `outcome` (Capital Humano); los recorridos de árboles
+    (siempre «éxito») y los diagnósticos técnicos no."""
+    import config
+    from webapp.services import activity_aggregates as agg
+    monkeypatch.setattr(config, "ACTIVITY_LOG_DIR", tmp_path)
+    monkeypatch.setattr(agg, "ACTIVITY_LOG_DIR", tmp_path, raising=False)
+    day = "20261101"
+    rows = [
+        {"v": 2, "id": "a1", "ts_utc": "2026-11-01T10:00:00Z", "kind": "outcome", "event": "connectivity_inventory_run", "user": "u@x", "scope": "copilot", "area": "catalog", "attrs": {"outcome": "success"}},
+        {"v": 2, "id": "a2", "ts_utc": "2026-11-01T10:05:00Z", "kind": "outcome", "event": "catalog_regenerate", "user": "u@x", "scope": "copilot", "area": "catalog", "attrs": {"outcome": "failed"}},
+        {"v": 2, "id": "a3", "ts_utc": "2026-11-01T10:06:00Z", "kind": "outcome", "event": "tree_outcome", "user": "u@x", "scope": "copilot", "area": "methodology", "attrs": {}},
+        {"v": 2, "id": "a4", "ts_utc": "2026-11-01T10:07:00Z", "kind": "action", "event": "cchh.profile_created", "user": "u@x", "scope": "human_capital", "area": "cchh", "attrs": {"outcome": "success"}},
+        {"v": 2, "id": "a5", "ts_utc": "2026-11-01T10:08:00Z", "kind": "outcome", "event": "data_load_failed", "user": "u@x", "scope": "operations", "area": "staffing", "attrs": {}},
+    ]
+    (tmp_path / f"activity_{day}.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+    out = agg.query(day, day, {}, visible_verticals=None, today="20261102")["kpis"]["outcomes"]
+    assert out.get("success") == 2 and out.get("failed") == 1 and sum(out.values()) == 3

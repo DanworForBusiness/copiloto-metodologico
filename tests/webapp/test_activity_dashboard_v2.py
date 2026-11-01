@@ -155,8 +155,8 @@ def test_kpis_over_full_history_union_users_and_midnight_session(logdir, monkeyp
     assert _kpi(t, "Visitas") == "5"
     # usuarios: uno (3 días), dos, tres, cuatro → 4, nunca 6 por sumar días.
     assert _kpi(t, "Usuarios únicos") == "4"
-    assert _kpi(t, "Resultados (éxito / falla)") == "1 / 1"
-    assert "50% de éxito" in t
+    assert _kpi(t, "Operaciones (éxito / falla)") == "2 / 1"   # + la acción de CCHH con resultado
+    assert "67% de éxito" in t                                            # 2 éxitos (sync de APIs + acción de CCHH) / 3
 
 
 def test_session_crossing_midnight_counts_once_in_two_day_range(logdir, monkeypatch):
@@ -174,7 +174,7 @@ def test_filters_narrow_kpis(logdir, monkeypatch):
     ops = _hx(c, "/admin/activity?vertical=operations")
     assert _kpi(ops, "Visitas") == "1" and _kpi(ops, "Usuarios únicos") == "1"
     actions = _hx(c, "/admin/activity?kind=outcome")
-    assert _kpi(actions, "Visitas") == "0" and _kpi(actions, "Resultados (éxito / falla)") == "1 / 1"
+    assert _kpi(actions, "Visitas") == "0" and _kpi(actions, "Operaciones (éxito / falla)") == "1 / 1"
     sec = _hx(c, "/admin/activity?vertical=copilot&module=CP01&section=catalog_domain")
     assert _kpi(sec, "Visitas") == "0" and _kpi(sec, "Usuarios únicos") == "1"
     week = _hx(c, "/admin/activity?period=today")
@@ -314,7 +314,7 @@ def test_existing_panels_still_render_including_v1_and_v2_stories(logdir, monkey
     assert "2 pregunta(s)" in t
     assert "Árbol de prueba" in t
     assert "1 reacción(es)" in t
-    assert "Detalle disponible por 13 meses; los resúmenes diarios se conservan." in t
+    assert "Detalle disponible por" not in t                                   # nota de retención retirada de la UI
     # Paneles históricos responden al período/vertical/usuario.
     ops = _hx(_client(monkeypatch), "/admin/activity?vertical=operations")
     assert "pregunta v1" not in ops and "1 reacción(es)" in ops

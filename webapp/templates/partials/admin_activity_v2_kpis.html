@@ -19,8 +19,8 @@
     <span class="activity-kpi__value">{{ dash.kpis.actions }}</span>
     <span class="activity-kpi__label">Acciones</span>
   </div>
-  <div class="activity-kpi" title="Resultados de operaciones: {{ dash.kpis.ok }} con éxito · {{ dash.kpis.fail }} con falla · {{ dash.kpis.partial }} parciales · {{ dash.kpis.outcomes_total }} en total.">
+  <div class="activity-kpi" title="Operaciones con resultado (extracciones, publicaciones, regeneraciones, assessments y acciones que declaran su resultado): {{ dash.kpis.ok }} con éxito · {{ dash.kpis.fail }} con falla · {{ dash.kpis.partial }} parciales · {{ dash.kpis.outcomes_total }} en total.">
     <span class="activity-kpi__value">{{ dash.kpis.ok }} / {{ dash.kpis.fail }}</span>
-    <span class="activity-kpi__label">Resultados (éxito / falla){% if dash.kpis.success_rate is not none %} · {{ dash.kpis.success_rate }}% de éxito{% endif %}</span>
+    <span class="activity-kpi__label">Operaciones (éxito / falla){% if dash.kpis.success_rate is not none %} · {{ dash.kpis.success_rate }}% de éxito{% endif %}</span>
   </div>
 </div>

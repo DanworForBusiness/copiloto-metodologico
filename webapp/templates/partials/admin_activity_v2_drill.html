@@ -31,11 +31,11 @@
     {% if dash.rows %}
     <div class="matrix-scroll">
       <table class="dashboard-table" data-drill-rows>
-        <thead><tr><th>{{ dash.rows_title }}</th><th>Visitas</th><th>Usuarios</th><th>Actividad</th><th>Estado</th></tr></thead>
+        <thead><tr><th class="left">{{ dash.rows_title }}</th><th>Visitas</th><th>Usuarios</th><th>Actividad</th><th>Estado</th></tr></thead>
         <tbody>
           {% for r in dash.rows %}
           <tr data-drill-key="{{ r.key }}"{% if r.zero %} data-drill-zero{% endif %}>
-            <td><button type="button" class="dashboard-table-toggle" hx-get="{{ r.url }}" hx-target="#activity-dashboard" hx-swap="outerHTML" hx-push-url="true"
+            <td class="left"><button type="button" class="dashboard-table-toggle" hx-get="{{ r.url }}" hx-target="#activity-dashboard" hx-swap="outerHTML" hx-push-url="true"
                         title="Ver {{ r.label }}"><span class="caret">▸</span>{{ r.label }}</button></td>
             <td>{{ r.visits }}</td>
             <td>{{ r.users }}</td>
@@ -77,6 +77,5 @@
     </div>
     {% endif %}
 
-    <p class="dashboard-subhead__hint">Detalle disponible por {{ dash.retention_months }} meses; los resúmenes diarios se conservan.</p>
   </div>
 </details>
