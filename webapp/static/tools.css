@@ -2391,6 +2391,9 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 .activity-filters > label:has([name="kind"]) { order: 11; }
 .activity-filters > label:has([name="scope"]) { order: 12; }
 .activity-filters > label:has([name="area"]) { order: 13; }
+/* La fila 2 se alinea ARRIBA: con el flex-end general, Desde/Hasta/Tipo bajaban hasta el pie de las listas de Ámbito/Área y dejaban un hueco. */
+.activity-filters > label:has([name="date_from"]), .activity-filters > label:has([name="date_to"]), .activity-filters > label:has([name="kind"]),
+.activity-filters > label:has([name="scope"]), .activity-filters > label:has([name="area"]) { align-self: flex-start; }
 /* AÑO/MES MULTI-SELECT corrective (DECISIÓN VISUAL OWNER, ver HANDOFF):
    Año/Mes van en su PROPIA fila, debajo de Client Partner/Proyecto/
    Cliente/Estado — `flex-basis:100%` dentro del MISMO contenedor
