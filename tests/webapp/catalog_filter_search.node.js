@@ -9,7 +9,7 @@ const vm = require("vm");
 
 const src = fs.readFileSync(path.resolve(__dirname, "..", "..", "webapp", "static", "app.js"), "utf-8").split("\r\n").join("\n");
 const a = src.indexOf("const DwCatalogSearch = {");
-const f = src.indexOf("function dwCatalogBrowse() {");
+const f = src.indexOf("function dwCatalogBrowse(defaultKind) {");
 const end = src.indexOf("\n}\n", f);
 if (a < 0 || f < 0 || end < 0 || src.indexOf("function dwCatalogBrowse", f + 10) !== -1) { console.log("FAIL: bloque del buscador del Catálogo no encontrado (o duplicado) en app.js"); process.exit(1); }
 const snippet = src.slice(a, end + 3);

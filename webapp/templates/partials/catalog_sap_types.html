@@ -1,0 +1,73 @@
+{# «Disponibilidad SAP» del Catálogo de conectividad (módulo 01). Fuente ÚNICA: snapshot saneado del content pack (`sap`, ver
+   webapp/services/sap_connection_catalog.py; contrato sap-connection-types/v1). Tarjetas y filtros con los primitivos del Catálogo del
+   módulo 04 (`.catalog-card`, `.catalog-pill`, `.catalog-feature-chip`, `.catalog-card__notes`, `.whatsnew-filter`, estado vacío compartido).
+   Filtro en el cliente (`dwSapTypes`, app.js): búsqueda por nombre visible o typeId + filtros combinables (todos deben cumplirse).
+   `data-icon-location` conserva `iconLocation` tal cual para la futura biblioteca de imágenes: todavía no se renderiza ninguna imagen. #}
+{% if not sap.types %}
+{% with state_kind="empty", state_title="Sin snapshot de referencia", state_text="No hay un catálogo de tipos de conexión de SAP disponible para este pack." %}{% include "partials/catalog_state.html" %}{% endwith %}
+{% else %}
+<div x-data="dwSapTypes({{ sap.total }})" data-sap-types>
+  <p class="admin-help" data-sap-notice>{{ sap.notice }}</p>
+  <div class="tree-picker catalog-picker--secondary">
+  <label for="catalog-sap-search">Buscar</label>
+  <div class="whatsnew-filters whatsnew-filters--inline">
+    <div class="whatsnew-filter whatsnew-filter--fill">
+      <input type="search" id="catalog-sap-search" x-model="q" @input="apply()" @keydown.escape="clear()" aria-label="Buscar por nombre o typeId" placeholder="Nombre o typeId..." autocomplete="off">
+    </div>
+    <button type="button" class="whatsnew-filter__clear" @click="clear()">✕ Limpiar</button>
+  </div>
+  </div>
+  <div class="whatsnew-filters" data-sap-filters>
+    {% for key, label in (("sources", "Origen"), ("categories", "Categoría"), ("capabilities", "Capacidad"), ("requirements", "Requisito")) %}
+    <label class="whatsnew-filter">
+      <span>{{ label }}</span>
+      <select x-model="filters.{{ key }}" @change="apply()" data-sap-filter="{{ key }}">
+        <option value="">Todos</option>
+        {% for o in sap.filters[key] %}<option value="{{ o.value }}">{{ o.label }} ({{ o.count }})</option>{% endfor %}
+      </select>
+    </label>
+    {% endfor %}
+  </div>
+  <p class="admin-help" role="status" aria-live="polite" data-sap-count x-text="shown + ' de ' + total + ' tipos de conexión'">{{ sap.total }} de {{ sap.total }} tipos de conexión</p>
+  <ul class="catalog-flows-list catalog-connections-list" x-ref="list">
+    {% for t in sap.types %}
+    <li class="catalog-card catalog-connection-card" tabindex="0" data-sap-type="{{ t.type_id }}" data-icon-location="{{ t.icon_location }}"
+        data-search="{{ t.data_search }}" data-sources="{{ t.data_sources }}" data-categories="{{ t.data_categories }}"
+        data-capabilities="{{ t.data_capabilities }}" data-requirements="{{ t.data_requirements }}"
+        @click="toggle($el)" @keyup.enter="toggle($el)">
+      <p class="catalog-card__head"><strong>{{ t.title }}</strong></p>
+      <p class="catalog-card__meta">typeId: {{ t.type_id }}</p>
+      <div class="catalog-connection-badges">
+        {% for s in t.sources %}<span class="catalog-pill catalog-pill--muted">{{ s.label }}</span>{% endfor %}
+        {% for c in t.categories %}<span class="catalog-pill catalog-pill--muted">{{ c.label }}</span>{% endfor %}
+        {% if t.conditional %}<span class="catalog-pill catalog-pill--ok" data-sap-conditional title="{{ sap.conditional_text }}">Disponibilidad condicional</span>{% endif %}
+      </div>
+      <div class="catalog-feature-row">
+        {% for c in t.capabilities %}<span class="catalog-feature-chip catalog-feature-chip--on" title="{{ c.code }}">{{ c.label }}</span>{% endfor %}
+      </div>
+      {% if t.declared_requirements %}
+      <p class="catalog-card__apto">{% for r in t.declared_requirements %}{{ r.label }}: {{ r.state_label|lower }}{% if not loop.last %} · {% endif %}{% endfor %}</p>
+      {% endif %}
+      <details class="catalog-card__notes" @click.stop>
+        <summary>Detalle técnico</summary>
+        <ul>
+          <li><strong>typeId</strong><br><span class="catalog-note__ev">{{ t.type_id }}{% if t.display_name %} · nombre visible de la UI de SAP: {{ t.display_name }}{% else %} · sin nombre visible en el snapshot{% endif %}</span></li>
+          <li><strong>Origen / categoría</strong><br><span class="catalog-note__ev">{% for s in t.sources %}{{ s.code }}{% if not loop.last %}, {% endif %}{% endfor %} · {% for c in t.categories %}{{ c.code }}{% if not loop.last %}, {% endif %}{% endfor %}</span></li>
+          <li><strong>Capacidades</strong><br><span class="catalog-note__ev">{% for c in t.capabilities %}{{ c.label }} ({{ c.code }}){% if not loop.last %} · {% endif %}{% endfor %}</span></li>
+          <li><strong>Requisitos y atributos</strong>
+            {% for r in t.requirements %}<br><span class="catalog-note__ev" data-sap-requirement="{{ r.key }}:{{ r.state }}">{{ r.label }} ({{ r.code }}): {{ r.state_label }}</span>{% endfor %}
+          </li>
+          <li><strong>Disponibilidad</strong><br><span class="catalog-note__ev">{% if t.conditional %}{{ sap.conditional_text }}{% else %}Condición no declarada en el snapshot (no implica disponibilidad en todos los tenants).{% endif %}</span></li>
+          {% if t.adapter_id %}<li><strong>Adapter</strong><br><span class="catalog-note__ev">{{ t.adapter_id }}</span></li>{% endif %}
+          {% if t.partner %}<li><strong>Partner</strong><br><span class="catalog-note__ev">{{ t.partner.id }}{% if t.partner.api_version is not none %} · API v{{ t.partner.api_version }}{% endif %}</span></li>{% endif %}
+          {% if t.generic_framework_type %}<li><strong>Framework genérico</strong><br><span class="catalog-note__ev">{{ t.generic_framework_type.ccm_type_id }} · versión {{ t.generic_framework_type.ccm_type_version }}</span></li>{% endif %}
+          {% if t.default_parameters %}<li><strong>Parámetros por defecto</strong><br><span class="catalog-note__ev">{{ t.default_parameters|join(", ") }}</span></li>{% endif %}
+          <li><strong>iconLocation</strong><br><span class="catalog-note__ev">{{ t.icon_location }}</span></li>
+        </ul>
+      </details>
+    </li>
+    {% endfor %}
+  </ul>
+  <div x-show="shown === 0" x-cloak>{% with state_kind="empty", state_title="Sin coincidencias", state_text="Ningún tipo de conexión cumple la búsqueda y los filtros. Probá con otros criterios o presioná Limpiar." %}{% include "partials/catalog_state.html" %}{% endwith %}</div>
+</div>
+{% endif %}

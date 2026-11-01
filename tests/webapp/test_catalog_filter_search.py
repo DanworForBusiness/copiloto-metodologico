@@ -106,14 +106,16 @@ def test_data_products_have_no_second_dropdown_so_search_is_available_from_the_s
 
 
 def test_architecture_and_security_catalogs_are_untouched():
-    for number, stem in (("01", "01_Arquitectura_y_Conectividad"), ("02", "02_Seguridad_y_Gobernanza")):
-        html = render(number=number, stem=stem, catalog_connection_types=[], catalog_security_families=[])
-        assert "dwCatalogBrowse" not in html and "data-catalog-search" not in html
+    # 02 (seguridad) sigue sin buscador. 01 (conectividad) adoptó el MISMO mecanismo del 04 (Catálogo de conectividad, arranca en «Conexiones»).
+    html = render(number="02", stem="02_Seguridad_y_Gobernanza", catalog_connection_types=[], catalog_security_families=[])
+    assert "dwCatalogBrowse" not in html and "data-catalog-search" not in html
+    html = render(number="01", stem="01_Arquitectura_y_Conectividad", catalog_connection_types=[], catalog_security_families=[])
+    assert "x-data=\"dwCatalogBrowse('connections')\"" in html and 'id="catalog-search-connections"' in html
 
 
 def test_search_is_client_side_only_no_route_or_backend_change():
     js = (REPO / "webapp/static/app.js").read_text(encoding="utf-8")
-    block = js[js.index("const DwCatalogSearch = {"): js.index("function dwCatalogBrowse()") + 3000]
+    block = js[js.index("const DwCatalogSearch = {"): js.index("function dwCatalogBrowse(") + 3000]
     assert "fetch(" not in block and "htmx.ajax" not in block and "XMLHttpRequest" not in block                      # nunca pide nada: filtra los tiles ya renderizados
     assert 'normalize("NFD")' in block and "toLowerCase()" in block                                                  # sin tildes ni mayúsculas
 

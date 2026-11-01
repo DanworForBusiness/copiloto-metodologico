@@ -952,10 +952,12 @@ window.DwCatalogSearch = DwCatalogSearch;
 // Estado de la barra del Catálogo (Alpine, `x-data="dwCatalogBrowse()"` en catalog_tab.html): dropdown 1 (`catalogKind`) → dropdown 2 (`picked`) → buscador (`q`).
 // Elegido el valor del 2.º dropdown este se reemplaza por «Buscar...» + «Limpiar» y aparece la leyenda «Filtrado por <catálogo> ✕». La ✕ restaura el 2.º dropdown (lo vuelve a «Elegí…»
 // y dispara su `change`, así htmx repinta el estado inicial); «Limpiar» solo vacía el texto; cambiar el dropdown 1 resetea todo. Data Products no tiene 2.º dropdown: solo buscador.
-function dwCatalogBrowse() {
-  const KIND_LABEL = { domains: "Modelos", lob: "Líneas de negocio", clients: "Clientes" };
+// `defaultKind` (opcional): catálogo elegido al abrir. El módulo 04 no lo pasa (arranca en «Elegí un catálogo...»); el Catálogo de
+// conectividad del módulo 01 arranca en «connections» para conservar su comportamiento de siempre.
+function dwCatalogBrowse(defaultKind) {
+  const KIND_LABEL = { domains: "Modelos", lob: "Líneas de negocio", clients: "Clientes", connections: "Conexiones" };
   return {
-    catalogKind: "", picked: "", pickedLabel: "", q: "", noMatch: false,
+    catalogKind: defaultKind || "", picked: "", pickedLabel: "", q: "", noMatch: false,
     get kindLabel() { return KIND_LABEL[this.catalogKind] || ""; },
     get hasPick() { return !!this.picked && this.catalogKind in KIND_LABEL; },
     get showSearch() { return this.hasPick || this.catalogKind === "data_products"; },
@@ -1003,6 +1005,35 @@ function dwCatalogBrowse() {
     },
   };
 }
+// «Disponibilidad SAP» (Catálogo de conectividad, módulo 01): tarjetas YA renderizadas por el servidor desde el snapshot saneado. Búsqueda en
+// vivo por nombre visible o typeId (`data-search`, sin mayúsculas ni tildes: `DwCatalogSearch.fold`) + filtros combinables por código del
+// snapshot (`data-sources|categories|capabilities|requirements`): una tarjeta se muestra solo si cumple TODO. Nunca pide nada al servidor.
+function dwSapTypes(total) {
+  return {
+    q: "", filters: { sources: "", categories: "", capabilities: "", requirements: "" }, total: total || 0, shown: total || 0,
+    init() { this.apply(); },                                   // el navegador puede restaurar valores de los controles al volver a la página
+    apply() {
+      const tokens = DwCatalogSearch.fold(this.q).split(/\s+/).filter(Boolean);
+      const wanted = Object.entries(this.filters).filter(([, v]) => v);
+      let shown = 0;
+      (this.$refs.list ? Array.from(this.$refs.list.children) : []).forEach(li => {
+        const text = DwCatalogSearch.fold(li.dataset.search);
+        const ok = tokens.every(t => text.includes(t))
+          && wanted.every(([key, value]) => (li.dataset[key] || "").split(" ").includes(value));
+        li.hidden = !ok;
+        if (ok) shown++;
+      });
+      this.shown = shown;
+    },
+    clear() {
+      this.q = "";
+      Object.keys(this.filters).forEach(k => { this.filters[k] = ""; });
+      this.apply();
+    },
+    toggle(li) { const d = li.querySelector("details"); if (d) d.open = !d.open; },
+  };
+}
+window.dwSapTypes = dwSapTypes;
 document.body.addEventListener("htmx:load", syncAssistantFeedbackState);
 
 // Reordenamiento drag-and-drop de grupos colapsables dentro de un dashboard.

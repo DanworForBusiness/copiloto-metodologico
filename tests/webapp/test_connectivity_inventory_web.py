@@ -191,7 +191,8 @@ def test_plus_and_catalog_tab_with_empty_catalog_only_in_module_01(env):
     m01 = owner.get(f"/modules/{STEM}?pack=datasphere_core&tab=catalogo").text
     m04 = owner.get("/modules/04_Modelado_y_Desarrollo?pack=datasphere_core&tab=catalogo").text
     assert "toolTab='catalogo'" in m01 and "0 orígenes disponibles" in m01
-    assert 'id="dsc-form"' in m01 and "Extraer conexiones de un tenant" in m01 and "declarado" not in m01
+    panel = m01[m01.index('<div id="dsc-panel"'):m01.index("connectivity_inventory.js")]                 # formulario de extracción (F2.1)
+    assert 'id="dsc-form"' in m01 and "Extraer conexiones de un tenant" in m01 and "declarado" not in panel
     assert 'type="password"' in m01 and M_SECRET not in m01
     assert "dsc-form" not in m04 and "connectivity_inventory.js" not in m04                  # (5) el módulo 04 no recibe nada
     assert 'id="dsp-form"' in m04                                                            # su herramienta sigue ahí
@@ -226,7 +227,8 @@ def test_scope_starts_with_one_required_row_and_a_server_side_template(env):
     assert help_btn and help_btn.group(1).startswith("Opcional. Si conocés el nombre técnico")  # (i) con el copy accesible
     assert "chart-tooltip-anchor tree-picker-head__action" in m01
     assert "data-dsc-add-space" in m01 and "+ Otro espacio" in m01 and "(opcional)</label>" not in box
-    assert "declarado" not in m01                                                          # sin environment declarado
+    panel = m01[m01.index('<div id="dsc-panel"'):m01.index("connectivity_inventory.js")]
+    assert "declarado" not in panel                                                        # sin environment declarado (en el formulario F2.1)
 
 
 @pytest.mark.parametrize("n", [1, 2, 6])

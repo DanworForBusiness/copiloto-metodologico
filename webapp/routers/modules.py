@@ -198,12 +198,13 @@ def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK), ta
     # igual que siempre. Los valores vacíos de la intro nunca se renderizan (ver module.html: todo uso está en la rama `else` de `immersive`).
     catalog_ctx = (
         {"catalog_domains": [], "catalog_clients": [], "catalog_models": [], "catalog_connection_types": [], "catalog_security_families": [], "catalog_data_products": [],
-         "catalog_lobs": []}
+         "catalog_lobs": [], "catalog_connection_clients": []}
         if immersive and not initial_tab == "catalogo" else {
             "catalog_domains": catalog_reads._catalog_domains(),
             "catalog_clients": catalog_reads._catalog_clients(),          # selector "Clientes": clientes con flujos navegables
             "catalog_models": catalog_reads._catalog_model_domains(),     # selector "Modelos": sin agrupaciones legacy (catalog_domains conserva su contrato)
             "catalog_connection_types": catalog_reads._catalog_connection_types(),
+            "catalog_connection_clients": catalog_reads._catalog_connection_clients(),   # Catálogo de conectividad (01): «Clientes», sobre conexiones publicadas
             "catalog_security_families": catalog_reads._catalog_security_families(),
             "catalog_data_products": catalog_reads._catalog_data_products_list(),
             "catalog_lobs": dcs.lob_options(),            # taxonomía gobernada (estática): los conteos/grupos se leen recién al elegir una línea (GET /catalog/lob)

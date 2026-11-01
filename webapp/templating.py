@@ -97,3 +97,12 @@ def _dsc_tool(request, stem: str) -> dict:
 
 
 templates.env.globals["dsc_tool"] = _dsc_tool
+
+
+def _sap_connection_catalog(pack: str) -> dict:
+    """«Disponibilidad SAP» del Catálogo de conectividad (módulo 01): snapshot saneado del pack (ver sap_connection_catalog)."""
+    from webapp.services import sap_connection_catalog as _sap
+    return _sap.catalog(pack or "datasphere_core")
+
+
+templates.env.globals["sap_connection_catalog"] = _sap_connection_catalog
