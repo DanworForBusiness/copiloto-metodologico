@@ -1,0 +1,33 @@
+{
+  "name": "PG_JDBC",
+  "typeId": "GENERICJDBC",
+  "businessName": "Postgres ventas",
+  "credentialMode": "technicaluser",
+  "adapter": "CamelJdbcAdapter",
+  "location": "agent",
+  "agentName": "MRK_AGENT_A",
+  "agentGroupName": null,
+  "agentStatus": "CONNECTED",
+  "remoteSourceName": "PG_JDBC_RS",
+  "space_name": "DEV",
+  "content": {
+    "objects": {
+      "PG_JDBC": {
+        "kind": "repository.remote",
+        "configuration": {
+          "ConnectionProperties": {
+            "configurations": {
+              "dbtype": "postgresql",
+              "driverClass": "org.postgresql.Driver",
+              "url": "jdbc:postgresql://pg.invalid:5432/sales?user=mrk_user&password=mrk_password_value"
+            },
+            "credentials": {
+              "username": "mrk_user",
+              "password": "mrk_password_value"
+            }
+          }
+        }
+      }
+    }
+  }
+}

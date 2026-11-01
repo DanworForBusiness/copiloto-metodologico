@@ -26,6 +26,7 @@
     MISMA regla de visibilidad (`can_execute`). -#}
 {%- set conn = dsc_tool(request, document.summary.stem) if (document is defined and document) else {"can_execute": False} -%}
 {%- set sap = sap_connection_catalog(pack) %}
+{%- set registry_read = connectivity_registry_can_read(request) if request is defined else False %}
 <div x-data="dwCatalogBrowse('connections')" @htmx:after-swap.camel="search()">
 <div class="tree-picker catalog-picker--kind catalog-picker--connections" :class="catalogView === 'extract' && 'catalog-picker--bare'">
   <div class="tree-picker-head">
@@ -44,10 +45,11 @@
     {% endif %}
   </div>
   <div class="tree-picker-row" x-show="catalogView !== 'extract'">
-    <select id="catalog-conn-kind" x-model="catalogKind" @change="resetPick(); dwConnectivityKindChanged(catalogKind, $refs.sapOpen)">
+    <select id="catalog-conn-kind" autocomplete="off" x-model="catalogKind" @change="resetPick(); dwConnectivityKindChanged(catalogKind, $refs.sapOpen, $refs.registryOpen)">
       <option value="connections">Conexiones</option>
       <option value="clients">Clientes</option>
       <option value="sap_types">Disponibilidad SAP</option>
+      {% if registry_read %}<option value="registry">Tenants y ambientes</option>{% endif %}
     </select>
   </div>
 </div>
@@ -125,6 +127,21 @@
     <p class="tool-suggest__link"><a href="/catalog/sap-types?pack={{ pack }}" x-ref="sapOpen" data-sap-open
        hx-get="/catalog/sap-types?pack={{ pack }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" hx-trigger="click, dw-sap-open" @click.prevent><strong>Disponibilidad SAP</strong> Abrir en el panel central →</a></p>
   </div>
+
+  {% if registry_read %}
+  <div x-show="catalogKind === 'registry'" x-cloak data-catalog-kind="registry">
+    {#- «Tenants y ambientes» (F2.2c.1): registro gobernado cliente → tenant → host / Space → ambiente. Igual que Disponibilidad SAP, se opera en el
+        panel central; elegir la opción dispara este enlace (`dw-registry-open`, ver dwConnectivityKindChanged). -#}
+    <div class="catalog-flows">
+      <div class="tool-empty">
+        <span>Registro gobernado</span>
+        <p>Tenants de cada cliente, hosts de acceso y ambiente (DEV/QAS/PRD) de cada Space, con historial. Registrar un ambiente no homologa conexiones.</p>
+      </div>
+    </div>
+    <p class="tool-suggest__link"><a href="/catalog/connectivity-registry?pack={{ pack }}" x-ref="registryOpen" data-registry-open
+       hx-get="/catalog/connectivity-registry?pack={{ pack }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" hx-trigger="click, dw-registry-open" @click.prevent><strong>Tenants y ambientes</strong> Abrir en el panel central →</a></p>
+  </div>
+  {% endif %}
 
 </div>
 </div>

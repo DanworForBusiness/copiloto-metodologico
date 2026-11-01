@@ -106,3 +106,12 @@ def _sap_connection_catalog(pack: str) -> dict:
 
 
 templates.env.globals["sap_connection_catalog"] = _sap_connection_catalog
+
+
+def _connectivity_registry_can_read(request) -> bool:
+    """«Tenants y ambientes» del Catálogo de conectividad (módulo 01, F2.2c.1): visibilidad de la opción (ver connectivity_registry_view)."""
+    from webapp.services import connectivity_registry_view as _crv
+    return request is not None and _crv.can_read(request)
+
+
+templates.env.globals["connectivity_registry_can_read"] = _connectivity_registry_can_read

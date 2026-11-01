@@ -1,7 +1,7 @@
 """
 connectivity_inventory_service.py — extracción AD-HOC de conexiones (F2.1) desde el Catálogo del módulo 01.
 
-SOLO LECTURA y SIN PERSISTENCIA: lista y lee conexiones de los Spaces pedidos con `CliConnectionSource` (perfil del CLI
+SOLO LECTURA y SIN PERSISTENCIA PROPIA (la captura gobernada opt-in del dueño es F2.2c: `connectivity_capture_service`): lista y lee conexiones de los Spaces pedidos con `CliConnectionSource` (perfil del CLI
 aislado + `--secrets-file` efímero), bajo un presupuesto GLOBAL (`Budget`: llamadas físicas, reintentos, duración) y
 devuelve ÚNICAMENTE el resumen saneado de B1 (`review_summary`): preflight, estado de ejecución, exhaustividad,
 cobertura y PRESENCIA de metadatos. El inventario completo vive solo en memoria durante la ejecución: nada se escribe
@@ -192,6 +192,7 @@ class ExtractionOutcome:
     operation_id: str | None = None
     duration_s: float = 0.0
     summary: dict | None = None                # SOLO review_summary (B1)
+    capture: dict | None = None                # F2.2c: observación PENDIENTE de captura (solo dueño, opt-in; ver connectivity_capture_service)
 
 
 def _failed(code: str, op_id: str, started: float, summary: dict | None = None) -> ExtractionOutcome:
@@ -237,8 +238,9 @@ class _Progress:
     el resumen B1), conteos observados y códigos del vocabulario cerrado (`safe_code`): nunca host, tenant, nombres de Spaces o
     conexiones, Client ID ni texto de excepciones."""
 
-    def __init__(self, spaces, on_phase=None, on_line=None):
+    def __init__(self, spaces, on_phase=None, on_line=None, record=False):
         self.ref = {s: f"S{i}" for i, s in enumerate(spaces, 1)}
+        self.listings, self.details = ({}, {}) if record else (None, None)   # F2.2c: documentos leídos, SOLO en memoria y solo si se pidió
         self._on_phase, self._on_line = on_phase, on_line
         self._phase = None
         self._reading = None                                  # Space cuyo detalle se está leyendo (para cerrar su hito)
@@ -295,7 +297,11 @@ def _observed_source(progress: _Progress, **kwargs):
                 items = super().list_connections(space)
             except SourceError as e:
                 progress.line(f"{ref} · listado de conexiones: {_error_text(e)}")
+                if progress.listings is not None:
+                    progress.listings[space] = None                       # Space inaccesible: sin evidencia, nunca «vacío»
                 raise
+            if progress.listings is not None:
+                progress.listings[space] = list(items)
             progress.line(f"{ref} · {len(items)} conexiones listadas")
             return items
 
@@ -304,10 +310,13 @@ def _observed_source(progress: _Progress, **kwargs):
                 progress._reading = space
                 progress.phase(PHASE_READING)
             try:
-                return super().get_connection(space, name)
+                doc = super().get_connection(space, name)
             except SourceError as e:
                 progress.line(f"{progress.ref.get(space, 'S?')} · lectura de una conexión: {_error_text(e)}")
                 raise
+            if progress.details is not None:
+                progress.details[(space, name)] = doc
+            return doc
 
     return _ObservedSource(**kwargs)
 
@@ -330,15 +339,18 @@ def _close(outcome: "ExtractionOutcome", progress: _Progress) -> "ExtractionOutc
 
 # ───────────────────────────── ejecución ─────────────────────────────
 def run(values: ExtractionValues, client_secret: str, *, user_email: str = "", on_phase=None, on_line=None,
-        sleep=time.sleep) -> ExtractionOutcome:
+        sleep=time.sleep, capture_for: str = "") -> ExtractionOutcome:
     """Valida y extrae (solo lectura). Devuelve SOLO el resumen saneado; el secreto no se guarda ni se devuelve. ``on_phase(fase)`` y
     ``on_line(texto)`` reciben, en tiempo real, los hitos observados y la actividad saneada (formulario inválido ⇒ ninguno)."""
-    progress = _Progress(values.spaces, on_phase, on_line)
-    outcome = _run(values, client_secret, user_email=user_email, progress=progress, sleep=sleep)
+    progress = _Progress(values.spaces, on_phase, on_line, record=bool(capture_for))
+    try:
+        outcome = _run(values, client_secret, user_email=user_email, progress=progress, sleep=sleep, capture_for=capture_for)
+    finally:
+        progress.listings = progress.details = None                       # los documentos crudos no sobreviven a la ejecución
     return outcome if outcome.state == "INVALID" else _close(outcome, progress)
 
 
-def _run(values: ExtractionValues, client_secret: str, *, user_email: str, progress: _Progress, sleep) -> ExtractionOutcome:
+def _run(values: ExtractionValues, client_secret: str, *, user_email: str, progress: _Progress, sleep, capture_for: str = "") -> ExtractionOutcome:
     from tools.catalog.connectivity_governance import (
         Budget, SafetyError, ephemeral_workdir, real_cli_profile_dir, review_summary, run_probe,
     )
@@ -393,11 +405,16 @@ def _run(values: ExtractionValues, client_secret: str, *, user_email: str, progr
             return _failed("PREFLIGHT_INSUFFICIENT", op_id, started, summary)
         status = (out.inventory or {}).get("status")
         duration = round(time.monotonic() - started, 2)
+        held = None
+        if capture_for and status in ("COMPLETE", "PARTIAL"):              # F2.2c: opt-in posterior; acá solo se retiene normalizado
+            from webapp.services import connectivity_capture_service as capsvc
+            held = capsvc.hold(op_id, owner=capture_for, client=values.client, host=urlparse(values.host).hostname or "",
+                               inventory=out.inventory, listings=progress.listings or {}, details=progress.details or {})
         if status == "COMPLETE":
-            return ExtractionOutcome("SUCCESS", None, "", "", operation_id=op_id, duration_s=duration, summary=summary)
+            return ExtractionOutcome("SUCCESS", None, "", "", operation_id=op_id, duration_s=duration, summary=summary, capture=held)
         if status == "PARTIAL":
             return ExtractionOutcome("PARTIAL", None, "La extracción terminó con errores parciales: revisá la cobertura.",
-                                     "Extracción parcial", operation_id=op_id, duration_s=duration, summary=summary)
+                                     "Extracción parcial", operation_id=op_id, duration_s=duration, summary=summary, capture=held)
         return _failed("INVENTORY_FAILED", op_id, started, summary)
     except SafetyError:
         log.warning("connectivity_inventory op=%s status=FAILED code=WORKSPACE_CLEANUP_FAILED", op_id)

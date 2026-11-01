@@ -26,6 +26,14 @@
 # `ref` tiene que ser único y estable: es lo que la cookie `dw-whatsnew-seen`
 # recuerda como "último anuncio visto". Cambiarlo re-dispara el banner.
 
+- ref: catalogo-conectividad-sap
+  fecha: "2026-11-01"
+  titulo: "Catálogo de Conectividad — Disponibilidad SAP"
+  categoria: "Catálogo"
+  detalle: "Explorá los 37 tipos de conexión de SAP Datasphere: buscá conectores por nombre o identificador técnico y filtrá por capacidades, categorías, orígenes y requisitos técnicos. Lo encontrás en Módulo 01 → Catálogo → Disponibilidad SAP. Es un catálogo de referencia: la disponibilidad efectiva depende de cada tenant y su configuración."
+  cta: "Ir al Catálogo de Conectividad"
+  link: "/modules/01_Arquitectura_y_Conectividad?pack=datasphere_core&tab=catalogo"
+
 - ref: datasphere-assessment
   fecha: "2026-10-03"
   titulo: "Assessment metodológico para Modelado & Desarrollo"

@@ -1,0 +1,18 @@
+[
+  {
+    "name": "ERP_ABAP",
+    "typeId": "ABAP",
+    "businessName": "ERP finanzas",
+    "creator": "mrk_creator@x.invalid"
+  },
+  {
+    "name": "PG_JDBC",
+    "typeId": "GENERICJDBC",
+    "businessName": "Postgres ventas"
+  },
+  {
+    "name": "SVC_ODATA",
+    "typeId": "ODATA",
+    "businessName": "Servicio OData"
+  }
+]

@@ -171,6 +171,77 @@
       setHidden(failed, false);
     }
     setHidden(result, !renderSummary(panel, done.summary));
+    renderCapture(panel, done.capture, done.operation_id);
+  }
+
+  // ── F2.2c: captura gobernada OPT-IN (solo llega `done.capture` para el dueño) ─────
+  function newRequestId() {
+    return (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : "cap-" + Date.now() + "-" + Math.random().toString(16).slice(2);
+  }
+  function renderCapture(panel, cap, operationId) {
+    const box = el(panel, "[data-dsc-capture]");
+    if (!box) return;
+    setHidden(box, !cap);
+    if (!cap) return;
+    const form = el(box, "[data-dsc-capture-form]");
+    setHidden(form, false);
+    setHidden(el(box, "[data-dsc-capture-done]"), true);
+    setHidden(el(box, "[data-dsc-capture-error]"), true);
+    form.elements.operation_id.value = operationId;
+    form.elements.client.value = cap.client;
+    form.elements.request_id.value = newRequestId();             // un pedido = un id: el doble envío es idempotente
+    form.elements.rationale.value = "";
+    const select = el(form, "[data-dsc-capture-tenant]");
+    select.textContent = "";
+    const first = document.createElement("option");
+    first.value = ""; first.textContent = cap.tenants.length ? "Elegí el tenant..." : "Sin tenants activos para este cliente";
+    select.appendChild(first);
+    cap.tenants.forEach((t) => {
+      const o = document.createElement("option");
+      o.value = t.tenant_id; o.textContent = t.tenant_id + (t.display_name ? " · " + t.display_name : "");
+      if (t.tenant_id === cap.suggested) o.selected = true;
+      select.appendChild(o);
+    });
+    el(box, "[data-dsc-capture-summary]").textContent = cap.connections + " conexiones en " + cap.spaces + (cap.spaces === 1 ? " Space. " : " Spaces. ") +
+      (cap.suggested ? "Tenant sugerido por el host vinculado: " + cap.suggested + "." :
+       "El host de esta extracción no está vinculado a ningún tenant: vinculalo en «Tenants y ambientes» antes de capturar.");
+    // Vencimiento de la retención temporal (lo fija el servidor): pasado ese plazo, la extracción hay que ejecutarla de nuevo.
+    const minutes = Math.round((cap.expires_in_s || 0) / 60);
+    const until = new Date(Date.now() + (cap.expires_in_s || 0) * 1000).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
+    el(box, "[data-dsc-capture-expiry]").textContent = "Disponible para capturar durante " + minutes + " minutos (hasta las " + until +
+      "). Después vence y hay que volver a extraer.";
+  }
+  async function submitCapture(form) {
+    const box = form.closest("[data-dsc-capture]");
+    const error = el(box, "[data-dsc-capture-error]");
+    const button = el(form, "[data-dsc-capture-submit]");
+    setHidden(error, true);
+    button.disabled = true;
+    try {
+      const response = await fetch("/connectivity-registry/capture", {
+        method: "POST", body: new URLSearchParams(new FormData(form)), credentials: "same-origin", cache: "no-store",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.status !== "APPLIED") {
+        el(error, "[data-dsc-capture-error-title]").textContent = "Captura rechazada (" + response.status + ")";
+        el(error, "[data-dsc-capture-error-msg]").textContent = data.detail || "No se pudo capturar el inventario.";
+        setHidden(error, false);
+        return;
+      }
+      setHidden(form, true);
+      const done = el(box, "[data-dsc-capture-done]");
+      done.textContent = "✓ Inventario capturado para " + data.tenant_id + ": " + data.connections + " conexiones; " + data.governed_spaces +
+        " Space(s) con ambiente gobernado y " + data.ungoverned_spaces + " sin ambiente (quedan fuera del alcance de la reconciliación). " +
+        "La reconciliación está en «Tenants y ambientes».";
+      setHidden(done, false);
+    } catch (_e) {
+      el(error, "[data-dsc-capture-error-title]").textContent = "Error de red";
+      el(error, "[data-dsc-capture-error-msg]").textContent = "No se pudo contactar al servidor. Reintentá: el mismo pedido no se duplica.";
+      setHidden(error, false);
+    } finally {
+      button.disabled = false;
+    }
   }
 
   // ── Filas dinámicas de Space (el environment no se pide: es gobierno, F2.2) ─────
@@ -237,6 +308,11 @@
 
   document.addEventListener("submit", (event) => {
     const form = event.target;
+    if (form instanceof HTMLFormElement && form.hasAttribute("data-dsc-capture-form")) {
+      event.preventDefault();
+      submitCapture(form);
+      return;
+    }
     if (!(form instanceof HTMLFormElement) || !form.hasAttribute("data-dsc-form")) return;
     event.preventDefault();
     const submit = form.querySelector("[data-dsc-submit]");

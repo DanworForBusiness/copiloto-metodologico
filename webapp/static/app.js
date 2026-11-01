@@ -1040,14 +1040,69 @@ window.dwSapTypes = dwSapTypes;
 // Dropdown 1 del Catálogo de conectividad: elegir «Disponibilidad SAP» la ABRE en el panel central con el mecanismo de siempre (el `hx-get` del
 // enlace `opener` hacia #catalog-detail-slot); salir de esa opción cierra la vista central si es la que está abierta (`dwCatalogBack`), sin dejar
 // contenido residual. Las demás vistas centrales (detalle de una conexión) no se tocan.
-function dwConnectivityKindChanged(kind, opener) {
+function dwConnectivityKindChanged(kind, opener, registryOpener) {
   if (kind === "sap_types") {
     if (opener && window.htmx) window.htmx.trigger(opener, "dw-sap-open");
-  } else if (document.querySelector("#catalog-detail-slot [data-sap-view]")) {
+  } else if (kind === "registry") {
+    if (registryOpener && window.htmx) window.htmx.trigger(registryOpener, "dw-registry-open");
+  } else if (document.querySelector("#catalog-detail-slot [data-sap-view], #catalog-detail-slot [data-registry-view]")) {
     window.dwCatalogBack();
   }
 }
 window.dwConnectivityKindChanged = dwConnectivityKindChanged;
+
+// «Tenants y ambientes» (Catálogo de conectividad, módulo 01, F2.2c.1): envío de los formularios owner-only `form[data-cr-form]` contra
+// POST /connectivity-registry/<acción>. Mismo contrato que las decisiones gobernadas (B4): confirma con el diálogo compartido cuando la acción lo
+// declara (`data-cr-confirm`, `{sel}` = opción elegida), muestra progreso y el error del backend en el mismo formulario, y SOLO informa éxito si el
+// backend confirmó el evento APLICADO al releer el registro; entonces recarga la vista central (mismo cliente y tenant). El `request_id` lo trae el
+// formulario desde el servidor: un doble envío del mismo formulario es idempotente. Delegación de eventos: sobrevive a los swaps HTMX.
+document.addEventListener("submit", function (ev) {
+  const form = ev.target.closest && ev.target.closest("form[data-cr-form]");
+  if (!form) return;
+  ev.preventDefault();
+  const view = form.closest("[data-registry-view]");
+  const box = form.querySelector("[data-cr-error]");
+  const progress = form.querySelector("[data-cr-progress]");
+  const button = form.querySelector("button[type=submit]");
+  const showError = function (title, msg) {
+    if (!box) return;
+    box.querySelector("[data-cr-error-title]").textContent = title;
+    box.querySelector("[data-cr-error-msg]").textContent = msg || "";
+    box.hidden = false;
+  };
+  if (box) box.hidden = true;
+  const subject = form.querySelector("[data-cr-subject]");
+  const sel = subject && subject.selectedOptions && subject.selectedOptions[0] ? subject.selectedOptions[0].textContent.trim() : "";
+  const ask = form.dataset.crConfirm
+    ? dwConfirmChoice({ title: form.dataset.crConfirmTitle, message: form.dataset.crConfirm.replace("{sel}", sel), confirmLabel: form.dataset.crConfirmLabel || "Confirmar" })
+    : Promise.resolve({ ok: true });
+  ask.then(function (r) {
+    if (!r.ok) return;
+    if (progress) progress.hidden = false;
+    if (button) button.disabled = true;
+    const tenant = (form.querySelector("[name=tenant_id]") || {}).value || "";
+    fetch("/connectivity-registry/" + form.dataset.crAction, {
+      method: "POST", body: new URLSearchParams(new FormData(form)), credentials: "same-origin", cache: "no-store",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    }).then(function (resp) {
+      return resp.json().catch(function () { return {}; }).then(function (data) {
+        if (progress) progress.hidden = true;
+        if (button) button.disabled = false;
+        if (!resp.ok || data.status !== "APPLIED") {
+          const title = data.status === "CONCURRENT_CONFLICT" ? "Conflicto por escritura simultánea" : "Operación rechazada (" + resp.status + ")";
+          showError(title, data.detail || "No se pudo completar la operación.");
+          return;
+        }
+        const url = view.dataset.viewUrl + "&tenant=" + encodeURIComponent(tenant) + "&notice=" + encodeURIComponent(form.dataset.crAction);
+        if (window.htmx) window.htmx.ajax("GET", url, { target: "#catalog-detail-slot", swap: "innerHTML" });
+      });
+    }).catch(function () {
+      if (progress) progress.hidden = true;
+      if (button) button.disabled = false;
+      showError("Error de red", "No se pudo contactar al servidor. Recargá la vista antes de reintentar: el cambio pudo haberse registrado.");
+    });
+  });
+});
 document.body.addEventListener("htmx:load", syncAssistantFeedbackState);
 
 // Reordenamiento drag-and-drop de grupos colapsables dentro de un dashboard.

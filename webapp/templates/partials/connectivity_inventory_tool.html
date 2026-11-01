@@ -101,6 +101,28 @@
         </div>
       </div>
     </div>
+    {# F2.2c — Captura gobernada OPT-IN (solo el dueño: el servidor manda `capture` en `done` únicamente para él). Barra compartida
+       `.filter-toolbar-card` + `.feedback-field`; contenido dinámico con textContent. #}
+    <div class="admin-result-block" data-dsc-capture hidden>
+      <span class="admin-result-title">Capturar inventario</span>
+      <p class="admin-help">Opcional. Guarda el inventario normalizado (sin credenciales) asociado al tenant y al ambiente gobernado de cada Space, con tu motivo. No publica nada en el Catálogo.</p>
+      <p class="admin-help" data-dsc-capture-summary></p>
+      <p class="admin-help" role="status" data-dsc-capture-expiry></p>
+      <form class="hc-profile-filters filter-toolbar-card" data-dsc-capture-form>
+        <input type="hidden" name="operation_id"><input type="hidden" name="client"><input type="hidden" name="request_id">
+        <div class="feedback-field">
+          <label for="dsc-capture-tenant">Tenant</label>
+          <select id="dsc-capture-tenant" name="tenant_id" required data-dsc-capture-tenant></select>
+        </div>
+        <div class="feedback-field feedback-field--wide">
+          <label for="dsc-capture-rationale">Motivo</label>
+          <input type="text" id="dsc-capture-rationale" name="rationale" required maxlength="500" autocomplete="off" placeholder="Por qué se captura este inventario (obligatorio)">
+        </div>
+        <button type="submit" class="btn-primary" data-dsc-capture-submit>Capturar inventario</button>
+        <div class="feedback-error" role="alert" data-dsc-capture-error hidden><strong data-dsc-capture-error-title></strong> <span data-dsc-capture-error-msg></span></div>
+      </form>
+      <p class="admin-help" role="status" data-dsc-capture-done hidden></p>
+    </div>
     {# Actividad: MISMO bloque «Detalle técnico» del módulo 04 (`.admin-tool` + `.admin-result-output`). Recibe solo la actividad SANEADA
        que arma el servidor (ordinales, conteos y códigos) y, al cerrar, el código de error y la operación. #}
     <details class="admin-tool" data-dsc-detail open>

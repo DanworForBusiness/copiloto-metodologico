@@ -1,0 +1,33 @@
+{
+  "name": "SVC_ODATA",
+  "typeId": "ODATA",
+  "businessName": "Servicio OData",
+  "credentialMode": "technicaluser",
+  "adapter": "ODataAdapter",
+  "location": "cloud",
+  "agentName": null,
+  "agentGroupName": null,
+  "agentStatus": "",
+  "remoteSourceName": "SVC_ODATA_RS",
+  "space_name": "DEV",
+  "content": {
+    "objects": {
+      "SVC_ODATA": {
+        "kind": "repository.remote",
+        "configuration": {
+          "ConnectionProperties": {
+            "UI": {
+              "URL": "https://mrk_user:mrk_password_value@odata.invalid/sap/opu/odata4/svc?token=mrk_token_value",
+              "version": "V4",
+              "authentication": {
+                "auth_type": "Basic",
+                "user": "mrk_user",
+                "password": "mrk_password_value"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
