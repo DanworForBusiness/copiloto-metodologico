@@ -33,7 +33,7 @@
      preset limpia Desde/Hasta (el servidor los recalcula y los muestra); tocar una fecha pasa a
      "Rango personalizado". Las opciones de Módulo/Sección salen de los datos del período + el inventario
      real del Hub, siempre dentro de lo que este usuario puede ver (activity_dashboard.build). #}
-  <form class="whatsnew-filters" hx-get="/admin/activity" hx-target="#activity-dashboard" hx-swap="outerHTML" hx-push-url="true" hx-trigger="submit, change from:.scope-area-checkbox">
+  <form class="whatsnew-filters activity-filters" hx-get="/admin/activity" hx-target="#activity-dashboard" hx-swap="outerHTML" hx-push-url="true" hx-trigger="submit, change from:.scope-area-checkbox">
     <label class="whatsnew-filter">
       <span>Período</span>
       <select name="period" onchange="if (this.value !== 'custom') { this.form.date_from.value = ''; this.form.date_to.value = ''; this.form.requestSubmit(); }">
@@ -152,6 +152,7 @@
     <button type="button" class="whatsnew-filter__clear"
             hx-get="/admin/activity" hx-target="#activity-dashboard" hx-swap="outerHTML" hx-push-url="true">✕ Limpiar</button>
     {% endif %}
+    <span class="activity-filters__break" aria-hidden="true"></span>
   </form>
 </div>
 

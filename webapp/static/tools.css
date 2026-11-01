@@ -2376,6 +2376,21 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
    selector compartan la misma línea visual. Alcance acotado a esta variante;
    `.whatsnew-filters` base (con labels) no cambia para sus demás consumidores. */
 .whatsnew-filters--inline { align-items: center; }
+/* Métricas de Uso: dos filas sin tocar el orden del markup (lo fijan los tests de Ámbito/Área). Fila 1: Período · Usuario · Vertical · Módulo · Sección ·
+   Actualizar · Limpiar. Fila 2: Desde · Hasta · Tipo de actividad · Ámbito · Área. */
+.activity-filters > label:has([name="period"]) { order: 1; }
+.activity-filters > label:has([name="user"]) { order: 2; }
+.activity-filters > label:has([name="vertical"]) { order: 3; }
+.activity-filters > label:has([name="module"]) { order: 4; }
+.activity-filters > label:has([name="section"]) { order: 5; }
+.activity-filters > .btn-primary { order: 6; }
+.activity-filters > .whatsnew-filter__clear { order: 7; }
+.activity-filters__break { order: 8; flex-basis: 100%; height: 0; }
+.activity-filters > label:has([name="date_from"]) { order: 9; }
+.activity-filters > label:has([name="date_to"]) { order: 10; }
+.activity-filters > label:has([name="kind"]) { order: 11; }
+.activity-filters > label:has([name="scope"]) { order: 12; }
+.activity-filters > label:has([name="area"]) { order: 13; }
 /* AÑO/MES MULTI-SELECT corrective (DECISIÓN VISUAL OWNER, ver HANDOFF):
    Año/Mes van en su PROPIA fila, debajo de Client Partner/Proyecto/
    Cliente/Estado — `flex-basis:100%` dentro del MISMO contenedor
