@@ -41,8 +41,9 @@ def _full_rf(dst: str, *, mappings=None, source_columns=None) -> None:
 
 
 def _assess(dst: str) -> dict:
-    os.environ["DANWOR_CATALOG_CSN_CACHE"] = dst
-    doc, _meta = sh.assess(Path(dst), "Kensing", "4AM_ROOT", "General", generic_root=True, root_type="analytic-model")
+    from unittest import mock
+    with mock.patch.dict(os.environ, {"DANWOR_CATALOG_CSN_CACHE": dst}):             # se restaura al salir: no contamina tests posteriores
+        doc, _meta = sh.assess(Path(dst), "Kensing", "4AM_ROOT", "General", generic_root=True, root_type="analytic-model")
     return doc
 
 

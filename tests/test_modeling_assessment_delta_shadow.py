@@ -137,8 +137,9 @@ def _assess_identity(dst, *, filter_enabled):
     from tools.catalog.methodological_judgment.profile_access import ProfileEvidence
     if not filter_enabled:                                           # simula el comportamiento PRE-fix
         sh.technical_delta_shadow_entities = lambda e, j: frozenset()
-    os.environ["DANWOR_CATALOG_CSN_CACHE"] = dst
-    doc, meta = sh.assess(Path(dst), "Kensing", "4AM_ROOT", "General", generic_root=True, root_type="analytic-model")
+    from unittest import mock
+    with mock.patch.dict(os.environ, {"DANWOR_CATALOG_CSN_CACHE": dst}):             # se restaura al salir: no contamina tests posteriores
+        doc, meta = sh.assess(Path(dst), "Kensing", "4AM_ROOT", "General", generic_root=True, root_type="analytic-model")
     ev = ProfileEvidence(doc)
     lpx = ev.local_leaves.get("1TR_X", {})
     return {"excluded": meta.get("technical_delta_shadows_excluded"),

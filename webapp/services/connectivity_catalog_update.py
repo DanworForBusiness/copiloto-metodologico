@@ -49,6 +49,14 @@ class UpdateRejected(ValueError):
 LEDGER = ".connectivity_publications.json"
 
 
+def canonical_roots() -> tuple[Path, Path]:
+    """Raíces del Catálogo para el flujo de conexiones: las rutas CANÓNICAS del Hub (`<BASE_DIR>/catalog_local` y su pool `.csn_cache`), las mismas
+    que persiste Spaces. Sin variables de entorno: no son requisito operativo de este flujo."""
+    import config
+    root = (Path(config.BASE_DIR) / "catalog_local").resolve()
+    return root, root / ".csn_cache"
+
+
 def protected_rels(pool) -> frozenset:
     path = Path(pool) / LEDGER
     try:
@@ -174,7 +182,6 @@ def approve(operation_id: str, *, actor: str, selected: list, rationale: str) ->
     """Escribe en el Catálogo SOLO las conexiones elegidas (NUEVA/MODIFICADA y saneadas). Sin bajas, sin duplicados, `manual:` intacto."""
     from tools.catalog import generate_space_catalog as gsc
     from tools.catalog import publication_txn as txn
-    from webapp.services.datasphere_publication_service import _canonical_roots
     p = pending(operation_id, actor)
     if p is None:
         raise UpdateRejected("La propuesta ya no está disponible (venció o es de otra ejecución). Volvé a extraer.")
@@ -184,7 +191,7 @@ def approve(operation_id: str, *, actor: str, selected: list, rationale: str) ->
     chosen = [rows[s] for s in dict.fromkeys(selected) if s in rows]
     if not chosen or any(not r["selectable"] for r in chosen) or len(chosen) != len(set(selected)):
         raise UpdateRejected("Solo se pueden publicar conexiones nuevas o modificadas, con evidencia leída y saneada.")
-    catalog_root, pool = _canonical_roots()
+    catalog_root, pool = canonical_roots()
     undo, durability, written = [], [], []
     with txn.writer_lock():
         client_dir = txn.canonical_client_dir(p["client"].replace(" ", "_"), txn.existing_client_dirs(catalog_root, pool))

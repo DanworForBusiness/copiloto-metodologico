@@ -32,7 +32,9 @@ def _raw():
 @pytest.fixture()
 def cat(tmp_path, monkeypatch):
     """Catálogo publicado con UNA conexión (la primera del listado) + su ficha con un bloque `manual:` cargado a mano."""
-    root, pool = tmp_path / "catalog_local", tmp_path / "catalog_local" / ".csn_cache"
+    import config
+    monkeypatch.setattr(config, "BASE_DIR", tmp_path)                      # raíces canónicas del Hub = tmp (dependencia explícita, sin variables de entorno)
+    root, pool = cup.canonical_roots()
     conn = pool / "Sintetico" / "Conexiones"
     conn.mkdir(parents=True)
     listing, details = _raw()
@@ -42,9 +44,6 @@ def cat(tmp_path, monkeypatch):
     gsc.generate_all(pool, root)
     md = root / "arquitectura" / "Sintetico" / "conexiones" / f"DEV__{gsc._slug(first)}.md"
     md.write_text(md.read_text(encoding="utf-8").replace("manual: {}", "manual:\n  owner_note: decisión del dueño"), encoding="utf-8")
-    monkeypatch.setenv("DANWOR_CATALOG_DIR", str(root))
-    monkeypatch.setenv("DANWOR_CATALOG_CSN_CACHE", str(pool))          # pool canónico del fixture (otros tests dejan esta variable en os.environ)
-    monkeypatch.setenv("DANWOR_CATALOG_LOCK_DIR", str(tmp_path / "locks"))
     monkeypatch.setattr(access, "APP_OWNER", "owner@danwor.com")
     monkeypatch.setattr(auth_service, "ALLOWED_USERS", "consultor@danwor.com")
     from tools.catalog import catalog_service
