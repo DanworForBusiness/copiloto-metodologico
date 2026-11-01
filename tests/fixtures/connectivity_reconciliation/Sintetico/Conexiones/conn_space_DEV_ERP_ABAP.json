@@ -1,0 +1,89 @@
+{
+  "space_id": "MRK-SPACE-ID",
+  "name": "ERP_ABAP",
+  "creator": "mrk_creator@x.invalid",
+  "creation_date": "2026-01-01",
+  "id": "MRK-INTERNAL-ID",
+  "typeId": "ABAP",
+  "capabilityDataflowSource": "true",
+  "capabilityReplicationflowSource": "true",
+  "capabilityHanaSdi": "true",
+  "businessName": "ERP finanzas",
+  "remoteSourceName": "ERP_ABAP_RS",
+  "disReplicationStatus": "",
+  "credentialMode": "technicaluser",
+  "adapter": "ABAPAdapter",
+  "location": "agent",
+  "agentName": "MRK_AGENT_A",
+  "agentGroupName": null,
+  "agentStatus": "CONNECTED",
+  "realtimeReplicationStatus": "ACTIVE",
+  "space_name": "DEV",
+  "content": {
+    "objects": {
+      "ERP_ABAP": {
+        "businessName": "ERP finanzas",
+        "name": "ERP_ABAP",
+        "location": {
+          "agentName": "MRK_AGENT_A",
+          "location": "agent",
+          "connected": true
+        },
+        "credentialMode": "technicaluser",
+        "configuration": {
+          "ConnectionProperties": {
+            "ConnectionInfo": {
+              "connectionType": "applicationServer",
+              "host": "erp-a.invalid",
+              "port": "",
+              "serverGroup": "",
+              "systemnumber": "00",
+              "client": "100",
+              "sysid": "EAD",
+              "langcode": "ES",
+              "poolsize": "10",
+              "connlimit": "",
+              "odpversion": "2.0",
+              "cdcbatchsize": "1000",
+              "unicode": "1",
+              "encoding": "UTF-8",
+              "sncMode": "0",
+              "sncLib": "",
+              "sncMyname": "MRK_SNC_NAME",
+              "sncPartnername": "",
+              "sncSSO": "",
+              "sncQop": "",
+              "gateway": {
+                "cloud_connector": "false",
+                "cloudConnectorLocation": "",
+                "virtual_destination": "",
+                "virtualHost": "",
+                "virtualPort": ""
+              }
+            },
+            "CredentialProperties": {
+              "user": "mrk_user",
+              "password": "mrk_password_value"
+            }
+          },
+          "ConnectionFeatures": {
+            "features": {
+              "remoteTables": true,
+              "dpAgent": "MRK_AGENT_A",
+              "streaming": "",
+              "gwhost": "",
+              "batchsize": "",
+              "timeout": "",
+              "dataflows": true,
+              "replicationflows": true
+            }
+          }
+        },
+        "kind": "repository.remote",
+        "adapterName": "ABAPAdapter",
+        "remoteSourceName": "ERP_ABAP_RS",
+        "disConnectionId": "MRK-DIS-ID"
+      }
+    }
+  }
+}
