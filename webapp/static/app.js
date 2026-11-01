@@ -1864,6 +1864,42 @@ function readStoredColumnOrder(key, validKeys) {
 // (`dw-col-widths:<key>`, mismo namespace que dw-col-order) para que el
 // PRÓXIMO render completo —el caller arma su propio <colgroup>— lo lea con
 // `readStoredColumnWidths` y lo aplique como default.
+// Orden en el CLIENTE para tablas chicas ya completas (`table[data-client-sort]`): MISMO aspecto que las cabeceras ordenables del Hub
+// (`.dashboard-table-th--sortable`, ▲/▼ en la columna activa, `aria-sort`). Clic: asc → desc → asc. Valor: `data-sort-value` de la celda
+// o su texto; `data-sort-type="number"` compara numéricamente. Delegado: sobrevive a los swaps HTMX.
+document.addEventListener("click", function (ev) {
+  const th = ev.target.closest && ev.target.closest("table[data-client-sort] th.dashboard-table-th--sortable");
+  if (!th || ev.target.closest(".col-resize-handle")) return;
+  const table = th.closest("table");
+  const body = table.tBodies[0];
+  if (!body) return;
+  const index = Array.prototype.indexOf.call(th.parentElement.children, th);
+  const dir = th.getAttribute("aria-sort") === "ascending" ? "descending" : "ascending";
+  const numeric = th.dataset.sortType === "number";
+  const value = function (row) {
+    const cell = row.cells[index];
+    const raw = cell ? (cell.dataset.sortValue != null ? cell.dataset.sortValue : cell.textContent.trim()) : "";
+    return numeric ? (parseFloat(String(raw).replace(/\./g, "").replace(",", ".")) || 0) : String(raw).toLocaleLowerCase("es");
+  };
+  const rows = Array.from(body.rows);
+  rows.sort(function (a, b) {
+    const x = value(a), y = value(b);
+    const cmp = numeric ? x - y : x.localeCompare(y, "es");
+    return dir === "ascending" ? cmp : -cmp;
+  });
+  rows.forEach(function (r) { body.appendChild(r); });
+  th.parentElement.querySelectorAll("th.dashboard-table-th--sortable").forEach(function (h) {
+    h.setAttribute("aria-sort", "none");
+    const arrow = h.querySelector(".dashboard-table-th__arrow");
+    if (arrow) arrow.remove();
+  });
+  th.setAttribute("aria-sort", dir);
+  const arrow = document.createElement("span");
+  arrow.className = "dashboard-table-th__arrow";
+  arrow.textContent = dir === "ascending" ? " ▲" : " ▼";
+  th.appendChild(arrow);
+});
+
 function initResizableColumns(scope) {
   scope.querySelectorAll("[data-resizable-columns-key]").forEach(container => {
     if (container.dataset.resizeColsWired) return;

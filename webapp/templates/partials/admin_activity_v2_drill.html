@@ -29,18 +29,30 @@
 
     {% if dash.level != "section" %}
     {% if dash.rows %}
-    <div class="matrix-scroll">
-      <table class="dashboard-table" data-drill-rows>
-        <thead><tr><th class="left">{{ dash.rows_title }}</th><th>Visitas</th><th>Usuarios</th><th>Actividad</th><th>Estado</th></tr></thead>
+    {#- Tabla del Hub: anchos en <colgroup> (redimensionables con el primitivo `data-resizable-columns-key`) y cabeceras ordenables
+        `.dashboard-table-th--sortable` (▲/▼, `aria-sort`), como Capital Humano. El orden es en el cliente: son pocas filas y ya están todas. -#}
+    <div class="matrix-scroll" data-resizable-columns-key="metrics-drill">
+      <table class="dashboard-table" data-drill-rows data-client-sort>
+        <colgroup>
+          <col data-column-key="name" style="width:44%"><col data-column-key="visits" style="width:13%"><col data-column-key="users" style="width:13%">
+          <col data-column-key="events" style="width:13%"><col data-column-key="state" style="width:17%">
+        </colgroup>
+        <thead><tr>
+          <th class="left dashboard-table-th--sortable" data-column-key="name" data-sort-type="text" aria-sort="none" title="Ordenar por {{ dash.rows_title }}">{{ dash.rows_title }}</th>
+          <th class="dashboard-table-th--sortable" data-column-key="visits" data-sort-type="number" aria-sort="none" title="Ordenar por Visitas">Visitas</th>
+          <th class="dashboard-table-th--sortable" data-column-key="users" data-sort-type="number" aria-sort="none" title="Ordenar por Usuarios">Usuarios</th>
+          <th class="dashboard-table-th--sortable" data-column-key="events" data-sort-type="number" aria-sort="none" title="Ordenar por Actividad">Actividad</th>
+          <th class="dashboard-table-th--sortable" data-column-key="state" data-sort-type="text" aria-sort="none" title="Ordenar por Estado">Estado</th>
+        </tr></thead>
         <tbody>
           {% for r in dash.rows %}
           <tr data-drill-key="{{ r.key }}"{% if r.zero %} data-drill-zero{% endif %}>
-            <td class="left"><button type="button" class="dashboard-table-toggle" hx-get="{{ r.url }}" hx-target="#activity-dashboard" hx-swap="outerHTML" hx-push-url="true"
+            <td class="left" data-sort-value="{{ r.label }}"><button type="button" class="dashboard-table-toggle" hx-get="{{ r.url }}" hx-target="#activity-dashboard" hx-swap="outerHTML" hx-push-url="true"
                         title="Ver {{ r.label }}"><span class="caret">▸</span>{{ r.label }}</button></td>
             <td>{{ r.visits }}</td>
             <td>{{ r.users }}</td>
             <td>{{ r.events }}</td>
-            <td>{% if r.zero %}<span class="status-badge status-badge--inactivo">Sin actividad</span>{% else %}<span class="status-badge status-badge--activo">Con actividad</span>{% endif %}</td>
+            <td data-sort-value="{{ 'Sin actividad' if r.zero else 'Con actividad' }}" style="white-space:nowrap">{% if r.zero %}<span class="status-badge status-badge--inactivo">Sin actividad</span>{% else %}<span class="status-badge status-badge--activo">Con actividad</span>{% endif %}</td>
           </tr>
           {% endfor %}
         </tbody>
@@ -52,9 +64,18 @@
     {% else %}
     <div id="activity-v2-events" hx-select="#activity-v2-events">
       {% if dash.events.rows %}
-      <div class="matrix-scroll">
-        <table class="dashboard-table" data-drill-events>
-          <thead><tr><th>Fecha y hora (UTC)</th><th>Usuario</th><th>Evento</th><th>Tipo</th><th>Resultado</th><th>Módulo</th><th>Datos</th></tr></thead>
+      <div class="matrix-scroll" data-resizable-columns-key="metrics-events">
+        <table class="dashboard-table" data-drill-events data-client-sort>
+          <colgroup>
+            <col data-column-key="ts" style="width:15%"><col data-column-key="user" style="width:15%"><col data-column-key="event" style="width:17%">
+            <col data-column-key="kind" style="width:9%"><col data-column-key="status" style="width:11%"><col data-column-key="module" style="width:13%">
+            <col data-column-key="attrs" style="width:20%">
+          </colgroup>
+          <thead><tr>
+            {% for key, label in (("ts", "Fecha y hora (UTC)"), ("user", "Usuario"), ("event", "Evento"), ("kind", "Tipo"), ("status", "Resultado"), ("module", "Módulo"), ("attrs", "Datos")) %}
+            <th class="left dashboard-table-th--sortable" data-column-key="{{ key }}" data-sort-type="text" aria-sort="none" title="Ordenar por {{ label }}">{{ label }}</th>
+            {% endfor %}
+          </tr></thead>
           <tbody>
             {% for e in dash.events.rows %}
             <tr>
@@ -79,3 +100,10 @@
 
   </div>
 </details>
+{#- Anchos de columna: MISMO primitivo y cableado que las tablas de Capital Humano (restaurar el ancho guardado y habilitar el redimensionado). -#}
+<script>
+  document.querySelectorAll("[data-resizable-columns-key^='metrics-']").forEach(function (container) {
+    if (typeof restorePersistedColumnWidths === "function") restorePersistedColumnWidths(container);
+  });
+  if (typeof initResizableColumns === "function") initResizableColumns(document);
+</script>
