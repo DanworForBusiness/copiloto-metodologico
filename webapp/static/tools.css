@@ -2456,8 +2456,7 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 .connectivity-registry-view .dashboard-section__body > .filter-toolbar-card + .filter-toolbar-card { margin-top: 12px; }
 .connectivity-registry-view .filter-toolbar-card > .feedback-error, .connectivity-registry-view .filter-toolbar-card > .section-analysis-loading { flex: 1 1 100%; margin: 0; }
 .connectivity-registry-view .dashboard-section__title code { font-size: inherit; }
-.connectivity-registry-view { grid-template-columns: minmax(0, 1fr); }                       /* las tablas anchas scrollean en su `.matrix-scroll`, no estiran la vista */
-.connectivity-registry-view .matrix-scroll { overflow-x: auto; }
+.connectivity-registry-view { grid-template-columns: minmax(0, 1fr); }                       /* las tablas anchas scrollean en su `.matrix-scroll` (primitivo compartido), no estiran la vista */
 .sap-types-toolbar__groups { flex: 1 1 100%; display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); align-items: start; gap: 16px 28px; margin-top: 6px; }
 .sap-types-toolbar__groups .dashboard-checkbox-option { display: flex; font-weight: 400; }   /* `.feedback-field label` la ponía en 650; la marcada se resalta igual que en el Hub */
 /* Grilla de tarjetas LIMPIAS (nombre + ícono, como el selector de SAP): ancho mínimo legible; el ancho disponible decide cuántas entran. */
