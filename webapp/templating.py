@@ -88,3 +88,12 @@ def _dsp_pub_tool(request, stem: str) -> dict:
 
 
 templates.env.globals["dsp_pub_tool"] = _dsp_pub_tool
+
+
+def _dsc_tool(request, stem: str) -> dict:
+    """Contexto de la extracción ad-hoc de conexiones del módulo 01 (ver connectivity_inventory_service)."""
+    from webapp.services import connectivity_inventory_service as _dsc
+    return _dsc.tool_context(request, stem)
+
+
+templates.env.globals["dsc_tool"] = _dsc_tool

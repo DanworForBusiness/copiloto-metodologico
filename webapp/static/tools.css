@@ -2447,7 +2447,8 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 .catalog-flows-list > li[hidden] { display: none; }
 /* El buscador ocupa el ancho del 2.º dropdown (el `.whatsnew-filter--fill` estira al contenedor; el input se ajusta a él). */
 .catalog-picker--secondary .whatsnew-filter--fill input[type="search"] { width: 100%; }
-.catalog-picker--bare + #catalog-publish-state form > input[type="hidden"] + .tree-picker { margin-top: 14px; }
+.catalog-picker--bare + #catalog-publish-state form > input[type="hidden"] + .tree-picker,
+.catalog-picker--bare + #catalog-extract-state form > input[type="hidden"] + .tree-picker { margin-top: 14px; }   /* mismo estado compacto: publicación (04) y extracción de conexiones (01) */
 /* Variante con texto del primitivo neutro `.table-action-btn` (p. ej. "← Volver" del estado de publicación): sin caja, ancho por contenido. */
 .table-action-btn.table-action-btn--text { width: auto; padding: 0 8px; white-space: nowrap; font: 600 .72rem var(--sans); letter-spacing: .02em; }
 .tool-suggest__link { margin: 14px 0 0; font-size: .78rem; }
@@ -2952,7 +2953,8 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
    derecha (extiende SOLO hacia la izquierda, nunca fuera de la tabla) --
    mismo criterio en Comercial, que tiene la MISMA columna de acción al
    final y se beneficia igual aunque nunca lo haya expuesto visiblemente. */
-.table-action-btn .chart-tooltip { left: auto; right: 0; transform: none; }
+.table-action-btn .chart-tooltip,
+.tree-picker-head__action .chart-tooltip { left: auto; right: 0; transform: none; }   /* acciones de borde derecho (incl. (i) de un título de campo): el tooltip abre hacia adentro, nunca se recorta */
 /* CIERRE DE CONTENEDOR (`.panel-close`) — primitivo compartido, PROMOVIDO desde commercial.css (mismas 5 reglas, sin cambios) para que lo use también el
    Catálogo: botón × discreto como último ítem flex del `<summary class="dashboard-section__head">` (el `gap` del primitivo lo separa del conteo y el
    `align-items:center` lo centra, sin márgenes calibrados). Variante SVG (Assessment): el trazo de `.table-action-btn svg`; con tooltip (`.chart-tooltip`) debajo del

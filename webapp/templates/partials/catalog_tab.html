@@ -4,6 +4,32 @@
 {% set is_architecture_catalog = module_number == "01" or document.summary.stem.startswith("01_") %}
 {% set is_security_catalog = module_number == "02" or document.summary.stem.startswith("02_") %}
 {% if is_architecture_catalog %}
+{#- Extracción AD-HOC de conexiones (F2.1): estado `catalogView = 'extract'` del Catálogo, mismo patrón que el «+» de publicación del
+    módulo 04 y con su MISMA regla de visibilidad (`can_execute`). Sin permiso, el marcado es EXACTAMENTE el de siempre. -#}
+{%- set conn = dsc_tool(request, document.summary.stem) if (document is defined and document) else {"can_execute": False} -%}
+{% if conn.can_execute %}
+<div class="tree-picker catalog-picker--connections" :class="catalogView === 'extract' && 'catalog-picker--bare'">
+  <div class="tree-picker-head">
+    <label for="catalog-type-id">Origen / tipo de conexión</label>
+    <button type="button" class="table-action-btn chart-tooltip-anchor tree-picker-head__action" x-show="catalogView !== 'extract'" @click="catalogView = 'extract'" aria-label="Extraer conexiones de un tenant">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+      <span class="chart-tooltip" aria-hidden="true"><p>Extraer conexiones de un tenant</p></span>
+    </button>
+    <button type="button" class="table-action-btn table-action-btn--text tree-picker-head__action" x-show="catalogView === 'extract'" x-cloak @click="catalogView = 'browse'" id="catalog-extract-back">← Volver</button>
+  </div>
+  <div class="tree-picker-row" x-show="catalogView !== 'extract'">
+    <select id="catalog-type-id" name="type_id"
+            hx-get="/catalog/connections?pack={{ pack }}" hx-target="#catalog-flows" hx-swap="innerHTML" hx-trigger="change">
+      <option value="">Elegí un origen...</option>
+      {% for t in catalog_connection_types %}<option value="{{ t.value }}">{{ t.label }}</option>{% endfor %}
+    </select>
+  </div>
+</div>
+<div x-show="catalogView === 'extract'" x-cloak id="catalog-extract-state">
+  {% include "partials/connectivity_inventory_tool.html" %}
+</div>
+<div x-show="catalogView !== 'extract'" x-cloak>
+{% else %}
 <div class="tree-picker catalog-picker--connections">
   <label for="catalog-type-id">Origen / tipo de conexión</label>
   <div class="tree-picker-row">
@@ -14,6 +40,7 @@
     </select>
   </div>
 </div>
+{% endif -%}
 <div id="catalog-flows" class="catalog-flows">
   <div class="tool-empty">
     <span>{{ catalog_connection_types|length }} {{ "origen disponible" if catalog_connection_types|length == 1 else "orígenes disponibles" }}</span>
@@ -21,6 +48,8 @@
   </div>
 </div>
 <p class="tool-suggest__link"><a href="/catalog/guide/como-publicar-origenes?pack={{ pack }}"><strong>¿Falta un Origen?</strong> Cómo publicarlo →</a></p>
+{% if conn.can_execute %}</div>
+{% endif -%}
 {% elif is_security_catalog %}
 <div class="tree-picker catalog-picker--security">
   <label for="catalog-security-family">Catálogo de seguridad</label>
