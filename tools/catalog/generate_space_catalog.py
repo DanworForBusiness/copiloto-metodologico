@@ -661,7 +661,8 @@ def render_connection(conn: ConnectionRecord, manual: dict[str, Any] | None = No
     md += [f"| {k} | {v} |" for k, v in rows]
     if info or gateway:
         md += ["", "## {dw-black}Connection {dw-gold}Info", "", "| Parámetro | Valor |", "|---|---|"]
-        for key in ("connectionType", "dbtype", "driverClass", "url", "version", "authentication", "kind", "host", "port", "serverGroup", "systemnumber", "client", "sysid", "langcode", "odpversion", "poolsize", "connlimit", "gateway", "gwhost", "gwserv"):
+        for key in ("connectionType", "dbtype", "driverClass", "url", "version", "authentication", "oauth2GrantType", "oauth2TokenEndpoint", "oauth2CompanyId",   # oauth2*: solo SAPSF (ver _connection_info)
+                    "kind", "host", "port", "serverGroup", "systemnumber", "client", "sysid", "langcode", "odpversion", "poolsize", "connlimit", "gateway", "gwhost", "gwserv"):
             if key in info:
                 md.append(f"| {key} | {_short_value(info.get(key))} |")
         if gateway and "gateway" not in info:

@@ -273,3 +273,29 @@ def test_sapsf_scoring_depends_on_its_own_requirements():
     assert g["verdict"] == "evidencia-insuficiente" and g["missing_requirements"] == ["URL", "versión", "autenticación OAuth"]
     abap = E(path="a", cliente="X", space="DEV", connection="ERP", type_id="ABAP")
     assert cs.connection_client_groups([abap])[0]["verdict"] == "parcial"        # sin DP Agent ni Cloud Connector: regla ABAP intacta
+
+
+def test_sapsf_oauth_metadata_survives_sanitize_publish_regenerate_and_read(tmp_path):
+    """Fixture SAPSF sintético con credenciales ficticias: Grant Type, Token Endpoint y Company ID sobreviven a saneamiento → pool → regeneración
+    → lectura del Catálogo → ficha; secretos, user id y assertions no llegan a ningún archivo."""
+    import webapp.main as main
+    from tools.catalog import catalog_service as cs
+    ui = {"URL": "https://u:pw@api19.sapsf.com/odata/v2?sap-client=1", "version": "V2", "authentication": {"auth_type": "OAuth2"},
+          "oauth2": {"oauth2GrantType": "saml_bearer", "oauth2TokenEndpoint": "https://api19.sapsf.com/oauth/token?client_secret=fake-secret",
+                     "oauth2CompanyId": "contrerash", "oauth2UserId": "fake-user", "oauth2ClientSecret": "fake-secret", "samlAssertion": "fake-assertion"}}
+    cfg = {"ConnectionProperties": {"UI": ui}, "ConnectionFeatures": {"features": {}}}
+    doc = {"name": "SSFF", "space_name": "PRD", "typeId": "SAPSF", "configuration": json.dumps(cfg),
+           "content": {"objects": {"SSFF": {"kind": "repository.remote", "configuration": cfg}}}}
+    assert cup.unsafe_properties(doc) == []
+    pool = tmp_path / "pool" / "Contreras" / "Conexiones"
+    pool.mkdir(parents=True)
+    (pool / "conn_space_PRD.json").write_text(json.dumps([{"name": "SSFF", "typeId": "SAPSF"}]), encoding="utf-8")
+    (pool / "conn_space_PRD_SSFF.json").write_text(json.dumps(cup._strip(doc)), encoding="utf-8")
+    for _ in range(2):                                                                   # publicación y una regeneración posterior
+        gsc.generate_all(tmp_path / "pool", tmp_path / "cat")
+    entry = cs.load_architecture_connections(str(tmp_path / "cat"))[0]
+    rows = {label: value for kind, label, value in main._catalog_connection_rows(cs, entry) if kind == "row"}
+    assert rows["URL"] == "`https://api19.sapsf.com/odata/v2`" and rows["Grant Type"] == "`saml_bearer`"
+    assert rows["Token Endpoint"] == "`https://api19.sapsf.com/oauth/token`" and rows["Company ID"] == "`contrerash`"
+    written = " ".join(p.read_text(encoding="utf-8") for p in tmp_path.rglob("*") if p.is_file())
+    assert not any(t in written for t in ("fake-secret", "fake-user", "fake-assertion", "u:pw"))
