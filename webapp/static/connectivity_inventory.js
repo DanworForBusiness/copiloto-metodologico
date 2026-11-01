@@ -1,9 +1,10 @@
 // "Extraer conexiones" (F2.1, módulo 01) — extracción AD-HOC de SOLO LECTURA con avance local y resultado TEMPORAL.
-// Misma mecánica NDJSON que datasphere_publication.js, con su PROPIO panel y su PROPIA ruta. A diferencia del módulo 04 no hay
-// líneas del extractor: el backend solo emite fases y, al final, el resumen SANEADO (B1): estados, conteos y presencia de datos.
+// Misma mecánica NDJSON y mismo patrón visual que datasphere_publication.js (fila de estado + spinner por fase, «Detalle técnico»,
+// error), con su PROPIO panel y su PROPIA ruta. A diferencia del módulo 04 no hay líneas crudas del extractor: las `line` las arma el
+// servidor SANEADAS (ordinales S1…, conteos y códigos) y el resultado es el resumen B1 (estados, conteos y presencia de datos).
 //
 // Contrato (ver webapp/routers/connectivity_inventory.py): POST urlencoded → NDJSON:
-//   {"t":"start"} · {"t":"phase","phase","v"} · {"t":"done","state","error_code","message","title","errors","summary"}
+//   {"t":"start"} · {"t":"phase","phase","v"}* · {"t":"line","v"}* · {"t":"done","state","error_code","message","title","errors","operation_id","summary"}
 // Todo texto entra con textContent; las filas se crean con el DOM (nunca innerHTML). El Client Secret se limpia del campo ANTES de
 // enviar. Nada se guarda: al recargar, el resultado desaparece.
 (function () {
@@ -17,6 +18,9 @@
     UNVERIFIABLE: "El CLI no expone total ni paginación: no se puede probar que estén todas, aunque la ejecución haya sido completa.",
     INCOMPLETE: "La extracción no cubrió todo el alcance pedido.",
   };
+  // Hitos con trabajo en curso (el spinner solo gira en estos; mismo criterio `WORKING` que el módulo 04). Los finales
+  // (completed | partial | failed) dejan su texto visible y el spinner quieto.
+  const WORKING = new Set(["preflight", "listing", "reading", "summarizing"]);
   const PHYS = ["host", "sysid", "systemnumber", "client"];
   const AGENT = ["agent_name", "location"];
 
@@ -38,14 +42,23 @@
   }
 
   function renderSummary(panel, summary) {
+    const preflight = el(panel, "[data-dsc-preflight]");
     const overview = el(panel, "[data-dsc-overview]");
     const conns = el(panel, "[data-dsc-connections]");
+    preflight.textContent = "";
     overview.textContent = "";
     conns.textContent = "";
     if (!summary) return false;
-    Object.entries(summary.preflight || {}).forEach(([name, check]) => {
-      row(overview, [CHECK_LABELS[name] || name, check.status + (check.code ? " (" + check.code + ")" : "")], true);
+    const checks = summary.preflight || {};
+    // Mínimo para extraer (mismo criterio del servidor): OAuth y Listar conexiones en OK. Con eso, un «Listar Spaces» fallido se
+    // muestra tal cual (estado y código) e identificado como no bloqueante para ESTA extracción.
+    const authorized = (checks.oauth_token || {}).status === "OK" && (checks.list_connections || {}).status === "OK";
+    Object.entries(checks).forEach(([name, check]) => {
+      let text = check.status + (check.code ? " (" + check.code + ")" : "");
+      if (name === "list_spaces" && authorized && check.status !== "OK") text += " — no bloquea la extracción";
+      row(preflight, [CHECK_LABELS[name] || name, text], true);
     });
+    setHidden(el(panel, "[data-dsc-preflight-wrap]"), !Object.keys(checks).length);
     if (summary.abort) row(overview, ["Interrupción", summary.abort.code + " — " + summary.abort.text], true);
     const inv = summary.inventory;
     if (inv) {
@@ -55,6 +68,11 @@
       row(overview, ["Spaces", "pedidos " + cov.expected_spaces + " · accesibles " + cov.accessible_spaces + " · inaccesibles " + cov.inaccessible_spaces], true);
       row(overview, ["Conexiones", "descubiertas " + cov.discovered_connections + " · extraídas " + cov.extracted_connections], true);
       row(overview, ["Errores", cov.errors_total + " (" + counts(cov.errors_by_code) + ")"], true);
+      if (summary.budget) {
+        const b = summary.budget;
+        row(overview, ["Presupuesto usado", "solicitudes " + b.requests_used + "/" + b.max_requests + " · reintentos " + b.retries_used + "/" +
+          b.max_total_retries + " · " + b.elapsed_s + " s / " + b.max_duration_s + " s"], true);
+      }
       (inv.connections || []).forEach((c) => {
         row(conns, [c.ref, c.space_ref]
           .concat(PHYS.map((k) => yesNo((c.physical_present || {})[k])))
@@ -64,6 +82,7 @@
     } else {
       setHidden(el(panel, "[data-dsc-conn-wrap]"), true);
     }
+    setHidden(el(panel, "[data-dsc-overview-wrap]"), !overview.children.length);   // sin filas (p. ej. OAuth fallido) no hay bloque vacío
     return true;
   }
 
@@ -75,10 +94,14 @@
     const submit = el(form, "[data-dsc-submit]");
     const failed = el(panel, "[data-dsc-failed]");
     const result = el(panel, "[data-dsc-result]");
+    const log = el(panel, "[data-dsc-log]");
+    const detail = el(panel, "[data-dsc-detail]");
 
     form.querySelectorAll("[data-dsc-error]").forEach((p) => { p.textContent = ""; p.hidden = true; });
     setHidden(failed, true);
     setHidden(result, true);
+    log.textContent = "";
+    detail.open = true;
 
     const body = new URLSearchParams(new FormData(form));
     form.querySelectorAll('input[type="password"]').forEach((i) => { i.value = ""; });
@@ -90,6 +113,7 @@
     setHidden(spinner, false);
 
     let done = null;
+    let finalPhase = "";
     try {
       const response = await fetch(form.getAttribute("action"), {
         method: "POST", body, credentials: "same-origin", cache: "no-store",
@@ -109,8 +133,16 @@
           buffer = buffer.slice(index + 1);
           if (!raw.trim()) continue;
           const event = JSON.parse(raw);
-          if (event.t === "phase") status.textContent = event.v;
-          else if (event.t === "done") done = event;
+          if (event.t === "line") {
+            log.textContent += event.v + "\n";                     // actividad saneada del servidor (nunca líneas crudas)
+            log.scrollTop = log.scrollHeight;
+          } else if (event.t === "phase") {
+            status.textContent = event.v;                          // hito realmente observado (sin porcentajes)
+            setHidden(spinner, !WORKING.has(event.phase));
+            finalPhase = WORKING.has(event.phase) ? "" : event.v;
+          } else if (event.t === "done") {
+            done = event;
+          }
         }
       }
     } catch (error) {
@@ -119,7 +151,7 @@
 
     submit.disabled = false;
     submit.removeAttribute("aria-busy");
-    status.textContent = "";
+    status.textContent = finalPhase;                                // el hito final queda visible; sin él (corte), nada
     setHidden(spinner, true);
     if (!done) return;
 
@@ -131,9 +163,11 @@
       setHidden(progress, true);
       return;
     }
+    if (done.error_code) log.textContent += "[" + done.error_code + "]\n";        // el código técnico vive en «Detalle técnico» (como el 04)
+    if (done.operation_id) log.textContent += "Operación: " + done.operation_id + "\n";
     if (done.state !== "SUCCESS") {
       el(panel, "[data-dsc-title]").textContent = done.title || "";
-      el(panel, "[data-dsc-message]").textContent = (done.message || "") + (done.error_code ? " [" + done.error_code + "]" : "");
+      el(panel, "[data-dsc-message]").textContent = done.message || "";
       setHidden(failed, false);
     }
     setHidden(result, !renderSummary(panel, done.summary));
