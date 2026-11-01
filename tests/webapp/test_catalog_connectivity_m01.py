@@ -182,7 +182,7 @@ def test_central_view_renders_filters_search_counter_and_cards():
     doc = json.loads(PACK_JSON.read_text(encoding="utf-8"))
     assert re.findall(r'data-sap-type="([^"]+)"', html) == [t["type_id"] for t in doc["connection_types"]]
     assert re.findall(r'data-icon-location="([^"]+)"', html) == [t["icon_location"] for t in doc["connection_types"]]
-    assert html.count("data-sap-conditional") == 1 and "No garantiza disponibilidad en todos los tenants" in html
+    assert "data-sap-conditional" not in html and "No garantiza disponibilidad en todos los tenants" in html   # sin badge en el tile: la condición vive en «Detalle técnico»
     assert 'data-sap-requirement="dp_agent_required:null"' in html and "No declarado" in html
     srcs = re.findall(r'<img class="sap-type-icon" src="([^"]+)"', html)
     assert len(srcs) == 37 and all(src.startswith("http://testserver/static/icons/vendors/sap-datasphere/connection-types/") for src in srcs)
