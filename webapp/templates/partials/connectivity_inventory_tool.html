@@ -67,7 +67,7 @@
   {# Avance y resultado: ocultos hasta ejecutar. Todo el contenido dinámico entra con textContent (nunca innerHTML). #}
   <div data-dsc-progress hidden>
     <div class="section-analysis-loading" role="status">
-      <span class="section-analysis-spinner" data-dsc-spinner hidden></span><span class="section-analysis-loading-copy" data-dsc-status data-running-text="Extrayendo conexiones..."></span>
+      <span class="section-analysis-spinner" data-dsc-spinner hidden></span><span class="section-analysis-loading-copy" data-dsc-status data-running-text="Iniciando la extracción (solo lectura)..."></span>
     </div>
     <div class="feedback-error" role="alert" data-dsc-failed hidden>
       <strong data-dsc-title></strong>
@@ -75,18 +75,38 @@
     </div>
     <div data-dsc-result hidden>
       <p class="admin-help">Resultado temporal: no se guarda, no se publica y no modifica los Catálogos. Solo muestra estados, conteos y presencia de datos.</p>
-      <div class="admin-table-wrap">
-        <table class="admin-table admin-table--compact" aria-label="Resultado de la extracción">
-          <tbody data-dsc-overview></tbody>
-        </table>
+      <div class="admin-result-block" data-dsc-preflight-wrap>
+        <span class="admin-result-title">Preflight</span>
+        <div class="admin-table-wrap">
+          <table class="admin-table admin-table--compact" aria-label="Controles de preflight">
+            <tbody data-dsc-preflight></tbody>
+          </table>
+        </div>
       </div>
-      <div class="admin-table-wrap" data-dsc-conn-wrap hidden>
-        <table class="admin-table admin-table--compact" aria-label="Presencia de metadatos por conexión">
-          <thead><tr><th>Conexión</th><th>Space</th><th>Host</th><th>SID</th><th>Nro. sistema</th><th>Mandante</th><th>DP Agent</th><th>Ubicación</th></tr></thead>
-          <tbody data-dsc-connections></tbody>
-        </table>
+      <div class="admin-result-block" data-dsc-overview-wrap>
+        <span class="admin-result-title">Resultado</span>
+        <div class="admin-table-wrap">
+          <table class="admin-table admin-table--compact" aria-label="Resultado de la extracción">
+            <tbody data-dsc-overview></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="admin-result-block" data-dsc-conn-wrap hidden>
+        <span class="admin-result-title">Conexiones</span>
+        <div class="admin-table-wrap">
+          <table class="admin-table admin-table--compact" aria-label="Presencia de metadatos por conexión">
+            <thead><tr><th>Conexión</th><th>Space</th><th>Host</th><th>SID</th><th>Nro. sistema</th><th>Mandante</th><th>DP Agent</th><th>Ubicación</th></tr></thead>
+            <tbody data-dsc-connections></tbody>
+          </table>
+        </div>
       </div>
     </div>
+    {# Actividad: MISMO bloque «Detalle técnico» del módulo 04 (`.admin-tool` + `.admin-result-output`). Recibe solo la actividad SANEADA
+       que arma el servidor (ordinales, conteos y códigos) y, al cerrar, el código de error y la operación. #}
+    <details class="admin-tool" data-dsc-detail open>
+      <summary class="admin-tool__summary">Detalle técnico</summary>
+      <div class="admin-tool__body"><pre class="admin-result-output" data-dsc-log></pre></div>
+    </details>
   </div>
 </div>
 {# El script se carga SOLO donde se renderiza la herramienta (base.html no cambia: el resto de las páginas no se modifica). #}

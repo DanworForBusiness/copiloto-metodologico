@@ -337,7 +337,8 @@ def test_success_returns_only_sanitized_summary(env, caplog):
     r = _post(_client("owner@danwor.com"))
     ev = _events(r)
     d = _done(r)
-    assert [e["t"] for e in ev] == ["start", "phase", "done"]                                # sin líneas del extractor
+    assert ev[0]["t"] == "start" and ev[-1]["t"] == "done" and {e["t"] for e in ev} == {"start", "phase", "line", "done"}
+    assert all(e["phase"] in svc.PHASE_COPY for e in ev if e["t"] == "phase")                # actividad saneada, nunca líneas crudas
     assert d["state"] == "SUCCESS"
     inv = d["summary"]["inventory"]
     assert inv["status"] == "COMPLETE" and inv["exhaustiveness"] == "UNVERIFIABLE"
@@ -485,3 +486,92 @@ def test_real_launcher_resolution_is_direct_in_this_checkout():
 
 def test_provisional_tenant_key_is_not_a_governed_identity():
     assert svc.provisional_tenant_key("https://MRKHOST.eu10.hcs.cloud.sap/") == "provisional-host:mrkhost.eu10.hcs.cloud.sap"
+
+
+# ═══════════════ (9) avance observable: hitos reales y actividad saneada (mismo contrato line/phase que el módulo 04) ═══════════════
+def _phases(ev):
+    return [e["phase"] for e in ev if e["t"] == "phase"]
+
+
+def _lines(ev):
+    return [e["v"] for e in ev if e["t"] == "line"]
+
+
+def test_success_emits_only_observed_milestones_in_order(env):
+    ev = _events(_post(_client("owner@danwor.com")))
+    assert _phases(ev) == ["preflight", "listing", "reading", "listing", "reading", "summarizing", "completed"]
+    lines = _lines(ev)
+    assert lines[:4] == ["Preflight · OAuth (token y login): OK", "Preflight · Listar Spaces: OK",
+                         "Preflight · Listar conexiones: OK", "Preflight · Leer detalle: OK"]
+    assert lines[4:8] == ["S1 · 2 conexiones listadas", "S1 · lectura del detalle terminada",
+                          "S2 · 2 conexiones listadas", "S2 · lectura del detalle terminada"]
+    assert lines[8].startswith("Presupuesto: solicitudes 11/150 · reintentos 0/6 · ") and len(lines) == 9
+    assert not any("%" in t or " de " in t for t in lines)                                   # sin porcentajes ni contadores simulados
+    _shareable(ev)
+
+
+def test_list_spaces_failure_is_visible_and_marked_non_blocking(env):
+    env.fake.overrides = {("spaces", "list"): _proc(1, err=_echo("Error while executing command"))}
+    ev = _events(_post(_client("owner@danwor.com")))
+    d = ev[-1]
+    assert d["state"] == "SUCCESS" and d["summary"]["preflight"]["list_spaces"]["status"] == "FAILED"
+    spaces_line = [t for t in _lines(ev) if t.startswith("Preflight · Listar Spaces")]
+    assert spaces_line == ["Preflight · Listar Spaces: FAILED (SCOPE_DENIED) · no bloquea la extracción"]
+    assert _phases(ev)[-1] == "completed"
+    _shareable(ev)
+
+
+def test_partial_failed_preflight_and_budget_close_with_their_milestone(monkeypatch, env):
+    env.fake.overrides = {("spaces", "connections", "get", "--space", "MRKSPACE_QAS"): _proc(1, err=_echo(M_PHYS_HOST, M_AGENT))}
+    ev = _events(_post(_client("owner@danwor.com")))
+    assert ev[-1]["state"] == "PARTIAL" and _phases(ev)[-1] == "partial"
+    assert _lines(ev).count("S2 · lectura de una conexión: FAILED (SCOPE_DENIED)") == 2
+    _shareable(ev)
+
+    env.fake.overrides = {("spaces", "connections", "list"): _proc(1, err=_echo(*M_SPACES))}
+    ev = _events(_post(_client("owner@danwor.com")))
+    assert ev[-1]["error_code"] == "PREFLIGHT_INSUFFICIENT" and _phases(ev) == ["preflight", "summarizing", "failed"]
+    assert "Preflight insuficiente: no se extrae ninguna conexión" in _lines(ev)
+    _shareable(ev)
+
+    env.fake.overrides = {}
+    monkeypatch.setattr(svc, "LIMITS", {"max_requests": 6, "max_total_retries": 6, "max_duration_s": 600.0})
+    ev = _events(_post(_client("owner@danwor.com")))
+    assert ev[-1]["error_code"] == "REQUESTS_EXCEEDED" and _phases(ev)[-1] == "failed"
+    assert any(t.startswith("Interrupción: REQUESTS_EXCEEDED · ") for t in _lines(ev))
+    assert not any(t.endswith("lectura del detalle terminada") for t in _lines(ev))            # un corte nunca se informa como terminado
+    assert "S1 · lectura del detalle interrumpida" in _lines(ev)
+    _shareable(ev)
+
+
+def test_transient_timeout_on_a_connection_is_reported_as_retry(env):
+    env.fake.overrides = {("spaces", "connections", "get", "--space", "MRKSPACE_DEV"):
+                          subprocess.TimeoutExpired(["fake-cli", M_HOST, M_SECRET], 5, output=M_SECRET, stderr=M_HOST)}
+    ev = _events(_post(_client("owner@danwor.com")))
+    assert ev[-1]["state"] == "PARTIAL"
+    assert "S1 · lectura de una conexión: error transitorio (TIMEOUT)" in _lines(ev)
+    assert any(t.startswith("Presupuesto: ") and "reintentos 0/6" not in t for t in _lines(ev))   # los reintentos se cobran
+    _shareable(ev)
+
+
+def test_invalid_form_emits_no_progress(env):
+    ev = _events(_post(_client("owner@danwor.com"), data={**VALID, "space_id": [""]}))
+    assert [e["t"] for e in ev] == ["start", "done"] and ev[-1]["state"] == "INVALID"
+    assert env.fake.calls == []
+
+
+def test_observer_adds_no_physical_calls_and_keeps_the_inventory(monkeypatch, env):
+    values = svc.ExtractionValues.from_form(host=VALID["host"], token_url=VALID["token_url"], client_id=VALID["datasphere_client_id"],
+                                            client=VALID["client"], space_ids=VALID["space_id"])
+    def shape(calls):                                                                         # la ruta del --secrets-file es efímera
+        return [[("<secrets-file>" if i and c[i - 1] == "--secrets-file" else x) for i, x in enumerate(c)] for c in calls]
+    observed = svc.run(values, M_SECRET, on_phase=lambda p: None, on_line=lambda t: None)
+    calls_observed = shape(env.fake.calls)
+    env.fake.calls.clear()
+    from tools.catalog.connectivity_governance import CliConnectionSource
+    monkeypatch.setattr(svc, "_observed_source", lambda progress, **kw: CliConnectionSource(**kw))
+    plain = svc.run(values, M_SECRET)
+    assert shape(env.fake.calls) == calls_observed and len(calls_observed) == 9               # mismas llamadas, mismos argumentos
+    strip = lambda o: {k: v for k, v in o.summary.items() if k != "budget"}
+    assert observed.state == plain.state == "SUCCESS" and strip(observed) == strip(plain)
+    assert observed.summary["budget"]["requests_used"] == plain.summary["budget"]["requests_used"]

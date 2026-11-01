@@ -4,14 +4,16 @@ connectivity_inventory.py — extracción AD-HOC de conexiones (F2.1) desde el C
 Ruta (SOLO el POST ejecuta):
 
   POST /modules/{stem}/connectivity-inventory/run    valida + extrae (solo lectura) y transmite NDJSON:
-      {"t":"start"} · {"t":"phase","phase":"extracting","v":"<texto>"} ·
+      {"t":"start"} · {"t":"phase","phase":"<hito>","v":"<texto>"}* · {"t":"line","v":"<actividad saneada>"}* ·
       {"t":"done","state","error_code","message","title","errors","operation_id","duration_s","summary"}
+  Mismo contrato que el módulo 04: `phase` = hito realmente observado (preflight | listing | reading | summarizing → completed |
+  partial | failed); `line` = actividad SANEADA (ordinales S1…, conteos y códigos del vocabulario cerrado), nunca líneas crudas.
 
 Seguridad (MISMO patrón que las herramientas del módulo 04): sesión obligatoria (401); mismo origen (403); herramienta
 solo en el módulo 01 (404); ``can_execute`` (403); un ``profile_id``
 (perfil de cliente de SharePoint) es SOLO del dueño (403) y su secreto se resuelve en el SERVIDOR. El Client Secret llega
 solo por el cuerpo del POST, no se devuelve, no se guarda, no se registra. A diferencia del módulo 04, NO se reenvían líneas
-del extractor: el único dato de resultado es el resumen saneado (B1). Nada se persiste.
+del extractor (las `line` las arma el servicio, saneadas): el único dato de resultado es el resumen saneado (B1). Nada se persiste.
 """
 from __future__ import annotations
 
@@ -78,7 +80,8 @@ def run_connectivity_inventory(
         nonlocal secret
         try:
             outcome = svc.run(values, secret, user_email=owner,
-                              on_phase=lambda phase: events.put({"t": "phase", "phase": phase, "v": svc.PHASE_COPY[phase]}))
+                              on_phase=lambda phase: events.put({"t": "phase", "phase": phase, "v": svc.PHASE_COPY[phase]}),
+                              on_line=lambda line: events.put({"t": "line", "v": line}))
         finally:
             secret = ""                                                       # el secreto no sobrevive a la ejecución
         inv = (outcome.summary or {}).get("inventory") or {}
