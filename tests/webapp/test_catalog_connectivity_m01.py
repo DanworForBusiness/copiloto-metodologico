@@ -363,4 +363,6 @@ def test_origins_guide_mirrors_domains_guide_and_opens_connections_catalog(monke
     assert org["back_module"] == "01"
     monkeypatch.setattr(catalog_reads, "_catalog_domains", lambda: ["Dominio"])
     html = _owner().get("/catalog/guide/como-publicar-origenes?pack=datasphere_core&embed=1").text
-    assert "/modules/01_Arquitectura_y_Conectividad?pack=datasphere_core&amp;tab=catalogo" in html and "catalog_action" not in html
+    assert "/modules/01_Arquitectura_y_Conectividad?pack=datasphere_core&amp;tab=catalogo&amp;catalog_action=extract" in html
+    page = _owner().get("/modules/01_Arquitectura_y_Conectividad?pack=datasphere_core&tab=catalogo&catalog_action=extract").text
+    assert "'extract')" in page                                                           # el panel abre el «+» (catalogView = extract)

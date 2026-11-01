@@ -86,5 +86,6 @@ steps:
       Ahora sólo tenés que abrir el Catálogo de conectividad, usar el «+» para pegar tus credenciales y URL tokens, indicar los Spaces y ejecutar el proceso.
       En minutos tendrás las conexiones comparadas con el Catálogo y su assessment, listas para revisar y publicar.
     link:
-      tool: catalogo            # navegación IN-APP (misma pestaña): /modules/<01>?pack=…&tab=catalogo (Catálogo de conectividad en «Conexiones»)
-      label: "Abrir Catálogo de conexiones"
+      tool: catalogo            # navegación IN-APP (misma pestaña): /modules/<01>?pack=…&tab=catalogo&catalog_action=extract
+      action: extract           # abre el «+» (formulario de extracción) del Catálogo de conectividad, como «publish» en Dominios
+      label: "Abrir extracción de conexiones"
