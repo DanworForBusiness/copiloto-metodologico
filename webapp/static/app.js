@@ -379,6 +379,63 @@ function dwBeacon(event, payload = {}, once = false) {
   }
 })();
 
+// ── Section view (Métricas de Uso v2, fase 2) ────────────────────────────────
+// UN solo listener delegado: cada swap HTMX que pinta una SECCIÓN navegable
+// manda un `section_view`, pero SOLO si el request lo disparó una persona.
+// Regla: `requestConfig.triggeringEvent.isTrusted === true` (click/keyup/change
+// reales). NO cuentan: `load`, `every`, `revealed`, polling, `htmx.ajax`
+// (sin triggeringEvent) ni `htmx.trigger` (CustomEvent ⇒ isTrusted=false).
+// Excepción explícita y única: un `htmx.trigger` lanzado SINCRÓNICAMENTE desde
+// un handler humano puede declararlo pasando `{ dwHuman: true }` como detail
+// (p. ej. `dw-sap-open`/`dw-registry-open` desde el cambio real del dropdown 1
+// del Catálogo, ver dwConnectivityKindChanged) — quien lo pasa lo deriva del
+// `isTrusted` del evento original, nunca lo fija a mano.
+// Identidad de la sección (declarativa, nunca inferida de la URL):
+//   1) `data-dw-section` en el ELEMENTO que pidió (selectores de dominio/LoB/
+//      cliente: el mismo partial sirve a los tres);
+//   2) si no, el primer `[data-dw-section]` del contenido recién swapeado
+//      (marcador en la raíz del partial de detalle).
+// Un filtro/búsqueda que repinta solo una lista interna no trae marcador ⇒ no
+// es una vista de sección. `data-dw-module` (opcional) pisa DW_MODULE_ID.
+// Solo `location.pathname` (nunca query). El servidor valida el slug.
+(function dwSectionViews() {
+  const SLUG = /^[a-z][a-z0-9_]{1,47}$/;
+  function humanTrigger(d) {
+    const te = d && d.requestConfig && d.requestConfig.triggeringEvent;
+    if (!te) return false;
+    if (te.isTrusted === true) return true;
+    return !!(te.detail && te.detail.dwHuman === true);
+  }
+  function sectionNode(d) {
+    const elt = d.requestConfig && d.requestConfig.elt ? d.requestConfig.elt : d.elt;
+    if (elt && elt.getAttribute && elt.hasAttribute("data-dw-section")) return elt;
+    const target = d.target;
+    if (!target || !target.isConnected || !target.querySelector) return null;    // outerHTML: el target viejo quedó fuera del DOM
+    return target.querySelector("[data-dw-section]");
+  }
+  document.addEventListener("htmx:afterSwap", function (e) {
+    try {
+      const d = e.detail || {};
+      if (!window.DW_VIEW_ID || !humanTrigger(d)) return;
+      const node = sectionNode(d);
+      const section = node ? node.getAttribute("data-dw-section") : "";
+      if (!section || !SLUG.test(section)) return;
+      const body = JSON.stringify({
+        event: "section_view",
+        section: section,
+        view_id: window.DW_VIEW_ID,
+        path: location.pathname,
+        module_id: node.getAttribute("data-dw-module") || window.DW_MODULE_ID || "",
+      });
+      if (navigator.sendBeacon) {
+        navigator.sendBeacon("/telemetry/event", new Blob([body], { type: "application/json" }));
+      } else {
+        fetch("/telemetry/event", { method: "POST", headers: { "Content-Type": "application/json" }, body, keepalive: true });
+      }
+    } catch (err) { /* nunca romper la experiencia por telemetría */ }
+  });
+})();
+
 // Interacciones de navegación/consumo (VERBOSE). Un solo listener delegado en
 // captura: continuar al módulo, saltar por el índice/roadmap/nav lateral
 // persistente, y links externos del contenido (qué activo se llevó al
@@ -1087,11 +1144,14 @@ window.dwSapTypes = dwSapTypes;
 // Dropdown 1 del Catálogo de conectividad: elegir «Disponibilidad SAP» la ABRE en el panel central con el mecanismo de siempre (el `hx-get` del
 // enlace `opener` hacia #catalog-detail-slot); salir de esa opción cierra la vista central si es la que está abierta (`dwCatalogBack`), sin dejar
 // contenido residual. Las demás vistas centrales (detalle de una conexión) no se tocan.
-function dwConnectivityKindChanged(kind, opener, registryOpener) {
+// `humanEvent` (opcional): el evento ORIGINAL del cambio del dropdown. Su `isTrusted` viaja como `detail.dwHuman` del CustomEvent para que
+// `section_view` cuente la apertura solo si la eligió una persona (la apertura inicial por `?catalog_kind=sap_types` no lo pasa: ya es page_view).
+function dwConnectivityKindChanged(kind, opener, registryOpener, humanEvent) {
+  const detail = { dwHuman: !!(humanEvent && humanEvent.isTrusted) };
   if (kind === "sap_types") {
-    if (opener && window.htmx) window.htmx.trigger(opener, "dw-sap-open");
+    if (opener && window.htmx) window.htmx.trigger(opener, "dw-sap-open", detail);
   } else if (kind === "registry") {
-    if (registryOpener && window.htmx) window.htmx.trigger(registryOpener, "dw-registry-open");
+    if (registryOpener && window.htmx) window.htmx.trigger(registryOpener, "dw-registry-open", detail);
   } else if (document.querySelector("#catalog-detail-slot [data-sap-view], #catalog-detail-slot [data-registry-view]")) {
     window.dwCatalogBack();
   }

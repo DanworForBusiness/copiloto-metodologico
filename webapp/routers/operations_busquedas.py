@@ -35,6 +35,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from core.content_registry import DEFAULT_PACK
 from webapp import access as app_access, hub_metrics_access, operations_access, same_origin_guard, workspaces
 from webapp.services import auth_service, busqueda_repository, human_capital_catalog_repository, human_capital_service, pagination, search_text
+from webapp.services.activity_catalog import AREA_CCHH, OUTCOME_SUCCESS, SCOPE_HUMAN_CAPITAL
+from webapp.services.activity_service import log_activity
 from webapp.templating import templates
 
 router = APIRouter()
@@ -341,6 +343,8 @@ async def operations_busqueda_new_submit(request: Request):
         return _again(_MSG_STORAGE, 503)
     except ValueError as exc:
         return _again(str(exc), 422)
+    # Métricas de Uso v2 (fase 2): acción de la vertical CCHH (misma atribución que el page_view de /operaciones/busquedas), sin contenido.
+    log_activity("cchh.search_requested", user=user, scope=SCOPE_HUMAN_CAPITAL, area=AREA_CCHH, outcome=OUTCOME_SUCCESS)
     return RedirectResponse(url=f"{BASE_PATH}/{view['busqueda_id']}?ok=enviada", status_code=303)
 
 

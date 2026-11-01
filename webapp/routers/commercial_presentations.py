@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
@@ -35,7 +36,7 @@ from core.content_registry import DEFAULT_PACK
 from webapp import commercial_access, same_origin_guard, workspaces
 from webapp.services import auth_service
 from webapp.services import commercial_presentations as presentations
-from webapp.services.activity_context import AREA_PRESENTATIONS, EVENT_MODULE_VIEWED, SCOPE_COMMERCIAL
+from webapp.services.activity_context import AREA_PRESENTATIONS, EVENT_PAGE_VIEW, SCOPE_COMMERCIAL
 from webapp.services.activity_service import log_activity
 from webapp.services.module_registry import CM03_MODULE_ID
 from webapp.templating import templates
@@ -136,7 +137,11 @@ def presentation_shared_view(request: Request, presentation_id: str, embed: str 
     view = _load(presentation_id)
     embedded = embed == "1"
     if not embedded:                                                             # el detalle (iframe embed=1) ya registró la vista
-        log_activity(EVENT_MODULE_VIEWED, user=user, scope=SCOPE_COMMERCIAL, area=AREA_PRESENTATIONS, module=CM03_MODULE_ID)
+        # Métricas de Uso v2 (fase 2): este documento es STANDALONE (no extiende base.html, no carga app.js) → no hay beacon de
+        # `page_view`; el servidor la escribe acá, MISMO contrato (view_id por render, nav_type navigate, solo el pathname). No
+        # distingue recargas (igual que el `module_viewed` que reemplaza).
+        log_activity(EVENT_PAGE_VIEW, user=user, scope=SCOPE_COMMERCIAL, area=AREA_PRESENTATIONS, module=CM03_MODULE_ID,
+                     view_id=uuid.uuid4().hex, nav_type="navigate", path=request.url.path)
     spec = presentations.template_spec(view["template_id"])
     theme = "dark" if request.cookies.get("dw-content-theme") == "dark" else "light"            # preferencia del Hub (cookie `dw-content-theme`), como /pack-assets: sin flash
     # Edición inline: `?edit=1` solo se honra si el usuario PUEDE editar esta instancia (Comercial + responsable / CONTENT_OWNER; nunca la semilla). Para cualquier otro es la vista de siempre: leer por URL no habilita nada.
@@ -191,8 +196,7 @@ def presentations_catalog(request: Request):
     redirect = _require_commercial_page(request)
     if redirect is not None:
         return redirect
-    user = auth_service.session_user(request)
-    log_activity(EVENT_MODULE_VIEWED, user=user, scope=SCOPE_COMMERCIAL, area=AREA_PRESENTATIONS, module=CM03_MODULE_ID)
+    user = auth_service.session_user(request)                                    # visita: `page_view` (DW_MODULE_ID=CM03, ver _shell_context)
     try:
         items = presentations.list_presentations()
         error_state = ""
@@ -220,8 +224,7 @@ def presentation_detail(request: Request, presentation_id: str):
     if redirect is not None:
         return redirect
     user = auth_service.session_user(request)
-    view = _load(presentation_id)
-    log_activity(EVENT_MODULE_VIEWED, user=user, scope=SCOPE_COMMERCIAL, area=AREA_PRESENTATIONS, module=CM03_MODULE_ID)
+    view = _load(presentation_id)                                                # visita: `page_view` (DW_MODULE_ID=CM03, ver _shell_context)
     return templates.TemplateResponse(
         request=request, name="commercial/presentation_detail.html",
         context=_shell_context(request, user, presentation={**view, "updated_label": _date_dmy(view.get("updated_at"))}, share_path=_share_path(presentation_id),

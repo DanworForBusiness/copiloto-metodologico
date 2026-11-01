@@ -39,7 +39,7 @@ from webapp.services import assessment_service as svc
 from webapp.services import auth_service, catalog_reads
 from webapp.services import client_assessment_portfolio as portfolio
 from webapp.services.activity_context import AREA_CATALOG, SCOPE_COPILOT
-from webapp.services.activity_service import log_activity, log_verbose
+from webapp.services.activity_service import log_activity
 from webapp.templating import templates
 
 router = APIRouter()
@@ -81,7 +81,6 @@ def assessment_get(request: Request, flow: str = "", pack: str = Query(DEFAULT_P
         return nav.login_redirect(request, _pack(request, pack))
     selected = _pack(request, pack)
     entry = _entry_or_404(flow)
-    log_verbose("catalog_view", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG, kind="assessment", ref=entry.entry_id)
     status = svc.status_for_entry(entry)
     if not request.headers.get("HX-Request"):          # el informe es un fragmento del panel; navegación directa → detalle del flujo
         return RedirectResponse(presenter.flow_url(entry, selected), status_code=303)
@@ -142,7 +141,6 @@ def client_assessment_get(request: Request, flow: str = "", pack: str = Query(DE
     entry = _entry_or_404(flow)
     if not request.headers.get("HX-Request"):          # el consolidado es un fragmento del panel; navegación directa → detalle del flujo
         return RedirectResponse(presenter.flow_url(entry, selected), status_code=303)
-    log_verbose("catalog_view", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG, kind="client_assessment", ref=entry.cliente)
     snap = portfolio.build_snapshot(entry, selected)
     q = {"flow": entry.entry_id}
     return templates.TemplateResponse(

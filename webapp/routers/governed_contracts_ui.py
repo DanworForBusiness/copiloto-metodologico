@@ -25,8 +25,6 @@ from webapp.services import governed_decisions as gd
 from webapp.services import governed_decisions_inventory as inventory
 from webapp.services import governed_decisions_ops as ops
 from webapp.services import governed_decisions_presenter as presenter
-from webapp.services.activity_context import AREA_CATALOG, SCOPE_COPILOT
-from webapp.services.activity_service import log_verbose
 from webapp.services.content_service import academy_asset_for, list_academy, list_appendices, list_modules
 from webapp.templating import templates
 from webapp import workspaces
@@ -76,7 +74,6 @@ def governed_contracts(request: Request, client: str = "", pack: str = Query(DEF
     user = _require_user(request)
     selected = _pack(request, pack)
     client = (client or "").strip()
-    log_verbose("governed_contracts_list", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG, kind="list", ref=client)
     clients = inventory.list_clients()
     contracts: list[dict] = []
     error = None
@@ -105,8 +102,6 @@ def governed_contract_detail(request: Request, client: str = "", remote_entity: 
     if not client or not (remote_entity or "").strip():
         raise HTTPException(404, "Contrato no especificado")
     identity = _identity(remote_connection, remote_entity)
-    log_verbose("governed_contracts_detail", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG, kind="detail",
-                ref=gd.cds_technical_id(identity))
     now = datetime.now(timezone.utc)
     try:
         recon = ops.status(client, identity, now)                  # decisión/evidencia/revisión + historial + consumidores (SOLO LECTURA)

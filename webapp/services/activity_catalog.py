@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass
 
 # --- scope (ámbito = vertical en el envelope v2) ---
@@ -49,11 +50,10 @@ SCOPE_PLATFORM = "platform"
 SCOPE_COPILOT = "copilot"
 SCOPE_OPERATIONS = "operations"
 SCOPE_COMMERCIAL = "commercial"
-# Capital Humano (CCHH): hoy NO emite eventos de servidor; existe solo para
-# atribuir `page_view` de sus pantallas. Ningún caller de Metrics lo incluye
-# todavía en su universo visible (ver hub_metrics_access) — fail-closed: sus
-# vistas quedan registradas pero no se muestran hasta que se decida la
-# política de visibilidad de esa vertical.
+# Capital Humano (CCHH): `page_view`/`section_view` de sus pantallas + las
+# ACCIONES funcionales `cchh.*` (fase 2, sin PII: solo `outcome`, conteos y
+# enums no identificatorios). Visible en Metrics SOLO para quien además pasa
+# el predicado de acceso de CCHH (ver hub_metrics_access.metrics_visibility_for).
 SCOPE_HUMAN_CAPITAL = "human_capital"
 SCOPE_UNKNOWN = "unknown"
 
@@ -107,6 +107,37 @@ MODULE_ASSIGNMENTS = "assignments"
 NAV_TYPES = frozenset({"navigate", "reload", "back_forward", "prerender"})
 VISIT_NAV_TYPES = frozenset({"navigate", "back_forward", "prerender"})
 
+# `section_view.section`: slug DECLARATIVO del markup (`data-dw-section`).
+# Regex estricta: minúsculas/dígitos/guion bajo, empieza con letra, acotado.
+# Un slug que no matchea NO se escribe (el beacon se descarta): el cliente no
+# puede meter texto libre en el campo `section` del envelope.
+SECTION_SLUG_RE = re.compile(r"^[a-z][a-z0-9_]{1,47}$")
+
+
+def is_valid_section_slug(value) -> bool:
+    return isinstance(value, str) and bool(SECTION_SLUG_RE.fullmatch(value))
+
+
+# --- outcome (resultado normalizado de una operación larga o una acción) ---
+OUTCOME_SUCCESS = "success"
+OUTCOME_PARTIAL = "partial"
+OUTCOME_FAILED = "failed"
+OUTCOME_REJECTED = "rejected"
+OUTCOMES = frozenset({OUTCOME_SUCCESS, OUTCOME_PARTIAL, OUTCOME_FAILED, OUTCOME_REJECTED})
+# Estados que YA producen los servicios (mayúsculas: conectividad/assessment/
+# publicación; minúsculas: sincronización de APIs) → outcome. Un estado que no
+# esté acá es `failed` (fail-closed: nunca se infla el éxito).
+_STATE_OUTCOME = {
+    "SUCCESS": OUTCOME_SUCCESS, "PARTIAL": OUTCOME_PARTIAL, "FAILED": OUTCOME_FAILED, "BLOCKED": OUTCOME_REJECTED,
+    "ok": OUTCOME_SUCCESS, "nothing": OUTCOME_SUCCESS, "local_only": OUTCOME_SUCCESS, "rolled_back": OUTCOME_SUCCESS,
+    "incomplete": OUTCOME_PARTIAL, "aborted": OUTCOME_REJECTED,
+}
+
+
+def outcome_of(state) -> str:
+    """Estado crudo de un servicio → `outcome` normalizado (ver `_STATE_OUTCOME`)."""
+    return _STATE_OUTCOME.get(str(state or "").strip(), OUTCOME_FAILED)
+
 
 @dataclass(frozen=True)
 class EventSpec:
@@ -138,7 +169,12 @@ _ASSISTANT = (
     "bypass", "readonly", "ia_blocked", "llm", "reply_id", "conversation_id",
     "api_cost", "error", "chars_in", "chars_out",
 )
-_RUN = ("state", "error_code", "duration_s", "operation_id")
+_RUN = ("state", "error_code", "duration_s", "operation_id", "outcome")
+# Acciones de Capital Humano: SOLO resultado normalizado + conteos/enums no
+# identificatorios. NUNCA nombres, emails, teléfonos, texto de CV, nombres de
+# archivo, contenido de búsquedas ni valores de formulario (ver
+# tests/webapp/test_activity_v2_instrumentation.py: claves prohibidas).
+_CCHH = ("outcome",)
 # Diagnóstico de carga de Staffing: `_flatten_staffing_diagnostics` aplana
 # `{fuente: {métrica: valor}}` a `fuente_métrica`. Se enumeran las fuentes y
 # métricas REALES de `StaffingRepository.last_diagnostics` (solo conteos/
@@ -159,13 +195,18 @@ _SPECS: tuple[EventSpec, ...] = (
     # Transversal: scope/area/module los resuelve /telemetry/event.
     _spec(EVENT_PAGE_VIEW, KIND_NAVIGATION, SCOPE_PLATFORM, AREA_HUB, "Vista de página",
           ("view_id", "nav_type", "path"), surface="page"),
-    # section_view: reservado para la fase de instrumentación (sin productor todavía).
-    _spec(EVENT_SECTION_VIEW, KIND_NAVIGATION, SCOPE_COPILOT, AREA_METHODOLOGY, "Vista de sección",
-          ("view_id",), surface="section"),
+    # section_view: una vista de SECCIÓN cargada por HTMX dentro de una página
+    # (detalle del Catálogo, Disponibilidad SAP, Tenants y ambientes…). La
+    # emite app.js SOLO ante un disparo humano real (evento `isTrusted`); el
+    # slug viaja en `section` (campo de primera clase, validado con
+    # SECTION_SLUG_RE). `view_id` = la `page_view` que la contiene. Transversal:
+    # scope/area/module los resuelve /telemetry/event. NO es visita.
+    _spec(EVENT_SECTION_VIEW, KIND_NAVIGATION, SCOPE_PLATFORM, AREA_HUB, "Vista de sección",
+          ("view_id", "path"), surface="partial"),
     # ── Copiloto · Metodología ──
-    # module_viewed: transversal (Copiloto/Operaciones/Comercial) — el default
-    # solo aplica a un registro sin contexto. En v2 NO es la métrica de visita
-    # (eso es page_view); se mantiene hasta la fase de instrumentación.
+    # module_viewed: SOLO compatibilidad de lectura v1 (y los v2 escritos
+    # antes de la fase 2). Sin productor desde la fase 2: la visita con su
+    # módulo la lleva `page_view` (`DW_MODULE_ID`).
     _spec(EVENT_MODULE_VIEWED, KIND_NAVIGATION, SCOPE_COPILOT, AREA_METHODOLOGY, "Vista de módulo", ("pack",)),
     _spec("module_continue", KIND_NAVIGATION, SCOPE_COPILOT, AREA_METHODOLOGY, "Continuó módulo",
           _BEACON + ("via", "href"), surface="client"),
@@ -201,9 +242,12 @@ _SPECS: tuple[EventSpec, ...] = (
     _spec("academy.feedback", KIND_ACTION, SCOPE_COPILOT, AREA_ACADEMY, "Academy — feedback de recorrido",
           ("academy_title",) + _FEEDBACK),
     # ── Copiloto · Catálogo ──
+    # catalog_view: SOLO compatibilidad de lectura v1 — sin productor desde la
+    # fase 2 (lo reemplaza `section_view` con slug `catalog_*`).
     _spec("catalog_view", KIND_NAVIGATION, SCOPE_COPILOT, AREA_CATALOG, "Vista de catálogo",
           ("kind", "ref", "assoc", "lineage")),
-    _spec("catalog_regenerate", KIND_OUTCOME, SCOPE_COPILOT, AREA_CATALOG, "Regeneración de catálogo", ("ran", "ok")),
+    _spec("catalog_regenerate", KIND_OUTCOME, SCOPE_COPILOT, AREA_CATALOG, "Regeneración de catálogo",
+          ("ran", "ok", "outcome", "duration_s")),
     _spec("catalog.feedback", KIND_ACTION, SCOPE_COPILOT, AREA_CATALOG, "Catálogo — feedback de cierre",
           ("kind", "ref") + _FEEDBACK),
     _spec("catalog_section.feedback", KIND_ACTION, SCOPE_COPILOT, AREA_CATALOG, "Catálogo — feedback de sección",
@@ -215,19 +259,21 @@ _SPECS: tuple[EventSpec, ...] = (
     _spec("catalog_connection_retired", KIND_ACTION, SCOPE_COPILOT, AREA_CATALOG, "Catálogo — conexiones retiradas",
           ("cliente", "connections")),
     _spec("catalog_apis_sync", KIND_OUTCOME, SCOPE_COPILOT, AREA_CATALOG, "Catálogo — sincronización de APIs",
-          ("step", "state")),
+          ("step", "state", "outcome", "duration_s")),
     _spec("catalog_assessment_generate", KIND_OUTCOME, SCOPE_COPILOT, AREA_CATALOG, "Catálogo — informe de assessment",
           ("flow", "state", "error_code")),
     _spec("connectivity_inventory_run", KIND_OUTCOME, SCOPE_COPILOT, AREA_CATALOG, "Conectividad — extracción de conexiones",
           ("client", "spaces", "inventory_status", "exhaustiveness", "extracted") + _RUN),
     _spec("connectivity_catalog_publish", KIND_OUTCOME, SCOPE_COPILOT, AREA_CATALOG, "Conectividad — publicación al catálogo",
-          ("error", "published", "durability", "rationale") + _RUN),
+          ("error", "published", "durability") + _RUN),
     _spec("datasphere_assessment_run", KIND_OUTCOME, SCOPE_COPILOT, AREA_CATALOG, "Assessment de modelo — ejecución",
           ("client", "space", "root_object", "stage") + _RUN),
     _spec("datasphere_assessment_refresh_catalog", KIND_OUTCOME, SCOPE_COPILOT, AREA_CATALOG,
           "Assessment de modelo — refresco de catálogo", _RUN),
     _spec("datasphere_publication_run", KIND_OUTCOME, SCOPE_COPILOT, AREA_CATALOG, "Publicación de modelo",
           ("client", "space", "root_object", "stage", "status", "durability", "change") + _RUN),
+    # governed_contracts_*: SOLO compatibilidad de lectura — sin productor desde
+    # la fase 2 (`section_view` governed_contracts_list/detail).
     _spec("governed_contracts_list", KIND_NAVIGATION, SCOPE_COPILOT, AREA_CATALOG, "Contratos gobernados — listado",
           ("kind", "ref")),
     _spec("governed_contracts_detail", KIND_NAVIGATION, SCOPE_COPILOT, AREA_CATALOG, "Contratos gobernados — detalle",
@@ -272,6 +318,30 @@ _SPECS: tuple[EventSpec, ...] = (
           ("capability",) + _FEEDBACK),
     _spec("commercial.data_error", KIND_OUTCOME, SCOPE_COMMERCIAL, AREA_CRM, "Comercial — falla de datos",
           ("endpoint", "stage"), cls=CLS_DIAGNOSTIC),
+    # ── Capital Humano (fase 2) ── acciones funcionales, sin PII (ver `_CCHH`).
+    _spec("cchh.profile_created", KIND_ACTION, SCOPE_HUMAN_CAPITAL, AREA_CCHH, "CCHH — candidato creado",
+          _CCHH + ("with_cv",)),
+    _spec("cchh.profile_updated", KIND_ACTION, SCOPE_HUMAN_CAPITAL, AREA_CCHH, "CCHH — candidato editado", _CCHH),
+    _spec("cchh.profile_deleted", KIND_ACTION, SCOPE_HUMAN_CAPITAL, AREA_CCHH, "CCHH — candidato dado de baja",
+          _CCHH + ("documents_deleted",)),
+    _spec("cchh.cv_uploaded", KIND_ACTION, SCOPE_HUMAN_CAPITAL, AREA_CCHH, "CCHH — CV subido", _CCHH + ("origin",)),
+    _spec("cchh.profiles_imported", KIND_ACTION, SCOPE_HUMAN_CAPITAL, AREA_CCHH, "CCHH — importación de candidatos",
+          _CCHH + ("total_rows", "created", "skipped", "failed", "invalid")),
+    _spec("cchh.profiles_consolidated", KIND_ACTION, SCOPE_HUMAN_CAPITAL, AREA_CCHH, "CCHH — perfiles consolidados",
+          _CCHH + ("status",)),
+    _spec("cchh.search_created", KIND_ACTION, SCOPE_HUMAN_CAPITAL, AREA_CCHH, "CCHH — búsqueda creada", _CCHH),
+    _spec("cchh.search_closed", KIND_ACTION, SCOPE_HUMAN_CAPITAL, AREA_CCHH, "CCHH — búsqueda cerrada",
+          _CCHH + ("finalized",)),
+    _spec("cchh.search_requested", KIND_ACTION, SCOPE_HUMAN_CAPITAL, AREA_CCHH,
+          "CCHH — solicitud de búsqueda desde Operaciones", _CCHH),
+    _spec("cchh.candidate_added", KIND_ACTION, SCOPE_HUMAN_CAPITAL, AREA_CCHH, "CCHH — candidato incorporado a búsqueda",
+          _CCHH),
+    _spec("cchh.stage_changed", KIND_ACTION, SCOPE_HUMAN_CAPITAL, AREA_CCHH, "CCHH — cambio de etapa", _CCHH),
+    _spec("cchh.interview_created", KIND_ACTION, SCOPE_HUMAN_CAPITAL, AREA_CCHH, "CCHH — entrevista creada",
+          _CCHH + ("origin",)),
+    _spec("cchh.onboarding_item_toggled", KIND_ACTION, SCOPE_HUMAN_CAPITAL, AREA_CCHH, "CCHH — ítem de onboarding",
+          _CCHH + ("checked",)),
+    _spec("cchh.publication_created", KIND_ACTION, SCOPE_HUMAN_CAPITAL, AREA_CCHH, "CCHH — publicación creada", _CCHH),
 )
 
 SPECS: dict[str, EventSpec] = {s.name: s for s in _SPECS}

@@ -55,7 +55,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from core.content_registry import DEFAULT_PACK
 from webapp import commercial_access, workspaces
 from webapp.services import auth_service, commercial_licensing_priority_repository, feedback_store
-from webapp.services.activity_context import SCOPE_COMMERCIAL, AREA_CRM, EVENT_MODULE_VIEWED
+from webapp.services.activity_context import SCOPE_COMMERCIAL, AREA_CRM
 from webapp.services.activity_service import log_activity
 from webapp.services.commercial_service import (
     CommercialConfigurationError,
@@ -86,11 +86,10 @@ def commercial_page(request: Request):
     if redirect is not None:
         return redirect
     user = auth_service.session_user(request)
-    # Primer evento de USO real de Comercial — MISMO criterio que
-    # Operations/Asignaciones (module_viewed, ver staffing.staffing_page):
-    # un acceso exitoso a la página. Sin clickstream (el GET, no
-    # interacciones client-side).
-    log_activity(EVENT_MODULE_VIEWED, user=user, scope=SCOPE_COMMERCIAL, area=AREA_CRM, module=CM01_MODULE_ID)
+    # Métricas de Uso v2 (fase 2): la VISITA a CRM ya no la escribe el
+    # servidor (`module_viewed`); la lleva el `page_view` del documento,
+    # atribuido a CM01 vía `dw_module_id` (abajo). MISMO criterio que
+    # Operations/Asignaciones (ver staffing.staffing_page).
     return templates.TemplateResponse(
         request=request, name="commercial/crm.html",
         context={
@@ -103,6 +102,7 @@ def commercial_page(request: Request):
             "user": user,
             # Resalta "01 CRM" en commercial_nav.html.
             "active_page": "crm",
+            "dw_module_id": CM01_MODULE_ID,
         },
     )
 

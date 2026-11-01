@@ -51,10 +51,10 @@ from webapp.services import auth_service, module_registry
 from webapp.services.activity_service import RESERVED_KEYS, is_activity_logging_enabled, is_verbose, log_activity, log_verbose
 from webapp.services.activity_context import (
     AREA_ACADEMY, AREA_CATALOG, AREA_CCHH, AREA_CRM, AREA_HUB, AREA_METHODOLOGY, AREA_PRESENTATIONS,
-    AREA_REPORTING, AREA_STAFFING, AREA_STRATEGY, EVENT_PAGE_VIEW,
+    AREA_REPORTING, AREA_STAFFING, AREA_STRATEGY, EVENT_PAGE_VIEW, EVENT_SECTION_VIEW,
     SCOPE_COMMERCIAL, SCOPE_COPILOT, SCOPE_HUMAN_CAPITAL, SCOPE_OPERATIONS, SCOPE_PLATFORM,
 )
-from webapp.services.activity_catalog import NAV_TYPES
+from webapp.services.activity_catalog import NAV_TYPES, is_valid_section_slug
 
 router = APIRouter()
 
@@ -103,9 +103,9 @@ def _resolve_beacon_origin(module_id: str) -> tuple[str, str, str | None] | None
 # largo primero; mismo criterio de confianza que `module_id`: el cliente manda
 # SOLO `location.pathname` y el servidor decide el contexto con esta tabla
 # (el cliente nunca fija scope/area). Ruta no reconocida → Plataforma/Hub.
-# CCHH se atribuye a su propia vertical (`human_capital`), que ningún viewer de
-# Metrics tiene en su universo visible todavía — fail-closed hasta que se
-# defina esa política (ver hub_metrics_access.metrics_visibility_for).
+# CCHH se atribuye a su propia vertical (`human_capital`), visible en Metrics
+# SOLO para viewers que además tienen acceso a CCHH (ver
+# hub_metrics_access.metrics_visibility_for).
 _PAGE_ORIGIN_BY_PREFIX: tuple[tuple[str, str, str], ...] = (
     ("/operaciones/reporting", SCOPE_OPERATIONS, AREA_REPORTING),
     ("/operaciones/staffing", SCOPE_OPERATIONS, AREA_STAFFING),
@@ -172,12 +172,42 @@ def _log_page_view(user: dict, data: dict) -> None:
                  view_id=view_id, nav_type=nav_type, path=path)
 
 
+def _log_section_view(user: dict, data: dict) -> None:
+    """`section_view` v2 (fase 2): una sección cargada por HTMX ante un disparo
+    HUMANO real (app.js filtra `isTrusted`; acá no se puede verificar, es
+    telemetría de producto, no una frontera de seguridad). El slug viene del
+    markup (`data-dw-section`) y se valida con la regex estricta del catálogo:
+    inválido → se descarta sin loguear. Contexto: MISMA resolución que
+    `page_view` (`module_id` validado contra `module_registry`, si no por
+    ruta). Nivel BASIC, como `page_view`: reemplaza a `catalog_view` (que
+    era VERBOSE) y es navegación básica. `kind`/`surface` los fija el
+    catálogo (navigation/partial), nunca el cliente."""
+    section = data.get("section")
+    if not is_valid_section_slug(section):
+        return
+    view_id = str(data.get("view_id") or "").strip()
+    if view_id and (len(view_id) > 64 or not view_id.isalnum()):
+        view_id = ""
+    path = _clean_path(data.get("path"))
+    module_id = str(data.get("module_id") or "").strip()
+    module = None
+    if module_id:
+        origin = _resolve_beacon_origin(module_id)
+        if origin is None:
+            return
+        scope, area, module = origin
+    else:
+        scope, area = _page_origin(path)
+    log_activity(EVENT_SECTION_VIEW, user=user, scope=scope, area=area, module=module, section=section,
+                 view_id=view_id, path=path)
+
+
 @router.post("/telemetry/event", include_in_schema=False)
 async def telemetry_event(request: Request):
     """Beacon liviano de interacción cliente (fin de módulo, uso del cue de
-    continuar, saltos de nav) + `page_view` (Métricas de Uso v2). Los eventos
-    finos solo registran en LOG_ACTIVITY=VERBOSE; `page_view` desde BASIC
-    (métrica básica). Siempre responde 204 para no ensuciar la consola del
+    continuar, saltos de nav) + `page_view`/`section_view` (Métricas de Uso
+    v2). Los eventos finos solo registran en LOG_ACTIVITY=VERBOSE;
+    `page_view`/`section_view` desde BASIC (navegación básica). Siempre responde 204 para no ensuciar la consola del
     navegador — nunca 500, aunque el body traiga claves reservadas."""
     if not is_activity_logging_enabled():
         return Response(status_code=204)
@@ -193,6 +223,9 @@ async def telemetry_event(request: Request):
     event = str(data.get("event") or "").strip()
     if event == EVENT_PAGE_VIEW:
         _log_page_view(user, data)
+        return Response(status_code=204)
+    if event == EVENT_SECTION_VIEW:
+        _log_section_view(user, data)
         return Response(status_code=204)
     if not is_verbose():
         return Response(status_code=204)

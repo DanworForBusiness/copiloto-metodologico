@@ -55,8 +55,6 @@ from webapp.services import auth_service
 from webapp.services import catalog_reads
 from webapp.services import domain_classification_service as dcs
 from webapp.services import module_registry
-from webapp.services.activity_service import log_activity
-from webapp.services.activity_context import SCOPE_COPILOT, AREA_METHODOLOGY
 from webapp.services.content_service import (
     academy_asset_for,
     list_academy,
@@ -131,18 +129,13 @@ def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK), ta
     # Opción inicial del Catálogo de conectividad (módulo 01) vía URL (?tab=catalogo&catalog_kind=sap_types, enlace de What's New): lista blanca
     # de UN valor; el navegador abre su vista central con el MISMO mecanismo que la selección manual (dwCatalogBrowse → dwConnectivityKindChanged).
     initial_catalog_kind = "sap_types" if (catalog_kind or "").strip().lower() == "sap_types" and initial_tab == "catalogo" else ""
-    # `module_viewed` (nombre canónico transversal — ver activity_context /
-    # ACTIVITY corrective): reemplaza al histórico `module_selected`, mismo
-    # disparador (una vista de módulo). MODULE IDENTIFIER CONVENTION V2 —
-    # Fase 2 (Canonical Module Adoption): el `stem` de ruta/contenido sigue
-    # siendo la key de TODO lo demás en esta función (rutas, trees,
-    # assistant, feedback, nav — sin cambios) — solo lo persistido en
-    # Activity pasa a ser el `module_id` canónico si el registro lo
-    # reconoce (siempre, para cualquier módulo/apéndice actual), o el
-    # mismo `stem` sin cambios si no (nunca se fabrica un ID).
+    # Identidad de módulo para Activity (MODULE IDENTIFIER CONVENTION V2): el
+    # `module_id` canónico si el registro lo reconoce, o el mismo `stem` sin
+    # cambios si no (nunca se fabrica un ID). Métricas de Uso v2 (fase 2): la
+    # VISITA ya no la escribe el servidor (`module_viewed`); la lleva el
+    # `page_view` del documento con `window.DW_MODULE_ID` = este valor.
     _module_descriptor = module_registry.resolve(stem)
     _persisted_module = _module_descriptor.module_id if _module_descriptor else stem
-    log_activity("module_viewed", user=user, scope=SCOPE_COPILOT, area=AREA_METHODOLOGY, module=_persisted_module, pack=selected)
 
     # Nav combinado: módulos principales + apéndices técnicos (módulo final).
     # Danwor Academy queda FUERA de nav_items a propósito: es un área desconectada
@@ -261,12 +254,10 @@ def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK), ta
             },
             "user": user,
             # Hub Telemetry Origin Attribution gate (ver HANDOFF): MISMO
-            # `_persisted_module` que ya se calculó arriba para
-            # `log_activity("module_viewed", ...)` -- cero cómputo nuevo,
-            # solo lo exponemos también al cliente (ver base.html
-            # window.DW_MODULE_ID) para que el beacon compartido de
-            # nav_jump se atribuya a ESTE módulo en vez de caer siempre en
-            # Copiloto/Metodología por default.
+            # `_persisted_module` calculado arriba, expuesto al cliente (ver
+            # base.html window.DW_MODULE_ID) para que `page_view` (la visita
+            # del módulo), `section_view` y el beacon de nav_jump se
+            # atribuyan a ESTE módulo en vez de caer en Copiloto/Metodología.
             "dw_module_id": _persisted_module,
             "current_workspace": workspaces.COPILOT,
             "available_workspaces": workspaces.available_workspaces(user),

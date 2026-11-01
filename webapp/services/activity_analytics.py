@@ -26,7 +26,7 @@ from webapp.services import module_registry
 from webapp.services.activity_context import (
     area_label, scope_label, module_label, normalize_record,
     event_class as _classify_event,
-    EVENT_CLASS_USAGE, EVENT_MODULE_VIEWED, EVENT_LABELS,
+    EVENT_CLASS_USAGE, EVENT_LABELS, EVENT_SECTION_VIEW, is_visit,
     AREA_REPORTING,
     SCOPE_COMMERCIAL, SCOPE_OPERATIONS,
 )
@@ -121,15 +121,17 @@ _EVENT_DESCRIPTIONS = {
     # `staffing_overview_viewed` de Operations/Staffing — mismo hecho (vista
     # de un módulo), ahora un solo evento genérico y reusable en vez de
     # repetir la ubicación en el nombre.
-    "module_viewed": "Vista de módulo: se entró a un módulo navegable (Copiloto o, p. ej., Asignaciones en Operaciones). Una por cada vez que se entra.",
+    "module_viewed": "Vista de módulo (histórico, v1): se entró a un módulo navegable. Desde Métricas de Uso v2 la visita la registra «Vista de página».",
     # Métricas de Uso v2: la métrica de VISITA nueva (una por carga de página
     # autenticada, con view_id; incluye recargas — los agregados v2 las excluyen).
     "page_view": "Vistas de página (v2): una por cada carga de una página del Hub con sesión, incluidas las recargas.",
+    # Fase 2: secciones cargadas dentro de una página (HTMX) por un clic/cambio REAL de una persona.
+    "section_view": "Vistas de sección (v2): secciones abiertas dentro de una página (p. ej. detalle de un flujo del Catálogo) por un clic o cambio de una persona. El desglose es por sección.",
     "module_continue": "Veces que se usó el cue de “continuar” para avanzar dentro de un módulo.",
     "module_reached_end": "Veces que se llegó al final de un módulo (lectura completa).",
     "academy_selected": "Veces que se abrió una página de Academy.",
     "assistant_query": "Preguntas/acciones enviadas al asistente (chat o acciones de la tab Sección). Cada envío suma una.",
-    "catalog_view": "Fichas del catálogo abiertas (dominio, flujo, data product, CDS o guía). El desglose es por tipo de ficha.",
+    "catalog_view": "Fichas del catálogo abiertas (histórico, v1; desde v2 son «Vista de sección»). El desglose es por tipo de ficha.",
     "catalog_regenerate": "Veces que se regeneró el catálogo.",
     "tree_started": "Árboles de decisión iniciados: cada apertura es un recorrido nuevo. (Ver detalle en la sección “Árboles de decisión”.)",
     "tree_step": "Respuestas a nodos INTERMEDIOS de un árbol (cada opción elegida que todavía NO cierra en un resultado). Un recorrido de varios nodos suma varias — por eso suele ser mayor que tree_started.",
@@ -854,6 +856,8 @@ def build_summary(
     event_counts: Counter = Counter()
     daily_counts: Counter = Counter()
     module_counts: Counter = Counter()
+    visit_view_ids: set[str] = set()       # v2: visitas por view_id DISTINTO (ver Top Modules)
+    section_counts: Counter = Counter()    # v2: section_view por slug de sección
     user_counts: Counter = Counter()
     catalog_kind_counts: Counter = Counter()
     # Desglose por evento para el panel derecho interactivo: por cada tipo de
@@ -943,10 +947,16 @@ def build_summary(
             ts_min = ev["ts_utc"] if ts_min is None else min(ts_min, ev["ts_utc"])
             ts_max = ev["ts_utc"] if ts_max is None else max(ts_max, ev["ts_utc"])
 
-        # Top Modules: una VISITA de módulo es `event == module_viewed`, no
-        # cualquier evento de uso que ocurra adentro del módulo.
-        if ev["module"] and ev["event"] == EVENT_MODULE_VIEWED:
-            module_counts[ev["module"]] += 1
+        # Top Modules: una VISITA de módulo (`activity_context.is_visit`: v1
+        # `module_viewed`, v2 `page_view` navigate/back_forward/prerender con
+        # módulo), no cualquier evento de uso adentro del módulo. v2 se cuenta
+        # por `view_id` DISTINTO (un beacon repetido nunca suma dos visitas).
+        if ev["module"] and is_visit(ev):
+            _view_id = str(ev["attrs"].get("view_id") or "") if ev["v"] == 2 else ""
+            if not _view_id or _view_id not in visit_view_ids:
+                if _view_id:
+                    visit_view_ids.add(_view_id)
+                module_counts[ev["module"]] += 1
         if ev["module"]:
             module_event_counts.setdefault(ev["module"], Counter())[ev["event"]] += 1
             # El cubo de la cascada. MISMA identidad estable que
@@ -995,6 +1005,9 @@ def build_summary(
             kind = str(ev["payload"].get("kind") or "").strip()
             if kind:
                 catalog_kind_counts[kind] += 1
+        elif ev["event"] == EVENT_SECTION_VIEW:
+            if ev["section"]:
+                section_counts[ev["section"]] += 1
         elif ev["event"] == "assistant_query":
             # Texto de la conversación: v1 lo traía en el payload CRUDO
             # (`legacy_payload`, solo para este panel); v2 ya NO lo escribe en
@@ -1099,6 +1112,8 @@ def build_summary(
     for event, _count in event_counts.most_common():
         if event == "catalog_view":
             event_breakdowns[event] = {"dim": "tipo de vista", **_breakdown(catalog_kind_counts)}
+        elif event == EVENT_SECTION_VIEW:
+            event_breakdowns[event] = {"dim": "sección", **_breakdown(section_counts)}
         else:
             event_breakdowns[event] = {"dim": "usuario",
                                        **_breakdown(event_user_counts.get(event, Counter()),

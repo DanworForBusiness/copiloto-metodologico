@@ -143,12 +143,26 @@ def _seed_activity_dirs(monkeypatch, tmp_path):
     monkeypatch.setattr(activity_analytics, "FEEDBACK_LOG_DIR", empty_feedback)
 
 
+def _visit(c, path: str, module_id: str) -> None:
+    """Visita REAL de una página (Métricas de Uso v2, fase 2): el servidor ya no
+    escribe `module_viewed` al servirla; el navegador manda el `page_view` con
+    el `view_id` del render y `window.DW_MODULE_ID` — acá se reproduce ese
+    beacon con los valores que la página expone."""
+    import re as _re
+    page = c.get(path)
+    assert page.status_code == 200
+    assert f'window.DW_MODULE_ID="{module_id}"' in page.text
+    view_id = _re.search(r'window\.DW_VIEW_ID="([0-9a-f]+)"', page.text).group(1)
+    r = c.post("/telemetry/event", json={"event": "page_view", "view_id": view_id, "nav_type": "navigate",
+                                         "path": path, "module_id": module_id})
+    assert r.status_code == 204
+
+
 def test_c_strategy_page_visit_reaches_usage_metrics_as_strategy(monkeypatch, tmp_path):
     _seed_activity_dirs(monkeypatch, tmp_path)
     c = _owner_client(monkeypatch)  # commercial+operations+metrics todos autorizados
 
-    page = c.get("/comercial/estrategia")
-    assert page.status_code == 200
+    _visit(c, "/comercial/estrategia", "CM02")
 
     t = _hx(c, "/admin/activity").text
     assert 'name="area" value="strategy"' in t
@@ -159,8 +173,8 @@ def test_d_crm_remains_separately_attributable_alongside_strategy(monkeypatch, t
     _seed_activity_dirs(monkeypatch, tmp_path)
     c = _owner_client(monkeypatch)
 
-    assert c.get("/comercial/estrategia").status_code == 200
-    assert c.get("/comercial").status_code == 200  # CRM
+    _visit(c, "/comercial/estrategia", "CM02")
+    _visit(c, "/comercial", "CM01")  # CRM
 
     t = _hx(c, "/admin/activity").text
     assert "2 evento(s)" in t

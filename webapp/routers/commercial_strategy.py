@@ -53,7 +53,7 @@ from core import remote_store
 from core.content_registry import DEFAULT_PACK
 from webapp import commercial_access, same_origin_guard, workspaces
 from webapp.services import auth_service, commercial_strategy_editing, commercial_strategy_markup
-from webapp.services.activity_context import AREA_STRATEGY, SCOPE_COMMERCIAL, EVENT_MODULE_VIEWED
+from webapp.services.activity_context import AREA_STRATEGY, SCOPE_COMMERCIAL
 from webapp.services.activity_service import log_activity
 from webapp.services.commercial_strategy_editing import ValidationError
 from webapp.services.commercial_strategy_repository import (
@@ -239,7 +239,7 @@ def commercial_strategy_page(request: Request):
     if redirect is not None:
         return redirect
     user = auth_service.session_user(request)
-    log_activity(EVENT_MODULE_VIEWED, user=user, scope=SCOPE_COMMERCIAL, area=AREA_STRATEGY, module=CM02_MODULE_ID)
+    # Métricas de Uso v2 (fase 2): la visita la lleva `page_view` (DW_MODULE_ID=CM02, ver `dw_module_id` abajo).
 
     try:
         strategy = load_strategy()
@@ -261,12 +261,11 @@ def commercial_strategy_page(request: Request):
             "pack": DEFAULT_PACK,
             "user": user,
             "active_page": "estrategia",
-            # Hub Telemetry Origin Attribution gate (ver HANDOFF): MISMO
-            # `CM02_MODULE_ID` que ya se usa en el `log_activity` de arriba
-            # -- expuesto también al cliente (ver base.html
-            # window.DW_MODULE_ID) para que el beacon compartido de
-            # nav_jump (`.section-index a`, ver app.js) se atribuya a
-            # Estrategia en vez de caer en Copiloto/Metodología por default.
+            # Hub Telemetry Origin Attribution gate (ver HANDOFF):
+            # `CM02_MODULE_ID` expuesto al cliente (ver base.html
+            # window.DW_MODULE_ID) para que `page_view` (la visita) y el
+            # beacon compartido de nav_jump (`.section-index a`, ver app.js)
+            # se atribuyan a Estrategia en vez de caer en Copiloto/Metodología.
             "dw_module_id": CM02_MODULE_ID,
             "strategy": strategy,
             "error_state": error_state,

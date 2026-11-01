@@ -78,7 +78,7 @@ from webapp.services import auth_service, feedback_store
 from webapp.services.activity_service import log_activity, log_verbose
 from webapp.services.activity_context import (
     SCOPE_OPERATIONS, AREA_STAFFING,
-    EVENT_MODULE_VIEWED, EVENT_DATA_LOAD_FAILED, EVENT_DATA_LOAD_DIAGNOSTICS,
+    EVENT_DATA_LOAD_FAILED, EVENT_DATA_LOAD_DIAGNOSTICS,
     EVENT_CONFIGURATION_INCOMPLETE, EVENT_TOKEN_ACQUISITION_FAILED,
 )
 # MODULE IDENTIFIER CONVENTION V2 — Fase 2: los productores de Activity de
@@ -214,16 +214,9 @@ def staffing_page(request: Request):
     if redirect is not None:
         return redirect
     user = auth_service.session_user(request)
-    # Primer evento de USO real de Operations (Batch A1): un acceso exitoso a la
-    # página de Asignaciones. Adopción (BASIC), como module_viewed de Copiloto
-    # — NO un evento de diagnóstico. Un evento por acceso a la página (el GET);
-    # el POST /data y las interacciones client-side NO se loguean (sin clickstream).
-    # Usa la sesión ya resuelta; sin segunda llamada a Graph, sin token, sin dataset.
-    # `module_viewed`/`module=assignments` (corrective A2 — Transversal Module):
-    # reemplaza al histórico `staffing_overview_viewed`, mismo hecho (una vista
-    # de módulo), ahora reusando el mismo evento genérico que Copiloto en vez
-    # de repetir "staffing" en el nombre del evento.
-    log_activity(EVENT_MODULE_VIEWED, user=user, scope=SCOPE_OPERATIONS, area=AREA_STAFFING, module=OP01_MODULE_ID)
+    # Métricas de Uso v2 (fase 2): la VISITA a Asignaciones ya no la escribe el
+    # servidor (`module_viewed`, antes `staffing_overview_viewed`); la lleva el
+    # `page_view` del documento, atribuido a OP01 vía `dw_module_id` (abajo).
     return templates.TemplateResponse(
         request=request, name="operations/staffing.html",
         context={
@@ -243,6 +236,9 @@ def staffing_page(request: Request):
             # Resalta "01 Asignaciones" en operations_nav.html (Reporting
             # Integral V0 — Align with Hub backbone corrective, ver HANDOFF).
             "active_page": "staffing",
+            # Métricas de Uso v2: `page_view` de esta página = visita de OP01
+            # (ver base.html window.DW_MODULE_ID / telemetry._log_page_view).
+            "dw_module_id": OP01_MODULE_ID,
             # "03 Métricas de uso" en operations_nav.html (owner ticket "HUB
             # METRICS — CENTRALIZE ACCESS AND ENABLE BY VERTICAL" §6/§9): AMBAS
             # condiciones, ninguna sustituye a la otra — superficie habilitada

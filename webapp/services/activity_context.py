@@ -331,8 +331,9 @@ def is_visit(record: dict) -> bool:
     - v1: `module_viewed` (incluye los crudos `module_selected` y
       `staffing_overview_viewed`, ya renombrados). Era la única señal de
       visita que existía; se cuenta por evento (v1 no tiene view_id).
-    - v2 `module_viewed` NO es visita: el servidor lo sigue emitiendo en esta
-      fase, pero la visita v2 es `page_view` — contarlo también duplicaría.
+    - v2 `module_viewed` NO es visita: lo escribieron los servidores hasta la
+      fase 2 junto con `page_view` — contarlo también duplicaría. Desde la
+      fase 2 ya no tiene productor. `section_view` tampoco es visita.
     """
     event = record.get("event")
     if record.get("v") == 2:
