@@ -27,7 +27,7 @@
 {%- set conn = dsc_tool(request, document.summary.stem) if (document is defined and document) else {"can_execute": False} -%}
 {%- set sap = sap_connection_catalog(pack) %}
 {%- set registry_read = connectivity_registry_can_read(request) if request is defined else False %}
-<div x-data="dwCatalogBrowse('connections')" @htmx:after-swap.camel="search()">
+<div x-data="dwCatalogBrowse('{{ initial_catalog_kind if initial_catalog_kind is defined and initial_catalog_kind else 'connections' }}')" @htmx:after-swap.camel="search()">
 <div class="tree-picker catalog-picker--kind catalog-picker--connections" :class="catalogView === 'extract' && 'catalog-picker--bare'">
   <div class="tree-picker-head">
     <label for="catalog-conn-kind">Catálogo de conectividad</label>

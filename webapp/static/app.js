@@ -961,7 +961,14 @@ function dwCatalogBrowse(defaultKind) {
     get kindLabel() { return KIND_LABEL[this.catalogKind] || ""; },
     get hasPick() { return !!this.picked && this.catalogKind in KIND_LABEL; },
     get showSearch() { return this.hasPick || this.catalogKind === "data_products"; },
-    init() { this.resetPick(); },                                 // el navegador puede restaurar valores de los <select> al volver a la página
+    init() {
+      this.resetPick();                                           // el navegador puede restaurar valores de los <select> al volver a la página
+      // Opción inicial con vista central (enlace `?catalog_kind=sap_types`): se abre igual que al elegirla a mano. Con el DOM ya procesado por htmx.
+      if (defaultKind === "sap_types") {
+        const open = () => dwConnectivityKindChanged(this.catalogKind, this.$refs.sapOpen);
+        if (document.readyState === "complete") this.$nextTick(open); else window.addEventListener("load", open, { once: true });
+      }
+    },
     section() { return this.$root.querySelector(`[data-catalog-kind="${this.catalogKind}"]`); },
     search() {
       const section = this.section();

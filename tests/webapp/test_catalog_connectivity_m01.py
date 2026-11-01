@@ -304,3 +304,20 @@ def test_icons_are_served_locally():
 def test_sap_types_filters_and_search_harness():
     r = subprocess.run(["node", str(HARNESS)], capture_output=True, text=True, timeout=60, encoding="utf-8")
     assert r.returncode == 0, r.stdout + r.stderr
+
+
+def test_whats_new_deep_link_opens_sap_availability_with_the_dropdown_in_sync(monkeypatch):
+    """El enlace de What's New abre el módulo 01 en Catálogo con «Disponibilidad SAP» elegida: el dropdown arranca en `sap_types` y el navegador
+    abre la vista central con el MISMO mecanismo que la selección manual. Sin el parámetro (o con otro valor), arranca en «Conexiones»."""
+    from webapp.services import whats_new_service as wn
+    entry = next(e for e in wn.entries() if e["ref"] == "catalogo-conectividad-sap")
+    assert entry["link"] == "/modules/01_Arquitectura_y_Conectividad?pack=datasphere_core&tab=catalogo&catalog_kind=sap_types"
+    monkeypatch.setattr(catalog_reads, "_catalog_domains", lambda: ["Dominio"])          # la pestaña Catálogo existe (como con el catálogo real)
+    owner = _owner()
+    deep = owner.get(entry["link"]).text
+    assert "x-data=\"dwCatalogBrowse('sap_types')\"" in deep
+    for url in ("/modules/01_Arquitectura_y_Conectividad?pack=datasphere_core&tab=catalogo",
+                "/modules/01_Arquitectura_y_Conectividad?pack=datasphere_core&tab=catalogo&catalog_kind=<script>"):
+        assert "x-data=\"dwCatalogBrowse('connections')\"" in owner.get(url).text
+    js = (REPO / "webapp" / "static" / "app.js").read_text(encoding="utf-8")
+    assert 'if (defaultKind === "sap_types")' in js and "dwConnectivityKindChanged(this.catalogKind, this.$refs.sapOpen)" in js
