@@ -44,7 +44,7 @@ except Exception:  # pragma: no cover - keeps the standalone generator tolerant
     _port_matrix = None
     _eval_portability = None
 
-GENERATOR_VERSION = "data-products-v15"
+GENERATOR_VERSION = "data-products-v16"   # v16: linaje publicado con fuente conductora (generate_catalog.published_lineage)
 
 DATA_PRODUCT_SUPPORT_DOCUMENT_URLS = {
     "additionalDocuments.pptx": "https://danwor.sharepoint.com/:p:/s/PrcticaAnalytics/IQAuQ_sKiXWKSoy_pXz3Fe5yAUZKhdR-NjSKMCRcu_M5F5Q?e=5yWev3",
