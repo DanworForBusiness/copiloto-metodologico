@@ -126,28 +126,16 @@ def test_the_historical_screen_uses_the_existing_cchh_scheme_and_no_parallel_mec
 
 
 # ═══════════════════ entrada desde el menú de Capital Humano ═══════════════════
-def test_the_cchh_menu_shows_historicos_and_the_entry_leads_authorized_users_to_the_current_import(env, monkeypatch):
+def test_the_cchh_menu_no_longer_offers_historicos(env, monkeypatch):
+    """La sección «Históricos» se retiró de la vertical: ni entrada en el menú ni ruta de entrada. Las excepciones de la importación siguen
+    disponibles por su ruta de diagnóstico, sin ítem activo en el menú."""
     store, rid, pablo = ready(env)
     hc = client_for(HC_USER, monkeypatch)
     menu = hc.get("/cchh/candidatos").text
-    assert '<a href="/cchh/historicos" class="module-link ">' in menu.replace("\r", "").replace("\n", "").replace("   ", " ") or "/cchh/historicos" in menu
-    assert "<span>07</span><strong>Históricos</strong>" in menu.replace("\r", "").replace("\n", "").replace("  ", "")
-    go = TestClient(app, follow_redirects=False)
-    assert go.get("/cchh/historicos").status_code in (302, 303, 307)                                                                    # sin sesión: al login
-    assert client_for(OUTSIDER, monkeypatch).get("/cchh/historicos").status_code == 403                                                  # sin CCHH: bloqueado
-    for email in (HC_USER, OWNER):
-        res = client_for(email, monkeypatch).get("/cchh/historicos", follow_redirects=False)
-        assert res.status_code == 307 and res.headers["location"] == f"{BASE}/{rid}/excepciones"
-    page = hc.get(f"{BASE}/{rid}/excepciones").text
-    assert re.search(r'class="module-link is-active">\s*<span>07</span><strong>Históricos</strong>', page)                                # el menú marca la sección
-
-
-def test_the_entry_shows_a_notice_when_there_is_no_import_with_pending_documents(home, monkeypatch):
-    hc = client_for(HC_USER, monkeypatch)
-    res = hc.get("/cchh/historicos", follow_redirects=False)
-    assert res.status_code == 200 and "data-historicos-empty" in res.text and res.headers["cache-control"] == "no-store" and "<h1>Históricos sin validación</h1>" in res.text
-    mf.create_run("ch-20261026T000000Z-aaaa", {"kind": pilot.KIND_IMPORT, "state": "CREATED", "staging": {"state": "DISCARDED"}, "source": {}, "counters": {}})
-    assert "data-historicos-empty" in hc.get("/cchh/historicos", follow_redirects=False).text                                          # un lote con los datos temporales ya eliminados no cuenta
+    assert "/cchh/historicos" not in menu and "<strong>Históricos</strong>" not in menu
+    assert hc.get("/cchh/historicos", follow_redirects=False).status_code == 404
+    page = hc.get(f"{BASE}/{rid}/excepciones")
+    assert page.status_code == 200 and "<strong>Históricos</strong>" not in page.text
 
 
 def test_back_to_the_run_link_is_only_for_the_owner(env, monkeypatch):
