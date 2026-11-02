@@ -139,7 +139,6 @@ PAGE_SECTIONS: tuple[tuple[str, str, str, str], ...] = (
     ("/cchh/publicaciones", SCOPE_HUMAN_CAPITAL, "cchh_publicaciones", "CCHH · Publicaciones"),
     ("/cchh/indicadores", SCOPE_HUMAN_CAPITAL, "cchh_indicadores", "CCHH · Indicadores"),
     ("/cchh/catalogos", SCOPE_HUMAN_CAPITAL, "cchh_catalogos", "CCHH · Catálogos"),
-    ("/cchh/historicos", SCOPE_HUMAN_CAPITAL, "cchh_historicos", "CCHH · Históricos"),
     ("/cchh/diagnostico", SCOPE_HUMAN_CAPITAL, "cchh_diagnostico", "CCHH · SharePoint e importación de CVs"),
     ("/cchh", SCOPE_HUMAN_CAPITAL, "cchh_inicio", "CCHH · Inicio"),
     # Alias legados de CCHH (redirigen; se mapean igual por si llega el beacon).
