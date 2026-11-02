@@ -3553,22 +3553,6 @@ def human_capital_cv_history_import_run(request: Request, run_id: str, graph_tok
     return _pilot_panel(request, run_id, {"kind": "imported", "result": result})
 
 
-@router.get("/cchh/historicos", response_class=HTMLResponse, include_in_schema=False)
-def human_capital_cv_history_entry(request: Request):
-    """Entrada de «Históricos sin validación» desde el menú de Capital Humano (CCHH autorizado: el esquema de siempre). Lleva a la importación histórica vigente —la más reciente cuyos datos temporales siguen disponibles— o, si
-    no hay ninguna, muestra un aviso. No lee datos personales: solo mira el estado de los lotes."""
-    redirect = _require_human_capital_session(request)
-    if redirect is not None:
-        return redirect
-    try:
-        runs = [r for r in cv_history_manifest.list_runs() if r.get("kind") == cv_history_pilot.KIND_IMPORT and (r.get("staging") or {}).get("state") == "PRESENT"]
-    except cv_history_manifest.ManifestError:
-        runs = []
-    if runs:
-        return RedirectResponse(url=f"/cchh/diagnostico/cvs-historicos/{runs[0]['run_id']}/excepciones", status_code=307)
-    return templates.TemplateResponse(request=request, name="human_capital/cv_history_empty.html", context=_pilot_context(request, active_page="historicos"), headers=_NO_STORE)
-
-
 @router.get("/cchh/diagnostico/cvs-historicos/{run_id}/excepciones", response_class=HTMLResponse, include_in_schema=False)
 def human_capital_cv_history_exceptions(request: Request, run_id: str, estado: str = Query("open"), motivo: str = Query(""), page: str = Query(""), page_size: str = Query("")):
     """Excepciones de la importación (pendientes del plan y bloqueados al ejecutar): contiene datos personales, solo CCHH autorizado, `no-store`. Paginación CANÓNICA del Hub (`pagination.paginate` + `partials/pager.html`):
