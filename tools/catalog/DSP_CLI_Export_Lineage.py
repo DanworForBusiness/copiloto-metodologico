@@ -454,6 +454,12 @@ class DatasphereCli:
             return proc, cmd
         except subprocess.TimeoutExpired:
             timed_out = True
+        except UnicodeDecodeError as exc:
+            # POSIX decodifica la salida en el hilo principal y la excepción llega acá (en Windows falla el hilo lector y `_run` ve
+            # stdout=None). Evidencia directa: la salida NO es UTF-8 válido. Se clasifica sin arrastrar los bytes ni el argv crudo.
+            raise DatasphereCliError(
+                f"CLI_OUTPUT_DECODE_FAILED - La salida del comando no es UTF-8 válido (byte {exc.start}): {' '.join(redact_cli_argv(cmd))}"
+            ) from None
         except OSError as exc:
             fallback = self.launcher.fallback_command
             if self.launcher.mode != "direct" or fallback is None:
@@ -476,6 +482,11 @@ class DatasphereCli:
                 return proc, fallback_cmd
             except subprocess.TimeoutExpired:
                 timed_out = True
+            except UnicodeDecodeError as dec_exc:
+                raise DatasphereCliError(
+                    f"CLI_OUTPUT_DECODE_FAILED - La salida del comando no es UTF-8 válido (byte {dec_exc.start}): "
+                    f"{' '.join(redact_cli_argv(fallback_cmd))}"
+                ) from None
             except OSError as fallback_exc:
                 raise DatasphereCliError(
                     "DATASPHERE_CLI_UNAVAILABLE - No se pudo iniciar el CLI local "

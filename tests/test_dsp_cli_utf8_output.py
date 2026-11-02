@@ -50,8 +50,22 @@ def test_fallback_launcher_decodes_the_same_way(tmp_path):
 def test_invalid_utf8_is_never_silently_replaced(tmp_path):
     """Decodificación ESTRICTA: bytes inválidos no se convierten en «�»; la lectura falla de forma explícita y clasificada."""
     cli = _cli(tmp_path, [sys.executable, str(_script(tmp_path, b'{"label": "\xff\xfe"}'))])
-    with pytest.raises(dsp.DatasphereCliError, match="CLI_OUTPUT_UNAVAILABLE"):
+    # El código depende de la plataforma: en POSIX la excepción de decodificación llega al llamador (DECODE_FAILED); en Windows falla
+    # el hilo lector de subprocess y la salida queda NO DISPONIBLE. En ambos casos: error explícito, nunca «�».
+    with pytest.raises(dsp.DatasphereCliError, match="CLI_OUTPUT_(DECODE_FAILED|UNAVAILABLE)"):
         cli._run(READ, expect_json=True)
+
+
+def test_decode_error_reaching_the_caller_is_classified_without_leaking_argv(tmp_path, monkeypatch):
+    """Ruta POSIX, determinística en cualquier SO: `subprocess.run` lanza UnicodeDecodeError → CLI_OUTPUT_DECODE_FAILED con argv redactado."""
+    cli = _cli(tmp_path, ["datasphere"])
+
+    def boom(*a, **k):
+        raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
+    monkeypatch.setattr(dsp.subprocess, "run", boom)
+    with pytest.raises(dsp.DatasphereCliError, match="CLI_OUTPUT_DECODE_FAILED") as info:
+        cli._run(["login", "--client-secret", "super-secret"], expect_json=True)
+    assert "super-secret" not in str(info.value) and info.value.__cause__ is None
 
 
 @pytest.mark.parametrize("stdout, match", [
