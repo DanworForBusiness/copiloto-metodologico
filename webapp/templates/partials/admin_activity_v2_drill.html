@@ -104,10 +104,27 @@
   /* Posición al navegar el desglose: el clic en una fila o en el ✕ reemplaza el tablero entero (KPIs y paneles dependen
      del mismo filtro), así que la página se iba de lugar. `show:none` apaga el scroll de htmx y acá se guarda dónde
      estaba «Desglose» en la ventana antes del pedido y se lo devuelve a ese mismo lugar después del swap. Se registra
-     una sola vez (este parcial se vuelve a renderizar con cada swap). */
+     una sola vez (este parcial se vuelve a renderizar con cada swap). Lo que scrollea NO siempre es la ventana: en
+     escritorio (≥1180px) `#content.module-content` es una tarjeta de altura fija con scroll propio (tools.css), así que
+     se corrige el contenedor scrolleable más cercano y, si no hay ninguno, el documento. */
   if (!window.__dwDrillScrollKeeper) {
     window.__dwDrillScrollKeeper = true;
     var drillSection = function () { return document.querySelector("[data-section-id='desglose']"); };
+    var drillScroller = function (el) {
+      for (var p = el && el.parentElement; p && p !== document.body && p !== document.documentElement; p = p.parentElement) {
+        var oy = getComputedStyle(p).overflowY;
+        if ((oy === "auto" || oy === "scroll") && p.scrollHeight > p.clientHeight) return p;
+      }
+      return document.scrollingElement || document.documentElement;
+    };
+    var drillRestore = function (anchor) {
+      var sec = drillSection();
+      if (!sec) return;
+      var delta = sec.getBoundingClientRect().top - anchor;
+      if (Math.abs(delta) < 1) return;
+      var sc = drillScroller(sec);
+      sc.scrollTo({ top: sc.scrollTop + delta, behavior: "instant" });   // sin animación: `scroll-behavior: smooth` haría visible el salto
+    };
     document.addEventListener("htmx:beforeRequest", function (e) {
       var el = e.detail && e.detail.elt;
       if (!el || !el.closest || !el.closest("[data-drill-nav]")) return;
@@ -118,10 +135,8 @@
       if (window.__dwDrillAnchor == null) return;
       var anchor = window.__dwDrillAnchor;
       window.__dwDrillAnchor = null;
-      requestAnimationFrame(function () {
-        var sec = drillSection();
-        if (sec) window.scrollBy(0, sec.getBoundingClientRect().top - anchor);
-      });
+      drillRestore(anchor);                                             // en el mismo frame del swap: el usuario no ve el salto
+      requestAnimationFrame(function () { drillRestore(anchor); });     // y otra vez tras restaurar anchos de columna / layout tardío
     });
   }
   document.querySelectorAll("[data-resizable-columns-key^='metrics-']").forEach(function (container) {

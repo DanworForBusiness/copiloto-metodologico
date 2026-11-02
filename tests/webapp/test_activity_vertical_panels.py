@@ -281,6 +281,9 @@ def test_drill_subhead_and_scroll_preserving_links(logdir, monkeypatch):
     assert 'class="dashboard-subhead__reset" data-drill-nav hx-get="/admin/activity"' in subhead
     links = re.findall(r'<button[^>]*data-drill-nav[^>]*>', t)
     assert links and all('hx-swap="outerHTML show:none"' in b for b in links)
+    # En escritorio lo que scrollea es `#content.module-content` (tarjeta de altura fija), no la ventana: la posición se
+    # restaura sobre el contenedor scrolleable más cercano, sin animación.
+    assert "var drillScroller = function (el)" in t and 'behavior: "instant"' in t and "window.scrollBy" not in t
     overview = _hx(_client(monkeypatch), "/admin/activity")
     assert "data-drill-filter" not in overview                 # sin filtro no hay «Filtrado por»
 
