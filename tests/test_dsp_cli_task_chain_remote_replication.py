@@ -58,7 +58,10 @@ def _exporter(tmp_path, chains: dict, *, remote=(), local=(), flows=(), **cli_kw
 
 
 def _orch(exp):
-    return sorted((e.source_name, e.target_type, e.target_name) for e in exp.edges if e.relation == "ORCHESTRATES")
+    """Relaciones observadas: aristas del pool (solo flujos) + pasos sobre Remote Tables registrados en `taskChainScan` (evidencia descriptiva, nunca arista)."""
+    assert not [e for e in exp.edges if e.target_type == "remote-tables"]           # separación de evidencias: ninguna arista del pool hacia Remote Tables
+    steps = [(s["taskChain"], "remote-tables", s["objectId"]) for s in exp.task_chain_scan.get("remoteTableSteps", [])]
+    return sorted([(e.source_name, e.target_type, e.target_name) for e in exp.edges if e.relation == "ORCHESTRATES"] + steps)
 
 
 # ── reconocimiento estructural ──
@@ -123,6 +126,15 @@ def test_read_failures_and_failed_inventory_make_the_scan_incomplete(tmp_path):
     exp2, _ = _exporter(tmp_path / "b", {}, remote=("RT_A",), list_fails=True)
     exp2.discover_task_chains()
     assert exp2.task_chain_scan["inventoryComplete"] is False
+    # Escaneo SOLO por Remote Tables: sus fallas no bloquean la publicación (salen de `failures`) y quedan registradas en el escaneo.
+    assert not [f for f in exp.failures + exp2.failures if f["object_type"] == "task-chains"]
+    assert exp.task_chain_scan["nonBlockingFailures"] == ["READ_FAILED"] and exp2.task_chain_scan["nonBlockingFailures"] == ["INVENTORY_FAILED"]
+
+
+def test_with_flows_in_the_lineage_task_chain_failures_keep_blocking_as_before(tmp_path):
+    exp, _ = _exporter(tmp_path, {"TC_KO": _chain("TC_KO", [])}, flows=("RF_A",), remote=("RT_A",), failing=("TC_KO",))
+    exp.discover_task_chains()
+    assert [f["code"] for f in exp.failures if f["object_type"] == "task-chains"] == ["READ_FAILED"] and "nonBlockingFailures" not in exp.task_chain_scan
 
 
 def test_manifest_records_the_scan_coverage(tmp_path):
@@ -133,7 +145,7 @@ def test_manifest_records_the_scan_coverage(tmp_path):
     dsp._write_manifest_v2(path=path, exporter=exp, client="Acme", space="DEV", mode="publish", deleted_stale=0, retained_shared=0)
     data = json.loads(path.read_text(encoding="utf-8"))
     assert data["taskChainScan"]["state"] == "SCANNED" and data["taskChainScan"]["remoteTableSteps"][0]["objectId"] == "RT_A"
-    assert {"source_type": "task-chains", "source_name": "TC_SNAP", "relation": "ORCHESTRATES", "target_type": "remote-tables", "target_name": "RT_A"} in data["edges"]
+    assert not [e for e in data["edges"] if e["target_type"] == "remote-tables"]         # la evidencia remota no es una arista del manifiesto
 
 
 # ── Replication Flows: criterio histórico intacto ──
@@ -180,3 +192,15 @@ def test_real_cached_chains_keep_exactly_their_replication_flow_relations(tmp_pa
     exp.discover_task_chains()
     assert sorted(x for x in _orch(exp) if x[1] == "replication-flows") == _legacy_rf_edges(chains, flows)
     assert not [x for x in _orch(exp) if x[1] == "remote-tables"]
+
+
+def test_one_inventory_and_one_read_per_chain_per_extraction_regardless_of_remote_tables(tmp_path):
+    """Varios modelos/tablas del mismo Space: el inventario de Task Chains se lista UNA vez por extracción y cada cadena se lee UNA vez (caché del exportador)."""
+    remote = [f"RT_{i:02d}" for i in range(30)]
+    chains = {"TC_1": _chain("TC_1", [_step(i + 1, n) for i, n in enumerate(remote[:15])]), "TC_2": _chain("TC_2", [_step(i + 1, n) for i, n in enumerate(remote[15:])])}
+    exp, cli = _exporter(tmp_path, chains, remote=remote)
+    exp.discover_task_chains()
+    exp.discover_task_chains()                                                     # una segunda pasada en la MISMA extracción reutiliza inventario y lecturas
+    assert cli.calls.count(("list", "task-chains")) == 1
+    assert sorted(c for c in cli.calls if c[0] == "read") == [("read", "task-chains/TC_1"), ("read", "task-chains/TC_2")]
+    assert len([x for x in _orch(exp) if x[1] == "remote-tables"]) == 30

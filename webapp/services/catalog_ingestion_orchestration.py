@@ -91,6 +91,7 @@ class _Manifest:
     edges: set = field(default_factory=set)         # (relation, source_type, source_name, target_type, target_name)
     scanned_chains: bool = False
     chain_scan: dict | None = None                  # `taskChainScan` del exportador (cobertura REAL del escaneo); None en manifiestos anteriores
+    created: str = ""                               # `createdAt` (ISO UTC): ordena las extracciones de una misma tabla
 
 
 _lock = threading.Lock()
@@ -118,6 +119,7 @@ def _parse_manifest(data: dict) -> _Manifest:
     m.scanned_chains = ("task-chains" in feats) if isinstance(feats, list) else any(e[0] == _ORCHESTRATES for e in m.edges)
     scan = data.get("taskChainScan")
     m.chain_scan = scan if isinstance(scan, dict) else None
+    m.created = str(data.get("createdAt") or "")
     return m
 
 
@@ -280,8 +282,16 @@ def _replication(client: str, entity: str) -> RemoteReplication:
     covering = [m for m in mans if ("remote-tables", entity) in m.objects]
     if not covering:
         return RemoteReplication(entity, NOT_ASSESSED, note="Ningún manifiesto de linaje del CLI cubre esta Remote Table: la orquestación no se evaluó.")
-    all_edges = {e for m in mans for e in m.edges}
-    direct = sorted({sn for rel, st, sn, tt, tn in all_edges if rel == _ORCHESTRATES and st == "task-chains" and tt == "remote-tables" and tn == entity})
+    # Cobertura EFECTIVA: el estado sale de la extracción MÁS RECIENTE que cubre la tabla (nunca de la unión con exportes anteriores). Si una cadena
+    # se eliminó o dejó de replicarla, un manifiesto viejo de otro modelo no la mantiene como observada.
+    latest = max(covering, key=lambda m: m.created)
+    covering = [latest]
+    all_edges = set(latest.edges)
+    # Los pasos sobre Remote Tables son evidencia DESCRIPTIVA del Catálogo: el exportador los registra SOLO en `taskChainScan.remoteTableSteps` (sin nodo ni
+    # arista del pool) y únicamente con el par verificado; acá se vuelve a exigir ese par y la igualdad exacta del objeto.
+    steps = [s for s in ((latest.chain_scan or {}).get("remoteTableSteps") or ()) if isinstance(s, dict) and s.get("objectId") == entity
+             and f"{s.get('applicationId')} / {s.get('activity')}" == REPLICATE_ACTIVITY and s.get("taskChain")]
+    direct = sorted({str(s["taskChain"]) for s in steps})
     if direct:
         _rf, tc_json = _flow_json(client)
         parents: dict[str, set] = {}
@@ -289,8 +299,7 @@ def _replication(client: str, entity: str) -> RemoteReplication:
             if rel == _ORCHESTRATES and st == "task-chains" and tt == "task-chains":
                 parents.setdefault(tn, set()).add(sn)
         # La etiqueta sale del JSON técnico si la cadena está en el pool o, si solo replica Remote Tables (no se adquiere al pool), del paso registrado en el manifiesto.
-        step_labels = {s.get("taskChain"): s.get("taskChainLabel") for m in mans for s in ((m.chain_scan or {}).get("remoteTableSteps") or ())
-                       if isinstance(s, dict) and s.get("taskChainLabel")}
+        step_labels = {s.get("taskChain"): s.get("taskChainLabel") for s in steps if s.get("taskChainLabel")}
         chains = []
         for tc in direct:
             label = ((tc_json.get(tc) or {}).get("@EndUserText.label")) or step_labels.get(tc) or None

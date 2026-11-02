@@ -43,6 +43,7 @@ class Env:
             body["effectiveFeatures"] = features
         if scan is not None:
             body["taskChainScan"] = scan
+        body["createdAt"] = f"2026-11-02T10:00:{self.n:02d}+00:00"          # orden de las extracciones = orden de escritura en el test
         (d / "lineage-manifest.json").write_text(json.dumps(body), encoding="utf-8")
 
     def rf(self, name, tasks, trigger="ON_DELTA_INTERVAL", conn="BACKEND_S4", ctype="SAPS4HANAOP", container="/CDS_EXTRACTION"):
@@ -284,13 +285,16 @@ def test_oracle_service_matches_raw_json_for_every_ingestion_table(monkeypatch):
 RT = "RT_EMP"
 
 
-def scan(remote=(RT,), state="SCANNED", complete=True, failures=()):
+def scan(remote=(RT,), state="SCANNED", complete=True, failures=(), steps=()):
+    """`taskChainScan` como lo escribe el exportador; ``steps`` = [(cadena, remote table)] reconocidos (REMOTE_TABLES / REPLICATE)."""
     return {"version": "task-chain-scan/v1", "state": state, "inventoryComplete": complete, "chainsListed": 1, "chainsRead": 1 - len(failures),
-            "readFailures": list(failures), "remoteTables": list(remote), "remoteTableSteps": [], "unrecognizedRemoteTableSteps": []}
+            "readFailures": list(failures), "remoteTables": list(remote), "unrecognizedRemoteTableSteps": [],
+            "remoteTableSteps": [{"taskChain": tc, "nodeId": i + 1, "applicationId": "REMOTE_TABLES", "activity": "REPLICATE", "objectId": rt, "taskChainLabel": None}
+                                 for i, (tc, rt) in enumerate(steps)]}
 
 
 def test_remote_table_replicated_by_a_chain_is_observed_with_label_and_never_an_operational_claim(env):
-    env.manifest([orchestrate("TC_SNAP", RT, "remote-tables")], objects=[("remote-tables", RT)], features=FEATS, scan=scan())
+    env.manifest([], objects=[("remote-tables", RT)], features=FEATS, scan=scan(steps=[("TC_SNAP", RT)]))
     env.tc("TC_SNAP", label="TC: Snapshot")
     r = co.replication_for(CLIENT, RT)
     assert r.state == co.OBSERVED and [(c.name, c.label, c.path) for c in r.chains] == [("TC_SNAP", "TC: Snapshot", ("TC_SNAP",))]
@@ -300,8 +304,8 @@ def test_remote_table_replicated_by_a_chain_is_observed_with_label_and_never_an_
 
 
 def test_complete_scan_without_a_step_is_not_observed_and_does_not_conclude_federation(env):
-    env.manifest([orchestrate("TC_SNAP", "RT_OTRA", "remote-tables")], objects=[("remote-tables", RT), ("remote-tables", "RT_OTRA")], features=FEATS,
-                 scan=scan(remote=(RT, "RT_OTRA")))
+    env.manifest([], objects=[("remote-tables", RT), ("remote-tables", "RT_OTRA")], features=FEATS,
+                 scan=scan(remote=(RT, "RT_OTRA"), steps=[("TC_SNAP", "RT_OTRA")]))
     r = co.replication_for(CLIENT, RT)
     assert r.state == co.NOT_OBSERVED and r.chains == ()
     html_ = co.render_replication_html(r, "orquestacion-x")
@@ -329,7 +333,7 @@ def test_uncovered_remote_table_is_not_assessed_and_local_tables_are_untouched(e
 
 
 def test_replication_pipeline_points_from_the_chain_to_the_remote_table(env):
-    env.manifest([orchestrate("TC_SNAP", RT, "remote-tables"), orchestrate("TC_TOP", "TC_SNAP", "task-chains")], objects=[("remote-tables", RT)], features=FEATS, scan=scan())
+    env.manifest([orchestrate("TC_TOP", "TC_SNAP", "task-chains")], objects=[("remote-tables", RT)], features=FEATS, scan=scan(steps=[("TC_SNAP", RT)]))
     model = co.replication_pipeline_model(co.replication_for(CLIENT, RT))
     by = {n["name"]: n for n in model["nodes"]}
     assert by["tc:TC_SNAP"]["upstreams"] == [f"rt:{RT}"] and by["tc:TC_TOP"]["upstreams"] == ["tc:TC_SNAP"]
@@ -346,6 +350,34 @@ def test_replication_service_never_raises(env, monkeypatch):
 def test_label_of_a_chain_outside_the_pool_comes_from_the_recorded_step(env):
     sc = scan()
     sc["remoteTableSteps"] = [{"taskChain": "TC_SNAP", "nodeId": 4, "applicationId": "REMOTE_TABLES", "activity": "REPLICATE", "objectId": RT, "taskChainLabel": "TC: SSF Snapshot"}]
-    env.manifest([orchestrate("TC_SNAP", RT, "remote-tables")], objects=[("remote-tables", RT)], features=FEATS, scan=sc)     # sin task-chains/TC_SNAP.json en el pool
+    env.manifest([], objects=[("remote-tables", RT)], features=FEATS, scan=sc)     # sin task-chains/TC_SNAP.json en el pool
     r = co.replication_for(CLIENT, RT)
     assert r.state == co.OBSERVED and r.chains[0].label == "TC: SSF Snapshot"
+
+
+def test_a_newer_extraction_without_the_step_replaces_an_older_observed_relation(env):
+    """Cadena eliminada o modificada: la extracción más reciente que cubre la tabla manda; un manifiesto viejo (otro modelo) no la mantiene como observada."""
+    env.manifest([], objects=[("remote-tables", RT)], features=FEATS, scan=scan(steps=[("TC_SNAP", RT)]), am="AM_VIEJO")
+    env.manifest([], objects=[("remote-tables", RT)], features=FEATS, scan=scan(), am="AM_NUEVO")
+    assert co.replication_for(CLIENT, RT).state == co.NOT_OBSERVED
+
+
+def test_a_newer_extraction_with_an_incomplete_scan_is_not_assessed_even_if_an_older_one_observed(env):
+    env.manifest([], objects=[("remote-tables", RT)], features=FEATS, scan=scan(steps=[("TC_SNAP", RT)]), am="AM_VIEJO")
+    env.manifest([], objects=[("remote-tables", RT)], features=FEATS, scan=scan(failures=("TC_SNAP",)), am="AM_NUEVO")
+    assert co.replication_for(CLIENT, RT).state == co.NOT_ASSESSED
+
+
+def test_a_newer_extraction_that_observes_wins_over_an_older_not_observed(env):
+    env.manifest([], objects=[("remote-tables", RT)], features=FEATS, scan=scan(), am="AM_VIEJO")
+    env.manifest([], objects=[("remote-tables", RT)], features=FEATS, scan=scan(steps=[("TC_NUEVA", RT)]), am="AM_NUEVO")
+    r = co.replication_for(CLIENT, RT)
+    assert r.state == co.OBSERVED and [c.name for c in r.chains] == ["TC_NUEVA"]
+
+
+def test_an_edge_to_a_remote_table_without_a_recorded_step_is_not_evidence(env):
+    """Solo cuenta el paso verificado registrado por el exportador: una arista suelta (o un par no verificado en el escaneo) no observa nada."""
+    sc = scan(steps=[("TC_X", RT)])
+    sc["remoteTableSteps"][0]["activity"] = "REMOVE_REPLICATED_DATA"
+    env.manifest([orchestrate("TC_SUELTA", RT, "remote-tables")], objects=[("remote-tables", RT)], features=FEATS, scan=sc)
+    assert co.replication_for(CLIENT, RT).state == co.NOT_OBSERVED

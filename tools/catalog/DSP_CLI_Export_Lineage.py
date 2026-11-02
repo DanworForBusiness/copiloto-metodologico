@@ -1285,6 +1285,7 @@ class LineageExporter:
             self.task_chain_scan = {**self.task_chain_scan, "state": TC_SCAN_NO_CANDIDATES}
             _say("SKIP - no hay productores operativos ni Remote Tables en el linaje")
             return
+        failures_before = len(self.failures)
         tc_names = sorted(self.ensure_inventory("task-chains"))
         inventory_complete = not any(f["kind"] == "inventory" and f["object_type"] == "task-chains" for f in self.failures)
         read_failures: list[str] = []
@@ -1310,21 +1311,20 @@ class LineageExporter:
                 continue
             matches += 1
             _say(f"OK - referencias: {len(refs) + len(recognized)}")
-            # Solo una cadena que orquesta flujos se adquiere al pool (comportamiento histórico). La que solo replica Remote Tables queda como evidencia
-            # en el manifiesto (aristas + `taskChainScan`): su JSON en el pool mencionaría objetos de la clausura y cambiaría la firma de dependencias
-            # de los assessments sin que cambie ninguna de sus entradas.
+            # SEPARACIÓN DE EVIDENCIAS. Las relaciones con flujos son evidencia del POOL (nodo + arista `ORCHESTRATES`, comportamiento histórico, sujetas
+            # a la compuerta de completitud de la publicación). Los pasos sobre Remote Tables son evidencia DESCRIPTIVA DEL CATÁLOGO: viven SOLO en
+            # `taskChainScan.remoteTableSteps` (sin nodo ni arista): no entran al pool (su JSON mencionaría objetos de la clausura y cambiaría la firma
+            # de dependencias de los assessments) ni condicionan la publicación del modelo.
             if refs:
                 self.add_node("task-chains", tc_name)
             label = ((data.get("taskchains") or {}).get(tc_name) or {}).get("@EndUserText.label") if isinstance(data.get("taskchains"), dict) else None
-            for s in recognized:
-                s["taskChainLabel"] = str(label) if label else None
             for ref in refs:
                 ref_type = next((t for t in PRODUCER_TYPES if (t, ref) in self.nodes), "unknown")
                 _say(f"  -> {ref_type}: {ref}")
                 self.add_edge("task-chains", tc_name, "ORCHESTRATES", ref_type, ref)
             for s in recognized:
+                s["taskChainLabel"] = str(label) if label else None
                 _say(f"  -> remote-tables: {s['objectId']} ({s['applicationId']} / {s['activity']})")
-                self.add_edge("task-chains", tc_name, "ORCHESTRATES", "remote-tables", s["objectId"])
                 remote_steps.append(s)
         self.task_chain_scan = {
             **self.task_chain_scan,
@@ -1337,6 +1337,12 @@ class LineageExporter:
             "remoteTableSteps": sorted(remote_steps, key=lambda s: (s["objectId"], s["taskChain"], str(s["nodeId"]))),
             "unrecognizedRemoteTableSteps": sorted(unrecognized_steps, key=lambda s: (s["objectId"], s["taskChain"], str(s["nodeId"]))),
         }
+        if not operational_names:
+            # Escaneo SOLO por Remote Tables: sus fallas de listado/lectura no bloquean la publicación del modelo (evidencia descriptiva); quedan registradas
+            # en `taskChainScan` y el Catálogo las muestra como NOT_ASSESSED. Con flujos en el linaje rige el criterio histórico (bloquean).
+            own = [f for f in self.failures[failures_before:] if f.get("object_type") == "task-chains"]
+            self.failures[failures_before:] = [f for f in self.failures[failures_before:] if f.get("object_type") != "task-chains"]
+            self.task_chain_scan["nonBlockingFailures"] = sorted({f["code"] for f in own})
         _say("\n------------------------------------------")
         _say(f"Task Chains relacionadas: {matches}/{len(tc_names)}")
         _say(f"TASK CHAINS terminadas en {time.perf_counter() - started:.1f}s")
