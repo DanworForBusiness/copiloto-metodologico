@@ -118,6 +118,71 @@ def is_valid_section_slug(value) -> bool:
     return isinstance(value, str) and bool(SECTION_SLUG_RE.fullmatch(value))
 
 
+# SECCIÓN POR RUTA (Métricas de Uso v2): las verticales cuyas pantallas son
+# páginas completas SIN `module_id` (Capital Humano, Búsquedas de Operaciones,
+# Reporting, Plataforma) no tienen módulo que desglosar — su estructura real
+# son sus pantallas. Esta tabla, armada desde los decoradores REALES de los
+# routers (human_capital.py, operations_busquedas.py, reporting.py,
+# whats_new.py, platform.py, main.py), traduce la ruta de un `page_view` a un
+# slug de sección del lado del servidor (telemetry.py). Prefijo más largo
+# primero; una ruta con ids (detalle/edición de un candidato, una búsqueda…)
+# cae en la sección PADRE: el slug nunca lleva ids, nombres ni query strings.
+# (prefijo, vertical, slug, rótulo). Los eventos v1 históricos no se reescriben.
+PAGE_SECTIONS: tuple[tuple[str, str, str, str], ...] = (
+    # Capital Humano (human_capital.py)
+    ("/cchh/candidatos", SCOPE_HUMAN_CAPITAL, "cchh_candidatos", "CCHH · Candidatos"),
+    ("/cchh/consolidaciones", SCOPE_HUMAN_CAPITAL, "cchh_consolidaciones", "CCHH · Consolidaciones"),
+    ("/cchh/solicitudes", SCOPE_HUMAN_CAPITAL, "cchh_solicitudes", "CCHH · Solicitudes"),
+    ("/cchh/busquedas", SCOPE_HUMAN_CAPITAL, "cchh_busquedas", "CCHH · Búsquedas"),
+    ("/cchh/entrevistas", SCOPE_HUMAN_CAPITAL, "cchh_entrevistas", "CCHH · Entrevistas"),
+    ("/cchh/onboarding", SCOPE_HUMAN_CAPITAL, "cchh_onboarding", "CCHH · Onboarding"),
+    ("/cchh/publicaciones", SCOPE_HUMAN_CAPITAL, "cchh_publicaciones", "CCHH · Publicaciones"),
+    ("/cchh/indicadores", SCOPE_HUMAN_CAPITAL, "cchh_indicadores", "CCHH · Indicadores"),
+    ("/cchh/catalogos", SCOPE_HUMAN_CAPITAL, "cchh_catalogos", "CCHH · Catálogos"),
+    ("/cchh/historicos", SCOPE_HUMAN_CAPITAL, "cchh_historicos", "CCHH · Históricos"),
+    ("/cchh/diagnostico", SCOPE_HUMAN_CAPITAL, "cchh_diagnostico", "CCHH · SharePoint e importación de CVs"),
+    ("/cchh", SCOPE_HUMAN_CAPITAL, "cchh_inicio", "CCHH · Inicio"),
+    # Alias legados de CCHH (redirigen; se mapean igual por si llega el beacon).
+    ("/human-capital/profiles", SCOPE_HUMAN_CAPITAL, "cchh_candidatos", "CCHH · Candidatos"),
+    ("/human-capital", SCOPE_HUMAN_CAPITAL, "cchh_inicio", "CCHH · Inicio"),
+    # Búsquedas de Operaciones (operations_busquedas.py): se atribuyen a CCHH (ver telemetry).
+    ("/operaciones/busquedas", SCOPE_HUMAN_CAPITAL, "ops_busquedas", "Operaciones · Búsquedas"),
+    # Reporting (reporting.py): Operaciones sin módulo propio.
+    ("/operaciones/reporting/integral", SCOPE_OPERATIONS, "ops_reporting_integral", "Reporting · Integral"),
+    # Plataforma (whats_new.py, platform.py, main.py)
+    ("/whats-new", SCOPE_PLATFORM, "hub_novedades", "Plataforma · Novedades"),
+    ("/operaciones/metricas", SCOPE_PLATFORM, "hub_metricas", "Plataforma · Métricas de uso"),
+    ("/admin/activity", SCOPE_PLATFORM, "hub_metricas", "Plataforma · Métricas de uso"),
+    ("/admin", SCOPE_PLATFORM, "hub_admin", "Plataforma · Administración"),
+    ("/platform", SCOPE_PLATFORM, "hub_inicio", "Plataforma · Inicio"),
+    ("/onedanwor", SCOPE_PLATFORM, "hub_inicio", "Plataforma · Inicio"),
+)
+
+# Verticales estructuradas por SECCIONES (sin módulos en `module_registry`):
+# en el tablero muestran «Secciones y usuarios» y su desglose baja directo a
+# secciones. Las demás (Copiloto, Operaciones, Comercial) siguen por módulo.
+SECTION_VERTICALS = frozenset({SCOPE_HUMAN_CAPITAL, SCOPE_PLATFORM})
+
+
+def page_section(path: str, scope: str) -> str | None:
+    """Slug de sección de una ruta (ver `PAGE_SECTIONS`), o `None`. Solo
+    devuelve una sección de la MISMA vertical a la que se atribuyó la vista
+    (nunca cruza verticales). Ignora query/fragmento por las dudas."""
+    clean = str(path or "").split("?", 1)[0].split("#", 1)[0].rstrip("/") or "/"
+    for prefix, vertical, slug, _label in PAGE_SECTIONS:
+        if clean == prefix or clean.startswith(prefix + "/"):
+            return slug if vertical == scope else None
+    return None
+
+
+def page_section_inventory() -> dict[str, tuple[str, str]]:
+    """{slug: (vertical, rótulo)} de las secciones por ruta (sin duplicados)."""
+    out: dict[str, tuple[str, str]] = {}
+    for _prefix, vertical, slug, label in PAGE_SECTIONS:
+        out.setdefault(slug, (vertical, label))
+    return out
+
+
 # --- outcome (resultado normalizado de una operación larga o una acción) ---
 OUTCOME_SUCCESS = "success"
 OUTCOME_PARTIAL = "partial"
@@ -376,6 +441,13 @@ def spec_of(event: str) -> EventSpec | None:
         return SPECS[key]
     renamed = RENAME.get(key)
     return SPECS.get(renamed[0]) if renamed else None
+
+
+def feedback_verticals() -> frozenset[str]:
+    """Verticales con un mecanismo de reacción (👍/👎) catalogado: las que
+    tienen algún evento con `feedback_sentiment` en su whitelist. Derivado del
+    catálogo, nunca una lista a mano: una vertical que sume feedback entra sola."""
+    return frozenset(s.scope for s in _SPECS if "feedback_sentiment" in s.attrs)
 
 
 def canonical(event: str) -> str:

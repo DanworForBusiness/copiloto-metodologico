@@ -54,7 +54,7 @@ from webapp.services.activity_context import (
     AREA_REPORTING, AREA_STAFFING, AREA_STRATEGY, EVENT_PAGE_VIEW, EVENT_SECTION_VIEW,
     SCOPE_COMMERCIAL, SCOPE_COPILOT, SCOPE_HUMAN_CAPITAL, SCOPE_OPERATIONS, SCOPE_PLATFORM,
 )
-from webapp.services.activity_catalog import NAV_TYPES, is_valid_section_slug
+from webapp.services.activity_catalog import NAV_TYPES, is_valid_section_slug, page_section
 
 router = APIRouter()
 
@@ -161,6 +161,7 @@ def _log_page_view(user: dict, data: dict) -> None:
     path = _clean_path(data.get("path"))
     module_id = str(data.get("module_id") or "").strip()
     module = None
+    section = None
     if module_id:
         origin = _resolve_beacon_origin(module_id)
         if origin is None:
@@ -168,7 +169,12 @@ def _log_page_view(user: dict, data: dict) -> None:
         scope, area, module = origin
     else:
         scope, area = _page_origin(path)
-    log_activity(EVENT_PAGE_VIEW, user=user, scope=scope, area=area, module=module,
+        # Páginas completas sin módulo (CCHH, Búsquedas, Reporting, Plataforma):
+        # la sección sale de la RUTA con la tabla explícita del catálogo
+        # (`PAGE_SECTIONS`), nunca del cliente; una ruta con ids cae en su
+        # sección padre. Sin entrada → sin sección (como hasta ahora).
+        section = page_section(path, scope)
+    log_activity(EVENT_PAGE_VIEW, user=user, scope=scope, area=area, module=module, section=section,
                  view_id=view_id, nav_type=nav_type, path=path)
 
 

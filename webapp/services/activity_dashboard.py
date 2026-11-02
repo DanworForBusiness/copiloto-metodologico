@@ -114,6 +114,13 @@ SECTION_INVENTORY: dict[str, tuple[str, str]] = {
     "cchh_candidate_contact": (activity_catalog.SCOPE_HUMAN_CAPITAL, "CCHH · Contacto de candidato"),
 }
 
+# Secciones POR RUTA (pantallas completas sin módulo: CCHH, Búsquedas,
+# Reporting, Plataforma) — vienen de `activity_catalog.PAGE_SECTIONS`, la MISMA
+# tabla con la que telemetry.py deriva la sección del `page_view`. Van aparte
+# de SECTION_INVENTORY (que es el espejo exacto de `data-dw-section`).
+PAGE_SECTION_INVENTORY: dict[str, tuple[str, str]] = activity_catalog.page_section_inventory()
+_ALL_SECTIONS: dict[str, tuple[str, str]] = {**PAGE_SECTION_INVENTORY, **SECTION_INVENTORY}
+
 _EVENT_PAGE_SIZES = (25, 50, 100)
 _TREND_MAX_DAYS = 25
 _MAX_ATTRS = 3
@@ -138,7 +145,7 @@ def _parse_iso(value: str) -> date | None:
 def section_label(slug: str) -> str:
     if not slug:
         return "Sin sección (vista general)"
-    return SECTION_INVENTORY.get(slug, (None, slug))[1]
+    return _ALL_SECTIONS.get(slug, (None, slug))[1]
 
 
 def _module_label(key: str) -> str:
@@ -229,7 +236,7 @@ def _module_inventory(visible: frozenset[str], allowed_areas: frozenset[str] | N
 
 def _section_inventory(visible: frozenset[str]) -> list[dict]:
     return [{"key": slug, "label": label, "vertical": vertical}
-            for slug, (vertical, label) in SECTION_INVENTORY.items() if vertical in visible]
+            for slug, (vertical, label) in _ALL_SECTIONS.items() if vertical in visible]
 
 
 # ── construcción ─────────────────────────────────────────────────────────────
@@ -252,6 +259,10 @@ def build(params: dict, *, summary: dict, visible_verticals: Iterable[str], allo
     module = str(params.get("module") or "").strip()[:64]
     section = str(params.get("section") or "").strip()
     if section and section != NONE_KEY and not activity_catalog.is_valid_section_slug(section):
+        section = ""
+    # Una sección inventariada de una vertical que el viewer no ve (p. ej. CCHH forzada por URL) se ignora:
+    # ni su rótulo llega al subhead del desglose.
+    if section in _ALL_SECTIONS and _ALL_SECTIONS[section][0] not in visible:
         section = ""
     kind = str(params.get("kind") or "").strip()
     if kind not in dict(KIND_OPTIONS):
@@ -322,6 +333,7 @@ def build(params: dict, *, summary: dict, visible_verticals: Iterable[str], allo
     section_inv = _section_inventory(visible)
     inferred_vertical = vertical or _infer_vertical(module, module_inv, data)
 
+    crumbs = _breadcrumb(state, vertical or inferred_vertical, module, section, module_inv)
     rows, rows_title, zero_count = _drill_rows(level, data, state, vertical_inv, module_inv, section_inv,
                                                vertical_filter, inferred_vertical, module)
     kpis = data["kpis"]
@@ -339,8 +351,16 @@ def build(params: dict, *, summary: dict, visible_verticals: Iterable[str], allo
         "section_options": _section_options(options_data, section_inv, vertical_filter, inferred_vertical, module, section),
         "start": start, "end": end,
         "level": level,
-        "breadcrumb": _breadcrumb(state, vertical or inferred_vertical, module, section, module_inv),
+        "breadcrumb": crumbs,
+        # Subhead del desglose (mismo patrón que «Eventos»): «Filtrado por <ruta>» + ✕ que sube UN nivel.
+        "filter_label": " › ".join(c["label"] for c in crumbs[1:]),
+        "parent_url": crumbs[-2]["url"] if len(crumbs) > 1 else "",
         "rows": rows, "rows_title": rows_title, "zero_count": zero_count,
+        # Paneles históricos por vertical (ver admin_activity_content.html).
+        "vertical_label": scope_label(vertical) if vertical else "",
+        "nav_panel": _nav_panel(summary, vertical),
+        "show_copilot_panels": not vertical or vertical == activity_catalog.SCOPE_COPILOT,
+        "show_reactions": not vertical or vertical in activity_catalog.feedback_verticals(),
         "events": events_block,
         "kpis": {
             "visits": kpis["visits"], "unique_users": kpis["unique_users"], "sessions": kpis["sessions"],
@@ -371,6 +391,9 @@ def legacy_args(params: dict, *, visible_verticals: Iterable[str], today: date |
         "user": str(params.get("user") or "").strip(),
         "module": "" if module == NONE_KEY else module,
         "scopes": [vertical] if vertical else list(params.get("scope") or []),
+        # Vertical ESTRICTA: los paneles históricos nunca vuelven a «todo» si la
+        # vertical elegida no tiene actividad (ver build_summary).
+        "vertical": vertical,
         "areas": list(params.get("area") or []),
     }
 
@@ -433,6 +456,23 @@ def _drill_rows(level, data, state, vertical_inv, module_inv, section_inv, verti
             if v not in seen and (not vertical_filter or v in vertical_filter):
                 rows.append(_row(v, scope_label(v), None, _url(keep, vertical=v)))
         title = "Verticales"
+    elif level == "vertical" and vertical in activity_catalog.SECTION_VERTICALS:
+        # Vertical estructurada por pantallas (CCHH, Plataforma): sin módulos,
+        # el desglose baja directo a sus SECCIONES (nunca un único «sin módulo»).
+        node = next((v for v in breakdown if v["vertical"] == vertical), None)
+        merged: dict[str, dict] = {}
+        for m in (node or {}).get("modules", []):
+            for s in m["sections"]:
+                acc = merged.setdefault(s["section"], {"visits": 0, "users": 0, "events": 0})
+                for k in ("visits", "users", "events"):
+                    acc[k] += s.get(k, 0)
+        for slug, sec in sorted(merged.items(), key=lambda kv: -kv[1]["events"]):
+            key = slug or NONE_KEY
+            rows.append(_row(key, section_label(slug), sec, _url(keep, vertical=vertical, section=key)))
+        for s in section_inv:
+            if s["vertical"] == vertical and s["key"] not in merged:
+                rows.append(_row(s["key"], s["label"], None, _url(keep, vertical=vertical, section=s["key"])))
+        title = "Secciones"
     elif level == "vertical":
         node = next((v for v in breakdown if v["vertical"] == vertical), None)
         seen = set()
@@ -462,6 +502,22 @@ def _drill_rows(level, data, state, vertical_inv, module_inv, section_inv, verti
     else:
         return [], "Eventos", 0
     return rows, title, sum(1 for r in rows if r["zero"])
+
+
+def _nav_panel(summary: dict, vertical: str) -> dict:
+    """«Módulos y usuarios» según la vertical elegida. Sin vertical o con una
+    vertical de módulos (Copiloto, Operaciones, Comercial): Top módulos, que
+    `build_summary` ya calcula SOLO sobre esa vertical (estricta). Con una
+    vertical de pantallas (CCHH, Plataforma): «Secciones y usuarios» con SUS
+    secciones (page_view por ruta + section_view); nunca módulos de otra."""
+    if vertical in activity_catalog.SECTION_VERTICALS:
+        rows = [{"key": r["label"], "label": section_label(r["label"]), "count": r["count"], "pct": r["pct"]}
+                for r in summary.get("top_sections") or []
+                if _ALL_SECTIONS.get(r["label"], (vertical, ""))[0] == vertical]
+        return {"mode": "sections", "title": "Secciones y usuarios", "items_title": "Top secciones",
+                "noun": "sección(es)", "rows": rows}
+    return {"mode": "modules", "title": "Módulos y usuarios", "items_title": "Top módulos",
+            "noun": "módulo(s)", "rows": list(summary.get("top_modules") or [])}
 
 
 def _module_options(options_data, module_inv, vertical_filter, selected) -> list[dict]:

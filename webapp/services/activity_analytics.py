@@ -725,7 +725,14 @@ def build_summary(
     trend_page: int = 1,
     scopes: list[str] | None = None, areas: list[str] | None = None,
     allowed_scopes: set[str] | None = None, allowed_areas: set[str] | None = None,
+    vertical: str = "",
 ) -> dict:
+    # VERTICAL ESTRICTA (Métricas de Uso v2): con `vertical` (el filtro
+    # Vertical del tablero) el Ámbito queda fijo en ESA vertical aunque no
+    # tenga eventos en el período — antes la selección vacía caía a «todo» y
+    # una vertical sin actividad mostraba módulos, eventos y preguntas del
+    # Copiloto. Sin `vertical`, mismo faceting de siempre.
+    #
     # Danwor Hub-wide (Batch A2): el dashboard opera sobre TODO el stream
     # normalizado — la exclusión interina de Operations (A1) fue RETIRADA. Filtros
     # explícitos: date (a nivel de archivo en _read_events) + user, luego
@@ -789,6 +796,9 @@ def build_summary(
     present_scopes = {ev["scope"] for ev in user_filtered}
     present_areas = {ev["area"] for ev in user_filtered}
     sel_scopes = (requested_scopes & present_scopes) or present_scopes
+    vertical = (vertical or "").strip()
+    if vertical and (allowed_scopes is None or vertical in allowed_scopes):
+        sel_scopes = {vertical}
     areas_for_scopes = {ev["area"] for ev in user_filtered if ev["scope"] in sel_scopes}
     sel_areas = (requested_areas & areas_for_scopes) or areas_for_scopes
     # VERTICAL DATA VISIBILITY §6: un Ámbito/Área que el usuario NO puede ver
@@ -858,6 +868,11 @@ def build_summary(
     module_counts: Counter = Counter()
     visit_view_ids: set[str] = set()       # v2: visitas por view_id DISTINTO (ver Top Modules)
     section_counts: Counter = Counter()    # v2: section_view por slug de sección
+    # «Secciones y usuarios» (verticales sin módulos, p. ej. CCHH): visitas a
+    # páginas con sección derivada de la ruta (`page_view`, por view_id
+    # distinto) + vistas de sección HTMX (`section_view`).
+    section_nav_counts: Counter = Counter()
+    section_view_ids: set[str] = set()
     user_counts: Counter = Counter()
     catalog_kind_counts: Counter = Counter()
     # Desglose por evento para el panel derecho interactivo: por cada tipo de
@@ -957,6 +972,12 @@ def build_summary(
                 if _view_id:
                     visit_view_ids.add(_view_id)
                 module_counts[ev["module"]] += 1
+        if ev["section"] and (is_visit(ev) or ev["event"] == EVENT_SECTION_VIEW):
+            _sview = str(ev["attrs"].get("view_id") or "") if ev["event"] != EVENT_SECTION_VIEW else ""
+            if not _sview or _sview not in section_view_ids:
+                if _sview:
+                    section_view_ids.add(_sview)
+                section_nav_counts[ev["section"]] += 1
         if ev["module"]:
             module_event_counts.setdefault(ev["module"], Counter())[ev["event"]] += 1
             # El cubo de la cascada. MISMA identidad estable que
@@ -1201,6 +1222,9 @@ def build_summary(
         # activity_context.py). Sin framework de localización.
         "event_labels": EVENT_LABELS,
         "top_modules": _top_modules(module_counts),
+        # Secciones con visitas (slug crudo; el rótulo lo pone activity_dashboard).
+        "top_sections": _top(section_nav_counts),
+        "selected_vertical": vertical if vertical in sel_scopes else "",
         "top_users": _top(user_counts, display=display_names),
         # Mismo tope que top_modules (los módulos que realmente aparecen como fila
         # clickeable): no tiene sentido precalcular el desglose de un módulo que

@@ -1,13 +1,10 @@
 {# Métricas de Uso v2 (fase 3) — drill-down vertical → módulo → sección → eventos (`dash`, ver
    activity_dashboard.build). Cada nivel es la MISMA ruta (/admin/activity) con más filtros: las filas y el
-   breadcrumb hacen hx-get al tablero entero con hx-push-url, así recargar o compartir la URL reconstruye la vista.
+   ✕ del subhead hacen hx-get al tablero entero con hx-push-url, así recargar o compartir la URL reconstruye la vista.
    Las filas en 0 son el INVENTARIO real del Hub (module_registry, content pack, secciones `data-dw-section`) sin
    actividad en el período — solo dentro de lo que el viewer puede ver. Primitivos: `.dashboard-section`,
    `.matrix-scroll` + `.dashboard-table`, `.status-badge`, `.catalog-state`, paginador compartido. #}
 {% from "partials/pager.html" import render_pager %}
-{% macro drill_link(url, label) -%}
-<a href="{{ url }}" hx-get="{{ url }}" hx-target="#activity-dashboard" hx-swap="outerHTML" hx-push-url="true">{{ label }}</a>
-{%- endmacro %}
 <details class="dashboard-section" data-section-id="desglose" open>
   <summary class="dashboard-section__head" draggable="true">
     <span class="dashboard-section__grip" aria-hidden="true">⋮⋮</span>
@@ -20,12 +17,14 @@
     {% endif %}
   </summary>
   <div class="dashboard-section__body" data-activity-drill data-drill-level="{{ dash.level }}">
-    <nav class="dashboard-subhead activity-drill-breadcrumb" aria-label="Nivel del desglose">
-      {% for c in dash.breadcrumb %}
-        {% if not loop.first %}<span aria-hidden="true"> › </span>{% endif %}
-        {% if c.current %}<strong aria-current="page">{{ c.label }}</strong>{% else %}{{ drill_link(c.url, c.label) }}{% endif %}
-      {% endfor %}
-    </nav>
+    {#- Nivel del desglose con el MISMO subhead que «Eventos» (título + pista + «Filtrado por X ✕»): el ✕ sube UN
+        nivel (vertical → todas, módulo → vertical, sección → módulo) con el mismo hx-get/push-url que las filas. -#}
+    <p class="dashboard-subhead" data-drill-subhead>
+      {{ "Eventos" if dash.level == "section" else dash.rows_title }}{% if dash.level != "section" %} <span class="dashboard-subhead__hint">· click para desglosar →</span>{% endif %}
+      {% if dash.filter_label %}
+      <span class="dashboard-subhead__filter" data-drill-filter>· Filtrado por <strong aria-current="page">{{ dash.filter_label }}</strong> <button type="button" class="dashboard-subhead__reset" data-drill-nav hx-get="{{ dash.parent_url }}" hx-target="#activity-dashboard" hx-swap="outerHTML show:none" hx-push-url="true" title="Volver al nivel anterior">✕</button></span>
+      {% endif %}
+    </p>
 
     {% if dash.level != "section" %}
     {% if dash.rows %}
@@ -47,7 +46,7 @@
         <tbody>
           {% for r in dash.rows %}
           <tr data-drill-key="{{ r.key }}"{% if r.zero %} data-drill-zero{% endif %}>
-            <td class="left" data-sort-value="{{ r.label }}"><button type="button" class="dashboard-table-toggle" hx-get="{{ r.url }}" hx-target="#activity-dashboard" hx-swap="outerHTML" hx-push-url="true"
+            <td class="left" data-sort-value="{{ r.label }}"><button type="button" class="dashboard-table-toggle" data-drill-nav hx-get="{{ r.url }}" hx-target="#activity-dashboard" hx-swap="outerHTML show:none" hx-push-url="true"
                         title="Ver {{ r.label }}"><span class="caret">▸</span>{{ r.label }}</button></td>
             <td>{{ r.visits }}</td>
             <td>{{ r.users }}</td>
@@ -102,6 +101,29 @@
 </details>
 {#- Anchos de columna: MISMO primitivo y cableado que las tablas de Capital Humano (restaurar el ancho guardado y habilitar el redimensionado). -#}
 <script>
+  /* Posición al navegar el desglose: el clic en una fila o en el ✕ reemplaza el tablero entero (KPIs y paneles dependen
+     del mismo filtro), así que la página se iba de lugar. `show:none` apaga el scroll de htmx y acá se guarda dónde
+     estaba «Desglose» en la ventana antes del pedido y se lo devuelve a ese mismo lugar después del swap. Se registra
+     una sola vez (este parcial se vuelve a renderizar con cada swap). */
+  if (!window.__dwDrillScrollKeeper) {
+    window.__dwDrillScrollKeeper = true;
+    var drillSection = function () { return document.querySelector("[data-section-id='desglose']"); };
+    document.addEventListener("htmx:beforeRequest", function (e) {
+      var el = e.detail && e.detail.elt;
+      if (!el || !el.closest || !el.closest("[data-drill-nav]")) return;
+      var sec = drillSection();
+      window.__dwDrillAnchor = sec ? sec.getBoundingClientRect().top : null;
+    });
+    document.addEventListener("htmx:afterSettle", function () {
+      if (window.__dwDrillAnchor == null) return;
+      var anchor = window.__dwDrillAnchor;
+      window.__dwDrillAnchor = null;
+      requestAnimationFrame(function () {
+        var sec = drillSection();
+        if (sec) window.scrollBy(0, sec.getBoundingClientRect().top - anchor);
+      });
+    });
+  }
   document.querySelectorAll("[data-resizable-columns-key^='metrics-']").forEach(function (container) {
     if (typeof restorePersistedColumnWidths === "function") restorePersistedColumnWidths(container);
   });

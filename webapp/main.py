@@ -461,7 +461,7 @@ def _activity_dashboard_context(
     summary = activity_analytics.build_summary(
         legacy["date_from"], legacy["date_to"], legacy["user"], legacy["module"],
         scopes=legacy["scopes"], areas=legacy["areas"],
-        allowed_scopes=allowed_scopes, allowed_areas=allowed_areas,
+        allowed_scopes=allowed_scopes, allowed_areas=allowed_areas, vertical=legacy["vertical"],
     )
     dash = activity_dashboard.build(
         params, summary=summary, visible_verticals=allowed_scopes, allowed_areas=allowed_areas,
@@ -511,6 +511,7 @@ def admin_activity_trend(
     request: Request, date_from: str = "", date_to: str = "",
     user_filter: str = Query("", alias="user"), module_filter: str = Query("", alias="module"),
     scope_filter: list[str] = Query([], alias="scope"), area_filter: list[str] = Query([], alias="area"),
+    vertical: str = "",
     trend_page: int = 1,
 ):
     """Fragment liviano de solo 'Tendencia diaria' (barras + paginador-
@@ -524,6 +525,7 @@ def admin_activity_trend(
         trend_page=trend_page,
         scopes=scope_filter, areas=area_filter,
         allowed_scopes=allowed_scopes, allowed_areas=allowed_areas,
+        vertical=vertical.strip(),        # paginar no rompe la vertical estricta
     )
     return templates.TemplateResponse(
         request=request, name="partials/admin_activity_trend.html",
@@ -536,6 +538,7 @@ def admin_activity_stories(
     request: Request, date_from: str = "", date_to: str = "",
     user_filter: str = Query("", alias="user"), module_filter: str = Query("", alias="module"),
     scope_filter: list[str] = Query([], alias="scope"), area_filter: list[str] = Query([], alias="area"),
+    vertical: str = "",
     story_page: int = 1, story_page_size: int = 10,
 ):
     """Fragment liviano de solo la 'Historia de preguntas' (lista + paginador),
@@ -547,6 +550,7 @@ def admin_activity_stories(
         date_from, date_to, user_filter, module_filter, story_page, story_page_size,
         scopes=scope_filter, areas=area_filter,
         allowed_scopes=allowed_scopes, allowed_areas=allowed_areas,
+        vertical=vertical.strip(),        # paginar no rompe la vertical estricta
     )
     return templates.TemplateResponse(
         request=request, name="partials/admin_activity_stories.html",
@@ -559,6 +563,7 @@ def admin_activity_tree_runs(
     request: Request, date_from: str = "", date_to: str = "",
     user_filter: str = Query("", alias="user"), module_filter: str = Query("", alias="module"),
     scope_filter: list[str] = Query([], alias="scope"), area_filter: list[str] = Query([], alias="area"),
+    vertical: str = "",
     run_page: int = 1, run_page_size: int = 10,
 ):
     """Fragment liviano de solo 'Recorridos' (árboles de decisión) — mismo
@@ -571,6 +576,7 @@ def admin_activity_tree_runs(
         run_page=run_page, run_page_size=run_page_size,
         scopes=scope_filter, areas=area_filter,
         allowed_scopes=allowed_scopes, allowed_areas=allowed_areas,
+        vertical=vertical.strip(),        # paginar no rompe la vertical estricta
     )
     return templates.TemplateResponse(
         request=request, name="partials/admin_activity_tree_runs.html",

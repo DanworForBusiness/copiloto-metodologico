@@ -217,13 +217,18 @@ def test_drilldown_levels_and_event_list(logdir, monkeypatch):
     assert rows["_none"][0] == 3                            # vistas del módulo sin sección
     assert rows["catalog_lob"] == (0, 0, 0, True)          # sección del inventario sin actividad
     assert "cchh_candidate_contact" not in rows            # pertenece a otra vertical
-    assert "Todas las verticales" in module and "Copiloto" in module
+    # Subhead como «Eventos»: título del nivel + pista + «Filtrado por Copiloto › <módulo>» y ✕ que sube a la vertical.
+    subhead = module.split("data-drill-subhead", 1)[1].split("</p>", 1)[0]
+    assert "Secciones" in subhead and "click para desglosar" in subhead
+    assert re.search(r'Filtrado por <strong aria-current="page">Copiloto › [^<]+</strong>', subhead)
+    assert 'class="dashboard-subhead__reset" data-drill-nav hx-get="/admin/activity?vertical=copilot"' in subhead
 
     section = _hx(c, "/admin/activity?vertical=copilot&module=CP01&section=catalog_domain")
     assert 'data-drill-level="section"' in section and "data-drill-events" in section
     events = section.split("data-drill-events", 1)[1].split("</table>", 1)[0]
     assert "Dos" in events or "dos@d.com" in events
-    assert '<strong aria-current="page">Catálogo · Dominio</strong>' in section and "1 registro(s)" in section
+    assert re.search(r'<strong aria-current="page">Copiloto › [^<]+ › Catálogo · Dominio</strong>', section)
+    assert "1 registro(s)" in section
 
     none_section = _hx(c, "/admin/activity?vertical=copilot&module=CP01&section=_none")
     events = none_section.split("data-drill-events", 1)[1].split("</table>", 1)[0]
