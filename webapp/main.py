@@ -2807,7 +2807,10 @@ def _catalog_flow_view(entry, show_assoc: bool | None = None, pack: str = "", fo
         assoc = [u for u in (auto.get("upstreams_asociacion") or []) if u in bodies]
         sem = f"{auto.get('data_category') or ''} {auto.get('modeling_pattern') or ''}".upper()
         if any(k in sem for k in ("FACT", "DIMENSION", "CUBE")):
-            demote = {x for x in up if not _is_transform_base(x)}   # solo degradar, nunca promover
+            # La fuente CONDUCTORA que la publicación ya clasificó como directa (`upstreams_conductora`: la vista PARTE de ella,
+            # aunque sea remota) no se vuelve a degradar; el resto de la regla no cambia.
+            driver = set(auto.get("upstreams_conductora") or [])
+            demote = {x for x in up if not _is_transform_base(x) and x not in driver}   # solo degradar, nunca promover
             up = [x for x in up if x not in demote]
             assoc = sorted(set(assoc) | demote)
         return up, assoc
