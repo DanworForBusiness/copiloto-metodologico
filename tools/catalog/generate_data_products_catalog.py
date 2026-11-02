@@ -26,6 +26,7 @@ if str(_REPO_ROOT) not in sys.path:
 
 try:
     from tools.catalog.generate_catalog import load_folder as _load_domain_folder
+    from tools.catalog.generate_catalog import published_lineage as _published_lineage   # mismo linaje publicado que Dominios
     from tools.catalog.generate_catalog import _sync_apis as _sync_domain_apis
     # Contrato de metadata COMPARTIDO con Dominios: mismo orden/labels/columnas. DP solo
     # inyecta lo suyo (capa HANA/HDLF, origen vía Replication Flow). Ver artifact_metadata_rows.
@@ -35,6 +36,7 @@ try:
     from tools.catalog.portability_bdc import evaluate_portability as _eval_portability
 except Exception:  # pragma: no cover - keeps the standalone generator tolerant
     _load_domain_folder = None
+    _published_lineage = lambda ent: (list(getattr(ent, "upstreams", []) or []), list(getattr(ent, "assoc_upstreams", []) or []))  # noqa: E731
     _sync_domain_apis = None
     _artifact_metadata_rows = None
     _parse_name = None
@@ -42,7 +44,7 @@ except Exception:  # pragma: no cover - keeps the standalone generator tolerant
     _port_matrix = None
     _eval_portability = None
 
-GENERATOR_VERSION = "data-products-v15"
+GENERATOR_VERSION = "data-products-v16"   # v16: linaje publicado con fuente conductora (generate_catalog.published_lineage)
 
 DATA_PRODUCT_SUPPORT_DOCUMENT_URLS = {
     "additionalDocuments.pptx": "https://danwor.sharepoint.com/:p:/s/PrcticaAnalytics/IQAuQ_sKiXWKSoy_pXz3Fe5yAUZKhdR-NjSKMCRcu_M5F5Q?e=5yWev3",
@@ -477,7 +479,8 @@ def _load_lineage_entities(folder: Path, published: list[dict[str, str]],
                 node["_source"] = _src_folder
             file_nodes.append((runtime, name))
 
-            for up in list(getattr(ent, "upstreams", []) or []):
+            _pub_up, _pub_assoc = _published_lineage(ent)
+            for up in _pub_up:
                 if up == name or up.startswith("DSDEV"):
                     continue
                 up_runtime = runtime_by_def.get(up) or runtime_by_def.get(_delta_base(up)) or runtime
@@ -488,7 +491,7 @@ def _load_lineage_entities(folder: Path, published: list[dict[str, str]],
                 up_id = _runtime_id(up_runtime, up_base)
                 if up_id != node["name"] and up_id not in node["upstreams"]:
                     node["upstreams"].append(up_id)
-            for up in list(getattr(ent, "assoc_upstreams", []) or []):
+            for up in _pub_assoc:
                 if up == name or up.startswith("DSDEV"):
                     continue
                 up_runtime = runtime_by_def.get(up) or runtime_by_def.get(_delta_base(up)) or runtime

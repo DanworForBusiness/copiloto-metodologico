@@ -264,6 +264,51 @@ def _extract_query_sources(defn: dict) -> list:
     return _from_sources(q)
 
 
+def _driver_sources(node) -> list:
+    """Fuente(s) CONDUCTORA(s) de la query: de dónde parte el dato que la vista transforma. SOLO estructuras INEQUÍVOCAS:
+      * FROM de una sola fuente → esa fuente;
+      * cadena de LEFT (OUTER) JOIN → la fuente preservada (el extremo izquierdo de la cadena); los JOIN la enriquecen;
+      * UNION → la conductora de cada rama (si la rama es inequívoca).
+    INNER/RIGHT/FULL/CROSS, subconsultas o formas desconocidas son AMBIGUAS: devuelven [] y se conserva la clasificación
+    existente (nunca se promueve una dependencia dudosa). Sin heurísticas por nombre, cliente, sistema ni tipo de conexión."""
+    def _from(fr):
+        if not isinstance(fr, dict):
+            return None
+        if "ref" in fr and "join" not in fr:
+            return _from_source_id(fr.get("ref")) or None
+        if str(fr.get("join") or "").lower() == "left" and isinstance(fr.get("args"), list) and len(fr["args"]) >= 2:
+            return _from(fr["args"][0])
+        return None
+
+    out: list = []
+    if isinstance(node, dict):
+        sel = node.get("SELECT")
+        if isinstance(sel, dict):
+            d = _from(sel.get("from"))
+            if d:
+                out.append(d)
+        st = node.get("SET")
+        if isinstance(st, dict):
+            for arg in st.get("args", []) or []:
+                out.extend(_driver_sources(arg))
+    return out
+
+
+def published_lineage(ent) -> tuple[list, list]:
+    """Linaje PUBLICADO por el catálogo (fichas de Dominios y Data Products): `upstreams` / `assoc_upstreams` del loader
+    más la PROYECCIÓN de la fuente conductora. La regla del loader degrada a asociación todo input remoto o dimensional de
+    una entidad analítica; eso es correcto para lo que se JOINea, pero no para la fuente de la que la vista PARTE (p. ej. un
+    hecho que lee directo de una tabla remota, sin capa relacional intermedia). La conductora degradada vuelve al linaje
+    directo publicado; los JOIN complementarios, dimensiones, textos y asociaciones semánticas no cambian.
+    NO modifica la entidad: `Entity.upstreams/assoc_upstreams` (contrato del Modeling Assessment) quedan intactos."""
+    up = list(ent.upstreams or [])
+    assoc = list(ent.assoc_upstreams or [])
+    promoted = [x for x in (getattr(ent, "_promoted_drivers", None) or ()) if x in assoc and x not in up]
+    if not promoted:
+        return up, assoc
+    return sorted(set(up) | set(promoted)), [a for a in assoc if a not in promoted]
+
+
 def _from_source_id(ref) -> str:
     """id real de una fuente FROM: `ref: ["NAME"]` → NAME; fuente parametrizada
     `ref: [{"id":"NAME","args":{...}}]` → NAME. "" si no hay id."""
@@ -593,6 +638,8 @@ def load_folder(folder: Path | None = None, *, json_files=None, txt_files=None, 
             ent.has_query = ent.has_query or ("query" in defn)
             _extract_elements(defn, ent)
             ent._raw_refs = getattr(ent, "_raw_refs", []) + _extract_query_sources(defn)  # type: ignore
+            if isinstance(defn.get("query"), dict):
+                ent._driver_refs = getattr(ent, "_driver_refs", []) + _driver_sources(defn["query"])  # type: ignore
             _fa = _from_aliases(defn)
             if _fa:
                 from_alias.setdefault(name, {}).update(_fa)
@@ -721,6 +768,12 @@ def load_folder(folder: Path | None = None, *, json_files=None, txt_files=None, 
             demote = {x for x in direct if not _is_transform_base(x)}
             direct -= demote
             assoc |= demote
+            # Proyección PUBLICADA (ver `published_lineage`): la conductora inequívoca degradada SOLO por ser remota vuelve al
+            # linaje directo de las fichas. Una conductora dimensional/texto conserva su clasificación. Evidencia privada:
+            # `upstreams`/`assoc_upstreams` (lo que lee el Modeling Assessment) no cambian.
+            ent._promoted_drivers = sorted(  # type: ignore
+                x for x in set(getattr(ent, "_driver_refs", []) or []) & demote
+                if "DIMENSION" not in f"{entities[x].data_category or ''} {entities[x].modeling_pattern or ''}".upper())
         else:
             assoc = assoc - direct   # vista relacional/transformación: todo FROM/JOIN es directo
         ent.upstreams = sorted(direct)
@@ -962,6 +1015,7 @@ def render_vista(ent: Entity, cliente: str, proyecto: str, manual_override: dict
     # o el tipo técnico (Vista/Tabla/Origen remoto) para T/V. El patrón crudo del
     # JSON (p. ej. ANALYTICAL_CUBE) queda en la fila "Patrón de modelado".
     artefacto = "Extractor ODP-SAPI" if is_sapi else OTROS.get(typed_key, ent.kind_label)
+    _pub_up, _pub_assoc = published_lineage(ent)
     auto = {
         "tipo": "vista", "artefacto_tecnico": artefacto, "nombre": ent.name,
         "label": ent.label, "capa": capa_nombre,
@@ -970,8 +1024,10 @@ def render_vista(ent: Entity, cliente: str, proyecto: str, manual_override: dict
         "data_category": ent.data_category or None,
         "origen_remoto": ent.remote_entity or None,
         "conexion": ent.remote_connection or None,
-        "upstreams": ent.upstreams or [],
-        "upstreams_asociacion": ent.assoc_upstreams or [],
+        "upstreams": _pub_up,
+        "upstreams_asociacion": _pub_assoc,
+        # Fuente CONDUCTORA promovida por la proyección publicada: el runtime no la vuelve a degradar (ver main._split_up).
+        "upstreams_conductora": [u for u in _pub_up if u not in (ent.upstreams or [])],
         "claves": ent.keys, "medidas": [m["campo"] for m in ent.measures],
         "n_campos": ent.n_elements, "campos": ent.fields,
         "desvios_nombre": [] if is_sapi else pn.get("issues", []),
@@ -990,7 +1046,7 @@ def render_vista(ent: Entity, cliente: str, proyecto: str, manual_override: dict
         uso=uso or None,
         origen=(f"`{ent.remote_entity}` · conexión `{ent.remote_connection}`"
                 if ent.remote_entity else None),
-        deriva_de=ent.upstreams or (),
+        deriva_de=_pub_up or (),
         modeling_pattern=ent.modeling_pattern or None,
     )
     # Sin subtítulo `>`: la descripción (label) la usa el detalle del flujo como
@@ -1063,7 +1119,7 @@ def render_flujo(cliente: str, proyecto: str, dominio: str, entities: dict,
     auto = {
         "tipo": "flujo", "dominio": dominio,
         "artefactos": [e.name for e in ordered],
-        "linaje": {e.name: (e.upstreams or None) for e in ordered if e.upstreams or e.remote_entity},
+        "linaje": {e.name: (published_lineage(e)[0] or None) for e in ordered if published_lineage(e)[0] or e.remote_entity},
         "origenes": sorted({e.remote_entity for e in entities.values() if e.remote_entity}),
         "compliance": {
             "mirada_danwor": veredicto,
@@ -1091,7 +1147,8 @@ def render_flujo(cliente: str, proyecto: str, dominio: str, entities: dict,
           f"**Cumplimiento:** {icon} mirada Danwor **{veredicto}** — {apto}", "",
           "## Linaje", "", "```text"]
     for e in ordered:
-        arrow = f"  ← {', '.join(e.upstreams)}" if e.upstreams else (
+        _up = published_lineage(e)[0]
+        arrow = f"  ← {', '.join(_up)}" if _up else (
             f"  (origen: {e.remote_entity})" if e.remote_entity else "")
         md.append(f"{_capa_of(e)} · {e.name}{arrow}")
     md.append("```")

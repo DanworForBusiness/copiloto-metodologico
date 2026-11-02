@@ -447,11 +447,19 @@ class DatasphereCli:
                 env=self.env,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",            # el CLI (Node) emite UTF-8: sin esto Windows decodifica con cp1252 (falla con Á/Í y corrompe é/ñ)
+                errors="strict",             # nunca reemplazo silencioso: un byte inválido es un error visible, no un dato alterado
                 timeout=timeout,
             )
             return proc, cmd
         except subprocess.TimeoutExpired:
             timed_out = True
+        except UnicodeDecodeError as exc:
+            # POSIX decodifica la salida en el hilo principal y la excepción llega acá (en Windows falla el hilo lector y `_run` ve
+            # stdout=None). Evidencia directa: la salida NO es UTF-8 válido. Se clasifica sin arrastrar los bytes ni el argv crudo.
+            raise DatasphereCliError(
+                f"CLI_OUTPUT_DECODE_FAILED - La salida del comando no es UTF-8 válido (byte {exc.start}): {' '.join(redact_cli_argv(cmd))}"
+            ) from None
         except OSError as exc:
             fallback = self.launcher.fallback_command
             if self.launcher.mode != "direct" or fallback is None:
@@ -467,11 +475,18 @@ class DatasphereCli:
                     env=self.env,
                     capture_output=True,
                     text=True,
+                    encoding="utf-8",        # misma decodificación que la ruta principal
+                    errors="strict",
                     timeout=timeout,
                 )
                 return proc, fallback_cmd
             except subprocess.TimeoutExpired:
                 timed_out = True
+            except UnicodeDecodeError as dec_exc:
+                raise DatasphereCliError(
+                    f"CLI_OUTPUT_DECODE_FAILED - La salida del comando no es UTF-8 válido (byte {dec_exc.start}): "
+                    f"{' '.join(redact_cli_argv(fallback_cmd))}"
+                ) from None
             except OSError as fallback_exc:
                 raise DatasphereCliError(
                     "DATASPHERE_CLI_UNAVAILABLE - No se pudo iniciar el CLI local "
@@ -500,6 +515,15 @@ class DatasphereCli:
         parse_ms = 0.0
         parsed: Any = None
         if proc.returncode == 0 and expect_json:
+            if proc.stdout is None:
+                # El proceso terminó OK pero su salida no se pudo leer (p. ej. falló el hilo lector de subprocess). Sin evidencia
+                # suficiente para afirmar la causa: se informa como salida NO DISPONIBLE (distinta de vacía o JSON inválido) y nunca
+                # como un AttributeError genérico.
+                self.diagnostics.record_cli_call(
+                    family=family, operation=operation, technical_name=technical_name,
+                    elapsed_ms=elapsed_ms, network_bearing=True,
+                )
+                raise DatasphereCliError(f"CLI_OUTPUT_UNAVAILABLE - La salida del comando no se pudo leer: {' '.join(redact_cli_argv(cmd))}")
             raw = proc.stdout.strip()
             if not raw:
                 self.diagnostics.record_cli_call(
@@ -526,8 +550,8 @@ class DatasphereCli:
             elapsed_ms=elapsed_ms, parse_ms=parse_ms, network_bearing=True,
         )
         if proc.returncode != 0:
-            stderr = proc.stderr.strip()
-            stdout = proc.stdout.strip()
+            stderr = (proc.stderr or "").strip()
+            stdout = (proc.stdout or "").strip()
             raise DatasphereCliError(stderr or stdout or f"datasphere CLI failed with exit code {proc.returncode}")
         if expect_json:
             return parsed
