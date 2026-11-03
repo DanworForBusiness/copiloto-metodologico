@@ -43,34 +43,46 @@
   </div>
   {% set chosen = values[fields.ASSIGNEES] %}
   {% set people = options[fields.ASSIGNEES] %}
-  <fieldset class="feedback-field feedback-field--wide" x-data="{query:'', chosen:{{ chosen | tojson | forceescape }}}">
-    <legend>Colaboradores asignados</legend>
-    <label for="sol-people-search">Buscar colaboradores</label>
-    <input id="sol-people-search" type="text" autocomplete="off" x-model="query" @input.stop @change.stop>
-    <p class="field-hint" x-show="query.trim().length < 3">Escribí al menos tres caracteres para buscar.</p>
-    <p class="field-hint" x-text="chosen.length ? chosen.length + ' seleccionados' : 'Sin colaboradores seleccionados'"></p>
+  <div class="feedback-field feedback-field--wide"
+       x-data="{query:'', open:false, chosen:{{ chosen | tojson | forceescape }}, get term(){return this.query.trim().toLowerCase()}}"
+       @focusout="if (!$el.contains($event.relatedTarget)) open=false" @keydown.escape.stop="open=false; $refs.search.focus()">
+    <label for="sol-people-search">Colaboradores asignados</label>
+    <input id="sol-people-search" type="text" autocomplete="off" placeholder="Buscar colaboradores" x-ref="search" x-model="query"
+           aria-describedby="sol-people-hint" @focus="open=true" @input.stop="open=true" @change.stop>
+    <p id="sol-people-hint" class="field-hint" x-show="open && term.length < 3">Escribí al menos tres caracteres para buscar.</p>
     <input type="hidden" name="{{ fields.ASSIGNEES }}" value="">
     <div class="dashboard-checkbox-group">
       {% for id, label in people.items() %}
       <label class="dashboard-checkbox-option"
-             x-show="chosen.includes($el.dataset.id) || (query.trim().length >= 3 && $el.dataset.label.toLowerCase().includes(query.trim().toLowerCase()))"
+             x-show="chosen.includes($el.dataset.id) || (open && term.length >= 3 && $el.dataset.label.toLowerCase().includes(term))"
              data-id="{{ id }}" data-label="{{ label }}">
         <input type="checkbox" name="{{ fields.ASSIGNEES }}" value="{{ id }}" x-model="chosen"{% if id in chosen %} checked{% endif %}>
         <span>{{ label }}</span>
       </label>
       {% endfor %}
       {% for id in chosen if id not in people %}
-      <label class="dashboard-checkbox-option"><input type="checkbox" name="{{ fields.ASSIGNEES }}" value="{{ id }}" x-model="chosen" checked>
+      <label class="dashboard-checkbox-option" x-show="chosen.includes($el.dataset.id)" data-id="{{ id }}"><input type="checkbox" name="{{ fields.ASSIGNEES }}" value="{{ id }}" x-model="chosen" checked>
         <span>Referencia no disponible ({{ id }})</span>
       </label>
       {% endfor %}
     </div>
-    {% if not people %}<p class="field-hint">No hay colaboradores disponibles.</p>{% endif %}
-  </fieldset>
-  </div></section><section class="hc-profile-section"><h2>Fechas</h2><div class="hc-profile-section__grid hc-profile-section__grid--fluid">
-  <label class="feedback-field feedback-field--medium">Fecha de inicio planificada <input type="date" name="{{ fields.PLANNED }}" value="{{ values[fields.PLANNED] }}"></label>
-  <label class="feedback-field feedback-field--medium">Fecha de inicio Real <input type="date" name="{{ fields.ACTUAL }}" value="{{ values[fields.ACTUAL] }}"></label>
-  </div></section><section class="hc-profile-section"><h2>Detalle</h2><div class="hc-profile-section__grid hc-profile-section__grid--fluid">
+    <p class="field-hint" role="status"
+       x-show="open && term.length >= 3 && !Array.from($el.previousElementSibling.querySelectorAll('[data-label]')).some(option => option.dataset.label.toLowerCase().includes(term))">No se encontraron colaboradores.</p>
+  </div>
+  </div></section><section class="hc-profile-section">
+  <h2>Fechas</h2>
+  <div class="hc-profile-section__grid">
+    <div class="feedback-field feedback-field--compact">
+      <label for="sol-planned">Fecha de inicio planificada</label>
+      <input id="sol-planned" type="date" name="{{ fields.PLANNED }}" value="{{ values[fields.PLANNED] }}">
+    </div>
+    <div class="feedback-field feedback-field--compact">
+      <label for="sol-actual">Fecha de inicio Real</label>
+      <input id="sol-actual" type="date" name="{{ fields.ACTUAL }}" value="{{ values[fields.ACTUAL] }}">
+    </div>
+  </div>
+</section>
+<section class="hc-profile-section"><h2>Detalle</h2><div class="hc-profile-section__grid hc-profile-section__grid--fluid">
   <label class="feedback-field feedback-field--wide">Descripción de la demanda (HTML) <textarea name="{{ fields.DESCRIPTION }}" rows="8">{{ values[fields.DESCRIPTION] }}</textarea></label>
   <label class="feedback-field feedback-field--wide">Comentarios de Arquitectura (HTML) <textarea name="{{ fields.COMMENTS }}" rows="8">{{ values[fields.COMMENTS] }}</textarea></label>
   </div><p class="field-hint">El contenido HTML se conserva si no se modifica. Los cambios con etiquetas o atributos no admitidos se rechazan.</p>
