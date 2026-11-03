@@ -19,7 +19,7 @@ def test_read_follows_graph_pages(monkeypatch):
     next_link = f"{list_url}/items?$skiptoken=next"
     responses = {
         f"{base}/sites/danwor.sharepoint.com:/sites/Gestion": {"id": "example,site,web"},
-        f"{list_url}/items?$expand=fields($select=Proyecto,{service.DESCRIPTION},Prioridad,{service.FUNNEL},{service.STATUS},{service.ASSIGNEES},{service.CREATION_DATE})": {"value": [{"id": "1"}], "@odata.nextLink": next_link},
+        f"{list_url}/items?$expand=fields($select=Title,Proyecto,{service.DESCRIPTION},Prioridad,{service.FUNNEL},{service.STATUS},{service.ASSIGNEES},{service.CREATION_DATE})": {"value": [{"id": "1"}], "@odata.nextLink": next_link},
         next_link: {"value": [{"id": "2"}]},
     }
     monkeypatch.setattr(repository, "graph_get_json", lambda url, token: responses[url])
@@ -61,7 +61,7 @@ def test_invalid_transitions_and_manipulated_inputs():
     current = service.form_values({})
     options = {service.PROJECT: {}, service.ASSIGNEES: {}}
     for submitted in (
-        {service.STATUS: "Finalizado"}, {service.FUNNEL: "Solicitado"},
+        {service.STATUS: "Finalizado"}, {service.FUNNEL: "Solicitado"}, {"Title": "Protegido"},
         {service.PROJECT: "99"}, {service.ASSIGNEES: ["99"]},
         {service.PLANNED: "2026-02-30"},
     ):
@@ -206,13 +206,13 @@ def test_list_separates_project_and_action_and_hides_single_page_pager(monkeypat
     assert result.count('aria-label="Abrir solicitud ') == 3
 
 
-def test_detail_context_uses_lookup_label_and_keeps_empty_statuses():
+def test_detail_context_uses_title_and_keeps_empty_statuses():
     from webapp.routers.solicitudes import _detail_context
 
-    context = _detail_context({"fields": {"ProyectoLookupId": "4", "Prioridad": "Alta"}}, {"Proyecto": {"4": "Proyecto de prueba"}})
-    assert context["detail_project"] == "Proyecto de prueba"
+    context = _detail_context({"fields": {"Title": "Solicitud real", "ProyectoLookupId": "4", "Prioridad": "Alta"}})
+    assert context["detail_title"] == "Solicitud real"
     assert context["detail_badges"] == (("Status funnel", None), ("Status Arquitectura", None), ("Prioridad", "Alta"))
-    assert _detail_context({"fields": {}}, {})["detail_project"] == ""
+    assert _detail_context({"fields": {"Proyecto": "Proyecto sin título"}})["detail_title"] == ""
 
 
 def test_individual_assignment_preserves_legacy_and_rejects_multiple_updates():
@@ -306,9 +306,28 @@ def test_list_prioritizes_description_without_truncating_search(monkeypatch):
     ])
     result = TestClient(app).post("/operaciones/solicitudes/data",
         data={"graph_token": "fake", "q": "término final"}).text
-    headers = ("Descripción resumida", "Proyecto", "Prioridad", "Status funnel", "Status Arquitectura", "Colaborador", "Acciones")
+    headers = ("Solicitud", "Proyecto", "Prioridad", "Status funnel", "Status Arquitectura", "Colaborador", "Acciones")
     positions = [result.index(f">{label}</th>") for label in headers]
     assert positions == sorted(positions)
-    assert description in result
+    assert "Solicitud #1" in result and description not in result
     assert 'style="width:39%"' in result
     assert 'href="/operaciones/solicitudes/1/editar"' in result
+
+
+def test_list_resolves_project_ids_once_without_overwriting_labels(monkeypatch):
+    base = f"{repository.GRAPH}/sites/example/lists/{repository.LIST_ID}"
+    monkeypatch.setattr(repository, "list_url", lambda token: base)
+    monkeypatch.setattr(repository, "graph_get_json", lambda url, token: {"value": [
+        {"id": "1", "fields": {"Title": "Solicitud A", "ProyectoLookupId": "4"}},
+        {"id": "2", "fields": {"Title": "Solicitud B", "ProyectoLookupId": "4"}},
+        {"id": "3", "fields": {"ProyectoLookupId": "5", "Proyecto": "Etiqueta directa"}},
+    ]})
+    calls = []
+    def catalog(token, fields, *, base):
+        calls.append(fields)
+        return {service.PROJECT: {"4": "Proyecto de prueba"}}
+    monkeypatch.setattr(repository, "lookup_options", catalog)
+    assert [row["fields"]["Proyecto"] for row in repository.read_requests("fake")] == [
+        "Proyecto de prueba", "Proyecto de prueba", "Etiqueta directa",
+    ]
+    assert calls == [(service.PROJECT,)]

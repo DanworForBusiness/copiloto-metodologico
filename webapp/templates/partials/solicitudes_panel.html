@@ -1,8 +1,8 @@
 <form id="solicitudes-filters" class="hc-profile-filters filter-toolbar-card" hx-post="/operaciones/solicitudes/data" hx-target="#solicitudes-panel" hx-disabled-elt="find button"
-      hx-indicator="#solicitudes-loading" data-dw-graph-token>
+      hx-indicator="#solicitudes-loading" hx-sync="this:replace" data-dw-graph-token>
     {% for key, label in filters.items() %}
     <div class="feedback-field feedback-field--auto"><label for="sol-filter-{{ loop.index }}">{{ label }}</label>
-      <select id="sol-filter-{{ loop.index }}" name="{{ key }}">
+      <select id="sol-filter-{{ loop.index }}" name="{{ key }}" hx-post="/operaciones/solicitudes/data" hx-trigger="change" hx-include="closest form">
         <option value="">Todos</option>
         {% for option in options[key] %}
         <option{% if selected[key] == option %} selected{% endif %}>{{ option }}</option>
@@ -10,8 +10,8 @@
       </select>
     </div>
     {% endfor %}
-    <div class="feedback-field feedback-field--wide"><label for="sol-q">Buscar</label><input id="sol-q" autocomplete="off" type="text" name="q" value="{{ query }}" placeholder="Proyecto o descripción…"></div>
-    <button type="submit" class="btn-primary">Aplicar</button>
+    <div class="feedback-field feedback-field--wide"><label for="sol-q">Buscar</label><input id="sol-q" autocomplete="off" type="text" name="q" value="{{ query }}" placeholder="Proyecto o descripción…" hx-post="/operaciones/solicitudes/data" hx-trigger="input changed delay:500ms" hx-include="closest form"></div>
+    <button type="button" class="whatsnew-filter__clear" hx-post="/operaciones/solicitudes/data" hx-params="none">✕ Limpiar</button>
 </form>
 <p id="solicitudes-loading" class="htmx-indicator section-analysis-loading" role="status">Cargando solicitudes…</p>
 <details class="dashboard-section" open><summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Requerimientos de Arquitectura</span>{% if not error %}<span class="dashboard-section__count">{{ count }} requerimiento{{ 's' if count != 1 }}</span>{% endif %}</summary><div class="dashboard-section__body">
@@ -25,10 +25,10 @@
     <colgroup>
       {% for width in (39, 15, 7, 10, 11, 12, 6) %}<col style="width:{{ width }}%">{% endfor %}
     </colgroup>
-    <thead><tr><th class="left">Descripción resumida</th><th class="left">Proyecto</th><th class="left">Prioridad</th><th class="left">Status funnel</th><th class="left">Status Arquitectura</th><th class="left">Colaborador</th><th class="center">Acciones</th></tr></thead>
+    <thead><tr><th class="left">Solicitud</th><th class="left">Proyecto</th><th class="left">Prioridad</th><th class="left">Status funnel</th><th class="left">Status Arquitectura</th><th class="left">Colaborador</th><th class="center">Acciones</th></tr></thead>
     <tbody>
       {% for row in rows %}{% set f = row.fields %}
-      <tr><td class="left"><span class="solicitudes-description">{{ plain_text(f.get(description)) or '—' }}</span></td><td class="left">{{ values(f.get('Proyecto')) | join(', ') or '—' }}</td>
+      <tr><td class="left"><span class="solicitudes-description">{{ (f.get('Title') or '') | trim or 'Solicitud #' ~ row.id }}</span></td><td class="left">{{ values(f.get('Proyecto')) | join(', ') or '—' }}</td>
       <td class="left">{{ f.get('Prioridad') or '—' }}</td><td class="left">{{ f.get(funnel) or '—' }}</td><td class="left">{{ f.get(status) or '—' }}</td>
       <td class="left">{{ values(f.get(assignees)) | join(', ') }}</td>
 <td class="center"><div class="dw-row-actions"><a class="table-action-btn chart-tooltip-anchor" href="/operaciones/solicitudes/{{ row.id }}/editar" aria-label="Abrir solicitud {{ row.id }}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Editar solicitud</p></span></a></div></td></tr>

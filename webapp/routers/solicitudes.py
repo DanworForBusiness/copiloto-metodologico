@@ -77,8 +77,8 @@ async def solicitudes_data(request: Request, graph_token: str = Form("")):
         "rows": matches[(page - 1) * 50:page * 50], "page": page, "pages": pages,
         "count": len(matches), "source_count": len(rows), "error": error, "query": query,
         "selected": selected, "filters": FILTERS, "options": options,
-        "description": service.DESCRIPTION, "status": service.STATUS, "funnel": service.FUNNEL,
-        "assignees": service.ASSIGNEES, "plain_text": service.plain_text, "values": service.values,
+        "status": service.STATUS, "funnel": service.FUNNEL,
+        "assignees": service.ASSIGNEES, "values": service.values,
     })
 
 
@@ -97,17 +97,14 @@ def solicitudes_edit(request: Request, item_id: str):
     return response
 
 
-def _detail_context(item, options):
+def _detail_context(item):
     if not item:
         return {}
     fields = item["fields"]
-    project = next(iter(service.values(fields.get(service.PROJECT))), "")
-    project_id = service.form_values(fields)[service.PROJECT]
-    project = project or options.get(service.PROJECT, {}).get(project_id, "")
     return {
         "detail_loaded": True,
         "refresh_hero": True,
-        "detail_project": service.plain_text(project),
+        "detail_title": (fields.get("Title") or "").strip(),
         "detail_badges": (
             ("Status funnel", fields.get(service.FUNNEL)),
             ("Status Arquitectura", fields.get(service.STATUS)),
@@ -123,7 +120,7 @@ def _edit_panel(request, item_id, *, item=None, options=None, error=""):
         "options": options or {}, "error": error,
         "etag": _etag(item) if item else "", "funnel": item["fields"].get(service.FUNNEL) if item else "",
         "destinations": service.allowed_destinations(values.get(service.STATUS)),
-        "fields": service, "original_fields": item["fields"] if item else {}, **_detail_context(item, options or {}),
+        "fields": service, "original_fields": item["fields"] if item else {}, **_detail_context(item),
     })
 
 
@@ -235,7 +232,7 @@ async def solicitudes_save(request: Request, item_id: str, graph_token: str = Fo
             outcome = "uncertain"
             return _feedback(request, item_id, "uncertain", "No pudimos confirmar el guardado. Consultá los valores vigentes antes de reintentar.")
         outcome = "confirmed"
-        return _feedback(request, item_id, "saved", "Guardado confirmado en SharePoint.", **_detail_context(updated, options))
+        return _feedback(request, item_id, "saved", "Guardado confirmado en SharePoint.", **_detail_context(updated))
     except (HTTPError, URLError, TimeoutError, ValueError, KeyError) as exc:
         return _feedback(request, item_id, "auth" if getattr(exc, "code", None) == 401 else "error", _edit_error(exc))
     finally:
