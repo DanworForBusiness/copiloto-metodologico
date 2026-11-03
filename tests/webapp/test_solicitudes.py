@@ -419,7 +419,7 @@ def test_sort_filters_then_paginates_and_keeps_actions_fixed(monkeypatch):
     assert 'data-draggable-columns-key="operaciones-solicitudes-v1"' in result
     assert 'data-resizable-columns-key="operaciones-solicitudes-v1"' in result
     assert '<th class="center" scope="col">Acciones</th>' in result
-    assert 'hx-params="sort,dir"' in result
+    assert 'hx-params="none"' in result
     assert 'name="sort" value="title"' in result
 
 
