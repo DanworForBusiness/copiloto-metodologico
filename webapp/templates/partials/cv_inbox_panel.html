@@ -93,11 +93,12 @@
               <col data-column-key="datos" style="width:22%">
               <col data-column-key="coincidencias" style="width:20%">
               <col data-column-key="estado">{# sin ancho: absorbe el espacio restante, así las columnas fijas (casilla y acciones) nunca fuerzan desplazamiento horizontal si hay lugar #}
-              {% if row_actions.count %}<col style="width:{{ row_actions.count * 32 + 12 }}px">{% endif %}{# 28px por ícono + 4px de separación (`.dw-row-actions`) #}
+              {% if row_actions.count %}<col style="width:{{ [row_actions.count * 32 + 12, 72] | max }}px">{% endif %}{# 28px por ícono + 4px de separación (`.dw-row-actions`), nunca menos que el rótulo «Acciones» (con un solo ícono el encabezado desbordaba y forzaba la barra horizontal) #}
             </colgroup>
             <thead><tr>
               <th class="center hc-select-col">{% if _selectable %}<input type="checkbox" aria-label="Seleccionar todos los CVs de la vista" @change="$root.querySelectorAll('[data-cvinbox-select]').forEach(b => b.checked = $event.target.checked)" data-cvinbox-select-all>{% endif %}</th>
-              {% for key, label in (('cv', 'CV'), ('datos', 'Datos propuestos'), ('coincidencias', 'Coincidencias en el Banco'), ('estado', 'Estado')) %}
+              {# En «Incorporados» la segunda columna muestra el candidato ya persistido en el Banco, no datos propuestos. #}
+              {% for key, label in (('cv', 'CV'), ('datos', 'Candidato' if vista == 'incorporados' else 'Datos propuestos'), ('coincidencias', 'Coincidencias en el Banco'), ('estado', 'Estado')) %}
               <th class="left dashboard-table-th--sortable" data-column-key="{{ key }}" hx-post="{{ _post }}" hx-target="#cvinbox-panel" hx-swap="outerHTML" data-dw-graph-token
                   hx-vals='{{ {"vista": vista, "orden": key, "dir": sort_state.next[key]} | tojson }}' aria-sort="{{ ('ascending' if sort_state.dir == 'asc' else 'descending') if sort_state.key == key else 'none' }}"
                   title="Ordenar por {{ label }}">{{ label }}{% if sort_state.key == key %} {{ sort_state.arrow[key] }}{% endif %}</th>

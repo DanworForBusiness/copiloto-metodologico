@@ -117,3 +117,30 @@ def test_tiles_filter_the_table_and_the_close_button_restores_it(world):
     assert "notas.txt" in filtered and "cv1.pdf" not in filtered and 'data-cvinbox-clear-filter' in filtered and "activity-kpi--clickable is-active" in filtered
     full = hc.post("/cchh/candidatos/importar/bandeja", data={"graph_token": TOKEN}).text
     assert "notas.txt" in full and "cv1.pdf" in full and "data-cvinbox-clear-filter" not in full
+
+
+def test_incorporated_rows_show_the_persisted_candidate_and_only_the_actions_that_apply(world):
+    """Vista «Incorporados»: el candidato persistido (sin datos propuestos vacíos), «Ver candidato» como ícono del Hub (no un enlace de texto) y sin lápiz ni papelera que parezcan editar o
+    borrar al candidato; en una vista mixta, las acciones de bandeja de una fila incorporada dejan su lugar vacío. Columna de acciones nunca más angosta que su rótulo."""
+    store, intake = world
+    intake.add("a1", "cv1.pdf", ANA)
+    intake.add("p1", "pablo.pdf", PABLO)
+    hc = client_as(HC_USER)
+    hc.post("/cchh/candidatos/importar/bandeja/analizar", data={"graph_token": TOKEN}, headers=ORIGIN)
+    row = next(r for r in inbox.overview(TOKEN)["rows"] if r["name"] == "cv1.pdf")
+    hc.post("/cchh/candidatos/importar/bandeja/aceptar", data={"graph_token": TOKEN, "sel": [f"{row['key']}|{row['fingerprint']}"]}, headers=ORIGIN)
+    done = next(r for r in inbox.overview(TOKEN)["rows"] if r["name"] == "cv1.pdf")
+    profile = profile_repository.get(done["profile_id"])
+    view = hc.post("/cchh/candidatos/importar/bandeja", data={"graph_token": TOKEN, "vista": "incorporados"}).text
+    assert "cv1.pdf" in view and "pablo.pdf" not in view
+    assert ">Candidato</th>" in view.replace("\n", "") or "Candidato</th>" in view
+    assert profile["email"] in view and "Candidato en el Banco" in view                                       # datos persistidos, no «—»
+    assert f'href="/cchh/candidatos/{done["profile_id"]}" class="table-action-btn chart-tooltip-anchor" aria-label="Ver ficha del candidato"' in view
+    assert ">Ver candidato</a>" not in view                                                                      # ya no es un enlace de texto
+    assert "data-cvinbox-review-toggle" not in view and "data-cvinbox-discard" not in view                      # ni lápiz ni papelera en una vista solo de incorporados
+    assert '<col style="width:72px">' in view                                                                    # una sola acción: el rótulo «Acciones» no desborda
+    mixed = hc.post("/cchh/candidatos/importar/bandeja", data={"graph_token": TOKEN, "vista": "todos"}).text
+    inc = mixed.split(f'data-cvinbox-row="{done["key"]}"', 1)[1].split("</tr>", 1)[0]
+    assert "aria-label=\"Ver ficha del candidato\"" in inc and "hc-inbox-slot" in inc
+    assert "data-cvinbox-review-toggle" not in inc and "data-cvinbox-discard" not in inc                        # su lugar queda vacío: nada que confunda con el candidato del Banco
+    assert "data-cvinbox-discard" in mixed                                                                       # las filas por resolver conservan sus acciones

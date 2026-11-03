@@ -994,6 +994,19 @@ def _inbox_sorted(rows: list[dict], state: dict) -> list[dict]:
     return sorted(filled, key=key, reverse=state["dir"] == "desc") + empty
 
 
+def _inbox_candidate(row: dict) -> dict:
+    """Candidato del Banco asociado a una fila incorporada (o en curso): nombre, email y teléfono persistidos. `available` False si el perfil ya no existe o fue dado de baja."""
+    from webapp.services import profile_repository
+    try:
+        profile = profile_repository.get(row["profile_id"])
+    except Exception:  # noqa: BLE001 — la vista nunca falla por esto: la fila se muestra sin los datos del candidato
+        profile = None
+    if not profile or profile.get("deleted_at"):
+        return {"profile_id": row["profile_id"], "available": False}
+    return {"profile_id": row["profile_id"], "available": True, "name": " ".join(p for p in (profile.get("first_name"), profile.get("last_name")) if p).strip(),
+            "email": profile.get("email") or "", "phone": profile.get("phone") or ""}
+
+
 def _inbox_panel(request: Request, graph_token: str, *, vista: str = "abiertos", sort: tuple[str, str] = ("", ""), paging: tuple[str, str] = ("", ""), filtro: str = "",
                  result: dict | None = None, open_key: str | None = None):
     # El paginador compartido (`partials/pager.html`, method='post') lleva página/tamaño y el estado de la vista en la URL; el token viaja en el cuerpo. El cuerpo manda si trae valor.
@@ -1026,9 +1039,12 @@ def _inbox_panel(request: Request, graph_token: str, *, vista: str = "abiertos",
             pager = pagination.paginate(rows, page=page, page_size=page_size, base_url="/cchh/candidatos/importar/bandeja",
                                         params={"vista": vista, "orden": sort_state["key"], "dir": sort_state["dir"], "filtro": filtro})
             total_rows, rows = pager["total"], pager["items"]
-            # Acciones por fila: cada ícono aparece en TODAS las filas (deshabilitado donde no aplica) si aplica al menos a una; si no aplica a ninguna, no se dibuja.
-            actions = {"original": any(r.get("web_url") for r in rows), "review": any(r["can_accept"] for r in rows), "retry": any(r["can_retry"] or r["can_retire"] for r in rows),
-                       "reopen": any(r["can_reopen"] for r in rows), "discard": any(r["can_dismiss"] for r in rows)}
+            # Fila incorporada (o en curso): muestra el candidato YA PERSISTIDO en el Banco (lectura local del repositorio, sin Graph) en lugar de datos propuestos vacíos.
+            rows = [{**r, "candidate": _inbox_candidate(r)} if r.get("profile_id") and r["status"] in (cv_inbox.INCORPORATED, cv_inbox.ACCEPTING) else r for r in rows]
+            # Acciones por fila: cada ícono aparece en TODAS las filas (deshabilitado donde no aplica) si aplica al menos a una; si no aplica a ninguna, no se dibuja. En una fila INCORPORADA
+            # las acciones de bandeja que no le corresponden (revisar, descartar…) dejan su lugar vacío: nunca un lápiz o una papelera que parezcan editar o borrar el candidato del Banco.
+            actions = {"candidate": any(r.get("candidate") for r in rows), "original": any(r.get("web_url") for r in rows), "review": any(r["can_accept"] for r in rows),
+                       "retry": any(r["can_retry"] or r["can_retire"] for r in rows), "reopen": any(r["can_reopen"] for r in rows), "discard": any(r["can_dismiss"] for r in rows)}
             actions["count"] = sum(1 for v in actions.values() if v is True)
             context["panel_state"].update({"page": pager["page"], "page_size": pager["page_size"]})
             context.update({"overview": overview, "rows": rows, "row_actions": actions, "pager": pager, "total_rows": total_rows})

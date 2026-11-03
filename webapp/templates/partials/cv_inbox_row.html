@@ -6,7 +6,12 @@
 <tr data-cvinbox-row="{{ r.key }}" data-status="{{ r.status }}">
   <td class="center hc-select-col">{% if r.batch_ok or r.can_dismiss %}<input type="checkbox" name="sel" value="{{ r.key }}|{{ r.fingerprint or '-' }}" form="cvinbox-batch" aria-label="Seleccionar {{ r.name }}" data-cvinbox-select{% if r.batch_ok %} data-ready{% endif %}>{% endif %}</td>
   <td class="left" data-label="CV"><div class="dw-idcell"><span class="dw-idcell__name">{{ r.name }}</span></div><span class="field-hint">{{ r.size_kb }} KB</span></td>
-  <td class="left" data-label="Datos propuestos">{% if r.fields %}
+  {% set c = r.candidate %}
+  <td class="left" data-label="{{ 'Candidato' if c else 'Datos propuestos' }}">{% if c %}
+      {% if c.available %}<strong>{{ c.name or 'Sin nombre' }}</strong>{% if c.email %}<br>{{ c.email }}{% endif %}{% if c.phone %}<br>{{ c.phone }}{% endif %}
+      <br><span class="field-hint" data-cvinbox-candidate>{{ 'Candidato en el Banco' if r.status == 'INCORPORATED' else 'Incorporación en curso' }}</span>
+      {% else %}<span class="field-hint" data-cvinbox-candidate>El candidato ya no está disponible en el Banco</span>{% endif %}
+    {% elif r.fields %}
       <strong>{{ (f.first_name ~ ' ' ~ f.last_name) | trim or 'Sin nombre' }}</strong>
       {% if f.email %}<br>{{ f.email }}{% endif %}{% if f.phone %}<br>{{ f.phone }}{% endif %}{% if f.profile_skills %}<br><span class="field-hint">{{ f.profile_skills }}</span>{% endif %}
       <br><span class="field-hint" data-cvinbox-evidence>{{ 'Revisado por Capital Humano' if r.field_source == 'review' else r.evidence.label }}</span>
@@ -16,30 +21,36 @@
     {% for p in r.peers %}<div class="field-hint">Misma persona que «{{ p.file }}» (en esta carpeta)</div>{% endfor %}
     {% if not r.matches and not r.peers %}<span class="field-hint">{{ 'Ninguna' if r.fields else '—' }}</span>{% endif %}</td>
   <td class="left" data-label="Estado"><span class="status-badge {{ r.badge }}" data-cvinbox-status>{{ r.label }}</span>
-    {% for t in r.reason_text %}<div class="field-hint">{{ t }}</div>{% endfor %}
-    {% if r.profile_id and r.status in ('INCORPORATED', 'ACCEPTING') %}<div><a href="/cchh/candidatos/{{ r.profile_id }}">Ver candidato</a></div>{% endif %}</td>
+    {% for t in r.reason_text %}<div class="field-hint">{{ t }}</div>{% endfor %}</td>
   {% if row_actions.count %}<td class="center hc-inbox-actions" data-label="Acciones">
     {# Íconos en orden fijo (`.table-action-btn`, como Candidatos): cada acción que aplica al menos a una fila de la vista aparece en TODAS (deshabilitada donde no aplica, `:disabled` del primitivo); la que no aplica a ninguna no se dibuja (`row_actions`, router). #}
+    {# Iconografía del Hub: ojo = ver la ficha del candidato (como Candidatos); enlace externo = abrir el archivo en SharePoint (como los documentos de la ficha).
+       En una fila incorporada, las acciones de bandeja que no le corresponden dejan su lugar vacío (`.hc-inbox-slot`): nunca parecen editar o borrar al candidato. #}
+    {% set _closed = r.status == 'INCORPORATED' %}
     <div class="dw-row-actions">
+      {% if row_actions.candidate %}
+      {% if c and c.available %}
+      <a href="/cchh/candidatos/{{ c.profile_id }}" class="table-action-btn chart-tooltip-anchor" aria-label="Ver ficha del candidato" data-cvinbox-candidate-link>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+        <span class="chart-tooltip" aria-hidden="true"><p>Ver candidato</p></span>
+      </a>
+      {% else %}<span class="table-action-btn hc-inbox-slot" aria-hidden="true"></span>{% endif %}
+      {% endif %}
       {% if row_actions.original %}
       {% if r.web_url %}
-      <a href="{{ r.web_url }}" target="_blank" rel="noopener noreferrer" class="table-action-btn chart-tooltip-anchor" aria-label="Ver CV original en SharePoint" data-cvinbox-original>
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
-        <span class="chart-tooltip" aria-hidden="true"><p>Ver CV original</p></span>
+      <a href="{{ r.web_url }}" target="_blank" rel="noopener noreferrer" class="table-action-btn chart-tooltip-anchor" aria-label="Abrir el CV original en SharePoint" data-cvinbox-original>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
+        <span class="chart-tooltip" aria-hidden="true"><p>Abrir CV original</p></span>
       </a>
-      {% else %}
-      <button type="button" class="table-action-btn" disabled aria-label="CV original no disponible">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
-      </button>
+      {% else %}<span class="table-action-btn hc-inbox-slot" aria-hidden="true"></span>{% endif %}
       {% endif %}
-      {% endif %}
-      {% if row_actions.review %}
+      {% if row_actions.review and _closed %}<span class="table-action-btn hc-inbox-slot" aria-hidden="true"></span>{% elif row_actions.review %}
       <button type="button" class="table-action-btn chart-tooltip-anchor" {% if r.can_accept %}@click="open = !open" :aria-expanded="open"{% else %}disabled{% endif %} aria-label="Revisar e incorporar" data-cvinbox-review-toggle>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
         {% if r.can_accept %}<span class="chart-tooltip" aria-hidden="true"><p>Revisar e incorporar</p></span>{% endif %}
       </button>
       {% endif %}
-      {% if row_actions.retry %}
+      {% if row_actions.retry and _closed and not r.can_retire %}<span class="table-action-btn hc-inbox-slot" aria-hidden="true"></span>{% elif row_actions.retry %}
       {% set _retry = 'reintentar' if r.can_retry else ('retirar' if r.can_retire else '') %}
       <button type="button" class="table-action-btn chart-tooltip-anchor" {% if _retry %}hx-post="{{ _act }}/{{ _retry }}" hx-target="#cvinbox-panel" hx-swap="outerHTML" hx-vals='{{ panel_state | tojson }}' hx-disabled-elt="this" data-hc-write-token data-cvinbox-{{ 'retry' if r.can_retry else 'retire' }}{% else %}disabled{% endif %}
               aria-label="{{ 'Reintentar la incorporación' if r.can_retry else ('Reintentar el retiro del archivo' if r.can_retire else 'Reintentar') }}">
@@ -47,14 +58,14 @@
         {% if _retry %}<span class="chart-tooltip" aria-hidden="true"><p>{{ 'Reintentar la incorporación' if r.can_retry else 'Reintentar el retiro del archivo' }}</p></span>{% endif %}
       </button>
       {% endif %}
-      {% if row_actions.reopen %}
+      {% if row_actions.reopen and _closed %}<span class="table-action-btn hc-inbox-slot" aria-hidden="true"></span>{% elif row_actions.reopen %}
       <button type="button" class="table-action-btn chart-tooltip-anchor" {% if r.can_reopen %}hx-post="{{ _act }}/reabrir" hx-target="#cvinbox-panel" hx-swap="outerHTML" hx-vals='{{ panel_state | tojson }}' data-dw-graph-token data-cvinbox-reopen{% else %}disabled{% endif %}
               aria-label="{{ 'Cancelar la incorporación' if r.status == 'ACCEPTING' else 'Volver a revisar' }}">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 2.6-6.4"/><path d="M3 3v6h6"/></svg>
         {% if r.can_reopen %}<span class="chart-tooltip" aria-hidden="true"><p>{{ 'Cancelar la incorporación' if r.status == 'ACCEPTING' else 'Volver a revisar' }}</p></span>{% endif %}
       </button>
       {% endif %}
-      {% if row_actions.discard %}
+      {% if row_actions.discard and _closed %}<span class="table-action-btn hc-inbox-slot" aria-hidden="true"></span>{% elif row_actions.discard %}
       {# Descarte: diálogo COMPARTIDO del Hub (`dwConfirmChoice`, base.html) con el motivo y la casilla desmarcada «Eliminar también el archivo original»; marcada, pide una SEGUNDA confirmación
          (human_capital_import.js). Sin casilla el archivo se mueve a «descartados» (recuperable). #}
       <button type="button" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" {% if r.can_dismiss %}hx-post="{{ _act }}/descartar" hx-trigger="confirmed" hx-target="#cvinbox-panel" hx-swap="outerHTML"
