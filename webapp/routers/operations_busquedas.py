@@ -50,10 +50,10 @@ _STORAGE_ERRORS = (
     busqueda_repository.BusquedaRemoteOutcomeUnknownError,
     busqueda_repository.BusquedaStorageError,
 )
-_MSG_STORAGE = "No pudimos guardar o leer la solicitud en este momento. Reintentá en unos minutos; si ya la enviaste, no se va a duplicar."
-_MSG_UNKNOWN_OUTCOME = "No pudimos confirmar si la solicitud quedó guardada. Reintentá el envío: se reconoce el mismo envío y no se duplica."
-_MSG_CONCURRENT = "La solicitud cambió desde que abriste la pantalla (por ejemplo, Capital Humano la revisó). Volvé a abrirla para ver su estado actual antes de modificarla."
-_MSG_SOURCE = "No pudimos leer las solicitudes en este momento. Reintentá en unos minutos."
+_MSG_STORAGE = "No pudimos guardar o leer la búsqueda en este momento. Reintentá en unos minutos; si ya la enviaste, no se va a duplicar."
+_MSG_UNKNOWN_OUTCOME = "No pudimos confirmar si la búsqueda quedó guardada. Reintentá el envío: se reconoce el mismo envío y no se duplica."
+_MSG_CONCURRENT = "La búsqueda cambió desde que abriste la pantalla (por ejemplo, Capital Humano la revisó). Volvé a abrirla para ver su estado actual antes de modificarla."
+_MSG_SOURCE = "No pudimos leer las búsquedas en este momento. Reintentá en unos minutos."
 
 # ---- Indicadores derivados del contrato de I1 (no son estados nuevos) ---------------------------------------------------------------------------------------------
 INDICADORES = {
@@ -70,13 +70,13 @@ BADGE_TONOS = {"nueva": "otro", "reenviada": "otro", "observada": "tentativo", "
 # Cabecera del detalle: MISMO badge que los informes del Catálogo (`.catalog-card__verdict--*`: plena = verde, buena = ámbar, parcial = naranja, neutra = gris).
 VEREDICTO_TONOS = {"nueva": "neutra", "reenviada": "neutra", "observada": "parcial", "en_gestion": "plena", "cancelada": "neutra", "cerrada": "neutra"}
 _OK_MESSAGES = {
-    "enviada": "Solicitud enviada a Capital Humano. Quedó registrada con estado «Enviada».",
-    "editada": "Cambios guardados y registrados en el historial. La solicitud conserva su estado.",
-    "reenviada": "Solicitud corregida y reenviada a Capital Humano.",
-    "cancelada": "Solicitud cancelada.",
-    "eliminada": "Solicitud eliminada.",
+    "enviada": "Búsqueda enviada a Capital Humano. Quedó registrada con estado «Enviada».",
+    "editada": "Cambios guardados y registrados en el historial. La búsqueda conserva su estado.",
+    "reenviada": "Búsqueda corregida y reenviada a Capital Humano.",
+    "cancelada": "Búsqueda cancelada.",
+    "eliminada": "Búsqueda eliminada.",
 }
-_MSG_NOT_DELETABLE = "Esta solicitud ya no se puede eliminar: Capital Humano la tomó en gestión o tiene un proceso asociado. Volvé a abrirla para ver su estado actual."
+_MSG_NOT_DELETABLE = "Esta búsqueda ya no se puede eliminar: Capital Humano la tomó en gestión o tiene un proceso asociado. Volvé a abrirla para ver su estado actual."
 
 DEDICACION_LABELS = {"horas_por_mes": "Horas por mes", "horas_por_semana": "Horas por semana", "porcentaje_jornada": "% de jornada"}
 TIPO_LABELS = {"interna": "Necesidad interna", "proyecto": "Proyecto"}
@@ -249,7 +249,7 @@ def _solicitud_or_404(busqueda_id: str, *, full_history: bool = False) -> dict:
     except _STORAGE_ERRORS:
         raise HTTPException(503, _MSG_SOURCE) from None
     if view is None:
-        raise HTTPException(404, "Solicitud no encontrada")
+        raise HTTPException(404, "Búsqueda no encontrada")
     return view
 
 
@@ -334,7 +334,7 @@ async def operations_busqueda_new_submit(request: Request):
         view = human_capital_service.create_solicitud(submission_id, values, actor)
     except busqueda_repository.BusquedaSubmissionConflictError:
         return _again("", 409, fresh_id=True, warning="Este envío ya había sido registrado con otro contenido. Revisá «Búsquedas» antes de reenviar: "
-                                                     "lo que enviás ahora se registra como una solicitud nueva.")
+                                                     "lo que enviás ahora se registra como una búsqueda nueva.")
     except busqueda_repository.BusquedaInvalidTransitionError:
         return _again(_MSG_CONCURRENT, 409)
     except busqueda_repository.BusquedaRemoteOutcomeUnknownError:
@@ -442,7 +442,7 @@ async def operations_busqueda_edit_submit(request: Request, busqueda_id: str):
             human_capital_service.edit_solicitud(busqueda_id, revision, values, actor)
             ok = "editada"
     except busqueda_repository.BusquedaNotFoundError:
-        raise HTTPException(404, "Solicitud no encontrada") from None
+        raise HTTPException(404, "Búsqueda no encontrada") from None
     except busqueda_repository.BusquedaConcurrentModificationError:
         return _again(_MSG_CONCURRENT, 409)
     except (busqueda_repository.BusquedaInvalidTransitionError, busqueda_repository.BusquedaSubmissionConflictError):
@@ -467,7 +467,7 @@ async def operations_busqueda_delete(request: Request, busqueda_id: str):
     try:
         human_capital_service.delete_solicitud(busqueda_id, revision, actor)
     except busqueda_repository.BusquedaNotFoundError:
-        raise HTTPException(404, "Solicitud no encontrada") from None
+        raise HTTPException(404, "Búsqueda no encontrada") from None
     except busqueda_repository.BusquedaConcurrentModificationError:
         return _render_detail(request, user, _solicitud_or_404(busqueda_id), 409, error=_MSG_CONCURRENT)
     except busqueda_repository.BusquedaInvalidTransitionError:
@@ -491,7 +491,7 @@ async def operations_busqueda_cancel(request: Request, busqueda_id: str):
     try:
         human_capital_service.cancel_solicitud(busqueda_id, revision, actor, motivo)
     except busqueda_repository.BusquedaNotFoundError:
-        raise HTTPException(404, "Solicitud no encontrada") from None
+        raise HTTPException(404, "Búsqueda no encontrada") from None
     except (busqueda_repository.BusquedaConcurrentModificationError, busqueda_repository.BusquedaInvalidTransitionError):
         return _render_detail(request, user, view, 409, error=_MSG_CONCURRENT)
     except busqueda_repository.BusquedaRemoteOutcomeUnknownError:

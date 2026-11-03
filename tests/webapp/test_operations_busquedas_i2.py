@@ -177,8 +177,8 @@ def test_new_form_has_a_server_generated_submission_id_and_the_reg_ch_01_structu
     assert "horas_por_dia" not in html and "Indistinto" in html
 
 
-@pytest.mark.parametrize("mode, busy, label", [("nueva", "Enviando solicitud…", "Enviar a Capital Humano"), ("editar", "Guardando cambios…", "Guardar cambios"),
-                                               ("corregir", "Reenviando solicitud…", "Corregir y reenviar a Capital Humano")])
+@pytest.mark.parametrize("mode, busy, label", [("nueva", "Enviando búsqueda…", "Enviar a Capital Humano"), ("editar", "Guardando cambios…", "Guardar cambios"),
+                                               ("corregir", "Reenviando búsqueda…", "Corregir y reenviar a Capital Humano")])
 def test_submit_buttons_use_the_hub_integrated_loading_pattern(mode, busy, label):
     if mode != "nueva":
         to_state("observada" if mode == "corregir" else "enviada")
@@ -190,7 +190,7 @@ def test_submit_buttons_use_the_hub_integrated_loading_pattern(mode, busy, label
 def test_the_cancel_dialog_uses_the_same_loading_pattern_and_the_script_only_toggles_the_hub_class():
     send()
     html = text(ops().get(f"{BASE}/{SID}"))
-    assert "asr-generate__spinner" in html and "Cancelando solicitud…" in html
+    assert "asr-generate__spinner" in html and "Cancelando búsqueda…" in html
     js = ops().get("/static/operations_busquedas.js").text
     assert "htmx-request" in js and 'opsbBusy === "true"' in js and "textContent" not in js            # no pinta textos ni estilos propios; el éxito lo confirma el servidor con la redirección
 
@@ -220,7 +220,7 @@ def test_valid_creation_persists_through_i1_and_redirects_with_a_visible_confirm
     assert d["requerimiento"]["nombre_puesto"] == "Consultor SAP FI" and d["requerimiento"]["seniority"] == ["SSR", "SR"]
     assert d["fecha_apertura"] == repo._business_today() and len(files()) == 1
     page = c.get(r.headers["location"])
-    assert page.status_code == 200 and "Solicitud enviada a Capital Humano" in page.text and "Consultor SAP FI" in page.text
+    assert page.status_code == 200 and "Búsqueda enviada a Capital Humano" in page.text and "Consultor SAP FI" in page.text
 
 
 def test_the_opening_date_is_assigned_by_the_system_and_a_client_supplied_value_is_ignored():
@@ -383,7 +383,7 @@ def _make_all_states():
 
 def test_list_empty_state():
     html = ops().get(BASE).text
-    assert 'data-empty-kind="dataset_empty"' in html and "Sin solicitudes" in html and "Todavía no enviaste ninguna búsqueda a Capital Humano." in html and "<table" not in html
+    assert 'data-empty-kind="dataset_empty"' in html and "Sin búsquedas" in html and "Todavía no enviaste ninguna búsqueda a Capital Humano." in html and "<table" not in html
     assert "Creá la primera" not in html and 'no_matches' not in html and "No se encontraron" not in html           # no se mezcla con el estado «sin resultados del filtro»
     # DOS accesos de alta con el MISMO destino: el superior (sin cambios) y el del estado vacío, en el FORMATO de los estados vacíos de CCHH (ícono «+» `.table-action-btn` + tooltip)
     top = re.findall(r'<a href="([^"]+)" class="btn-primary">\+ Nueva búsqueda</a>', html)
@@ -460,7 +460,7 @@ def test_list_is_ordered_by_planned_start_date_descending_and_reports_totals():
     send(SID2, nombre_puesto="Tardía", fecha_inicio_prevista="2027-03-15")
     send(SID3, nombre_puesto="Intermedia", fecha_inicio_prevista="2026-12-20")
     html = ops().get(BASE).text
-    assert html.index("Tardía") < html.index("Intermedia") < html.index("Temprana") and "3 solicitudes" in html
+    assert html.index("Tardía") < html.index("Intermedia") < html.index("Temprana") and "3 búsquedas" in html
 
 
 def test_list_survives_a_storage_failure(monkeypatch):
@@ -483,10 +483,10 @@ def test_the_list_is_paginated_with_the_shared_pager_and_keeps_the_filters():
         send(str(uuid.uuid4()), nombre_puesto=f"Perfil {i:02d}")
     c = ops()
     page1 = c.get(BASE).text
-    assert len(re.findall(r'data-solicitud-id=', page1)) == 50 and "52 solicitudes" in page1 and 'class="activity-pager"' in page1
+    assert len(re.findall(r'data-solicitud-id=', page1)) == 50 and "52 búsquedas" in page1 and 'class="activity-pager"' in page1
     page2 = c.get(BASE, params={"page": "2", "page_size": "50"}, headers={"HX-Request": "true"}).text
-    assert len(re.findall(r'data-solicitud-id=', page2)) == 2 and "52 solicitudes" in page2
-    assert "10 solicitudes" in c.get(BASE, params={"q": "Perfil 0", "estado": "nueva"}).text          # filtro + búsqueda antes de paginar: el contador es el total FILTRADO
+    assert len(re.findall(r'data-solicitud-id=', page2)) == 2 and "52 búsquedas" in page2
+    assert "10 búsquedas" in c.get(BASE, params={"q": "Perfil 0", "estado": "nueva"}).text          # filtro + búsqueda antes de paginar: el contador es el total FILTRADO
     kept = c.get(BASE, params={"q": "Perfil", "estado": "nueva"}).text
     assert re.search(r'hx-get="[^"]*page=2[^"]*"', kept) and all("q=Perfil" in u and "estado=nueva" in u for u in re.findall(r'hx-get="([^"]*page=2[^"]*)"', kept))
 
@@ -514,7 +514,7 @@ def test_a_taken_and_vigente_request_stays_editable_with_a_read_only_pipeline_an
     to_state("en_gestion")
     html = ops().get(f"{BASE}/{SID}").text
     assert "data-vigente-en-gestion" in html and f'href="{BASE}/{SID}/editar"' in html and 'data-indicador="en_gestion"' in html
-    assert "opsb-cancel-dialog" not in html and "opsb-delete-dialog" not in html and "Cancelar solicitud" not in html and "Eliminar solicitud" not in html
+    assert "opsb-cancel-dialog" not in html and "opsb-delete-dialog" not in html and "Cancelar búsqueda" not in html and "Eliminar búsqueda" not in html
     assert 'data-pipeline-mode="solo-lectura"' in html and "busqueda-board" in html and "busqueda-views" in html                    # botonera + tablero (ciclo), solo lectura
     for action in ("busqueda-add-dialog", "busqueda-close-dialog", "/cchh/busquedas", 'name="etapa"', "Contactar", "Quitar del proceso", "Agregar candidato"):
         assert action not in html, action
@@ -527,7 +527,7 @@ def test_non_editable_states_are_read_only_in_the_detail(estado):
     to_state(estado)
     html = ops().get(f"{BASE}/{SID}").text
     assert "data-readonly" in html and "solo lectura" in html
-    for forbidden in ("/editar", ">Editar<", "Corregir y reenviar", "opsb-cancel-dialog", "Cancelar solicitud", "/cancelar"):
+    for forbidden in ("/editar", ">Editar<", "Corregir y reenviar", "opsb-cancel-dialog", "Cancelar búsqueda", "/cancelar"):
         assert forbidden not in html, forbidden
     assert CCHH_EMAIL not in html
 
@@ -604,7 +604,7 @@ def test_correcting_an_observed_request_resubmits_it_as_enviada_with_a_visible_r
     assert d["solicitud"]["estado"] == "enviada" and d["solicitud"]["observacion"] is None and svc.get_solicitud_view(SID)["reenviada"] is True
     assert [h["transicion"] for h in d["solicitud"]["historial"]] == ["enviar", "observar", "reenviar"]
     page = c.get(r.headers["location"]).text
-    assert "Solicitud corregida y reenviada" in page and 'data-indicador="reenviada"' in page and "Falta el proyecto" in page      # la observación queda en el historial
+    assert "Búsqueda corregida y reenviada" in page and 'data-indicador="reenviada"' in page and "Falta el proyecto" in page      # la observación queda en el historial
 
 
 def test_editing_a_taken_vigente_request_is_allowed_and_leaves_actor_and_fields_in_the_history():
@@ -695,7 +695,7 @@ def test_cancelling_enviada_or_observada_closes_the_request_with_an_optional_rea
     assert d["solicitud"]["estado"] == "cancelada" and d["estado"] == "cerrado" and d["fecha_cierre"] == repo._business_today()
     assert d["solicitud"]["motivo_cancelacion"] == "Ya no se necesita" and d["solicitud"]["historial"][-1]["actor"] == OPS_B
     page = c.get(r.headers["location"]).text
-    assert "Solicitud cancelada" in page and "Ya no se necesita" in page and 'data-indicador="cancelada"' in page and "/editar" not in page
+    assert "Búsqueda cancelada" in page and "Ya no se necesita" in page and 'data-indicador="cancelada"' in page and "/editar" not in page
 
 
 def test_the_cancellation_reason_is_optional_but_the_trace_is_not():
