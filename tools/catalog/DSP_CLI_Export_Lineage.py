@@ -70,6 +70,28 @@ class capture_output:
 
 EXTRACTOR_VERSION = "2.2"
 
+# Task Chains: pasos sobre Remote Tables reconocidos por ESTRUCTURA (`nodes[].taskIdentifier`). Solo pares verificados en una definición real
+# (Contreras DEV · TC_SSF_Snapshot: 23 pasos REMOTE_TABLES / REPLICATE). Declaran una estrategia de replicación; nunca su estado operativo.
+TASK_CHAIN_SCAN_VERSION = "task-chain-scan/v1"
+REMOTE_TABLE_STEP_ACTIVITIES = frozenset({("REMOTE_TABLES", "REPLICATE")})
+TC_SCAN_DISABLED, TC_SCAN_NOT_RUN, TC_SCAN_NO_CANDIDATES, TC_SCAN_SCANNED = "DISABLED", "NOT_RUN", "NO_CANDIDATES", "SCANNED"
+
+
+def task_chain_steps(data: Any) -> list[dict[str, Any]]:
+    """Pasos TASK de una definición de Task Chain (`taskchains.<TC>.nodes[].taskIdentifier`), tal cual los declara el JSON."""
+    out: list[dict[str, Any]] = []
+    chains = data.get("taskchains") if isinstance(data, dict) else None
+    for tc_name, body in (chains.items() if isinstance(chains, dict) else ()):
+        for node in (body.get("nodes") if isinstance(body, dict) and isinstance(body.get("nodes"), list) else ()):
+            if not isinstance(node, dict) or node.get("type") != "TASK":
+                continue
+            ti = node.get("taskIdentifier")
+            if not isinstance(ti, dict) or not isinstance(ti.get("objectId"), str):
+                continue
+            out.append({"taskChain": str(tc_name), "nodeId": node.get("id"), "applicationId": str(ti.get("applicationId") or ""),
+                        "activity": str(ti.get("activity") or ""), "objectId": ti["objectId"]})
+    return out
+
 # Regla CANÓNICA, a nivel de nombre, de "¿el target de un flow produce la hoja local?". Es un ESPEJO DELIBERADO de
 # ``tools.catalog.modeling_assessment.readers.canonical_target_match`` (la regla del resolver de procedencia): el paquete
 # ``modeling_assessment`` está aislado del legacy por invariantes de frontera (R-I2/R-I3), así que el extractor NO puede
@@ -850,6 +872,8 @@ class LineageExporter:
         self.external_sources: set[str] = set()
         self.read_cache: dict[tuple[str, str], dict[str, Any] | None] = {}
         self.failures: list[dict[str, Any]] = []     # fallos de lectura/listado (códigos estables, sin texto crudo del CLI)
+        # Cobertura REAL del escaneo de Task Chains (manifiesto `taskChainScan`): distingue «se miró y no hay» de «no se miró».
+        self.task_chain_scan: dict[str, Any] = {"version": TASK_CHAIN_SCAN_VERSION, "state": TC_SCAN_DISABLED}
 
     def ensure_inventory(self, object_type: str) -> set[str]:
         if object_type in self.inventory:
@@ -1248,6 +1272,7 @@ class LineageExporter:
         if "task-chains" not in self.effective_features:
             _say("\nTask Chains: SKIP - feature deshabilitada.")
             return
+        self.task_chain_scan = {"version": TASK_CHAIN_SCAN_VERSION, "state": TC_SCAN_NOT_RUN}
         _say("\n==========================================")
         _say("BUSCANDO TASK CHAINS")
         _say("==========================================")
@@ -1255,28 +1280,69 @@ class LineageExporter:
         operational_names = {
             n.technical_name for n in self.nodes.values() if n.object_type in PRODUCER_TYPES
         }
-        if not operational_names:
-            _say("SKIP - no hay productores operativos en el linaje")
+        remote_tables = {n.technical_name for n in self.nodes.values() if n.object_type == "remote-tables"}
+        if not operational_names and not remote_tables:
+            self.task_chain_scan = {**self.task_chain_scan, "state": TC_SCAN_NO_CANDIDATES}
+            _say("SKIP - no hay productores operativos ni Remote Tables en el linaje")
             return
+        failures_before = len(self.failures)
         tc_names = sorted(self.ensure_inventory("task-chains"))
+        inventory_complete = not any(f["kind"] == "inventory" and f["object_type"] == "task-chains" for f in self.failures)
+        read_failures: list[str] = []
+        remote_steps: list[dict[str, Any]] = []
+        unrecognized_steps: list[dict[str, Any]] = []
         matches = 0
         for i, tc_name in enumerate(tc_names, start=1):
             _say(f"\n[TC {i}/{len(tc_names)}] {tc_name}")
             data = self.safe_read("task-chains", tc_name)
             if data is None:
                 _say("ERROR")
+                read_failures.append(tc_name)
                 continue
+            # Replication / Data / Transformation Flows: criterio HISTÓRICO sin cambios (coincidencia exacta de nombre en la definición).
             refs = [name for name in operational_names if self._contains_exact_string(data, name)]
-            if not refs:
+            # Remote Tables: SOLO pasos estructurales cuyo `objectId` es EXACTAMENTE una Remote Table del linaje y cuyo
+            # (applicationId, activity) está verificado; un nombre en etiquetas u otros campos nunca crea la relación.
+            steps = [s for s in task_chain_steps(data) if s["objectId"] in remote_tables]
+            recognized = [s for s in steps if (s["applicationId"], s["activity"]) in REMOTE_TABLE_STEP_ACTIVITIES]
+            unrecognized_steps.extend(s for s in steps if (s["applicationId"], s["activity"]) not in REMOTE_TABLE_STEP_ACTIVITIES)
+            if not refs and not recognized:
                 _say("SKIP - sin referencia al linaje")
                 continue
             matches += 1
-            _say(f"OK - referencias: {len(refs)}")
-            self.add_node("task-chains", tc_name)
+            _say(f"OK - referencias: {len(refs) + len(recognized)}")
+            # SEPARACIÓN DE EVIDENCIAS. Las relaciones con flujos son evidencia del POOL (nodo + arista `ORCHESTRATES`, comportamiento histórico, sujetas
+            # a la compuerta de completitud de la publicación). Los pasos sobre Remote Tables son evidencia DESCRIPTIVA DEL CATÁLOGO: viven SOLO en
+            # `taskChainScan.remoteTableSteps` (sin nodo ni arista): no entran al pool (su JSON mencionaría objetos de la clausura y cambiaría la firma
+            # de dependencias de los assessments) ni condicionan la publicación del modelo.
+            if refs:
+                self.add_node("task-chains", tc_name)
+            label = ((data.get("taskchains") or {}).get(tc_name) or {}).get("@EndUserText.label") if isinstance(data.get("taskchains"), dict) else None
             for ref in refs:
                 ref_type = next((t for t in PRODUCER_TYPES if (t, ref) in self.nodes), "unknown")
                 _say(f"  -> {ref_type}: {ref}")
                 self.add_edge("task-chains", tc_name, "ORCHESTRATES", ref_type, ref)
+            for s in recognized:
+                s["taskChainLabel"] = str(label) if label else None
+                _say(f"  -> remote-tables: {s['objectId']} ({s['applicationId']} / {s['activity']})")
+                remote_steps.append(s)
+        self.task_chain_scan = {
+            **self.task_chain_scan,
+            "state": TC_SCAN_SCANNED,
+            "inventoryComplete": inventory_complete,
+            "chainsListed": len(tc_names),
+            "chainsRead": len(tc_names) - len(read_failures),
+            "readFailures": sorted(read_failures),
+            "remoteTables": sorted(remote_tables),
+            "remoteTableSteps": sorted(remote_steps, key=lambda s: (s["objectId"], s["taskChain"], str(s["nodeId"]))),
+            "unrecognizedRemoteTableSteps": sorted(unrecognized_steps, key=lambda s: (s["objectId"], s["taskChain"], str(s["nodeId"]))),
+        }
+        if not operational_names:
+            # Escaneo SOLO por Remote Tables: sus fallas de listado/lectura no bloquean la publicación del modelo (evidencia descriptiva); quedan registradas
+            # en `taskChainScan` y el Catálogo las muestra como NOT_ASSESSED. Con flujos en el linaje rige el criterio histórico (bloquean).
+            own = [f for f in self.failures[failures_before:] if f.get("object_type") == "task-chains"]
+            self.failures[failures_before:] = [f for f in self.failures[failures_before:] if f.get("object_type") != "task-chains"]
+            self.task_chain_scan["nonBlockingFailures"] = sorted({f["code"] for f in own})
         _say("\n------------------------------------------")
         _say(f"Task Chains relacionadas: {matches}/{len(tc_names)}")
         _say(f"TASK CHAINS terminadas en {time.perf_counter() - started:.1f}s")
@@ -1599,6 +1665,7 @@ def _write_manifest_v2(
             )
         ],
         "externalSources": sorted(exporter.external_sources),
+        "taskChainScan": exporter.task_chain_scan,
         "cleanup": {
             "deletedStaleObjects": deleted_stale,
             "retainedSharedObjects": retained_shared,
@@ -1982,6 +2049,7 @@ def _apply_locked(req, exporter, *, base, txn, op_id, stages, planned, planned_s
                     for n in sorted(exporter.nodes.values(), key=lambda n: (n.object_type, n.technical_name)) if (n.object_type, n.technical_name) in planned_sha],
         "edges": [asdict(e) for e in sorted(exporter.edges, key=lambda e: (e.source_type, e.source_name, e.relation, e.target_type, e.target_name))],
         "externalSources": sorted(exporter.external_sources),
+        "taskChainScan": exporter.task_chain_scan,
         "cleanup": {"deletedStaleObjects": len(deletable), "retainedSharedObjects": len(retained_shared)},
         **({"pendingCleanup": [{"object_type": t, "technical_name": n} for t, n in pending_next]} if pending_next else {}),
     })

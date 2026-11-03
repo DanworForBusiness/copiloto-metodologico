@@ -2898,6 +2898,8 @@ def _catalog_flow_view(entry, show_assoc: bool | None = None, pack: str = "", fo
     )
     # «Orquestación de ingesta» (colapsable bajo «Campos») SOLO en tablas locales de capa Ingesta: relaciones del manifiesto del CLI, detalle de los JSON técnicos.
     orch_of = {slug_of[n]: n for n in shown_order if (autos.get(n) or {}).get("capa") == "Ingesta" and (autos.get(n) or {}).get("artefacto_tecnico") == "Tabla local"}
+    # Remote Tables: estrategia de replicación DECLARADA (paso de Task Chain reconocido por estructura en el export), nunca el estado operativo.
+    rep_of = {slug_of[n]: n for n in shown_order if (autos.get(n) or {}).get("artefacto_tecnico") == "Tabla remota"}
 
     def _orch_cds_link(obj: str) -> str:
         obj = catalog_cds_docs.resolve(_catalog_apis_dir(), obj)
@@ -2908,6 +2910,11 @@ def _catalog_flow_view(entry, show_assoc: bool | None = None, pack: str = "", fo
 
     def _fold(s):
         body = collapse_field_tables(s.html)
+        remote = rep_of.get(s.slug)
+        if remote is not None:
+            rep = catalog_ingestion_orchestration.replication_for(entry.cliente, remote)
+            block = catalog_ingestion_orchestration.render_replication_html(rep, f"orquestacion-{s.slug}", diagram=_catalog_lineage_svg)
+            return dataclasses.replace(s, html=catalog_ingestion_orchestration.inject_after_fields(body, block))
         name = orch_of.get(s.slug)
         if name is None:
             return dataclasses.replace(s, html=body)

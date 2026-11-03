@@ -34,6 +34,10 @@ log = logging.getLogger("danwor.catalog_ingestion_orchestration")
 
 ESTABLISHED, NO_PRODUCER_FOUND, NOT_EVALUATED = "ESTABLISHED", "NO_PRODUCER_FOUND", "NOT_EVALUATED"
 CONFIRMED, NOT_FOUND_IN_EXPORT = "CONFIRMED", "NOT_FOUND_IN_EXPORT"
+# Remote Tables — estrategia de replicación declarada: OBSERVED (una Task Chain del export la replica) · NOT_OBSERVED (el escaneo de Task Chains del Space fue COMPLETO
+# y ninguna la replica) · NOT_ASSESSED (no hay manifiesto, el escaneo no corrió o fue incompleto: nunca se dice «sin replicación»).
+OBSERVED, NOT_OBSERVED, NOT_ASSESSED = "OBSERVED", "NOT_OBSERVED", "NOT_ASSESSED"
+REPLICATE_ACTIVITY = "REMOTE_TABLES / REPLICATE"
 BASE, DELTA_SHADOW, OTHER, UNKNOWN = "BASE", "DELTA_SHADOW", "OTHER", "UNKNOWN"
 MAX_CHAIN_DEPTH = 8
 
@@ -71,11 +75,23 @@ class IngestionOrchestration:
     note: str | None = None
 
 
+@dataclass(frozen=True)
+class RemoteReplication:
+    """Estrategia de replicación DECLARADA de una Remote Table (paso de Task Chain `REMOTE_TABLES / REPLICATE`, reconocido por estructura en el export).
+    Nunca es el estado operativo («Replicated (Snapshot)») ni el resultado de una ejecución."""
+    entity: str
+    state: str                      # OBSERVED | NOT_OBSERVED | NOT_ASSESSED
+    chains: tuple[Chain, ...] = ()
+    note: str | None = None
+
+
 @dataclass
 class _Manifest:
     objects: set = field(default_factory=set)
     edges: set = field(default_factory=set)         # (relation, source_type, source_name, target_type, target_name)
     scanned_chains: bool = False
+    chain_scan: dict | None = None                  # `taskChainScan` del exportador (cobertura REAL del escaneo); None en manifiestos anteriores
+    created: str = ""                               # `createdAt` (ISO UTC): ordena las extracciones de una misma tabla
 
 
 _lock = threading.Lock()
@@ -101,6 +117,9 @@ def _parse_manifest(data: dict) -> _Manifest:
     # ¿se escanearon las Task Chains? `effectiveFeatures` lo prueba (manifiestos recientes); en los anteriores, solo una arista `ORCHESTRATES` en ese manifiesto.
     feats = data.get("effectiveFeatures")
     m.scanned_chains = ("task-chains" in feats) if isinstance(feats, list) else any(e[0] == _ORCHESTRATES for e in m.edges)
+    scan = data.get("taskChainScan")
+    m.chain_scan = scan if isinstance(scan, dict) else None
+    m.created = str(data.get("createdAt") or "")
     return m
 
 
@@ -240,6 +259,128 @@ def _orchestration(client: str, entity: str, delta: dict) -> IngestionOrchestrat
             connection=(sysd.get("connectionId") or (conns[0] if len(conns) == 1 else None)), connection_type=sysd.get("connectionType"), container=sysd.get("container"),
             chains=tuple(chains), chains_state=CONFIRMED if chains else (NOT_FOUND_IN_EXPORT if scanned else NOT_EVALUATED)))
     return IngestionOrchestration(entity, ESTABLISHED, tuple(producers))
+
+
+# ───────────────────────────── Remote Tables: estrategia de replicación declarada ─────────────────────────────
+def _scan_complete_for(scan: dict | None, entity: str) -> bool:
+    """El escaneo de Task Chains de ESE manifiesto cubrió a ``entity`` sin huecos: corrió, listó el inventario completo, leyó todas las cadenas y la tabla era candidata."""
+    return (isinstance(scan, dict) and scan.get("state") == "SCANNED" and scan.get("inventoryComplete") is True and not scan.get("readFailures")
+            and entity in (scan.get("remoteTables") or ()))
+
+
+def replication_for(client: str, entity: str) -> RemoteReplication:
+    """Estrategia de replicación declarada de la Remote Table ``entity``. Jamás lanza: ante una falla, NOT_ASSESSED."""
+    try:
+        return _replication(client, entity)
+    except Exception:                                         # noqa: BLE001 — presentación: nunca rompe el detalle del flujo
+        log.exception("catalog_ingestion_orchestration: falló la replicación de %s/%s", client, entity)
+        return RemoteReplication(entity, NOT_ASSESSED, note="No se pudo evaluar la orquestación de esta tabla.")
+
+
+def _replication(client: str, entity: str) -> RemoteReplication:
+    mans = _manifests(client)
+    covering = [m for m in mans if ("remote-tables", entity) in m.objects]
+    if not covering:
+        return RemoteReplication(entity, NOT_ASSESSED, note="Ningún manifiesto de linaje del CLI cubre esta Remote Table: la orquestación no se evaluó.")
+    # Cobertura EFECTIVA: el estado sale de la extracción MÁS RECIENTE que cubre la tabla (nunca de la unión con exportes anteriores). Si una cadena
+    # se eliminó o dejó de replicarla, un manifiesto viejo de otro modelo no la mantiene como observada.
+    latest = max(covering, key=lambda m: m.created)
+    covering = [latest]
+    all_edges = set(latest.edges)
+    # Los pasos sobre Remote Tables son evidencia DESCRIPTIVA del Catálogo: el exportador los registra SOLO en `taskChainScan.remoteTableSteps` (sin nodo ni
+    # arista del pool) y únicamente con el par verificado; acá se vuelve a exigir ese par y la igualdad exacta del objeto.
+    steps = [s for s in ((latest.chain_scan or {}).get("remoteTableSteps") or ()) if isinstance(s, dict) and s.get("objectId") == entity
+             and f"{s.get('applicationId')} / {s.get('activity')}" == REPLICATE_ACTIVITY and s.get("taskChain")]
+    direct = sorted({str(s["taskChain"]) for s in steps})
+    if direct:
+        _rf, tc_json = _flow_json(client)
+        parents: dict[str, set] = {}
+        for rel, st, sn, tt, tn in all_edges:
+            if rel == _ORCHESTRATES and st == "task-chains" and tt == "task-chains":
+                parents.setdefault(tn, set()).add(sn)
+        # La etiqueta sale del JSON técnico si la cadena está en el pool o, si solo replica Remote Tables (no se adquiere al pool), del paso registrado en el manifiesto.
+        step_labels = {s.get("taskChain"): s.get("taskChainLabel") for s in steps if s.get("taskChainLabel")}
+        chains = []
+        for tc in direct:
+            label = ((tc_json.get(tc) or {}).get("@EndUserText.label")) or step_labels.get(tc) or None
+            for path in _chain_paths(tc, parents):
+                chains.append(Chain(tc, str(label) if label else None, path))
+        return RemoteReplication(entity, OBSERVED, tuple(chains))
+    if any(_scan_complete_for(m.chain_scan, entity) for m in covering):
+        return RemoteReplication(entity, NOT_OBSERVED)
+    scans = [m.chain_scan for m in covering if m.chain_scan]
+    if not scans:
+        note = "El export de este modelo no registró la cobertura del escaneo de Task Chains: la orquestación no se evaluó."
+    elif any(s.get("state") == "SCANNED" for s in scans):
+        note = "La lectura de Task Chains del export fue incompleta (inventario o definiciones sin leer): la orquestación no se evaluó."
+    else:
+        note = "El export de este modelo no incluyó Task Chains: la orquestación no se evaluó."
+    return RemoteReplication(entity, NOT_ASSESSED, note=note)
+
+
+_SCOPE_NOTE = ("Es una estrategia de replicación declarada en el export. No informa el estado operativo de la tabla (por ejemplo «Replicated (Snapshot)») "
+               "ni el resultado de las ejecuciones.")
+_NOT_OBSERVED_NOTE = ("No observada: ninguna Task Chain del Space ejecuta un paso de replicación sobre esta tabla (lectura completa del export). "
+                      "La replicación también puede programarse directamente sobre la Remote Table, y eso no se evaluó: no se concluye que la tabla se consuma por federación.")
+
+
+def replication_pipeline_model(rep: RemoteReplication) -> dict | None:
+    """Diagrama (nodos + aristas REALES) Remote Table ← Task Chain(s); None si no hay replicación observada (no se dibuja nada inventado)."""
+    if rep.state != OBSERVED or not rep.chains:
+        return None
+    nodes: dict[str, dict] = {}
+    kinds: dict[tuple[str, str], str] = {}
+    titles: dict[tuple[str, str], str] = {}
+
+    def node(key: str, label: str, icon: str, role: str, title: str) -> dict:
+        return nodes.setdefault(key, {"name": key, "label": label, "title": title, "layer": "0", "upstreams": [], "assoc_upstreams": [], "slug": None, "num": 0,
+                                      "icon": icon, "icon_variant": None, "role": role})
+
+    tkey = f"rt:{rep.entity}"
+    node(tkey, rep.entity, "table", "Tabla remota · replicación declarada", f"Remote Table {rep.entity}")
+    parts = []
+    for c in rep.chains:
+        prev_k, prev_name, first = tkey, rep.entity, True
+        for name in reversed(c.path):                         # de la cadena directa hacia la superior
+            k = f"tc:{name}"
+            node(k, name, "task_chain", "Task Chain", f"Task Chain {name}" + (f" · {c.label}" if c.label and name == c.name else ""))
+            if prev_k not in nodes[k]["upstreams"]:           # misma convención que `pipeline_model`: el mecanismo va a la derecha y la punta apunta al artefacto
+                nodes[k]["upstreams"].append(prev_k)
+            kinds[(prev_k, k)] = "orch"
+            titles[(prev_k, k)] = (f"{name} replica {prev_name} ({REPLICATE_ACTIVITY})" if first else f"{name} orquesta {prev_name}")
+            prev_k, prev_name, first = k, name, False
+        parts.append(f"{' → '.join(c.path)} replica {rep.entity}")
+    return {"nodes": list(nodes.values()), "edge_kind": kinds, "edge_title": titles,
+            "aria": f"Orquestación de ingesta de {rep.entity}: " + "; ".join(parts) + " (estrategia declarada, no estado operativo)."}
+
+
+def _replication_table_html(rep: RemoteReplication) -> str:
+    head = "<thead><tr><th>Eslabón</th><th>Detalle</th></tr></thead>"
+    if rep.state == OBSERVED:
+        parts = [" → ".join(_C(n) for n in c.path) + (f" · {_E(c.label)}" if c.label else "") for c in rep.chains]
+        body = (_row("Estrategia declarada", f"Replicación en Task Chain · actividad {_C(REPLICATE_ACTIVITY)}")
+                + _row("Task Chain", "<br>".join(parts)) + _row("Alcance", _E(_SCOPE_NOTE)))
+    elif rep.state == NOT_OBSERVED:
+        body = _row("Estrategia declarada", _E(_NOT_OBSERVED_NOTE))
+    else:
+        body = _row("Estado", _E(rep.note or ""))
+    return f"<table>{head}<tbody>{body}</tbody></table>"
+
+
+def render_replication_html(rep: RemoteReplication, anchor: str, diagram: Callable[..., str] | None = None) -> str:
+    """Mismo disclosure «Orquestación de ingesta» que las tablas locales: con replicación observada y `diagram`, pipeline visual + «Detalle técnico»; si no, la tabla/estado neutral."""
+    model = replication_pipeline_model(rep) if diagram is not None else None
+    if model is not None:
+        svg = diagram(model["nodes"], False, {n["name"] for n in model["nodes"]}, None, edge_kind=model["edge_kind"], aria=model["aria"], arrow_at="start", edge_title=model["edge_title"])
+        if svg:
+            return (f'<details class="dashboard-section orch-pipeline" id="{_E(anchor)}" data-replication-state="{_E(rep.state)}">'
+                    f'<summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Orquestación de ingesta</span></summary>'
+                    f'<div class="dashboard-section__body">{svg}<div class="orch-notes"><p>{_E(_SCOPE_NOTE)}</p></div>'
+                    f'<details class="dashboard-section orch-text"><summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Detalle técnico</span></summary>'
+                    f'<div class="dashboard-section__body"><div class="matrix-scroll">{_replication_table_html(rep)}</div></div></details></div></details>')
+    return (f'<details class="dashboard-section" id="{_E(anchor)}" data-replication-state="{_E(rep.state)}">'
+            f'<summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Orquestación de ingesta</span></summary>'
+            f'<div class="dashboard-section__body"><div class="matrix-scroll">{_replication_table_html(rep)}</div></div></details>')
 
 
 # ───────────────────────────── presentación (HTML del colapsable) ─────────────────────────────
