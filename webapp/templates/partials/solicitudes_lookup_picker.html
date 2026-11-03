@@ -1,7 +1,7 @@
-{% macro lookup_picker(control_id, field_name, field_label, selected, options, search_hint, empty_hint, results_label, no_matches, remove_label, width) %}
+{% macro lookup_picker(control_id, field_name, field_label, selected, options, search_hint, empty_hint, results_label, no_matches, remove_label, width, display_label=none) %}
   <div class="feedback-field feedback-field--{{ width }}"
        x-data="{query:'', open:false, active:-1, selected:{{ selected | tojson | forceescape }},
-                label:{{ options.get(selected, 'Referencia no disponible (' ~ selected ~ ')' if selected else '') | tojson | forceescape }},
+                label:{{ (display_label if display_label is not none else options.get(selected, 'Referencia no disponible (' ~ selected ~ ')' if selected else '')) | tojson | forceescape }},
                 people:{{ options | dictsort(by='value') | tojson | forceescape }},
                 get matches(){const term=this.query.trim().toLowerCase();return term.length >= 3 ? this.people.filter(option => option[1].toLowerCase().includes(term)) : []},
                 close(){this.open=false;this.query='';this.active=-1},

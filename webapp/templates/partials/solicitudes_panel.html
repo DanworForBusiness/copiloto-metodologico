@@ -28,7 +28,7 @@
     <thead><tr><th class="left">Solicitud</th><th class="left">Proyecto</th><th class="left">Prioridad</th><th class="left">Status funnel</th><th class="left">Status Arquitectura</th><th class="left">Colaborador</th><th class="center">Acciones</th></tr></thead>
     <tbody>
       {% for row in rows %}{% set f = row.fields %}
-      <tr><td class="left"><span class="solicitudes-description">{{ (f.get('Title') or '') | trim or 'Solicitud #' ~ row.id }}</span></td><td class="left">{{ values(f.get('Proyecto')) | join(', ') or '—' }}</td>
+      <tr><td class="left"><span class="solicitudes-description">{{ (f.get('Title') or '') | trim or 'Solicitud #' ~ row.id }}</span></td><td class="left">{{ project_label(row) or '—' }}</td>
       <td class="left">{{ f.get('Prioridad') or '—' }}</td><td class="left">{{ f.get(funnel) or '—' }}</td><td class="left">{{ f.get(status) or '—' }}</td>
       <td class="left">{{ values(f.get(assignees)) | join(', ') }}</td>
 <td class="center"><div class="dw-row-actions"><a class="table-action-btn chart-tooltip-anchor" href="/operaciones/solicitudes/{{ row.id }}/editar" aria-label="Abrir solicitud {{ row.id }}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Editar solicitud</p></span></a></div></td></tr>

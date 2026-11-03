@@ -30,7 +30,7 @@
       {% endfor %}
     </select>
   </div>
-  {{ lookup_picker("sol-project", fields.PROJECT, "Proyecto", values[fields.PROJECT], options[fields.PROJECT], "Buscar proyecto", "Sin proyecto", "Proyectos encontrados", "No se encontraron proyectos.", "Quitar proyecto", "medium") }}
+  {{ lookup_picker("sol-project", fields.PROJECT, "Proyecto", values[fields.PROJECT], options[fields.PROJECT], "Buscar proyecto", "Sin proyecto", "Proyectos encontrados", "No se encontraron proyectos.", "Quitar proyecto", "medium", project_display) }}
   {% set chosen = values[fields.ASSIGNEES] %}
   {% set people = options[fields.ASSIGNEES] %}
   {% if chosen | length > 1 %}

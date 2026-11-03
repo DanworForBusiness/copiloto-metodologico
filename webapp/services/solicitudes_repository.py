@@ -30,17 +30,11 @@ def read_requests(token: str) -> list[dict]:
             break
     else:
         raise ValueError("Graph page limit exceeded")
-    unresolved = []
-    for row in rows:
-        fields = row.get("fields", {})
-        ids = service.lookup_ids(fields, service.PROJECT)
-        if ids and not service.values(fields.get(service.PROJECT)):
-            unresolved.append((fields, ids[0]))
-    if unresolved:
+    projects = {}
+    if any(service.project_lookup_id(row.get("fields", {})) for row in rows):
         projects = lookup_options(token, (service.PROJECT,), base=base)[service.PROJECT]
-        for fields, project_id in unresolved:
-            if project_id in projects:
-                fields[service.PROJECT] = projects[project_id]
+    for row in rows:
+        row["project_label"] = service.project_label(row.get("fields", {}), projects)
     return rows
 
 
@@ -80,7 +74,9 @@ def lookup_options(token: str, fields=(service.PROJECT, service.ASSIGNEES), *, b
                 raise ValueError("Invalid lookup continuation URL")
             page = graph_get_json(url, token)
             for item in page["value"]:
-                options[str(item["id"])] = item["fields"].get(lookup["columnName"]) or item["id"]
+                label = item["fields"].get(lookup["columnName"])
+                if label or field != service.PROJECT:
+                    options[str(item["id"])] = label or item["id"]
             url = page.get("@odata.nextLink")
             if not url:
                 break

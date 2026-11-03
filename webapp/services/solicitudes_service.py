@@ -46,7 +46,7 @@ def select_rows(rows: list[dict], query: str, filters: dict) -> list[dict]:
             continue
         if query and not any(
             query in value.casefold()
-            for value in (fields.get("Title") or "", " ".join(values(fields.get(PROJECT))), plain_text(fields.get(DESCRIPTION)))
+            for value in (fields.get("Title") or "", row_project_label(row), plain_text(fields.get(DESCRIPTION)))
         ):
             continue
         result.append(row)
@@ -77,11 +77,44 @@ def lookup_ids(fields, key):
     return [str(item) for item in (raw if isinstance(raw, list) else [raw]) if item not in ("", None)]
 
 
+def _project_id(value):
+    if isinstance(value, (str, int)) and not isinstance(value, bool):
+        text = str(value).strip()
+        if text.isascii() and text.isdecimal() and text.strip("0"):
+            return text.lstrip("0")
+    return ""
+
+
+def project_lookup_id(fields):
+    raw = fields.get(PROJECT)
+    embedded = raw.get("LookupId", raw.get("lookupId")) if isinstance(raw, dict) else raw
+    return _project_id(fields.get(PROJECT + "LookupId")) or _project_id(embedded)
+
+
+def project_label(fields, catalog=None):
+    lookup_id = project_lookup_id(fields)
+    raw = fields.get(PROJECT)
+    direct = raw.get("LookupValue", raw.get("lookupValue")) if isinstance(raw, dict) else raw
+    resolved = (catalog or {}).get(lookup_id)
+    for value in (resolved, direct):
+        if isinstance(value, str):
+            label = value.strip()
+            if label and not label.isnumeric():
+                return label
+    return ""
+
+
+def row_project_label(row):
+    if "project_label" in row:
+        return row["project_label"]
+    return project_label(row.get("fields", {}))
+
+
 def form_values(fields):
     result = {key: fields.get(key) or "" for key in EDITABLE}
     for key in (PLANNED, ACTUAL):
         result[key] = result[key][:10]
-    result[PROJECT] = next(iter(lookup_ids(fields, PROJECT)), "")
+    result[PROJECT] = project_lookup_id(fields)
     result[ASSIGNEES] = lookup_ids(fields, ASSIGNEES)
     for key in NARRATIVE_FIELDS:
         result[key] = narrative_text(result[key])

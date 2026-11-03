@@ -23,7 +23,7 @@ def test_read_follows_graph_pages(monkeypatch):
         next_link: {"value": [{"id": "2"}]},
     }
     monkeypatch.setattr(repository, "graph_get_json", lambda url, token: responses[url])
-    assert repository.read_requests("test-token") == [{"id": "1"}, {"id": "2"}]
+    assert repository.read_requests("test-token") == [{"id": "1", "project_label": ""}, {"id": "2", "project_label": ""}]
 
 
 def test_global_search_and_filter_uses_functional_date():
@@ -327,7 +327,7 @@ def test_list_resolves_project_ids_once_without_overwriting_labels(monkeypatch):
         calls.append(fields)
         return {service.PROJECT: {"4": "Proyecto de prueba"}}
     monkeypatch.setattr(repository, "lookup_options", catalog)
-    assert [row["fields"]["Proyecto"] for row in repository.read_requests("fake")] == [
+    assert [row["project_label"] for row in repository.read_requests("fake")] == [
         "Proyecto de prueba", "Proyecto de prueba", "Etiqueta directa",
     ]
     assert calls == [(service.PROJECT,)]
@@ -340,3 +340,48 @@ def test_global_search_matches_title_with_other_filters():
         {"id": "3", "fields": {"Title": None, "Prioridad": "Alta"}},
     ]
     assert service.select_rows(rows, "AUTOMATIZACIÓN", {"Prioridad": "Alta"}) == rows[:1]
+
+
+def test_project_lookup_representations_keep_id_and_label_separate():
+    catalog = {"4": "Nombre de catálogo"}
+    cases = [
+        ({"ProyectoLookupId": 4}, "4", "Nombre de catálogo"),
+        ({"ProyectoLookupId": "4"}, "4", "Nombre de catálogo"),
+        ({"Proyecto": 4}, "4", "Nombre de catálogo"),
+        ({"Proyecto": "4"}, "4", "Nombre de catálogo"),
+        ({"Proyecto": {"LookupId": 4, "LookupValue": "Nombre directo"}}, "4", "Nombre de catálogo"),
+        ({"Proyecto": {"LookupId": "9", "LookupValue": "Nombre directo"}}, "9", "Nombre directo"),
+        ({"Proyecto": {"LookupId": "9"}}, "9", ""),
+        ({"Proyecto": "Nombre directo"}, "", "Nombre directo"),
+        ({"Proyecto": "9"}, "9", ""),
+        ({"Proyecto": {"LookupId": "9", "LookupValue": "9"}}, "9", ""),
+        ({"ProyectoLookupId": "9", "Proyecto": None}, "9", ""),
+        ({"Proyecto": None}, "", ""),
+        ({"Proyecto": ""}, "", ""),
+    ]
+    for fields, lookup_id, label in cases:
+        assert service.project_lookup_id(fields) == lookup_id
+        assert service.form_values(fields)[service.PROJECT] == lookup_id
+        assert service.project_label(fields, catalog) == label
+
+
+def test_list_and_detail_share_catalog_label_without_overwriting_graph_fields(monkeypatch):
+    from fastapi.testclient import TestClient
+    from webapp.main import app
+    from webapp.routers import solicitudes
+
+    fields = {"Title": "Solicitud A", "ProyectoLookupId": 4, "Proyecto": 4}
+    item = {"id": "1", "eTag": '"7"', "fields": fields}
+    catalog = {service.PROJECT: {"4": "Proyecto de prueba del catalogo"}, service.ASSIGNEES: {}}
+    monkeypatch.setattr(solicitudes, "_user", lambda request: {"sub": "test"})
+    monkeypatch.setattr(repository, "list_url", lambda token: f"{repository.GRAPH}/sites/test/lists/list")
+    monkeypatch.setattr(repository, "graph_get_json", lambda url, token: {"value": [item]})
+    monkeypatch.setattr(repository, "lookup_options", lambda *args, **kwargs: catalog)
+    monkeypatch.setattr(repository, "read_item", lambda *args: item)
+    client = TestClient(app)
+    listed = client.post("/operaciones/solicitudes/data", data={"graph_token": "fake"}).text
+    detail = client.post("/operaciones/solicitudes/1/detalle", data={"graph_token": "fake"}).text
+    assert '<td class="left">Proyecto de prueba del catalogo</td>' in listed
+    assert "Proyecto de prueba del catalogo" in detail
+    assert 'name="Proyecto" :value="selected" value="4"' in detail
+    assert fields["Proyecto"] == 4

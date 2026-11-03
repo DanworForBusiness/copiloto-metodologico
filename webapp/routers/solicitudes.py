@@ -78,7 +78,7 @@ async def solicitudes_data(request: Request, graph_token: str = Form("")):
         "count": len(matches), "source_count": len(rows), "error": error, "query": query,
         "selected": selected, "filters": FILTERS, "options": options,
         "status": service.STATUS, "funnel": service.FUNNEL,
-        "assignees": service.ASSIGNEES, "values": service.values,
+        "assignees": service.ASSIGNEES, "values": service.values, "project_label": service.row_project_label,
     })
 
 
@@ -118,6 +118,7 @@ def _edit_panel(request, item_id, *, item=None, options=None, error=""):
     return templates.TemplateResponse(request=request, name="partials/solicitudes_edit.html", context={
         "item_id": item_id, "values": values, "current": values,
         "options": options or {}, "error": error,
+        "project_display": service.project_label(item["fields"], (options or {}).get(service.PROJECT)) if item else "",
         "etag": _etag(item) if item else "", "funnel": item["fields"].get(service.FUNNEL) if item else "",
         "destinations": service.allowed_destinations(values.get(service.STATUS)),
         "fields": service, "original_fields": item["fields"] if item else {}, **_detail_context(item),
