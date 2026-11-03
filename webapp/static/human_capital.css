@@ -694,21 +694,21 @@
 .hc-hist-warn { margin: 6px 0; padding-left: 10px; border-left: 2px solid var(--gold); font-size: .78rem; line-height: 1.5; }
 /* Filtros: el MISMO toolbar de Candidatos (`.hc-profile-filters` + `.filter-toolbar-card`: layout y look de los controles ya definidos arriba y en tools.css). */
 .hc-exc-filters { margin: 10px 0 14px; }
-.dashboard-table:is([data-exceptions-rows], [data-cvinbox-rows]) { table-layout: auto; min-width: 860px; width: 100%; }
-table.dashboard-table:is([data-exceptions-rows], [data-cvinbox-rows]) :is(th, td).left { white-space: normal; overflow: visible; text-overflow: clip; vertical-align: top; overflow-wrap: anywhere; max-width: none; }
-table.dashboard-table:is([data-exceptions-rows], [data-cvinbox-rows]) th:is(:first-child, :nth-child(4)) { min-width: 7rem; }
-table.dashboard-table:is([data-exceptions-rows], [data-cvinbox-rows]) th:is(:nth-child(2), :nth-child(3)) { min-width: 11rem; }
+.dashboard-table[data-exceptions-rows] { table-layout: auto; min-width: 860px; width: 100%; }
+table.dashboard-table[data-exceptions-rows] :is(th, td).left { white-space: normal; overflow: visible; text-overflow: clip; vertical-align: top; overflow-wrap: anywhere; max-width: none; }
+table.dashboard-table[data-exceptions-rows] th:is(:first-child, :nth-child(4)) { min-width: 7rem; }
+table.dashboard-table[data-exceptions-rows] th:is(:nth-child(2), :nth-child(3)) { min-width: 11rem; }
 .hc-exc-file { font-weight: 600; }
 .hc-exc-badges { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; margin-bottom: 6px; }
 .hc-exc-actions { min-width: 16rem; }
 /* Móvil: cada excepción se apila como una ficha (rótulo + valor) en vez de obligar a desplazar una tabla de 980px. El encabezado queda para lectores de pantalla. */
 @media (max-width: 640px) {
-  table.dashboard-table:is([data-exceptions-rows], [data-cvinbox-rows]) { min-width: 0; }
-  table.dashboard-table:is([data-exceptions-rows], [data-cvinbox-rows]) thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-  table.dashboard-table:is([data-exceptions-rows], [data-cvinbox-rows]) :is(tbody, tr, td) { display: block; width: auto; }
-  table.dashboard-table:is([data-exceptions-rows], [data-cvinbox-rows]) tr { padding: 10px 0; border-bottom: 1px solid rgba(128, 128, 128, .35); }
-  table.dashboard-table:is([data-exceptions-rows], [data-cvinbox-rows]) td.left { border-bottom: 0; padding: 6px 0; }
-  table.dashboard-table:is([data-exceptions-rows], [data-cvinbox-rows]) td.left[data-label]::before { content: attr(data-label); display: block; margin-bottom: 2px; font: 500 .64rem var(--mono); letter-spacing: .08em; text-transform: uppercase; opacity: .65; }
+  table.dashboard-table[data-exceptions-rows] { min-width: 0; }
+  table.dashboard-table[data-exceptions-rows] thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  table.dashboard-table[data-exceptions-rows] :is(tbody, tr, td) { display: block; width: auto; }
+  table.dashboard-table[data-exceptions-rows] tr { padding: 10px 0; border-bottom: 1px solid rgba(128, 128, 128, .35); }
+  table.dashboard-table[data-exceptions-rows] td.left { border-bottom: 0; padding: 6px 0; }
+  table.dashboard-table[data-exceptions-rows] td.left[data-label]::before { content: attr(data-label); display: block; margin-bottom: 2px; font: 500 .64rem var(--mono); letter-spacing: .08em; text-transform: uppercase; opacity: .65; }
   .hc-exc-actions { min-width: 0; }
 }
 .hc-exc-actions summary, .hc-exc-evidence summary, .hc-exc-more summary { cursor: pointer; font-weight: 600; }
@@ -787,28 +787,41 @@ table.dashboard-table:is([data-exceptions-rows], [data-cvinbox-rows]) th:is(:nth
 .hc-readonly-value--empty { color: #7a7a82; }
 .hc-readonly-value a { text-decoration: underline; text-underline-offset: 2px; }
 
-/* Carga masiva · bandeja de SharePoint: reutiliza `.tool-tabs`, `.dashboard-table`, `.status-badge`, `.callout` y el panel de revisión `.hc-exc-*`; acá solo el espaciado propio. */
-.hc-import-tabs { max-width: 26rem; margin-bottom: 4px; }
-.hc-inbox-toolbar { display: grid; gap: 8px; margin: 10px 0 14px; }
-.hc-inbox-summary { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0; font-size: .82rem; }
-.hc-inbox-actions { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: end; }
-.hc-inbox-result { margin: 10px 0; }
-.hc-inbox-batch { margin: 6px 0 0; padding-left: 1.2rem; font-size: .8rem; line-height: 1.5; }
-.hc-inbox-sel { width: 2rem; }
-table.dashboard-table[data-cvinbox-rows] th:nth-child(1) { min-width: 2rem; width: 2rem; }
-table.dashboard-table[data-cvinbox-rows] th:is(:nth-child(2), :nth-child(5)) { min-width: 9rem; }
-table.dashboard-table[data-cvinbox-rows] th:is(:nth-child(3), :nth-child(4)) { min-width: 11rem; }
-table.dashboard-table[data-cvinbox-rows] th:nth-child(6) { min-width: 14rem; }
-.hc-inbox-decision { display: grid; gap: 4px; margin: 4px 0; padding: 0; border: 0; font-size: .8rem; }
-.hc-inbox-decision legend { font-weight: 600; margin-bottom: 2px; }
-.hc-inbox-decision input, .hc-inbox-ack input { width: auto; margin-right: 6px; }
-.hc-inbox-ack { font-size: .78rem; }
-.hc-inbox-buttons { display: flex; flex-wrap: wrap; gap: 6px; }
-.hc-inbox-review { grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); align-items: end; margin: 0 0 6px; padding: 12px; border: 1px solid rgba(128, 128, 128, .35); border-radius: 8px; }
-.hc-inbox-review :is(.hc-inbox-decision, .hc-inbox-ack, .hc-inbox-buttons, p) { grid-column: 1 / -1; }
-table.dashboard-table[data-cvinbox-rows] tr.hc-inbox-review-row > td { border-top: 0; }
-.hc-inbox-accept { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin: 12px 0; }
-@media (max-width: 720px) {
-  .hc-inbox-actions { align-items: stretch; }
-  .hc-inbox-actions > * { flex: 1 1 100%; }
+/* Carga masiva · bandeja de SharePoint. Todo lo visible son primitivos del Hub (`.dashboard-view-switch`, `.activity-kpi`, `.filter-toolbar-card`, `.asr-generate`, `.dashboard-section`/`.dashboard-table`,
+   `.hc-selection-bar`, `.dw-row-actions`/`.table-action-btn`, `.feedback-field`, `.callout`, `.dashboard-empty`, `dw-confirm`); acá solo su ubicación. La tabla comparte con Históricos las reglas de celdas que envuelven
+   y la vista apilada en móvil (`[data-cvinbox-rows]` junto a `[data-exceptions-rows]`, más arriba). Medidas tomadas de esos mismos primitivos: gap 12px (`.activity-kpi-grid`), radio 8px y borde de 1px gris (`.hc-dl-stats`). */
+.hc-inbox-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 0 0 12px; }
+.hc-inbox-origin { margin: 0; flex: 1 1 200px; min-width: 0; }
+.hc-inbox-toolbar .asr-generate { margin-left: auto; }                             /* acción principal a la derecha, como la barra de selección */
+.hc-inbox-toolbar .dashboard-view-switch { max-width: 100%; overflow-x: auto; }
+table.dashboard-table[data-cvinbox-rows] { width: 100%; }                                   /* layout FIJO del Hub: anchos por <colgroup> y redimensionado compartido; sin mínimo fijo (no fuerza desplazamiento) */
+table.dashboard-table[data-cvinbox-rows] :is(th, td).left { white-space: normal; overflow: visible; text-overflow: clip; vertical-align: top; overflow-wrap: anywhere; max-width: none; }
+table.dashboard-table[data-cvinbox-rows] :is(th, td).hc-inbox-actions { padding-right: 0; text-align: right; }   /* última columna sin margen derecho: aprovecha todo el ancho */
+/* Contenedor angosto (laptop chica, panel lateral, móvil): en vez de desplazar en horizontal, cada CV se apila como ficha (rótulo + valor), el MISMO patrón que Históricos en móvil. */
+@container (max-width: 720px) {
+  table.dashboard-table[data-cvinbox-rows] colgroup, table.dashboard-table[data-cvinbox-rows] thead { display: none; }
+  table.dashboard-table[data-cvinbox-rows] :is(tbody, tr, td) { display: block; width: auto; }
+  table.dashboard-table[data-cvinbox-rows] tr { padding: 10px 0; border-bottom: 1px solid rgba(128, 128, 128, .35); }
+  table.dashboard-table[data-cvinbox-rows] td { border-bottom: 0; padding: 6px 0; text-align: left; }
+  table.dashboard-table[data-cvinbox-rows] td[data-label]::before { content: attr(data-label); display: block; margin-bottom: 2px; font: 500 .64rem var(--mono); letter-spacing: .08em; text-transform: uppercase; opacity: .65; }
+  table.dashboard-table[data-cvinbox-rows] tr.hc-inbox-review-row > td { padding-top: 0; }
 }
+table.dashboard-table[data-cvinbox-rows] tr.hc-inbox-review-row > td { border-top: 0; }
+.hc-inbox-review { margin: 0 0 12px; padding: 14px 16px; border: 1px solid rgba(128, 128, 128, .28); border-radius: 8px; }
+.hc-inbox-scroll { container-type: inline-size; }                              /* la revisión ocupa el ancho VISIBLE aunque la tabla se desplace en horizontal (laptops angostas) */
+.hc-inbox-review { position: sticky; left: 0; box-sizing: border-box; max-width: calc(100cqw - 20px); }
+.hc-inbox-review > * { grid-column: 1 / -1; }                                   /* usa los campos de `.hc-profile-form` (alta de candidatos) en una sola columna de bloques */
+.hc-inbox-review .hc-profile-section__grid--fluid { margin-top: 0; }
+.hc-inbox-decision { display: grid; gap: 6px; margin: 4px 0 10px; padding: 0; border: 0; font-size: .82rem; }
+.hc-inbox-decision legend { margin-bottom: 4px; font-size: .78rem; font-weight: 650; }
+.hc-inbox-decision input, .hc-inbox-ack input { width: auto; margin: 0 6px 0 0; accent-color: var(--gold); }
+.hc-inbox-ack { display: block; margin: 0 0 8px; font-size: .8rem; }
+.hc-inbox-buttons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+@media (max-width: 640px) {
+  .hc-inbox-buttons { justify-content: stretch; }
+  .hc-inbox-buttons > * { flex: 1 1 100%; }
+}
+/* Toast de la bandeja: el MISMO aviso transitorio de CCHH, pero su ancho acompaña al texto (una línea) y solo envuelve si la pantalla es más angosta que el mensaje. */
+[data-cvinbox-toast].hc-catalog-refresh-feedback--topbar:not(:empty) { width: max-content; max-width: calc(100vw - 32px); }
+/* `.asr-generate:disabled` (tools.css) fuerza opacidad plena para que se vea el spinner durante la carga; deshabilitado SIN carga (falta la confirmación) recupera el aspecto deshabilitado del Hub. */
+.hc-inbox-buttons .asr-generate:disabled:not(.htmx-request), .hc-selection-bar .asr-generate:disabled:not(.htmx-request) { opacity: .45; cursor: not-allowed; }

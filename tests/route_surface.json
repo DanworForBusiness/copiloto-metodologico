@@ -177,6 +177,7 @@
   "POST /cchh/candidatos/importar/bandeja",
   "POST /cchh/candidatos/importar/bandeja/aceptar",
   "POST /cchh/candidatos/importar/bandeja/analizar",
+  "POST /cchh/candidatos/importar/bandeja/descartar",
   "POST /cchh/candidatos/importar/bandeja/{key}/{accion}",
   "POST /cchh/candidatos/importar/confirm",
   "POST /cchh/candidatos/importar/preview",

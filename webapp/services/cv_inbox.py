@@ -53,6 +53,7 @@ _log = logging.getLogger("danwor.cchh.cv_inbox")                                
 AREA = manifest.INBOX
 FOLDER_NAME = config.HC_CV_INBOX_FOLDER_NAME
 RETIRED_FOLDER = "incorporados"
+DISCARDED_FOLDER = "descartados"
 NAMESPACE = uuid.UUID("8c1b6f0e-3d2a-4e57-9a4b-6f1d2c3b4a5e")
 TAG = "Carga masiva SharePoint"
 ORIGIN_KIND = "sharepoint_inbox"
@@ -80,10 +81,10 @@ PENDING, MODIFIED, READY, REVIEW, INCOMPLETE, PROCESSED, DUPLICATE, ACCEPTING, I
 STATUS_VIEW = {
     PENDING: ("Pendiente de análisis", "status-badge--otro"),
     MODIFIED: ("Modificado: volver a analizar", "status-badge--otro"),
-    READY: ("Lista para aceptar", "status-badge--activo"),
+    READY: ("Lista para incorporar", "status-badge--activo"),
     REVIEW: ("Requiere revisión", "status-badge--tentativo"),
     INCOMPLETE: ("Identidad incompleta", "status-badge--tentativo"),
-    PROCESSED: ("CV ya incorporado", "status-badge--inactivo"),
+    PROCESSED: ("Ya está en el Banco", "status-badge--inactivo"),
     DUPLICATE: ("Archivo repetido en la bandeja", "status-badge--inactivo"),
     ACCEPTING: ("Incorporación sin terminar", "status-badge--tentativo"),
     INCORPORATED: ("Incorporado", "status-badge--activo"),
@@ -117,9 +118,12 @@ REASON_TEXT = {
     "RETRIES_EXHAUSTED": "Se agotaron los reintentos automáticos: reintentá a mano.",
     "PROFILE_CREATED_CV_PENDING": "El perfil ya se creó; falta guardar el CV en su carpeta.",
     "UPLOAD_PENDING_CONFIRMATION": "El CV puede haberse guardado pero no se confirmó el registro: reintentá para conciliar (no se duplica).",
-    "RETIRE_PENDING": "Falta retirar el original de carga-masiva (el CV ya está incorporado).",
-    "RETIRE_PERMISSION": "Sin permiso de escritura sobre carga-masiva para retirar el original: el CV ya está incorporado.",
-    "RETIRE_CHANGED": "El original cambió después de incorporarse: quedó en la bandeja para que Capital Humano decida.",
+    "RETIRE_PENDING": "Falta retirar el archivo de la carpeta de carga masiva. La decisión ya quedó registrada: reintentá el retiro.",
+    "RETIRE_PERMISSION": "El Hub no tiene permiso para retirar el archivo de la carpeta de carga masiva. La decisión ya quedó registrada.",
+    "RETIRE_CHANGED": "El archivo cambió en SharePoint después de la decisión: no se movió ni se eliminó. Revisalo en la carpeta.",
+    "MOVED_TO_DISCARDED": "Movido a «carga-masiva/descartados» (se puede recuperar desde SharePoint).",
+    "DELETED_ORIGINAL": "Archivo original eliminado de SharePoint.",
+    "SOURCE_GONE": "El archivo ya no estaba en la carpeta de carga masiva.",
 }
 STOP_TEXT = {
     "PERMISSION_DENIED": "Sin permiso de escritura sobre la carpeta de CVs en SharePoint. No se escribió nada más.",
@@ -208,7 +212,7 @@ def resolve_inbox(token: str, *, sleep=time.sleep) -> dict:
     if not (isinstance(item.get("folder"), dict) and item.get("id") and parent.get("id") == perfiles["item_id"] and item["id"] != config.HC_CV_ROOT_ITEM_ID
             and parent.get("id") != config.HC_CV_ROOT_ITEM_ID):
         raise _fail("INBOX_INVALID")
-    return {"id": item["id"], "drive_id": drive, "web_url": item.get("webUrl"), "same_drive": drive == config.HC_SHAREPOINT_DRIVE_ID}
+    return {"id": item["id"], "drive_id": drive, "web_url": _safe_url(item.get("webUrl")), "same_drive": drive == config.HC_SHAREPOINT_DRIVE_ID}
 
 
 def list_inbox(token: str, inbox: dict, *, sleep=time.sleep) -> dict:
@@ -493,19 +497,17 @@ def classify(ctx: Context, key: str) -> dict | None:
            "batch_ok": False, "can_accept": False, "can_dismiss": False, "can_reopen": False, "can_retry": False, "can_retire": False, "op": None, "target": None, "reasons": [], "matches": [], "peers": [],
            "fields": None, "evidence": None, "fingerprint": None, "draft_revision": int((draft or {}).get("revision") or 0), "field_source": None}
     if state == DONE:
-        retire = (ledger.get("retire") or {}).get("state")
-        row["can_retire"] = entry is not None and retire != RETIRE_DONE
-        reasons = [] if not row["can_retire"] else [{"PERMISSION": "RETIRE_PERMISSION", "CHANGED": "RETIRE_CHANGED"}.get((ledger.get("retire") or {}).get("code"), "RETIRE_PENDING")]
-        return _status(row, INCORPORATED, reasons=reasons, profile_id=ledger.get("profile_id"))
+        row["can_retire"] = entry is not None and (ledger.get("retire") or {}).get("state") != RETIRE_DONE
+        return _status(row, INCORPORATED, reasons=[retire_reason(ledger)] if row["can_retire"] else [], profile_id=ledger.get("profile_id"))
     if state in ACTIVE:
         reason = ledger.get("reason") or {UPLOADING: "UPLOAD_PENDING_CONFIRMATION", PROFILE_READY: "PROFILE_CREATED_CV_PENDING"}.get(state)
         row.update({"can_retry": True, "can_reopen": not ledger.get("effects")})
         return _status(row, ACCEPTING, reasons=[reason], profile_id=ledger.get("profile_id"))
     if state == DISMISSED:
-        if entry is None:
-            return None
-        row["can_reopen"] = True
-        return _status(row, DISCARDED, reasons=[ledger.get("dismiss_reason")])
+        retired = (ledger.get("retire") or {}).get("state") == RETIRE_DONE
+        row.update({"can_retire": entry is not None and bool(ledger.get("retire")) and not retired, "can_reopen": entry is not None or not retired,
+                    "retire_mode": (ledger.get("retire") or {}).get("mode")})
+        return _status(row, DISCARDED, reasons=[ledger.get("dismiss_reason"), retire_reason(ledger)])
     if entry is None:
         if record is None:
             return None
@@ -565,8 +567,11 @@ def overview(token: str) -> dict:
     listing = list_inbox(token, inbox)
     ctx = Context(listing["files"])
     keys = set(ctx.listing) | set(ctx.records) | {k for k, e in ctx.ledgers.items() if e.get("state") in ACTIVE}
-    recent_done = set(sorted((k for k, e in ctx.ledgers.items() if e.get("state") == DONE), key=lambda k: ctx.ledgers[k].get("updated_at") or "", reverse=True)[:RECENT_DONE])
-    rows = [r for r in (classify(ctx, k) for k in keys) if r and (r["status"] != INCORPORATED or r["key"] in recent_done or r["can_retire"])]
+    recent = set()
+    for final in (DONE, DISMISSED):                                                 # historial reciente de decididos que ya salieron de la carpeta (filtros «Incorporados» / «Descartados»)
+        recent |= set(sorted((k for k, e in ctx.ledgers.items() if e.get("state") == final), key=lambda k: ctx.ledgers[k].get("updated_at") or "", reverse=True)[:RECENT_DONE])
+    keys |= recent
+    rows = [r for r in (classify(ctx, k) for k in keys) if r and (r["status"] not in (INCORPORATED, DISCARDED) or r["key"] in recent or r["listed"])]
     rows.sort(key=lambda r: (_ORDER[r["status"]], r["name"].casefold(), r["key"]))
     counts = {s: 0 for s in STATUS_VIEW}
     for r in rows:
@@ -631,13 +636,12 @@ def _decision_problem(row: dict, op: str, target: str | None, acks: set, *, batc
         return "Completá nombre y apellido antes de aceptar."
     if batch and not row["batch_ok"]:
         return "Requiere una resolución individual."
+    if op not in ("create", "link"):
+        return "Elegí una decisión: crear un candidato nuevo o vincular a uno existente."
+    if (row["matches"] or row["peers"]) and ACK_MATCHES not in acks and not batch:            # en el lote solo entran filas seguras o ya resueltas por una persona (que confirmó al resolver)
+        return "Hay posibles coincidencias: confirmá que las revisaste antes de decidir."
     if op == "link":
         return None if target in {m["profile_id"] for m in row["matches"]} else "Elegí uno de los perfiles coincidentes para vincular."
-    if op != "create":
-        return "Elegí una decisión: crear un candidato nuevo o vincular a uno existente."
-    resolved = batch and "RESOLVED" in row["reasons"]                                  # en el lote, la confirmación ya la dio la persona al resolver
-    if (row["matches"] or row["peers"]) and ACK_MATCHES not in acks and not resolved:
-        return "Hay posibles coincidencias: confirmá que es otra persona para crear un perfil nuevo."
     if not fields.get("email") and (batch or ACK_NO_EMAIL not in acks):
         return "Sin email: confirmá explícitamente el alta, de a uno (la detección de duplicados queda solo por nombre y teléfono)."
     return None
@@ -900,11 +904,19 @@ def _ensure_profile(key: str, entry: dict, record: dict) -> str | None:
     return None
 
 
-# ═══════════════════ retiro del original (después de confirmar la incorporación) ═══════════════════
-def _retired_folder(inbox_drive: str, inbox_id: str, token: str) -> str:
-    """Id de `carga-masiva/incorporados` (la crea si falta, `conflictBehavior=fail`; 409 → relectura). Solo dentro de la zona de entrada."""
+# ═══════════════════ retiro físico del original (incorporado o descartado) ═══════════════════
+# Solo dentro de `carga-masiva` y solo DESPUÉS de una decisión durable (libro DONE o DISMISSED): MOVER a `incorporados/` o `descartados/` (subcarpetas de la bandeja: archivo TRANSITORIO, nunca un segundo
+# repositorio; su depuración segura queda para una política posterior) o, SOLO para un descarte con doble confirmación explícita, ELIMINAR. Antes de mover o eliminar se verifica identidad (mismo `item_id`, todavía en
+# la bandeja) y versión (tamaño/cTag/hash del momento de la decisión, `If-Match` con el eTag leído). Idempotente: se concilia con el estado real (el `item_id` no cambia al mover). Un fallo no deshace la decisión: queda
+# «retiro pendiente» y se reintenta sin repetirla. Nunca toca `CVs`, ni nada fuera de `carga-masiva`, ni elimina un original incorporado (ese solo se mueve a `incorporados/`).
+MODE_INCORPORATED, MODE_DISCARDED, MODE_DELETE = RETIRED_FOLDER, DISCARDED_FOLDER, "delete"
+DELETE_CONFIRMATION = "ELIMINAR"
+
+
+def _subfolder(inbox_drive: str, inbox_id: str, name: str, token: str) -> str:
+    """Id de `carga-masiva/<name>` (la crea si falta, `conflictBehavior=fail`; 409 → relectura). Solo dentro de la zona de entrada."""
     base = _items(inbox_drive)
-    by_path = f"{base}/{urllib.parse.quote(inbox_id, safe='')}:/{RETIRED_FOLDER}"
+    by_path = f"{base}/{urllib.parse.quote(inbox_id, safe='')}:/{name}"
 
     def lookup():
         try:
@@ -918,7 +930,7 @@ def _retired_folder(inbox_drive: str, inbox_id: str, token: str) -> str:
     found = lookup()
     if found is None:
         try:
-            microsoft365.graph_post_json(f"{base}/{urllib.parse.quote(inbox_id, safe='')}/children", token, {"name": RETIRED_FOLDER, "folder": {}, "@microsoft.graph.conflictBehavior": "fail"})
+            microsoft365.graph_post_json(f"{base}/{urllib.parse.quote(inbox_id, safe='')}/children", token, {"name": name, "folder": {}, "@microsoft.graph.conflictBehavior": "fail"})
         except urllib.error.HTTPError as exc:
             if exc.code != 409:
                 raise
@@ -926,78 +938,169 @@ def _retired_folder(inbox_drive: str, inbox_id: str, token: str) -> str:
             pass                                                                    # respuesta incierta: la relectura decide
         found = lookup()
     if not found or found == "INVALID":
-        raise urllib.error.URLError("carpeta de incorporados no verificada")
+        raise urllib.error.URLError("subcarpeta de la bandeja no verificada")
     return found
 
 
-def _retire(key: str, entry: dict, record: dict, token: str) -> str:
-    """Retira el original de la bandeja MOVIÉNDOLO a `carga-masiva/incorporados` (sin borrar). Solo si el CV ya está incorporado (libro DONE). Idempotente y conciliado con el estado real; un fallo no afecta la
-    incorporación. Devuelve el estado del retiro (DONE / PENDING / BLOCKED)."""
-    drive, item_id, inbox_id = record["drive_id"], record["item_id"], record["parent_id"]
-    code, state = None, RETIRE_PENDING
+def _physical(mode: str, source: dict, token: str) -> tuple[str, str | None]:
+    """UNA operación física sobre el original, verificada. Devuelve `(estado, código)`; los errores de permiso/token se propagan."""
+    drive, item_id, inbox_id = source["drive_id"], source["item_id"], source["parent_id"]
+    item = _get_item(drive, item_id, token)
+    if item is None:
+        return RETIRE_DONE, "GONE"
+    if (item.get("parentReference") or {}).get("id") != inbox_id:
+        return RETIRE_DONE, "ELSEWHERE"                                             # ya no está en la bandeja (un intento anterior o una persona): fuera de `carga-masiva` no se toca nada
+    if not _same_content(item, source):
+        return RETIRE_BLOCKED, "CHANGED"
+    if_match = {"If-Match": item["eTag"]} if item.get("eTag") else None
+    url = f"{_items(drive)}/{urllib.parse.quote(item_id, safe='')}"
     try:
-        item = _get_item(drive, item_id, token)
-        if item is None or (item.get("parentReference") or {}).get("id") != inbox_id:
-            state, code = RETIRE_DONE, ("GONE" if item is None else "ELSEWHERE")     # ya no está en la bandeja (lo retiró un intento anterior o una persona)
-        elif not _same_content(item, record):
-            state, code = RETIRE_BLOCKED, "CHANGED"
+        if mode == MODE_DELETE:
+            microsoft365.graph_delete(url, token, extra_headers=if_match)
         else:
-            target = _retired_folder(drive, inbox_id, token)
-            url = f"{_items(drive)}/{urllib.parse.quote(item_id, safe='')}?%40microsoft.graph.conflictBehavior=rename"
-            try:
-                microsoft365.graph_patch_json(url, token, {"parentReference": {"id": target}}, extra_headers={"If-Match": item["eTag"]} if item.get("eTag") else None)
-                state = RETIRE_DONE
-            except urllib.error.HTTPError as exc:
-                if exc.code == 412:
-                    state, code = RETIRE_BLOCKED, "CHANGED"
-                elif exc.code == 404:
-                    state, code = RETIRE_DONE, "GONE"
-                else:
-                    raise
-            except (urllib.error.URLError, OSError):
-                again = _get_item(drive, item_id, token)                            # respuesta incierta: ¿se movió igual?
-                state = RETIRE_DONE if again is None or (again.get("parentReference") or {}).get("id") != inbox_id else RETIRE_PENDING
-                code = None if state == RETIRE_DONE else "GRAPH"
+            target = _subfolder(drive, inbox_id, mode, token)
+            microsoft365.graph_patch_json(url + "?%40microsoft.graph.conflictBehavior=rename", token, {"parentReference": {"id": target}}, extra_headers=if_match)
+        return RETIRE_DONE, None
     except urllib.error.HTTPError as exc:
-        code = {401: "TOKEN", 403: "PERMISSION"}.get(exc.code, "GRAPH")
-    except (urllib.error.URLError, OSError):
-        code = "GRAPH"
-    entry["retire"] = {"state": state, "code": code, "at": manifest.now_iso()}
+        if exc.code == 412:
+            return RETIRE_BLOCKED, "CHANGED"
+        if exc.code == 404:
+            return RETIRE_DONE, "GONE"
+        if exc.code < 500:
+            raise
+        failure: BaseException = exc
+    except (urllib.error.URLError, OSError) as exc:
+        failure = exc
+    again = _get_item(drive, item_id, token)                                        # respuesta incierta: ¿ocurrió igual?
+    if again is None or (again.get("parentReference") or {}).get("id") != inbox_id:
+        return RETIRE_DONE, None
+    raise urllib.error.URLError("retiro no confirmado") from failure
+
+
+def _retire(key: str, entry: dict, source: dict, token: str) -> str:
+    """Retiro físico según `entry["retire"]["mode"]` (incorporados por defecto). Registra el resultado en el libro y en la auditoría. Devuelve DONE / PENDING / BLOCKED."""
+    info = entry.get("retire") or {}
+    mode = info.get("mode") or MODE_INCORPORATED
+    if mode == MODE_DELETE and entry.get("state") != DISMISSED:
+        mode = MODE_INCORPORATED                                                    # defensa: un original incorporado nunca se elimina
+    try:
+        state, code = _physical(mode, source, token)
+    except urllib.error.HTTPError as exc:
+        state, code = RETIRE_PENDING, {401: "TOKEN", 403: "PERMISSION"}.get(exc.code, "GRAPH")
+    except (urllib.error.URLError, OSError, KeyError):
+        state, code = RETIRE_PENDING, "GRAPH"
+    entry["retire"] = {**info, "mode": mode, "state": state, "code": code, "at": manifest.now_iso(), "attempts": int(info.get("attempts") or 0) + 1}
     try:
         _save_ledger(key, entry, "RETIRE_" + state)
     except manifest.ManifestError:
         pass                                                                        # el próximo intento concilia con SharePoint (el item_id no cambia al mover)
-    _log.info("cchh.cv_inbox.retire state=%s code=%s", state, code)
+    _log.info("cchh.cv_inbox.retire mode=%s state=%s code=%s", "delete" if mode == MODE_DELETE else "move", state, code)
     return state
 
 
+def retire_reason(entry: dict) -> str | None:
+    """Código legible del retiro físico (para la vista)."""
+    info = entry.get("retire") or {}
+    if not info:
+        return None
+    if info.get("state") == RETIRE_DONE:
+        if info.get("code") in ("GONE", "ELSEWHERE"):
+            return "SOURCE_GONE"
+        return {MODE_DELETE: "DELETED_ORIGINAL", MODE_DISCARDED: "MOVED_TO_DISCARDED"}.get(info.get("mode"))
+    return {"PERMISSION": "RETIRE_PERMISSION", "CHANGED": "RETIRE_CHANGED"}.get(info.get("code"), "RETIRE_PENDING")
+
+
+def _source_of(key: str, entry: dict) -> dict:
+    return entry.get("source") or manifest.get_group(AREA, key) or {}
+
+
 def retire(key: str, token: str) -> dict:
-    """Reintento explícito del retiro de un CV ya incorporado."""
+    """Reintento explícito del retiro físico (de un CV incorporado o descartado), sin repetir la decisión ni duplicar operaciones."""
     with manifest.ledger_lock(AREA, key, timeout=0):
         entry = manifest.get_ledger(AREA, key) or {}
-        if entry.get("state") != DONE:
-            return {"ok": False, "error": "Solo se retira de la bandeja un CV ya incorporado."}
-        state = _retire(key, entry, manifest.get_group(AREA, key) or {}, token)
-    return {"ok": state == RETIRE_DONE, "retire": state, **({} if state == RETIRE_DONE else {"error": REASON_TEXT["RETIRE_PERMISSION" if (entry.get("retire") or {}).get("code") == "PERMISSION" else "RETIRE_PENDING"]})}
+        if entry.get("state") not in (DONE, DISMISSED) or not entry.get("retire"):
+            return {"ok": False, "error": "Solo se retira de la carpeta un CV ya incorporado o descartado."}
+        if entry["retire"].get("state") == RETIRE_DONE:
+            return {"ok": True, "retire": RETIRE_DONE, "idempotent": True}
+        source = _source_of(key, entry)
+        if not source.get("item_id"):
+            return {"ok": False, "error": REASON_TEXT["SOURCE_GONE"]}
+        state = _retire(key, entry, source, token)
+    return {"ok": state == RETIRE_DONE, "retire": state, **({} if state == RETIRE_DONE else {"error": REASON_TEXT[retire_reason(entry)]})}
 
 
 # ═══════════════════ otras decisiones explícitas ═══════════════════
-def dismiss(key: str, *, actor: str, reason: str) -> dict:
+def dismiss(key: str, token: str = "", *, actor: str, reason: str, delete_original: bool = False, confirm_delete: str = "", listing: list[dict] | None = None) -> dict:
+    """Descarta un CV (decisión durable en el Hub) y retira el original de `carga-masiva`: lo MUEVE a `descartados/` (predeterminado, recuperable) o, SOLO con doble confirmación explícita
+    (`delete_original` + `confirm_delete == "ELIMINAR"`), lo ELIMINA de SharePoint. Lo que se mueve o elimina es la versión que estaba en la bandeja al decidir (instantánea del listado). Si Graph falla, el descarte queda
+    registrado y el retiro físico pendiente; reintentar (`retire`) no repite el descarte."""
     if reason not in DISMISS_REASONS:
-        return {"ok": False, "error": "Motivo inválido."}
+        return {"ok": False, "error": "Elegí un motivo de descarte."}
+    if delete_original and confirm_delete != DELETE_CONFIRMATION:
+        return {"ok": False, "error": "Eliminar el archivo original requiere una segunda confirmación. No se descartó nada."}
     with manifest.ledger_lock(AREA, key, timeout=0):
         entry = manifest.get_ledger(AREA, key) or {}
         if entry.get("state") in (*ACTIVE, DONE):
             return {"ok": False, "error": "Este CV tiene una incorporación en curso o terminada: no se puede descartar."}
-        _save_ledger(key, {"state": DISMISSED, "dismiss_reason": reason, "decision": None, "by": actor, "history": entry.get("history", [])}, "DISMISSED")
-    return {"ok": True}
+        if entry.get("state") == DISMISSED:
+            return {"ok": False, "error": "Este CV ya estaba descartado."}
+        snapshot = {e["key"]: e for e in (listing if listing is not None else current_listing(token)[1])}.get(key) if token else None
+        source = {k: snapshot.get(k) for k in ("item_id", "drive_id", "parent_id", "name", "size", "ctag", "etag", "hash")} if snapshot else None
+        mode = MODE_DELETE if delete_original else MODE_DISCARDED
+        if source:
+            info = {"mode": mode, "state": RETIRE_PENDING, "code": None}
+        else:
+            info = {"mode": mode, "state": RETIRE_PENDING if not token else RETIRE_DONE, "code": "TOKEN" if not token else "GONE"}
+        entry = {"state": DISMISSED, "dismiss_reason": reason, "decision": None, "by": actor, "source": source, "retire": {**info, "requested_by": actor, "requested_at": manifest.now_iso()},
+                 "history": entry.get("history", [])}
+        _save_ledger(key, entry, "DISMISSED")
+        state = _retire(key, entry, source, token) if source else info["state"]
+    out = {"ok": True, "retire": state, "mode": mode}
+    if state != RETIRE_DONE:
+        out["warning"] = REASON_TEXT[retire_reason(entry)]
+    return out
 
 
-def reopen(key: str, *, actor: str) -> dict:
-    """Vuelve a dejar por resolver un CV descartado, o una aceptación SIN efectos (bloqueada antes de crear o subir nada)."""
+def dismiss_many(keys: list[str], token: str, *, actor: str, reason: str, delete_original: bool = False, confirm_delete: str = "", time_budget: float = ACCEPT_BUDGET_S,
+                 clock=time.monotonic) -> dict:
+    """Descarte por LOTE: lo MISMO que descartar cada CV por separado (misma decisión, mismo retiro físico verificado y, solo con la doble confirmación, la eliminación), con UN listado de la bandeja y el mismo
+    presupuesto de tiempo que la aceptación por lote. Cada CV es independiente: lo que no se llega a procesar queda sin cambios."""
+    if reason not in DISMISS_REASONS:
+        return {"ok": False, "error": "Elegí un motivo de descarte."}
+    if delete_original and confirm_delete != DELETE_CONFIRMATION:
+        return {"ok": False, "error": "Eliminar los archivos originales requiere una segunda confirmación. No se descartó nada."}
+    started = clock()
+    listing = current_listing(token)[1]
+    results = []
+    for key in keys[:ACCEPT_MAX_SELECTION]:
+        if clock() - started >= time_budget:
+            results.append({"key": key, "outcome": "PENDING", "message": "No se llegó a procesar en este envío: volvé a seleccionarlo."})
+            continue
+        try:
+            res = dismiss(key, token, actor=actor, reason=reason, delete_original=delete_original, confirm_delete=confirm_delete, listing=listing)
+        except manifest.ManifestBusyError:
+            res = {"ok": False, "error": "Otra persona está procesando este CV en este momento."}
+        except manifest.ManifestError:
+            res = {"ok": False, "error": STOP_TEXT["PERSISTENCE_ERROR"]}
+        outcome = "DONE" if res.get("ok") and res.get("retire") == RETIRE_DONE else ("PARTIAL" if res.get("ok") else "ERROR")
+        results.append({"key": key, "outcome": outcome, "message": res.get("error") or res.get("warning") or ""})
+    counts = {"done": sum(1 for r in results if r["outcome"] in ("DONE", "PARTIAL")), "partial": sum(1 for r in results if r["outcome"] == "PARTIAL"),
+              "pending": sum(1 for r in results if r["outcome"] == "PENDING"), "errors": sum(1 for r in results if r["outcome"] == "ERROR")}
+    _log.info("cchh.cv_inbox.batch_dismiss done=%s partial=%s pending=%s errors=%s mode=%s", counts["done"], counts["partial"], counts["pending"], counts["errors"], "delete" if delete_original else "move")
+    return {"ok": True, "results": results, "counts": counts, "mode": MODE_DELETE if delete_original else MODE_DISCARDED}
+
+
+def reopen(key: str, *, actor: str, token: str = "") -> dict:
+    """Vuelve a dejar por resolver un CV descartado cuyo archivo sigue —o volvió a estar— en la bandeja, o una aceptación SIN efectos (bloqueada antes de crear o subir nada)."""
     with manifest.ledger_lock(AREA, key, timeout=0):
         entry = manifest.get_ledger(AREA, key) or {}
-        if entry.get("state") == DISMISSED or (entry.get("state") in (ACCEPTED, BLOCKED) and not entry.get("effects")):
-            _save_ledger(key, {**entry, "state": REOPENED, "decision": None, "stage": None, "reason": None, "by": actor}, "REOPENED")
-            return {"ok": True}
-    return {"ok": False, "error": "Solo se puede reabrir un CV descartado o una aceptación que no produjo efectos."}
+        if entry.get("state") == DISMISSED:
+            info = entry.get("retire") or {}
+            if info.get("state") == RETIRE_DONE and not (token and key in {e["key"] for e in current_listing(token)[1]}):
+                if info.get("mode") == MODE_DELETE:
+                    return {"ok": False, "error": "El archivo original se eliminó de SharePoint: no se puede reabrir."}
+                return {"ok": False, "error": f"El archivo está en «{FOLDER_NAME}/{DISCARDED_FOLDER}». Para reabrirlo, movelo de nuevo a «{FOLDER_NAME}» desde SharePoint."}
+        elif not (entry.get("state") in (ACCEPTED, BLOCKED) and not entry.get("effects")):
+            return {"ok": False, "error": "Solo se puede reabrir un CV descartado o una aceptación que no produjo efectos."}
+        _save_ledger(key, {**entry, "state": REOPENED, "decision": None, "stage": None, "reason": None, "retire": None, "by": actor}, "REOPENED")
+    return {"ok": True}

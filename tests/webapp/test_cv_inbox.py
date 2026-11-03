@@ -4,6 +4,7 @@ cortes, concurrencia, origen modificado o eliminado, retiro del original y aisla
 from __future__ import annotations
 
 import threading
+import urllib.error
 import urllib.parse
 
 import pytest
@@ -32,7 +33,7 @@ MARTIN_2 = make_pdf(["Martín Sosa", "martin.sosa@mail.com", "Cel 11 7777 1234",
 
 
 class Intake:
-    """`Perfiles` (link fijo) → `carga-masiva` con archivos directos; `incorporados` se crea al retirar. Mueve con PATCH (If-Match) y nunca borra."""
+    """`Perfiles` (link fijo) → `carga-masiva` con archivos directos; `incorporados`/`descartados` se crean al retirar. Mueve con PATCH (If-Match); borra (If-Match) SOLO si el test lo habilita."""
 
     def __init__(self, has_inbox=True):
         self.has_inbox = has_inbox
@@ -43,6 +44,10 @@ class Intake:
         self.downloads: list[str] = []
         self.patches: list[str] = []
         self.deny_patch = False
+        self.deny_delete = False
+        self.allow_delete = False
+        self.fail_patch: list = []
+        self.deletes: list[str] = []
         self.fail_download: dict[str, list] = {}
         self.n = 0
 
@@ -61,7 +66,7 @@ class Intake:
 
     def _folder(self, fid):
         name, parent = self.folders[fid]
-        return {"id": fid, "name": name, "folder": {}, "parentReference": {"id": parent, "driveId": DRIVE}}
+        return {"id": fid, "name": name, "folder": {}, "parentReference": {"id": parent, "driveId": DRIVE}, "webUrl": f"https://danwor.sharepoint.com/sites/Comunicaciones/{name}"}
 
     def get_json(self, url, token, **kw):
         assert token == TOKEN
@@ -95,24 +100,40 @@ class Intake:
 
     def post_json(self, url, token, body):
         parent = urllib.parse.unquote(url.split(ITEMS, 1)[1]).rsplit("/children", 1)[0]
-        assert parent == "inbox" and body["name"] == "incorporados", "la zona de entrada solo admite crear la carpeta de incorporados"
-        if any(n == "incorporados" and p == "inbox" for n, p in self.folders.values()):
+        assert parent == "inbox" and body["name"] in ("incorporados", "descartados"), "la zona de entrada solo admite crear incorporados/descartados"
+        if any(n == body["name"] and p == "inbox" for n, p in self.folders.values()):
             raise http_error(409)
-        self.folders["retired"] = ("incorporados", "inbox")
-        return self._folder("retired")
+        self.folders["sub-" + body["name"]] = (body["name"], "inbox")
+        return self._folder("sub-" + body["name"])
 
     def patch_json(self, url, token, body, extra_headers=None):
         fid = urllib.parse.unquote(url.split(ITEMS, 1)[1]).split("?", 1)[0]
         self.patches.append(fid)
-        assert set(body) == {"parentReference"} and body["parentReference"]["id"] == "retired", "solo se retira a incorporados"
+        assert set(body) == {"parentReference"} and body["parentReference"]["id"] in ("sub-incorporados", "sub-descartados"), "solo se retira a incorporados/descartados"
         if self.deny_patch:
             raise http_error(403)
+        if self.fail_patch:
+            raise self.fail_patch.pop(0)
         if fid not in self.files:
             raise http_error(404)
         if extra_headers and extra_headers.get("If-Match") != self.item(fid)["eTag"]:
             raise http_error(412)
-        self.files[fid]["parent"] = "retired"
+        self.files[fid]["parent"] = body["parentReference"]["id"]
         return self.item(fid)
+
+    def delete(self, url, token, extra_headers=None):
+        fid = urllib.parse.unquote(url.split(ITEMS, 1)[1]).split("?", 1)[0]
+        assert self.allow_delete, "eliminación física no habilitada en este escenario"
+        assert self.files.get(fid, {}).get("parent") == "inbox", "solo se elimina dentro de carga-masiva"
+        self.deletes.append(fid)
+        if self.deny_delete:
+            raise http_error(403)
+        if extra_headers and extra_headers.get("If-Match") != self.item(fid)["eTag"]:
+            raise http_error(412)
+        del self.files[fid]
+
+    def in_folder(self, folder):
+        return sorted(f["name"] for f in self.files.values() if f["parent"] == folder)
 
     def in_inbox(self):
         return sorted(f["name"] for f in self.files.values() if f["parent"] == "inbox")
@@ -142,7 +163,7 @@ def world(home, monkeypatch):
     monkeypatch.setattr(microsoft365, "graph_get_bytes", route(store.get_bytes, intake.get_bytes))
     monkeypatch.setattr(microsoft365, "graph_post_json", route(store.post_json, intake.post_json))
     monkeypatch.setattr(microsoft365, "graph_put_bytes", only_cvs(store.put_bytes))
-    monkeypatch.setattr(microsoft365, "graph_delete", lambda *a, **k: (_ for _ in ()).throw(AssertionError("la bandeja nunca borra")))
+    monkeypatch.setattr(microsoft365, "graph_delete", only_intake(intake.delete))
     monkeypatch.setattr(microsoft365, "graph_patch_json", only_intake(intake.patch_json))
     profile_repository.create({"first_name": "Lucía", "last_name": "Gómez", "email": "lucia.gomez@mail.com"})
     profile_repository.create({"first_name": "Pablo", "last_name": "Ruiz"})
@@ -264,7 +285,7 @@ def test_batch_acceptance_creates_or_links_copies_into_cvs_and_retires_the_origi
     doc = docs_of(ana["profile_id"])[0]
     assert doc["drive_id"] == "drive-1" and doc["item_id"] in store.files and doc["folder_item_id"] in store.folders and doc["web_url"]
     assert intake.in_inbox() == ["pablo.pdf"]                                                       # los incorporados se retiraron; el ambiguo queda
-    assert {f["parent"] for fid, f in intake.files.items() if fid in ("a1", "l1")} == {"retired"}
+    assert {f["parent"] for fid, f in intake.files.items() if fid in ("a1", "l1")} == {"sub-incorporados"} and intake.deletes == []
     view = rows()
     assert view["cv1.pdf"]["status"] == inbox.INCORPORATED and not view["cv1.pdf"]["can_retire"]
     assert analyze_all()["analyzed"] == 0 and rows()["cv1.pdf"]["status"] == inbox.INCORPORATED   # refrescar no lo devuelve a pendiente
@@ -298,7 +319,11 @@ def test_ambiguous_matches_cannot_be_created_without_acknowledgement_and_link_ne
     assert not res["ok"] and len(banco()) == 3
     row = rows()["pablo.pdf"]
     target = row["matches"][0]["profile_id"]
-    res = inbox.save_decision(row["key"], TOKEN, actor=ACTOR, raw=form(row), op="link", target_profile_id=target, fingerprint_seen=row["fingerprint"], expected_revision=row["draft_revision"])
+    unconfirmed = inbox.save_decision(row["key"], TOKEN, actor=ACTOR, raw=form(row), op="link", target_profile_id=target, fingerprint_seen=row["fingerprint"], expected_revision=row["draft_revision"])
+    assert not unconfirmed["ok"] and "coincidencias" in unconfirmed["error"]                                         # vincular con coincidencias también exige la confirmación
+    row = rows()["pablo.pdf"]
+    res = inbox.save_decision(row["key"], TOKEN, actor=ACTOR, raw=form(row), op="link", target_profile_id=target, fingerprint_seen=row["fingerprint"], expected_revision=row["draft_revision"],
+                              acks=[inbox.ACK_MATCHES])
     assert res["ok"]
     row = rows()["pablo.pdf"]
     assert row["status"] == inbox.READY and "RESOLVED" in row["reasons"] and row["batch_ok"]          # resuelto por una persona: ahora puede ir en un lote
@@ -436,8 +461,8 @@ def test_content_already_in_the_banco_is_flagged_and_dismissed_files_stay_in_the
     analyze_all()
     view = rows()
     assert view["otra vez.pdf"]["status"] == inbox.PROCESSED
-    assert inbox.dismiss(view["notas.txt"]["key"], actor=ACTOR, reason="NOT_A_CV")["ok"]
-    assert rows()["notas.txt"]["status"] == inbox.DISCARDED and "notas.txt" in intake.in_inbox()    # rechazado: queda en la bandeja hasta una decisión explícita
+    assert inbox.dismiss(view["notas.txt"]["key"], actor=ACTOR, reason="NOT_A_CV")["ok"]                # sin token: la decisión queda y el retiro físico, pendiente
+    assert rows()["notas.txt"]["status"] == inbox.DISCARDED and rows()["notas.txt"]["can_retire"] and "notas.txt" in intake.in_inbox()
     assert inbox.reopen(view["notas.txt"]["key"], actor=ACTOR)["ok"] and rows()["notas.txt"]["status"] == inbox.ERROR
 
 
@@ -462,3 +487,128 @@ def test_the_intake_area_is_isolated_from_historical_runs(world, home):
     batch("cv1.pdf")
     assert mf.list_runs() == [] and not (home / "human-capital" / "import-history").exists()
     assert (home / "human-capital" / "cv-inbox" / "ledger").is_dir()
+
+
+# ═══════════════════ descarte: mover a descartados o eliminar con doble confirmación ═══════════════════
+def _key(name):
+    return rows()[name]["key"]
+
+
+def test_discard_moves_the_original_to_descartados_by_default_and_it_is_never_detected_again(world):
+    store, intake = world
+    intake.add("x1", "notas.txt", b"hola")
+    intake.add("p1", "pablo.pdf", PABLO)
+    analyze_all()
+    out = inbox.dismiss(_key("notas.txt"), TOKEN, actor=ACTOR, reason="NOT_A_CV")
+    assert out == {"ok": True, "retire": inbox.RETIRE_DONE, "mode": inbox.MODE_DISCARDED}
+    assert intake.in_folder("sub-descartados") == ["notas.txt"] and intake.deletes == [] and intake.in_inbox() == ["pablo.pdf"]
+    ledger = mf.get_ledger(inbox.AREA, _key_from_ledger("notas.txt"))
+    assert ledger["state"] == inbox.DISMISSED and ledger["by"] == ACTOR and ledger["retire"]["state"] == inbox.RETIRE_DONE
+    events = [e["event"] for e in mf.get_audit(inbox.AREA, ledger["content_key"])["events"]]
+    assert "INBOX_DISMISSED" in events and "INBOX_RETIRE_DONE" in events
+    assert [f["name"] for f in inbox.list_inbox(TOKEN, inbox.resolve_inbox(TOKEN))["files"]] == ["pablo.pdf"]     # descartados/ e incorporados/ no entran a la detección
+    assert analyze_all()["analyzed"] == 0
+    assert inbox.dismiss(ledger["content_key"], TOKEN, actor=ACTOR, reason="NOT_A_CV")["ok"] is False                   # no se repite el descarte
+    assert intake.patches.count("x1") == 1
+
+
+def _key_from_ledger(name):
+    return next(k for k, g in ((g["content_key"], g) for g in mf.list_groups(inbox.AREA)) if g["name"] == name)
+
+
+def test_physical_deletion_requires_the_explicit_double_confirmation(world):
+    store, intake = world
+    intake.add("p1", "pablo.pdf", PABLO)
+    analyze_all()
+    key = _key("pablo.pdf")
+    refused = inbox.dismiss(key, TOKEN, actor=ACTOR, reason="OTHER", delete_original=True)
+    assert refused["ok"] is False and "segunda confirmación" in refused["error"]
+    assert mf.get_ledger(inbox.AREA, key) is None and intake.in_inbox() == ["pablo.pdf"]                                # nada se descartó ni se tocó
+    assert inbox.dismiss(key, TOKEN, actor=ACTOR, reason="OTHER", delete_original=True, confirm_delete="si")["ok"] is False
+    intake.allow_delete = True
+    out = inbox.dismiss(key, TOKEN, actor=ACTOR, reason="OTHER", delete_original=True, confirm_delete=inbox.DELETE_CONFIRMATION)
+    assert out["ok"] and out["mode"] == inbox.MODE_DELETE and out["retire"] == inbox.RETIRE_DONE
+    assert intake.deletes == ["p1"] and "p1" not in intake.files and store.real_files() == {}
+    ledger = mf.get_ledger(inbox.AREA, key)
+    assert ledger["retire"]["mode"] == inbox.MODE_DELETE and ledger["by"] == ACTOR
+    assert "DELETED_ORIGINAL" in rows_all()[key]["reasons"]
+    assert inbox.reopen(key, actor=ACTOR, token=TOKEN)["ok"] is False                                                    # eliminado: no se reabre
+
+
+def rows_all():
+    return {r["key"]: r for r in inbox.overview(TOKEN)["rows"]}
+
+
+def test_a_graph_failure_keeps_the_discard_and_the_retry_does_not_repeat_it(world):
+    store, intake = world
+    intake.add("p1", "pablo.pdf", PABLO)
+    analyze_all()
+    key = _key("pablo.pdf")
+    intake.deny_patch = True
+    out = inbox.dismiss(key, TOKEN, actor=ACTOR, reason="NOT_A_CANDIDATE")
+    assert out["ok"] and out["retire"] == inbox.RETIRE_PENDING and "permiso" in out["warning"]
+    row = rows()["pablo.pdf"]
+    assert row["status"] == inbox.DISCARDED and row["can_retire"] and "RETIRE_PERMISSION" in row["reasons"] and intake.in_inbox() == ["pablo.pdf"]
+    intake.deny_patch = False
+    intake.fail_patch = [urllib.error.URLError("corte de red")]                                                         # respuesta incierta: no se movió
+    assert inbox.retire(key, TOKEN)["ok"] is False and intake.in_inbox() == ["pablo.pdf"]
+    assert inbox.retire(key, TOKEN)["ok"] and intake.in_folder("sub-descartados") == ["pablo.pdf"]
+    patches = len(intake.patches)
+    assert inbox.retire(key, TOKEN) == {"ok": True, "retire": inbox.RETIRE_DONE, "idempotent": True} and len(intake.patches) == patches
+    assert [e["event"] for e in mf.get_audit(inbox.AREA, key)["events"]].count("INBOX_DISMISSED") == 1
+
+
+def test_a_version_change_blocks_moving_or_deleting(world, monkeypatch):
+    store, intake = world
+    intake.add("p1", "pablo.pdf", PABLO)
+    intake.add("l1", "lucia.pdf", LUCIA)
+    analyze_all()
+    keys = {n: _key(n) for n in ("pablo.pdf", "lucia.pdf")}
+    stale = inbox.current_listing(TOKEN)
+    intake.modify("p1", MARTIN_1)
+    intake.modify("l1", MARTIN_2)
+    monkeypatch.setattr(inbox, "current_listing", lambda token: stale)                                               # la persona decidió sobre la versión vieja
+    intake.allow_delete = True
+    moved = inbox.dismiss(keys["pablo.pdf"], TOKEN, actor=ACTOR, reason="OTHER")
+    deleted = inbox.dismiss(keys["lucia.pdf"], TOKEN, actor=ACTOR, reason="OTHER", delete_original=True, confirm_delete=inbox.DELETE_CONFIRMATION)
+    assert moved["retire"] == deleted["retire"] == inbox.RETIRE_BLOCKED and "cambió" in moved["warning"]
+    assert intake.deletes == [] and sorted(intake.in_inbox()) == ["lucia.pdf", "pablo.pdf"]                              # ni movido ni eliminado
+
+
+def test_an_incorporated_cv_is_never_discarded_nor_deleted_and_batch_acceptance_never_deletes(world):
+    store, intake = world
+    intake.add("a1", "cv1.pdf", ANA)
+    analyze_all()
+    intake.allow_delete = True
+    assert batch("cv1.pdf")["counts"]["done"] == 1 and intake.deletes == []
+    key = next(k for k, e in mf.list_ledgers(inbox.AREA).items() if e["state"] == inbox.DONE)
+    out = inbox.dismiss(key, TOKEN, actor=ACTOR, reason="OTHER", delete_original=True, confirm_delete=inbox.DELETE_CONFIRMATION)
+    assert out["ok"] is False and intake.deletes == [] and len(store.real_files()) == 1                                   # ni el original ni el repositorio CVs se tocan
+
+
+def test_reopen_after_moving_requires_the_file_back_in_the_intake(world):
+    store, intake = world
+    intake.add("p1", "pablo.pdf", PABLO)
+    analyze_all()
+    key = _key("pablo.pdf")
+    inbox.dismiss(key, TOKEN, actor=ACTOR, reason="OTHER")
+    refused = inbox.reopen(key, actor=ACTOR, token=TOKEN)
+    assert refused["ok"] is False and "descartados" in refused["error"]
+    intake.files["p1"]["parent"] = "inbox"                                                                              # Capital Humano lo devolvió a la carpeta desde SharePoint
+    assert inbox.reopen(key, actor=ACTOR, token=TOKEN)["ok"] and rows()["pablo.pdf"]["status"] == inbox.REVIEW
+
+
+def test_batch_discard_equals_discarding_each_one_and_deletion_still_needs_the_double_confirmation(world):
+    store, intake = world
+    intake.add("x1", "notas.txt", b"hola")
+    intake.add("p1", "pablo.pdf", PABLO)
+    intake.add("a1", "cv1.pdf", ANA)
+    analyze_all()
+    keys = [_key("notas.txt"), _key("pablo.pdf")]
+    refused = inbox.dismiss_many(keys, TOKEN, actor=ACTOR, reason="OTHER", delete_original=True)
+    assert refused["ok"] is False and intake.in_inbox() == ["cv1.pdf", "notas.txt", "pablo.pdf"]
+    out = inbox.dismiss_many(keys, TOKEN, actor=ACTOR, reason="NOT_A_CV")
+    assert out["counts"] == {"done": 2, "partial": 0, "pending": 0, "errors": 0}
+    assert intake.in_folder("sub-descartados") == ["notas.txt", "pablo.pdf"] and intake.in_inbox() == ["cv1.pdf"] and intake.deletes == []
+    again = inbox.dismiss_many(keys, TOKEN, actor=ACTOR, reason="NOT_A_CV")
+    assert again["counts"]["errors"] == 2                                                                              # no se repite el descarte

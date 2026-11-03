@@ -1,72 +1,122 @@
+{% from "partials/pager.html" import render_pager %}
 {# Bandeja de Carga masiva (fragmento HTMX; datos personales: solo Capital Humano autorizado). Toda acción re-renderiza este panel (`#cvinbox-panel`). Token: `data-dw-graph-token` (lectura) o
-   `data-hc-write-token` (escritura en CVs). Componentes del Hub: `.callout`, `.dashboard-section`, `.dashboard-table`, `.status-badge`, `.filter-toolbar-card` y el panel de revisión `.hc-exc-*` de Históricos. #}
+   `data-hc-write-token` (escritura). SOLO primitivos del Hub: `.callout` (avisos), `.activity-kpi-grid`/`.activity-kpi` (conteos), `.filter-toolbar-card` + `.dashboard-view-switch` (vista y acción
+   principal), `.asr-generate` (botón con carga integrada), `.dashboard-section` + `.dashboard-table` (tabla), `.hc-selection-bar` (selección, como Candidatos), `.dashboard-empty` (vacío). #}
 {% set _post = "/cchh/candidatos/importar/bandeja" %}
-{% set _target = 'hx-target="#cvinbox-panel" hx-swap="outerHTML"' %}
-<div id="cvinbox-panel" class="hc-inbox" data-cvinbox-panel>
+<div id="cvinbox-panel" data-cvinbox-panel{% if overview and overview.inbox.web_url %} data-inbox-url="{{ overview.inbox.web_url }}"{% endif %}>
   {% if result and result.message %}
-    <aside class="callout {{ 'callout--success' if result.kind == 'ok' else 'callout--warn' }} hc-inbox-result" role="status" data-cvinbox-result>
+    <aside class="callout {{ 'callout--success' if result.kind == 'ok' else 'callout--warn' }}" role="status" data-cvinbox-result data-kind="{{ result.kind }}">
+      <div class="callout__head"><strong class="callout__title">{{ result.title or ('Listo' if result.kind == 'ok' else 'Atención') }}</strong></div>
       <div class="callout__body"><p>{{ result.message }}{% if result.profile_id %} <a href="/cchh/candidatos/{{ result.profile_id }}">Ver candidato</a>{% endif %}</p>
-      {% if result.batch %}<ul class="hc-inbox-batch" data-cvinbox-batch-results>{% for r in result.batch.results %}{% set _row = (overview.rows | selectattr('key', 'equalto', r.key) | first) if overview else none %}
-        <li><strong>{{ (_row.name if _row else r.key) }}</strong>: {% if r.outcome == 'DONE' %}incorporado{% if r.profile_id %} (<a href="/cchh/candidatos/{{ r.profile_id }}">ver</a>){% endif %}{% else %}{{ r.message }}{% endif %}</li>{% endfor %}</ul>{% endif %}
+      {% if result.batch %}<ul data-cvinbox-batch-results>{% for r in result.batch.results %}{% set _row = (overview.rows | selectattr('key', 'equalto', r.key) | first) if overview else none %}
+        <li><strong>{{ (_row.name if _row else 'CV') }}</strong>: {% if r.outcome == 'DISCARDED' %}descartado{% elif r.outcome == 'DONE' %}incorporado{% if r.profile_id %} · <a href="/cchh/candidatos/{{ r.profile_id }}">ver candidato</a>{% endif %}{% else %}{{ r.message }}{% endif %}</li>{% endfor %}</ul>{% endif %}
+      {% if result.need_write %}<p><button type="button" class="btn-secondary" data-hc-authorize-write>Autorizar escritura en SharePoint</button> <span class="field-hint" data-hc-authorize-status role="status"></span></p>{% endif %}
       </div>
     </aside>
-    {% if result.continue %}<div hidden hx-post="{{ _post }}/analizar" hx-trigger="load delay:300ms" {{ _target | safe }} hx-vals='{"vista": "{{ vista }}"}' data-dw-graph-token data-cvinbox-continue></div>{% endif %}
+    {% if result.continue %}<div hidden hx-post="{{ _post }}/analizar" hx-trigger="load delay:300ms" hx-target="#cvinbox-panel" hx-swap="outerHTML" hx-vals='{{ panel_state | tojson }}' data-dw-graph-token data-cvinbox-continue></div>{% endif %}
   {% endif %}
 
   {% if error %}
-    <aside class="callout callout--warn" role="alert" data-cvinbox-error="{{ error.code }}"><div class="callout__body"><p>{{ error.message }}</p>
-      <p><button type="button" class="btn-secondary" hx-post="{{ _post }}" {{ _target | safe }} hx-vals='{"vista": "{{ vista }}"}' data-dw-graph-token>Reintentar</button></p></div></aside>
+    <aside class="callout callout--warn" role="alert" data-cvinbox-error="{{ error.code }}">
+      <div class="callout__head"><strong class="callout__title">No se pudo abrir la carpeta de carga masiva</strong></div>
+      <div class="callout__body"><p>{{ error.message }}</p>
+        <p><button type="button" class="btn-secondary" hx-post="{{ _post }}" hx-target="#cvinbox-panel" hx-swap="outerHTML" hx-vals='{{ panel_state | tojson }}' data-dw-graph-token>Reintentar</button></p></div>
+    </aside>
   {% else %}
     {% set c = overview.counts %}
-    <div class="hc-inbox-toolbar hc-profile-filters filter-toolbar-card" data-cvinbox-toolbar>
-      <p class="hc-inbox-summary" data-cvinbox-summary>
-        <span><strong>{{ c.READY }}</strong> listos para aceptar</span>
-        <span><strong>{{ c.REVIEW }}</strong> requieren revisión</span>
-        <span><strong>{{ c.INCOMPLETE }}</strong> con identidad incompleta</span>
-        <span><strong>{{ overview.pending_analysis }}</strong> por analizar</span>
-        {% if c.ACCEPTING %}<span><strong>{{ c.ACCEPTING }}</strong> sin terminar</span>{% endif %}
-        {% if c.ERROR %}<span><strong>{{ c.ERROR }}</strong> no legibles</span>{% endif %}
-        {% if overview.retire_pending %}<span><strong>{{ overview.retire_pending }}</strong> por retirar de la carpeta</span>{% endif %}
-      </p>
-      <div class="hc-inbox-actions">
-        <button type="button" class="btn-primary" hx-post="{{ _post }}/analizar" {{ _target | safe }} hx-vals='{"vista": "{{ vista }}"}' hx-disabled-elt="this" data-dw-graph-token
-                {{ 'disabled' if not overview.pending_analysis }} data-cvinbox-analyze>{% if overview.pending_analysis %}Analizar {{ overview.pending_analysis }} pendiente{{ '' if overview.pending_analysis == 1 else 's' }}{% else %}Sin CVs por analizar{% endif %}</button>
-        <button type="button" class="btn-secondary" data-hc-authorize-write>Autorizar escritura en CVs</button>
-        <span class="field-hint" data-hc-authorize-status role="status"></span>
-        <div class="feedback-field feedback-field--compact"><label for="cvinbox-vista">Ver</label>
-          <select id="cvinbox-vista" name="vista" hx-post="{{ _post }}" {{ _target | safe }} hx-trigger="change" data-dw-graph-token data-cvinbox-view>
-            {% for code, label in (('abiertos', 'Por resolver'), ('incorporados', 'Incorporados recientes'), ('descartados', 'Descartados'), ('todos', 'Todos')) %}<option value="{{ code }}" {{ 'selected' if vista == code }}>{{ label }}</option>{% endfor %}
-          </select></div>
+    {# Tiles que FILTRAN la tabla (patrón de los KPI clickeables del CRM: `.activity-kpi--clickable` + `.is-active`); el mismo tile activo o la «×» del encabezado quitan el filtro. #}
+    {% set _tile_values = {"pendientes": overview.pending_analysis, "listos": c.READY, "revisar": c.REVIEW + c.INCOMPLETE, "problemas": c.ERROR + c.ACCEPTING + overview.retire_pending} %}
+    <div class="activity-kpi-grid" data-cvinbox-summary>
+      {% for code, label in tiles.items() %}
+      <div class="activity-kpi activity-kpi--clickable{{ ' is-active' if filtro == code }}" role="button" tabindex="0" aria-pressed="{{ 'true' if filtro == code else 'false' }}"
+           hx-post="{{ _post }}" hx-trigger="click, keyup[key=='Enter']" hx-target="#cvinbox-panel" hx-swap="outerHTML" data-dw-graph-token
+           hx-vals='{{ {"vista": "abiertos", "orden": sort_state.key, "dir": sort_state.dir, "filtro": ("" if filtro == code else code)} | tojson }}' title="{{ 'Quitar el filtro' if filtro == code else 'Ver solo: ' ~ label }}" data-cvinbox-tile="{{ code }}">
+        <span class="activity-kpi__value">{{ _tile_values[code] }}</span><span class="activity-kpi__label">{{ label }}</span>
       </div>
-      <p class="field-hint">Carpeta de entrada: {% if overview.inbox.web_url %}<a href="{{ overview.inbox.web_url }}" target="_blank" rel="noopener noreferrer">Perfiles/{{ folder_name }}</a>{% else %}Perfiles/{{ folder_name }}{% endif %}.
-        Hasta {{ limits.file_mb }} MB por archivo (PDF, DOC o DOCX) · se analizan {{ limits.analyze }} por tanda · hasta {{ limits.accept }} por aceptación.{% if overview.truncated %} <strong>Se muestran los primeros {{ limits.listed }} archivos de la carpeta.</strong>{% endif %}</p>
+      {% endfor %}
     </div>
 
-    <form id="cvinbox-batch" class="hc-inbox-batch-form" onsubmit="return false" data-cvinbox-batch>
-      <input type="hidden" name="vista" value="{{ vista }}">
-    </form>
+    <div class="filter-toolbar-card hc-inbox-toolbar" data-cvinbox-toolbar>
+      <div class="dashboard-view-switch" role="group" aria-label="Qué CVs ver">
+        {% for code, label in (('abiertos', 'Por resolver'), ('incorporados', 'Incorporados'), ('descartados', 'Descartados'), ('todos', 'Todos')) %}
+        <button type="button" class="{{ 'is-active' if vista == code }}" aria-pressed="{{ 'true' if vista == code else 'false' }}" hx-post="{{ _post }}" hx-target="#cvinbox-panel" hx-swap="outerHTML" hx-vals='{{ {"vista": code, "orden": sort_state.key, "dir": sort_state.dir} | tojson }}' data-dw-graph-token data-cvinbox-view="{{ code }}">{{ label }}</button>
+        {% endfor %}
+      </div>
+      {% if overview.truncated %}<span class="field-hint hc-inbox-origin">Se muestran los primeros {{ limits.listed }} archivos de la carpeta.</span>{% endif %}
+      {% if overview.pending_analysis %}
+      <button type="button" class="btn-primary asr-generate" hx-post="{{ _post }}/analizar" hx-target="#cvinbox-panel" hx-swap="outerHTML" hx-vals='{{ panel_state | tojson }}' hx-disabled-elt="this" data-dw-graph-token data-cvinbox-analyze>
+        <span class="asr-generate__busy htmx-indicator" role="status"><span class="asr-generate__spinner" aria-hidden="true"></span>Analizando CVs…</span>
+        <span class="asr-generate__label">Analizar {{ overview.pending_analysis }} CV{{ '' if overview.pending_analysis == 1 else 's' }}</span>
+      </button>
+      {% endif %}
+    </div>
+
+    <form id="cvinbox-batch" onsubmit="return false" data-cvinbox-batch><input type="hidden" name="vista" value="{{ vista }}"><input type="hidden" name="orden" value="{{ sort_state.key }}"><input type="hidden" name="dir" value="{{ sort_state.dir }}"><input type="hidden" name="page" value="{{ panel_state.page }}"><input type="hidden" name="page_size" value="{{ panel_state.page_size }}"><input type="hidden" name="filtro" value="{{ filtro }}"></form>
+    {% set _selectable = rows | selectattr('can_dismiss') | list | length + rows | selectattr('batch_ok') | list | length %}
     <div class="dashboard-sections">
-      <details class="dashboard-section" data-section-id="cvinbox" open>
+      <details class="dashboard-section" data-section-id="cvinbox" open x-data="{ n: 0, ready: 0, count() { this.n = $root.querySelectorAll('[data-cvinbox-select]:checked').length; this.ready = $root.querySelectorAll('[data-cvinbox-select][data-ready]:checked').length; } }">
         <summary class="dashboard-section__head">
           <span class="dashboard-section__caret"></span>
-          <span class="dashboard-section__title">CVs en la carpeta de entrada</span>
-          <span class="dashboard-section__count">{{ rows | length }} archivo{{ '' if rows | length == 1 else 's' }}</span>
+          <span class="dashboard-section__title">CVs en la carpeta de carga masiva</span>
+          <span class="dashboard-section__count">{{ total_rows }} CV{{ '' if total_rows == 1 else 's' }}{% if filtro %} <span class="dashboard-subhead__filter">· {{ tiles[filtro] }}</span>{% endif %}</span>
+          {% if filtro %}<button type="button" class="panel-close" hx-post="{{ _post }}" hx-target="#cvinbox-panel" hx-swap="outerHTML" data-dw-graph-token
+                  hx-vals='{{ {"vista": vista, "orden": sort_state.key, "dir": sort_state.dir} | tojson }}' aria-label="Quitar el filtro" title="Quitar el filtro y volver a todos" @click.prevent data-cvinbox-clear-filter>&times;</button>{% endif %}
         </summary>
         <div class="dashboard-section__body">
-          <div class="matrix-scroll"><table class="dashboard-table hc-inbox-table" data-cvinbox-rows>
-            <thead><tr><th scope="col" class="left hc-inbox-sel" aria-label="Seleccionar"></th><th scope="col" class="left">Documento</th><th scope="col" class="left">Datos propuestos</th>
-              <th scope="col" class="left">Coincidencias</th><th scope="col" class="left">Estado</th><th scope="col" class="left">Acciones</th></tr></thead>
-            {% for r in rows %}{% include "partials/cv_inbox_row.html" %}
-            {% else %}<tbody><tr><td class="left" colspan="6"><span class="field-hint" data-cvinbox-empty>{% if vista == 'abiertos' %}No hay CVs por resolver. Capital Humano puede dejar PDF o DOCX en «Perfiles/{{ folder_name }}» y volver acá.{% else %}No hay CVs con este filtro.{% endif %}</span></td></tr></tbody>{% endfor %}
+          {% if _selectable %}
+          {# Barra contextual de selección: MISMO componente que Candidatos (`.hc-selection-bar`), visible solo con algo seleccionado. Dos acciones: incorporar (solo los listos) y descartar (todos los
+             seleccionados; MISMO diálogo que el ícono de cada fila, human_capital_import.js). #}
+          <div class="hc-selection-bar filter-toolbar-card" role="region" aria-label="Selección de CVs" x-show="n > 0" x-cloak data-cvinbox-selection>
+            <span class="hc-selection-bar__count" role="status" aria-live="polite"><strong x-text="n">0</strong> <span x-text="n === 1 ? 'CV seleccionado' : 'CVs seleccionados'">CVs seleccionados</span></span>
+            <span class="field-hint hc-selection-bar__hint" x-text="ready === n ? 'Se incorporan con los datos revisados o propuestos. Cada CV se vuelve a verificar antes de guardarlo.' : (ready ? ready + ' de ' + n + ' están listos para incorporar; el resto requiere revisión individual.' : 'Ninguno de los seleccionados está listo para incorporar: podés descartarlos o revisarlos de a uno.')"></span>
+            <div class="hc-selection-bar__actions">
+              <button type="button" class="btn-primary asr-generate" hx-post="{{ _post }}/aceptar" hx-include="#cvinbox-batch, [form='cvinbox-batch'][data-ready]" hx-target="#cvinbox-panel" hx-swap="outerHTML" hx-disabled-elt="this" :disabled="ready === 0" data-hc-write-token data-cvinbox-accept-batch>
+                <span class="asr-generate__busy htmx-indicator" role="status"><span class="asr-generate__spinner" aria-hidden="true"></span>Incorporando…</span>
+                <span class="asr-generate__label" x-text="ready && ready !== n ? 'Incorporar ' + ready : 'Incorporar'">Incorporar</span>
+              </button>
+              <button type="button" class="btn-secondary" hx-post="{{ _post }}/descartar" hx-trigger="confirmed" hx-include="#cvinbox-batch, [form='cvinbox-batch']" hx-target="#cvinbox-panel" hx-swap="outerHTML"
+                      hx-vals='{{ panel_state | tojson }}' data-hc-write-token data-cvinbox-discard data-cvinbox-discard-batch data-reasons='{{ dismiss_options | tojson }}'>
+                <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+                Descartar
+              </button>
+              <button type="button" class="whatsnew-filter__clear" @click="$root.querySelectorAll('[data-cvinbox-select], [data-cvinbox-select-all]').forEach(b => b.checked = false); count()" aria-label="Limpiar selección">✕ Limpiar</button>
+            </div>
+          </div>
+          {% endif %}
+          {% if rows %}
+          {# Columnas redimensionables con el primitivo COMPARTIDO de app.js (`data-resizable-columns-key` + `<col>`/`<th>` con `data-column-key`, anchos persistidos y restaurados — MISMO que Candidatos);
+             cabeceras ordenables del Hub (`dashboard-table-th--sortable`, ▲/▼, `aria-sort`), ordenadas en el servidor como el Banco. #}
+          <div class="matrix-scroll hc-inbox-scroll" data-resizable-columns-key="cchh-carga-masiva" data-layout-version="2"><table class="dashboard-table" data-cvinbox-rows @change="count()">
+            <colgroup>
+              <col style="width:44px">
+              <col data-column-key="cv" style="width:16%">
+              <col data-column-key="datos" style="width:22%">
+              <col data-column-key="coincidencias" style="width:20%">
+              <col data-column-key="estado">{# sin ancho: absorbe el espacio restante, así las columnas fijas (casilla y acciones) nunca fuerzan desplazamiento horizontal si hay lugar #}
+              {% if row_actions.count %}<col style="width:{{ row_actions.count * 32 + 12 }}px">{% endif %}{# 28px por ícono + 4px de separación (`.dw-row-actions`) #}
+            </colgroup>
+            <thead><tr>
+              <th class="center hc-select-col">{% if _selectable %}<input type="checkbox" aria-label="Seleccionar todos los CVs de la vista" @change="$root.querySelectorAll('[data-cvinbox-select]').forEach(b => b.checked = $event.target.checked)" data-cvinbox-select-all>{% endif %}</th>
+              {% for key, label in (('cv', 'CV'), ('datos', 'Datos propuestos'), ('coincidencias', 'Coincidencias en el Banco'), ('estado', 'Estado')) %}
+              <th class="left dashboard-table-th--sortable" data-column-key="{{ key }}" hx-post="{{ _post }}" hx-target="#cvinbox-panel" hx-swap="outerHTML" data-dw-graph-token
+                  hx-vals='{{ {"vista": vista, "orden": key, "dir": sort_state.next[key]} | tojson }}' aria-sort="{{ ('ascending' if sort_state.dir == 'asc' else 'descending') if sort_state.key == key else 'none' }}"
+                  title="Ordenar por {{ label }}">{{ label }}{% if sort_state.key == key %} {{ sort_state.arrow[key] }}{% endif %}</th>
+              {% endfor %}
+              {% if row_actions.count %}<th class="center hc-inbox-actions">Acciones</th>{% endif %}
+            </tr></thead>
+            {% for r in rows %}{% include "partials/cv_inbox_row.html" %}{% endfor %}
           </table></div>
+          {# Paginador COMPARTIDO de CCHH (`partials/pager.html`, 50/100/200/300). Con POST: el token de Graph va en el cuerpo (`data-dw-graph-token`), nunca en la URL. #}
+          <div data-dw-graph-token>{{ render_pager(pager, "#cvinbox-panel", "Paginación de CVs", "CVs por página", "post") }}</div>
+          {% else %}
+          <div class="dashboard-empty" data-cvinbox-empty>
+            <span class="dashboard-empty__label">{{ 'Bandeja al día' if vista == 'abiertos' else 'Sin resultados' }}</span>
+            <p>{% if vista == 'abiertos' %}No hay CVs por resolver.{% else %}No hay CVs en esta vista.{% endif %}</p>
+            {% if vista == 'abiertos' %}<p class="dashboard-empty__hint">Cuando Capital Humano deje nuevos CVs en «Perfiles/{{ folder_name }}», van a aparecer acá.</p>{% endif %}
+          </div>
+          {% endif %}
         </div>
       </details>
     </div>
-    {% if overview.batch_ready %}
-    <div class="hc-inbox-accept">
-      <button type="button" class="btn-primary" hx-post="{{ _post }}/aceptar" hx-include="#cvinbox-batch, [form='cvinbox-batch']" {{ _target | safe }} hx-disabled-elt="this" data-hc-write-token data-cvinbox-accept-batch>Aceptar seleccionados</button>
-      <span class="field-hint">Solo se pueden seleccionar los CVs listos: identidad corroborada y sin coincidencias dudosas, o ya resueltos por una persona. Las altas sin email se aceptan de a una.</span>
-    </div>
-    {% endif %}
   {% endif %}
 </div>

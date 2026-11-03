@@ -21,33 +21,52 @@
        whats_new.html/catalog_guide_slides.html (`.catalog-back`,
        tools.css) — nunca CSS/JS propio de Capital Humano. #}
     <a class="catalog-back" href="/cchh/candidatos">← Volver a Candidatos</a>
-    <section class="module-hero">
-      <p class="eyebrow">Capital Humano</p>
-      <h1>Carga masiva de CVs</h1>
-      <p>Incorporá varios candidatos de una vez: desde los CVs que Capital Humano deja en SharePoint, o con el Excel de siempre.</p>
-    </section>
-
-    {# Dos modalidades con el primitivo de pestañas del Hub (`.tool-tabs`). La de Excel es la de siempre, sin cambios de contrato. #}
+    {# Dos modalidades. Cabecera de Capital Humano (`.hc-profiles-hero`, como Base de CVs) con el switch de vista COMPARTIDO del Hub (`.dashboard-view-switch`, tools.css: el mismo de
+       Todos / New Name / Base Instalada del Dashboard CRM y de las vistas de Búsquedas) a la derecha. La modalidad Excel es la de siempre, sin cambios de contrato. #}
     {% set _modo = 'excel' if (file_error or modo == 'excel') else 'sharepoint' %}
     <div x-data="{ modo: '{{ _modo }}' }" data-import-modes>
-    <nav class="tool-tabs hc-import-tabs" role="tablist" aria-label="Modalidad de carga masiva">
-      <button type="button" role="tab" @click="modo='sharepoint'" :class="modo==='sharepoint' && 'is-active'" :aria-selected="modo==='sharepoint'" class="{{ 'is-active' if _modo == 'sharepoint' }}" data-import-tab="sharepoint">Desde SharePoint</button>
-      <button type="button" role="tab" @click="modo='excel'" :class="modo==='excel' && 'is-active'" :aria-selected="modo==='excel'" class="{{ 'is-active' if _modo == 'excel' }}" data-import-tab="excel">Desde Excel</button>
-    </nav>
-
-    <section class="tool-tab-panel" role="tabpanel" x-show="modo==='sharepoint'" {{ 'x-cloak' if _modo != 'sharepoint' }} data-import-panel="sharepoint">
-      <p class="hc-hist-note"><strong>Dejá los CV (PDF, DOC o DOCX) en «Perfiles/{{ inbox_folder_name }}»</strong>, sin renombrarlos ni preparar un Excel. El Hub propone los datos de cada candidato y los concilia con el Banco; nada se incorpora hasta que lo aceptes. Esta sección contiene datos personales.</p>
-      <details class="hc-hist-help"><summary>Cómo funciona</summary><ul>
-        <li>«Analizar» lee los CV nuevos o modificados y propone nombre, apellido, email y teléfono con la evidencia que encontró. No crea candidatos ni toca SharePoint.</li>
-        <li>Revisá y corregí los datos (perfil y skills incluidos) y elegí: crear un candidato nuevo o vincular el CV a uno existente. Las coincidencias dudosas siempre requieren tu decisión.</li>
-        <li>Al aceptar, el CV se guarda en el repositorio de CVs del Hub, en la carpeta del candidato. Recién después el original se retira a «{{ inbox_folder_name }}/incorporados» (no se borra). Los descartados y los que tienen errores quedan en la carpeta.</li>
-      </ul></details>
-      <div hx-post="/cchh/candidatos/importar/bandeja" hx-trigger="load" hx-target="this" hx-swap="outerHTML" data-dw-graph-token data-cvinbox-loader>
-        <p class="field-hint">Cargando la bandeja…</p>
+    <section class="module-hero hc-profiles-hero">
+      <div class="hc-profiles-hero-text">
+        <p class="eyebrow">Capital Humano</p>
+        <h1>Carga masiva de CVs</h1>
+        <p :hidden="modo!=='sharepoint'" {{ 'hidden' if _modo != 'sharepoint' }}>Incorporá los CVs que Capital Humano deja en la carpeta <a class="whatsnew-banner__cta" data-cvinbox-folder-link data-sub="" target="_blank" rel="noopener noreferrer">inbound</a> de SharePoint.</p>
+        <p :hidden="modo!=='excel'" {{ 'hidden' if _modo != 'excel' }}>Subí un Excel con varios candidatos para cargarlos al banco de CVs de una sola vez.</p>
+      </div>
+      <div class="hc-profiles-hero-actions">
+        <div class="dashboard-view-switch" role="group" aria-label="Modalidad de carga masiva">
+          <button type="button" @click="modo='sharepoint'" :class="{ 'is-active': modo==='sharepoint' }" :aria-pressed="modo==='sharepoint'" data-import-tab="sharepoint">SharePoint</button>
+          <button type="button" @click="modo='excel'" :class="{ 'is-active': modo==='excel' }" :aria-pressed="modo==='excel'" data-import-tab="excel">Excel</button>
+        </div>
       </div>
     </section>
 
-    <section class="tool-tab-panel" role="tabpanel" x-show="modo==='excel'" {{ 'x-cloak' if _modo != 'excel' }} data-import-panel="excel">
+    {# Confirmaciones de la bandeja: el TOAST transitorio de CCHH (`.hc-catalog-refresh-feedback--topbar`: arriba, fijo, tipografía compacta del Hub) con el primitivo `data-dw-auto-dismiss` (se cierra solo, con fade). #}
+    <div class="hc-catalog-refresh-feedback--topbar" aria-live="polite" data-dw-auto-dismiss="6000" data-dw-auto-dismiss-fade data-cvinbox-toast></div>
+    <section :hidden="modo!=='sharepoint'" {{ 'hidden' if _modo != 'sharepoint' }} data-import-panel="sharepoint">
+      {# Ayuda contextual: el MISMO disclosure que «¿Cómo leer este Assessment?» del Catálogo (`details.dashboard-section` + `__count` «Guía de uso»), cerrado al cargar. #}
+      <div class="dashboard-sections">
+        <details class="dashboard-section" data-section-id="cvinbox-guia">
+          <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">¿Cómo funciona?</span><span class="dashboard-section__count">Guía de uso</span></summary>
+          <div class="dashboard-section__body methodology">{# `.methodology`: el MISMO ámbito que da formato a la tabla de «¿Cómo leer este Assessment?» (th dorada mono, filas con separador) #}
+            <table data-block="reading-guide">
+              <thead><tr><th>Paso</th><th>Qué pasa</th></tr></thead>
+              <tbody>
+                <tr><td>Dejar</td><td>Capital Humano guarda los PDF, DOC o DOCX en <a class="whatsnew-banner__cta" data-cvinbox-folder-link data-sub="" target="_blank" rel="noopener noreferrer">«Perfiles/{{ inbox_folder_name }}»</a>. No hace falta renombrarlos ni separarlos en carpetas.</td></tr>
+                <tr><td>Analizar</td><td>El Hub lee los CVs nuevos y propone nombre, apellido, email y teléfono, indicando qué tan respaldado está cada dato. No crea candidatos ni cambia nada en SharePoint.</td></tr>
+                <tr><td>Revisar</td><td>Corregí los datos, completá perfil y skills y elegí: crear un candidato nuevo o sumar el CV a uno que ya está en el Banco. Si hay dudas sobre la identidad, la decisión siempre es tuya.</td></tr>
+                <tr><td>Incorporar</td><td>El CV se guarda en la carpeta del candidato y el original pasa a <a class="whatsnew-banner__cta" data-cvinbox-folder-link data-sub="incorporados" target="_blank" rel="noopener noreferrer">«{{ inbox_folder_name }}/incorporados»</a>, una carpeta transitoria. Si descartás un CV, pasa a <a class="whatsnew-banner__cta" data-cvinbox-folder-link data-sub="descartados" target="_blank" rel="noopener noreferrer">«{{ inbox_folder_name }}/descartados»</a>.</td></tr>
+              </tbody>
+            </table>
+            <p><strong>Nada se incorpora al Banco hasta que lo confirmes. Esta sección muestra datos personales de los candidatos.</strong></p>
+          </div>
+        </details>
+      </div>
+      <div hx-post="/cchh/candidatos/importar/bandeja" hx-trigger="load" hx-target="this" hx-swap="outerHTML" data-dw-graph-token data-cvinbox-loader>
+        <p class="section-analysis-loading"><span class="section-analysis-spinner"></span><span class="section-analysis-loading-copy">Revisando la carpeta de carga masiva…</span></p>
+      </div>
+    </section>
+
+    <section :hidden="modo!=='excel'" {{ 'hidden' if _modo != 'excel' }} data-import-panel="excel">
     {% if file_error %}<p class="feedback-error">{{ file_error }}</p>{% endif %}
 
     <form class="hc-profile-form" method="post" action="/cchh/candidatos/importar/preview" enctype="multipart/form-data">
