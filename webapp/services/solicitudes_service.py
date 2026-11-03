@@ -1,4 +1,5 @@
 """Business rules for Operations requests."""
+from html import escape
 from html.parser import HTMLParser
 
 TRANSITIONS = {
@@ -63,6 +64,7 @@ PLANNED = "Fecha_x0020_de_x0020_inicio_x002"
 ACTUAL = "Fecha_x0020_de_x0020_inicio_x0020"
 COMMENTS = "Comentarios_x0020_de_x0020_Arqui"
 PROJECT = "Proyecto"
+NARRATIVE_FIELDS = (DESCRIPTION, COMMENTS)
 EDITABLE = (STATUS, "Prioridad", PROJECT, ASSIGNEES, PLANNED, ACTUAL, DESCRIPTION, COMMENTS)
 
 
@@ -81,33 +83,59 @@ def form_values(fields):
         result[key] = result[key][:10]
     result[PROJECT] = next(iter(lookup_ids(fields, PROJECT)), "")
     result[ASSIGNEES] = lookup_ids(fields, ASSIGNEES)
+    for key in NARRATIVE_FIELDS:
+        result[key] = narrative_text(result[key])
     return result
 
 
-class _SafeMarkup(HTMLParser):
-    tags = set("p div span br strong b em i u s strike ul ol li a img table caption thead tbody tfoot tr td th h1 h2 h3 h4 h5 h6 blockquote pre code hr".split())
-    attributes = {"a": {"href", "title"}, "img": {"src", "alt", "title", "width", "height"},
-                  "td": {"colspan", "rowspan"}, "th": {"colspan", "rowspan", "scope"}}
+class _NarrativeText(HTMLParser):
+    blocks = frozenset("address article blockquote caption dd div dl dt h1 h2 h3 h4 h5 h6 li ol p pre section table tr ul".split())
+    hidden_tags = frozenset({"script", "style", "template"})
+
+    def __init__(self):
+        super().__init__()
+        self.parts = []
+        self.hidden = []
+
+    def boundary(self, separator="\n"):
+        if self.parts and not self.parts[-1].endswith(("\n", "\t")):
+            self.parts.append(separator)
 
     def handle_starttag(self, tag, attrs):
-        from urllib.parse import urlsplit
-
-        if tag not in self.tags:
-            raise ValueError("El HTML incluye un elemento no admitido.")
-        for name, value in attrs:
-            if name not in self.attributes.get(tag, set()) or value is None:
-                raise ValueError("El HTML incluye un atributo no admitido.")
-            if name in {"href", "src"}:
-                url = urlsplit(value)
-                if url.scheme.lower() not in ("", "https", "http") or value.startswith(("//", "\\")) or any(ord(c) < 32 for c in value):
-                    raise ValueError("El HTML incluye un enlace no admitido.")
+        if tag in self.hidden_tags:
+            self.hidden.append(tag)
+        elif not self.hidden:
+            if tag == "br":
+                self.parts.append("\n")
+            elif tag in self.blocks:
+                self.boundary()
 
     def handle_endtag(self, tag):
-        if tag not in self.tags:
-            raise ValueError("El HTML incluye un elemento no admitido.")
+        if self.hidden:
+            if tag == self.hidden[-1]:
+                self.hidden.pop()
+            return
+        if tag in self.blocks:
+            if tag == "tr" and self.parts and self.parts[-1] == "\t":
+                self.parts.pop()
+            self.boundary()
+        elif tag in {"td", "th"}:
+            self.boundary("\t")
 
-    def handle_decl(self, decl):
-        raise ValueError("El HTML incluye una declaración no admitida.")
+    def handle_data(self, data):
+        if not self.hidden and (data.strip() or not any(char in data for char in "\r\n")):
+            self.parts.append(data)
+
+
+def narrative_text(html):
+    parser = _NarrativeText()
+    parser.feed(html or "")
+    parser.close()
+    return normalize_narrative("".join(parser.parts))
+
+
+def normalize_narrative(value):
+    return value.replace("\r\n", "\n").replace("\r", "\n").strip("\n")
 
 
 def changes(current, submitted, options):
@@ -117,6 +145,8 @@ def changes(current, submitted, options):
         raise ValueError("Se intentó editar un campo protegido.")
     result = {}
     for key, value in submitted.items():
+        if key in NARRATIVE_FIELDS:
+            value = normalize_narrative(value)
         if key == ASSIGNEES:
             if value == current[key]:
                 continue
@@ -142,7 +172,7 @@ def changes(current, submitted, options):
                 raise ValueError("Ingresá una fecha válida.")
             result[key] = value + "T00:00:00Z" if value else None
         else:
-            if key in (DESCRIPTION, COMMENTS):
-                _SafeMarkup().feed(value)
+            if key in NARRATIVE_FIELDS and value:
+                value = "<div>" + escape(value, quote=False).replace("\n", "<br>") + "</div>"
             result[key] = value or None
     return result

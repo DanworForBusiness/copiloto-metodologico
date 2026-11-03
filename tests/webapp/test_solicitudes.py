@@ -64,13 +64,9 @@ def test_invalid_transitions_and_manipulated_inputs():
         {service.STATUS: "Finalizado"}, {service.FUNNEL: "Solicitado"},
         {service.PROJECT: "99"}, {service.ASSIGNEES: ["99"]},
         {service.PLANNED: "2026-02-30"},
-        {service.DESCRIPTION: '<img src="x" onerror="alert(1)">'},
-        {service.COMMENTS: '<a href="javascript:alert(1)">x</a>'},
     ):
         with pytest.raises(ValueError):
             service.changes(current, submitted, options)
-    html = '<table><tr><td><a href="/a">x</a><img src="/b"></td></tr></table>'
-    assert service.changes(current, {service.DESCRIPTION: html}, options) == {service.DESCRIPTION: html}
 
 
 def test_transport_sends_exact_etag_and_partial_payload(monkeypatch):
@@ -141,7 +137,7 @@ def test_detail_form_renders_multiple_lookup_and_escapes_html(monkeypatch):
     result = TestClient(app).post("/operaciones/solicitudes/1/detalle", data={"graph_token": "fake"})
     assert result.status_code == 200
     assert f'type="hidden" name="{service.ASSIGNEES}" :value="selected" value="9"' in result.text
-    assert "&lt;b&gt;Test&lt;/b&gt;" in result.text
+    assert ">Test</textarea>" in result.text
     assert "<option>Pendiente</option>" in result.text
     assert result.text.count('id="sol-person"') == 1
     assert 'aria-label="Quitar asignación"' in result.text
@@ -180,9 +176,9 @@ def test_rich_html_round_trip_does_not_rewrite_unchanged_styles():
     original = '<div style="color:#123456"><table><tr><td><a href="/a">Enlace</a><img src="/b"></td></tr></table></div>'
     fields = {service.DESCRIPTION: original}
     current = service.form_values(fields)
-    patch = service.changes(current, {service.DESCRIPTION: original, "Prioridad": "Alta"}, {})
+    patch = service.changes(current, {service.DESCRIPTION: current[service.DESCRIPTION], "Prioridad": "Alta"}, {})
     assert patch == {"Prioridad": "Alta"}
-    assert service.form_values(fields | patch)[service.DESCRIPTION] == original
+    assert (fields | patch)[service.DESCRIPTION] == original
 
 
 def test_list_separates_project_and_action_and_hides_single_page_pager(monkeypatch):
@@ -251,3 +247,48 @@ def test_project_lookup_patch_is_partial_and_validated():
     assert service.changes(current, {key: ""}, options) == {key + "LookupId": None}
     with pytest.raises(ValueError):
         service.changes(current, {key: "99"}, options)
+
+
+def test_narrative_text_handles_sharepoint_blocks_entities_and_table():
+    original = ('<div class="ExternalClass" style="color:red"><span>A&#58; &amp; B&nbsp;C</span></div>'
+                '<p>Primera<br>Segunda</p><a href="/a">Vínculo</a>'
+                '<table><tr><th>Uno</th><td>Dos</td></tr><tr><td>Tres</td><td>Cuatro</td></tr></table>'
+                '<script>alert(1)</script>')
+    assert service.narrative_text(original) == "A: & B\u00a0C\nPrimera\nSegunda\nVínculo\nUno\tDos\nTres\tCuatro"
+    assert service.narrative_text(None) == ""
+
+
+def test_narrative_patch_escapes_only_changed_text_and_round_trips():
+    fields = {service.DESCRIPTION: "<div>Viejo</div>", service.COMMENTS: "<p><b>Intacto</b></p>"}
+    current = service.form_values(fields)
+    text = "<img src=x> & literal &amp; >\n\nOtra línea"
+    patch = service.changes(current, {service.DESCRIPTION: text, service.COMMENTS: "Intacto"}, {})
+    assert patch == {service.DESCRIPTION: "<div>&lt;img src=x&gt; &amp; literal &amp;amp; &gt;<br><br>Otra línea</div>"}
+    assert service.form_values(fields | patch)[service.DESCRIPTION] == text
+    assert service.changes(current, {service.DESCRIPTION: ""}, {}) == {service.DESCRIPTION: None}
+
+
+def test_save_narrative_confirms_plain_text_after_graph_reread(monkeypatch):
+    from fastapi.testclient import TestClient
+    from webapp.main import app
+    from webapp.routers import solicitudes
+
+    monkeypatch.setattr(solicitudes, "_user", lambda request: {"sub": "test-actor"})
+    fields = {service.DESCRIPTION: "<p>Anterior</p>", service.COMMENTS: "<p><b>Conservar</b></p>"}
+    item = {"eTag": '"7"', "fields": fields}
+    monkeypatch.setattr(repository, "read_item", lambda *args: item)
+    monkeypatch.setattr(repository, "lookup_options", lambda *args: {})
+
+    def write(token, item_id, payload, etag):
+        assert etag == '"7"'
+        assert payload == {service.DESCRIPTION: "<div>A &amp; &lt;B&gt;<br>Otra</div>"}
+        fields.update(payload)
+        item["eTag"] = '"8"'
+
+    monkeypatch.setattr(repository, "update_item", write)
+    result = TestClient(app).post("/operaciones/solicitudes/1/guardar",
+        headers={"Origin": "http://testserver", "HX-Request": "true"},
+        data={"graph_token": "fake", "etag": '"7"', service.DESCRIPTION: "A & <B>\r\nOtra",
+              service.COMMENTS: "Conservar"})
+    assert "data-solicitudes-saved" in result.text
+    assert fields[service.COMMENTS] == "<p><b>Conservar</b></p>"

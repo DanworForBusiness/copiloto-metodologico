@@ -123,7 +123,7 @@ def _edit_panel(request, item_id, *, item=None, options=None, error=""):
         "options": options or {}, "error": error,
         "etag": _etag(item) if item else "", "funnel": item["fields"].get(service.FUNNEL) if item else "",
         "destinations": service.allowed_destinations(values.get(service.STATUS)),
-        "fields": service, **_detail_context(item, options or {}),
+        "fields": service, "original_fields": item["fields"] if item else {}, **_detail_context(item, options or {}),
     })
 
 
@@ -183,6 +183,9 @@ async def solicitudes_save(request: Request, item_id: str, graph_token: str = Fo
     if not graph_token:
         return _feedback(request, item_id, "auth", "Volvé a autenticarte con Microsoft sin cerrar este formulario y después reintentá.")
     submitted = {key: str(form[key]) for key in service.EDITABLE if key in form and key != service.ASSIGNEES}
+    for key in service.NARRATIVE_FIELDS:
+        if key in submitted:
+            submitted[key] = service.normalize_narrative(submitted[key])
     if service.ASSIGNEES in form:
         submitted[service.ASSIGNEES] = [str(value) for value in form.getlist(service.ASSIGNEES) if value != ""]
     correlation = uuid4().hex
