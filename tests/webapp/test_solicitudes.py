@@ -331,3 +331,12 @@ def test_list_resolves_project_ids_once_without_overwriting_labels(monkeypatch):
         "Proyecto de prueba", "Proyecto de prueba", "Etiqueta directa",
     ]
     assert calls == [(service.PROJECT,)]
+
+
+def test_global_search_matches_title_with_other_filters():
+    rows = [
+        {"id": "1", "fields": {"Title": "Automatización SAC", "Prioridad": "Alta"}},
+        {"id": "2", "fields": {"Title": "Automatización SAC", "Prioridad": "Baja"}},
+        {"id": "3", "fields": {"Title": None, "Prioridad": "Alta"}},
+    ]
+    assert service.select_rows(rows, "AUTOMATIZACIÓN", {"Prioridad": "Alta"}) == rows[:1]

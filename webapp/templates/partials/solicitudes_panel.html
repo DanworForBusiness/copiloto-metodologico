@@ -10,7 +10,7 @@
       </select>
     </div>
     {% endfor %}
-    <div class="feedback-field feedback-field--wide"><label for="sol-q">Buscar</label><input id="sol-q" autocomplete="off" type="text" name="q" value="{{ query }}" placeholder="Proyecto o descripción…" hx-post="/operaciones/solicitudes/data" hx-trigger="input changed delay:500ms" hx-include="closest form"></div>
+    <div class="feedback-field feedback-field--wide"><label for="sol-q">Buscar</label><input id="sol-q" autocomplete="off" type="text" name="q" value="{{ query }}" placeholder="Solicitud, proyecto o descripción…" hx-post="/operaciones/solicitudes/data" hx-trigger="input changed delay:500ms" hx-include="closest form"></div>
     <button type="button" class="whatsnew-filter__clear" hx-post="/operaciones/solicitudes/data" hx-params="none">✕ Limpiar</button>
 </form>
 <p id="solicitudes-loading" class="htmx-indicator section-analysis-loading" role="status">Cargando solicitudes…</p>

@@ -46,7 +46,7 @@ def select_rows(rows: list[dict], query: str, filters: dict) -> list[dict]:
             continue
         if query and not any(
             query in value.casefold()
-            for value in (" ".join(values(fields.get("Proyecto"))), plain_text(fields.get(DESCRIPTION)))
+            for value in (fields.get("Title") or "", " ".join(values(fields.get(PROJECT))), plain_text(fields.get(DESCRIPTION)))
         ):
             continue
         result.append(row)
