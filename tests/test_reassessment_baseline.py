@@ -80,6 +80,7 @@ def test_published_assessment_is_reproduced_and_current(published, tmp_path):
     rep = r["reproducibility"]
     assert (rep["state"], rep["integrity"]["state"], rep["judgment"]["state"], rep["evidence"]["state"]) == (bl.REPRODUCED, bl.VERIFIED, bl.MATCH, bl.MATCH)
     assert (r["currency"]["state"], r["currency"]["basis"], r["currency"]["hub_state"]) == ("CURRENT", "POOL_IDENTICAL", "CURRENT")
+    assert r["currency"]["hub_comparison"]["code"] == "AGREES"
 
 
 # ── A4 / A5 / A6 · vigencia independiente de la reproducibilidad ──
@@ -111,6 +112,8 @@ def test_without_dependency_signature_a_changed_pool_is_undetermined_never_curre
     _add_unrelated_file(snap)
     r = row(bl.run(snap))
     assert (r["currency"]["state"], r["currency"]["basis"], r["currency"]["hub_state"]) == ("UNDETERMINED", "NO_DEPENDENCY_SIGNATURE", "STALE")
+    cmp = r["currency"]["hub_comparison"]                                                      # se preservan AMBOS resultados y se explica la diferencia
+    assert (cmp["code"], cmp["hub_state"], cmp["simulation_state"]) == (bl.HUB_FAIL_CLOSED, "STALE", "UNDETERMINED") and "conservadora" in cmp["explanation"]
     assert "NO_DEPENDENCY_SIGNATURE" in r["flags"]
     assert r["reproducibility"]["state"] == bl.JUDGMENT_ONLY and r["reproducibility"]["integrity"]["state"] == bl.VERIFIED
 

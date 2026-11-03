@@ -177,7 +177,7 @@ def reconstruct_evidence(env: dict, pool: dict, versions: dict, pools: _PoolInde
     return {"state": MATCH if same else MISMATCH, "reason": None if same else "PROFILE_DIFFERS", "artifact_signature": art, "profile_signature": prof_sig}
 
 
-def evaluate_currency(env: dict, pool: dict, versions: dict, pools: _PoolIndex) -> dict:
+def _currency_core(env: dict, pool: dict, versions: dict, pools: _PoolIndex) -> dict:
     """Vigencia con la regla COMPARTIDA del Hub. Diferencia: un pool cambiado SIN firma de dependencias utilizable es UNDETERMINED (el Hub lo muestra STALE)."""
     if not pool.get("available"):
         return {"state": UNDETERMINED, "basis": pool.get("reason"), "hub_state": None, "version_diff": list(cur_rule.version_diff(env.get("assessment_versions"), versions))}
@@ -200,6 +200,37 @@ def evaluate_currency(env: dict, pool: dict, versions: dict, pools: _PoolIndex) 
         if c.reason == cur_rule.STALE_INPUT_CHANGED:
             return {"state": UNDETERMINED, "basis": basis, **out}                # el pool cambió y no hay cómo saber si le afecta
     return {"state": cur_rule.STALE, "basis": "VERSIONS_DIFFER", **out}            # versiones distintas (con o sin cambio de pool)
+
+
+HUB_FAIL_CLOSED = "HUB_FAIL_CLOSED_UNCERTAIN_DEPENDENCIES"
+COMPARISON_TEXT = {
+    "AGREES": "El Hub y la simulación coinciden.",
+    HUB_FAIL_CLOSED: ("Política operativa del Hub, conservadora y documentada (docs/REPUBLICATION_P1.md): si no puede demostrar que lo que usa el modelo sigue igual "
+                      "(dependencias inciertas), lo trata como desactualizado: muestra el informe anterior, recomienda regenerarlo o republicarlo y las migraciones "
+                      "lo excluyen. La simulación informa la vigencia DEMOSTRABLE: con la evidencia disponible no se puede afirmar ni negar. Ambos resultados son "
+                      "correctos para su propósito; no es un error del Hub."),
+    "NOT_COMPARABLE": "Sin pool del cliente en el snapshot: el Hub no puede evaluarse desde este snapshot.",
+    "DIFFERS": "El Hub y la simulación difieren por una causa no catalogada: revisar.",
+}
+
+
+def hub_comparison(currency: dict) -> dict:
+    """Relación entre la vigencia OPERATIVA que muestra el Hub (``hub_state``) y la vigencia DEMOSTRABLE de la simulación (``state``). Se preservan ambas."""
+    hub, sim = currency.get("hub_state"), currency.get("state")
+    if hub is None:
+        code = "NOT_COMPARABLE"
+    elif hub == sim:
+        code = "AGREES"
+    elif sim == UNDETERMINED and hub == cur_rule.STALE and currency.get("dependency_verdict") == cur_rule.DEP_UNCERTAIN:
+        code = HUB_FAIL_CLOSED
+    else:
+        code = "DIFFERS"
+    return {"code": code, "hub_state": hub, "simulation_state": sim, "explanation": COMPARISON_TEXT[code]}
+
+
+def evaluate_currency(env: dict, pool: dict, versions: dict, pools: _PoolIndex) -> dict:
+    out = _currency_core(env, pool, versions, pools)
+    return {**out, "hub_comparison": hub_comparison(out)}
 
 
 def _flags(env: dict, versions: dict, evidence: dict, currency: dict) -> list[str]:
@@ -274,7 +305,8 @@ def run(snap: Path, *, generated_at: str | None = None) -> dict:
     rows.sort(key=lambda r: (r["client"].lower(), r["terminal_am"]))
     summary = {"reproducibility": dict(Counter(r["reproducibility"]["state"] for r in rows)), "currency": dict(Counter(r["currency"]["state"] for r in rows)),
                "matrix": dict(Counter(f"{r['reproducibility']['state']} × {r['currency']['state']}" for r in rows)),
-               "flags": dict(Counter(f for r in rows for f in r["flags"])), "envelopes": len(rows)}
+               "flags": dict(Counter(f for r in rows for f in r["flags"])), "envelopes": len(rows),
+               "hub_comparison": dict(Counter(r["currency"]["hub_comparison"]["code"] for r in rows))}
     return {"contract": CONTRACT, "generated_at": generated_at or datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "code": {"git_sha": shadow._git_sha(), "current_ruleset": CURRENT_RULESET_VERSION, "current_versions": versions,
                      "dependency_rule_version": deps.DEPENDENCY_RULE_VERSION},
@@ -289,12 +321,15 @@ def render_markdown(report: dict) -> str:
            f"Sobres: {s['envelopes']} · código {report['code']['git_sha'] or 'sin git'} · ruleset vigente {report['code']['current_ruleset']}", "",
            "`JUDGMENT_ONLY` no es un defecto: el Juicio se reproduce y la integridad se verifica, pero el snapshot no permite reconstruir el perfil de forma independiente.", "",
            "| Reproducibilidad × vigencia | Sobres |", "|---|---|", *[f"| {k} | {v} |" for k, v in sorted(s["matrix"].items())], "",
+           "## Vigencia: Hub vs simulación", "",
+           "El Hub muestra la vigencia OPERATIVA; la simulación, la vigencia DEMOSTRABLE. Se preservan ambas.", "",
+           "| Relación | Sobres | Explicación |", "|---|---|---|", *[f"| {k} | {v} | {COMPARISON_TEXT[k]} |" for k, v in sorted(s["hub_comparison"].items())], "",
            "| Cliente | AM | Reproducibilidad | Evidencia | Vigencia (base) | Hub | Banderas |", "|---|---|---|---|---|---|---|"]
     for r in report["envelopes"]:
         rep, c = r["reproducibility"], r["currency"]
         ev = rep["evidence"]["state"] + (f" ({rep['evidence'].get('reason')})" if rep["evidence"].get("reason") else "")
         out.append(f"| {r['client']} | {r['terminal_am']} | {rep['state']}{' · ' + ', '.join(rep['causes']) if rep['causes'] else ''} | {ev} | "
-                   f"{c['state']} ({c.get('basis')}) | {c.get('hub_state') or '—'} | {', '.join(r['flags']) or '—'} |")
+                   f"{c['state']} ({c.get('basis')}) | {c.get('hub_state') or '—'} ({c['hub_comparison']['code']}) | {', '.join(r['flags']) or '—'} |")
     return "\n".join(out) + "\n"
 
 
