@@ -21,6 +21,8 @@ import argparse
 import hashlib
 import json
 import os
+import re
+import subprocess
 import sys
 from collections import Counter
 from datetime import datetime, timezone
@@ -30,7 +32,7 @@ from typing import Any
 from tools.catalog.methodological_judgment import CURRENT_RULESET_VERSION
 from tools.catalog.methodological_judgment.contract import signature as judgment_signature
 from tools.catalog.methodological_judgment.engine import evaluate_judgment
-from tools.catalog.modeling_assessment import currentness as cur_rule
+from tools.catalog import assessment_currentness as cur_rule
 from tools.catalog.modeling_assessment import dependency_signature as deps
 from tools.catalog.modeling_assessment import profile as ma_profile
 from tools.catalog.modeling_assessment import shadow
@@ -53,6 +55,16 @@ class OutputLocationError(ValueError):
 
 
 # ───────────────────────────── entradas ─────────────────────────────
+def _git_sha() -> str | None:
+    """SHA del código que corre la simulación (solo trazabilidad del informe; ``None`` si no hay git)."""
+    try:
+        r = subprocess.run(["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, capture_output=True, text=True, timeout=10, check=False)
+        sha = r.stdout.strip()
+        return sha if r.returncode == 0 and re.fullmatch(r"[0-9a-f]{40}", sha) else None
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
 def _sha256_bytes(raw: bytes) -> str:
     return hashlib.sha256(raw).hexdigest()
 
@@ -308,7 +320,7 @@ def run(snap: Path, *, generated_at: str | None = None) -> dict:
                "flags": dict(Counter(f for r in rows for f in r["flags"])), "envelopes": len(rows),
                "hub_comparison": dict(Counter(r["currency"]["hub_comparison"]["code"] for r in rows))}
     return {"contract": CONTRACT, "generated_at": generated_at or datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            "code": {"git_sha": shadow._git_sha(), "current_ruleset": CURRENT_RULESET_VERSION, "current_versions": versions,
+            "code": {"git_sha": _git_sha(), "current_ruleset": CURRENT_RULESET_VERSION, "current_versions": versions,
                      "dependency_rule_version": deps.DEPENDENCY_RULE_VERSION},
             "snapshot": {"prefix_label": meta.get("prefix_label"), "taken_at": meta.get("taken_at"), "envelopes": len(rows),
                          "manifest_sha256": _sha256_bytes(json.dumps(sorted(r["envelope_sha256"] for r in rows)).encode())},

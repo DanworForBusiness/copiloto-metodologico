@@ -19,7 +19,7 @@ import pytest
 
 from tests.publication_fakes import CLIENT
 from tests.publication_fixtures import ctx  # noqa: F401
-from tools.catalog.modeling_assessment import currentness as cur_rule
+from tools.catalog import assessment_currentness as cur_rule
 from tools.catalog.reassessment import baseline as bl
 from tools.catalog import publication_txn as txn
 

@@ -60,6 +60,12 @@ SANCTIONED_WEB_INTEGRATION = {
     Path("webapp/services/assessment_service.py"),
     Path("webapp/services/assessment_presenter.py"),
 }
+# Simulación de reassessment (#259): ÚNICO consumidor externo de SOLO LECTURA fuera de la capa web, nombrado y con su propia superficie, más
+# chica que la de la integración web. No escribe ni importa persistencia/publicación/servicios web (lo fija `test_reassessment_baseline`).
+SANCTIONED_READ_ONLY_CONSUMERS = {
+    Path("tools/catalog/reassessment/baseline.py"): {"profile", "shadow", "dependency_signature"},
+}
+SANCTIONED_CONSUMERS = SANCTIONED_WEB_INTEGRATION | set(SANCTIONED_READ_ONLY_CONSUMERS)
 
 
 def test_ri2_legacy_never_imports_new_package():
@@ -67,7 +73,7 @@ def test_ri2_legacy_never_imports_new_package():
     for p in _py_files(REPO):
         if PKG_DIR in p.parents or "tests" in p.relative_to(REPO).parts:
             continue
-        if p.relative_to(REPO) in SANCTIONED_WEB_INTEGRATION:
+        if p.relative_to(REPO) in SANCTIONED_CONSUMERS:
             continue
         try:
             with warnings.catch_warnings():
@@ -94,7 +100,7 @@ def test_ri2_only_the_sanctioned_web_integration_imports_the_package_outside_it(
             continue
         if any("modeling_assessment" in mod or any("modeling_assessment" in n for n in names) for _l, mod, names in _imports(tree)):
             importers.add(p.relative_to(REPO))
-    assert importers == SANCTIONED_WEB_INTEGRATION, importers        # ni más (legacy aislado) ni menos (la integración existe)
+    assert importers == SANCTIONED_CONSUMERS, importers              # ni más (legacy aislado) ni menos (la integración existe)
 
 
 # ── R-I2b: la integración web usa SOLO la superficie pública del paquete ─────
@@ -140,17 +146,17 @@ def _private_package_accesses(tree: ast.AST) -> list[str]:
     return out
 
 
-def _package_surface_violations(tree: ast.AST) -> list[str]:
-    """Imports del paquete fuera de `SUPPORTED_INTEGRATION_MODULES`."""
+def _package_surface_violations(tree: ast.AST, allowed: set[str] = SUPPORTED_INTEGRATION_MODULES) -> list[str]:
+    """Imports del paquete fuera de ``allowed`` (por defecto, `SUPPORTED_INTEGRATION_MODULES`)."""
     out = []
     for level, mod, names in _imports(tree):
         if level or not (mod == PKG_NAME or mod.startswith(PKG_NAME + ".")):
             continue
         if mod == PKG_NAME:
-            out += [f"{PKG_NAME}.{n}" for n in names if n not in SUPPORTED_INTEGRATION_MODULES]
+            out += [f"{PKG_NAME}.{n}" for n in names if n not in allowed]
         else:
             top = mod[len(PKG_NAME) + 1:].split(".")[0]
-            if top not in SUPPORTED_INTEGRATION_MODULES:
+            if top not in allowed:
                 out.append(mod)
     return out
 
@@ -173,14 +179,15 @@ def _external_package_consumers() -> dict[Path, ast.AST]:
 
 def test_ri2b_external_code_never_touches_private_package_symbols():
     consumers = _external_package_consumers()
-    assert set(consumers) == SANCTIONED_WEB_INTEGRATION                          # no se amplía la superficie permitida
+    assert set(consumers) == SANCTIONED_CONSUMERS                                # no se amplía la superficie permitida
     offenders = {str(p): _private_package_accesses(t) for p, t in consumers.items() if _private_package_accesses(t)}
     assert offenders == {}, f"código externo usa símbolos PRIVADOS (con guion bajo) del paquete: {offenders}"
 
 
 def test_ri2b_integration_imports_only_the_supported_public_modules():
     for p, tree in _external_package_consumers().items():
-        assert _package_surface_violations(tree) == [], str(p)
+        allowed = SANCTIONED_READ_ONLY_CONSUMERS.get(p, SUPPORTED_INTEGRATION_MODULES)
+        assert _package_surface_violations(tree, allowed) == [], str(p)
 
 
 def test_ri2b_presenter_gets_shared_wording_only_through_the_public_presentation_api():

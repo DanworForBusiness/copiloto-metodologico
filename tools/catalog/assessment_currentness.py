@@ -1,8 +1,11 @@
-"""currentness.py — regla de VIGENCIA de un assessment persistido (PURA: sin E/S, sin persistencia, sin servicios).
+"""assessment_currentness.py — regla de VIGENCIA de un assessment persistido (PURA: sin E/S, sin persistencia, sin servicios).
 
 Fuente ÚNICA de la regla que usan el servicio del Hub (``webapp.services.assessment_service``, que reexporta estos nombres) y la simulación de
 reassessment (``tools.catalog.reassessment``). Se extrajo SIN CAMBIOS de comportamiento: el registro de migraciones de evidencia, el clasificador
 ``classify_currentness`` y la combinación con la firma de dependencias (``resolve_currentness``) son los mismos de antes.
+
+Vive FUERA del paquete ``modeling_assessment`` a propósito: es una regla del Hub sobre sobres persistidos (no evidencia), así que no amplía
+la superficie ni el layout aprobados del paquete.
 """
 from __future__ import annotations
 

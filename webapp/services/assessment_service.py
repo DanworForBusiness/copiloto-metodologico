@@ -58,7 +58,7 @@ from tools.catalog.modeling_assessment import paths as ma_paths
 from tools.catalog.modeling_assessment import profile as ma_profile
 from tools.catalog.modeling_assessment import shadow as ma_shadow
 # Regla de VIGENCIA (pura) compartida con la simulación de reassessment: estos nombres siguen siendo parte de la API de este módulo.
-from tools.catalog.modeling_assessment.currentness import (  # noqa: F401
+from tools.catalog.assessment_currentness import (  # noqa: F401
     CLOSURE_EQUAL, CURRENT, DEP_AFFECTED, DEP_INDEPENDENT, DEP_UNCERTAIN, EVIDENCE_MIGRATIONS, STALE, STALE_INPUT_CHANGED, STALE_REASONS,
     STALE_VERSION_AND_INPUT, STALE_VERSION_ONLY, TARGETED_CLOSURE_EXPANSION, Currentness, MigrationTarget, classify_currentness,
     dependency_verdict_from, resolve_currentness, targeted_migration, version_diff,
