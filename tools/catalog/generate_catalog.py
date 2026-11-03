@@ -1226,9 +1226,9 @@ def _legacy_general_manual(cli_dir: Path) -> tuple[dict, dict]:
 
 def _seed_legacy_manual(out_dir: Path, folder: str, sub: dict,
                         legacy_flow: dict | None, legacy_vistas: dict | None) -> None:
-    """Siembra la curaduría heredada del 'General' previo en los .md del destino que
-    todavía NO tienen bloque manual, para que `_write_flow` la preserve como cualquier
-    otra (la curaduría propia del destino siempre gana). La siembra es solo front-matter:
+    """Siembra la curaduría heredada del 'General' previo (modelo único renombrado) en
+    los .md del destino que todavía NO tienen bloque manual, para que `_write_flow` la
+    preserve como cualquier otra (la curaduría propia del destino siempre gana). La siembra es solo front-matter:
     `_write_flow` reescribe el archivo completo a continuación."""
     def _seed(path: Path, manual: dict | None) -> None:
         if manual and not _read_manual(path):
@@ -1271,12 +1271,14 @@ def process_folder(src: Path, out_root: Path, cliente: str | None = None,
     SEGMENTACIÓN: si la carpeta es 1-nivel (dominio 'General') y tiene ≥2 modelos
     analíticos (cubos), se emite UN dominio por cubo (Stock, Despachos…), cada uno con
     su linaje. Así los .json se dejan planos en SharePoint (dedup de dims compartidas)
-    y el copiloto separa los dominios solo. Con UN solo cubo el dominio se nombra con
-    la misma regla (vocabulario → label del cubo), sin recortar el pool: 'General'
-    queda solo para una carpeta plana sin modelo analítico ni vocabulario.
+    y el copiloto separa los dominios solo.
 
-    MIGRACIÓN: la curaduría del flujo 'General' previo se hereda al dominio que lo
-    reemplaza (vistas por entidad; el flujo solo con un cubo, donde la relación es 1:1)."""
+    MODELO ÚNICO: con UN solo cubo y sin vocabulario, el dominio se nombra por el cubo
+    (misma regla que con ≥2) sin recortar el pool, en vez de quedar en el rótulo
+    genérico 'General' que la pestaña «Modelos» excluye. Como ese renombrado más la
+    limpieza de dominios hermanos borraría el 'General' previo junto con su curaduría,
+    se MIGRA su bloque `manual:` (flujo + vistas) al dominio nuevo; la curaduría propia
+    del destino, si existe, gana."""
     src, out_root = Path(src), Path(out_root)
     if cliente is None:
         cliente = src.parent.name.replace("_", " ")
@@ -1290,8 +1292,6 @@ def process_folder(src: Path, out_root: Path, cliente: str | None = None,
         return f"[skip] {src.name}: sin entidades"
     cli_dir = out_root / cliente.replace(" ", "_")
     cubes = [e for e in entities.values() if _is_cube(e)]
-    legacy_flow, legacy_vistas = (_legacy_general_manual(cli_dir)
-                                  if dominio in (None, "General") else ({}, {}))
 
     if dominio in (None, "General") and len(cubes) >= 2:
         # Un dominio por modelo analítico. Se limpia el flujo 'General' merged viejo
@@ -1307,7 +1307,6 @@ def process_folder(src: Path, out_root: Path, cliente: str | None = None,
             if folder in used:                       # colisión de nombre → desambiguar
                 folder = f"{folder}_{_slug_domain(cube.name)}"
             used.add(folder)
-            _seed_legacy_manual(cli_dir / folder, folder, sub, None, legacy_vistas)
             lines.append("  · " + _write_flow(cli_dir / folder, cliente, dom, sub, folder))
         # Limpieza de dominios viejos del mismo cliente. Cuando una carpeta plana
         # pasa a segmentarse por modelos analíticos, las salidas anteriores
@@ -1321,16 +1320,20 @@ def process_folder(src: Path, out_root: Path, cliente: str | None = None,
 
     # Un solo flujo (carpeta con dominio real 2-niveles, o ≤1 cubo).
     dom_final = dominio if (dominio and dominio != "General") else _infer_domain(entities)
+    legacy = None
     if dom_final == "General" and len(cubes) == 1:
         # Modelo único sin vocabulario: se nombra por su cubo (misma regla que con ≥2),
-        # pero el flujo conserva TODO el pool (no se recorta al subgrafo del cubo).
+        # pero el flujo conserva TODO el pool (no se recorta al subgrafo del cubo). La
+        # curaduría del 'General' previo se lee ANTES de que la limpieza lo borre.
         dom_final = _domain_for_cube(cubes[0], _cube_subgraph(entities, cubes[0]))
+        legacy = _legacy_general_manual(cli_dir)
     folder = dominio.replace(" ", "_") if (dominio and dominio != "General") else _slug_domain(dom_final)
     if dominio == "General":
         for child in cli_dir.iterdir() if cli_dir.exists() else []:
             if child.is_dir() and child.name != folder and any(child.glob("flujo_*.md")):
                 shutil.rmtree(child, ignore_errors=True)
-    _seed_legacy_manual(cli_dir / folder, folder, entities, legacy_flow, legacy_vistas)
+    if legacy:
+        _seed_legacy_manual(cli_dir / folder, folder, entities, *legacy)
     return "[OK] " + _write_flow(cli_dir / folder, cliente, dom_final, entities, folder)
 
 

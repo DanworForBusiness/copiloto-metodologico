@@ -36,10 +36,30 @@ def test_legacy_list_tile_template_and_scoring_modules_are_untouched_by_the_asse
     # del generador (evaluación de cumplimiento, veredicto, portabilidad) se sigue vigilando con las reglas de abajo.
     # Cuarta excepción admitida (publicación segura, fase 0): escritura atómica del manifiesto del catálogo y generación/poda ACOTADAS a un cliente (`generate_all(only_clients=…)`,
     # `_prune_stale_domain_outputs`, `_save_catalog_manifest`, `_write_text`). Es orquestación/E-S del catálogo, no scoring: `evaluate_compliance`, `_write_flow` y el veredicto no se tocan.
-    # Quinta excepción admitida (dominio de un modelo único): `process_folder` NOMBRA el dominio por el cubo también con un solo modelo y hereda la curaduría del 'General'
-    # previo (`_legacy_general_manual`, `_seed_legacy_manual`). Es nombrado/migración de salidas, no scoring: `evaluate_compliance`, `_write_flow` y el veredicto no se tocan.
+    # Quinta excepción admitida, ACOTADA (visibilidad de un modelo único en «General»): se eximen solo los dos helpers NUEVOS de migración de curaduría
+    # (`_legacy_general_manual`, `_seed_legacy_manual`); de `process_folder` se admiten únicamente las líneas EXACTAS del fix (`SINGLE_MODEL_FIX_LINES`, abajo).
+    # Es nombrado/migración de salidas, no scoring: `evaluate_compliance`, `_write_flow`, el veredicto y la rama de ≥2 cubos no se tocan.
     exempt = {"fetch_csn_folder", "_sync_apis", "_same_text", "generate_all", "_prune_stale_domain_outputs", "_save_catalog_manifest", "_write_text",
-              "process_folder", "_legacy_general_manual", "_seed_legacy_manual"}
+              "_legacy_general_manual", "_seed_legacy_manual"}
+    SINGLE_MODEL_FIX_LINES = {
+        '-    y el copiloto separa los dominios solo."""',
+        "+    y el copiloto separa los dominios solo.",
+        "+    MODELO ÚNICO: con UN solo cubo y sin vocabulario, el dominio se nombra por el cubo",
+        "+    (misma regla que con ≥2) sin recortar el pool, en vez de quedar en el rótulo",
+        "+    genérico 'General' que la pestaña «Modelos» excluye. Como ese renombrado más la",
+        "+    limpieza de dominios hermanos borraría el 'General' previo junto con su curaduría,",
+        "+    se MIGRA su bloque `manual:` (flujo + vistas) al dominio nuevo; la curaduría propia",
+        '+    del destino, si existe, gana."""',
+        "+    legacy = None",
+        '+    if dom_final == "General" and len(cubes) == 1:',
+        "+        # Modelo único sin vocabulario: se nombra por su cubo (misma regla que con ≥2),",
+        "+        # pero el flujo conserva TODO el pool (no se recorta al subgrafo del cubo). La",
+        "+        # curaduría del 'General' previo se lee ANTES de que la limpieza lo borre.",
+        "+        dom_final = _domain_for_cube(cubes[0], _cube_subgraph(entities, cubes[0]))",
+        "+        legacy = _legacy_general_manual(cli_dir)",
+        "+    if legacy:",
+        "+        _seed_legacy_manual(cli_dir / folder, folder, entities, *legacy)",
+    }
 
     def without_exempt(src: str) -> list[str]:
         kept, skipping = [], False
@@ -59,7 +79,7 @@ def test_legacy_list_tile_template_and_scoring_modules_are_untouched_by_the_asse
     # evaluador y la matriz de portabilidad para que un cambio de scoring invalide el cache; la evaluación de cumplimiento/veredicto legacy sigue intacta.
     # Segunda excepción admitida: el LOADER lee los Data Flows del export CLI (`dataflows`: sources/targets) y los une al linaje de la tabla que producen
     # (`dataflow_lineage`); es entrada del catálogo, no scoring (el assessment la desactiva) y `evaluate_compliance` no se toca.
-    changed = [l for l in out.stdout.splitlines() if l[:1] in "+-" and not l.startswith(("+++", "---"))]
+    changed = [l for l in out.stdout.splitlines() if l[:1] in "+-" and not l.startswith(("+++", "---")) and l not in SINGLE_MODEL_FIX_LINES]
     allowed = re.compile(r"signature|sha256|parts|portability_bdc|Firma del generador|reutilizamos salidas viejas|hashlib|invalid|scoring|persiste|here|extra|unknown|try:|except|return|\"\"\"|^[+-]\s*$|cache incremental|no reutilizamos|def load_folder|dataflow_lineage|export_df_membership|_dfname|_dfbody|_srcs|_tgts|_slot|slot\[|srcs|tname|Data Flow del export CLI|mixed-mode|MISMA regla")
     assert all(allowed.search(l) for l in changed), changed
     assert "catalog_service.py" not in out.stdout, out.stdout
