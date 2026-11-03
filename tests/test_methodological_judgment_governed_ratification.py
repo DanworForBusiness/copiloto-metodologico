@@ -239,7 +239,8 @@ def test_only_the_explicit_v3_adoption_path_injects_ratifications_and_nothing_re
     root = pathlib.Path(__file__).resolve().parents[1]
     variant_allowed = {"tools/catalog/methodological_judgment/contract.py", "tools/catalog/methodological_judgment/engine.py", "tools/catalog/methodological_judgment/rules.py",
                        "webapp/services/governed_ratification_link.py"}
-    inject_allowed = variant_allowed | {"webapp/services/assessment_service.py", "webapp/services/judgment_decisions.py"}
+    inject_allowed = variant_allowed | {"webapp/services/assessment_service.py", "webapp/services/judgment_decisions.py",
+                                        "tools/catalog/reassessment/baseline.py"}   # #259: solo RE-EJECUTA las ratificaciones que el sobre ya registra (ver test siguiente)
     bad_variant, bad_inject = [], []
     for path in list((root / "tools").rglob("*.py")) + list((root / "webapp").rglob("*.py")) + list((root / "core").rglob("*.py")):
         rel = path.relative_to(root).as_posix()
@@ -249,6 +250,19 @@ def test_only_the_explicit_v3_adoption_path_injects_ratifications_and_nothing_re
         if "ratified_contracts" in text and rel not in inject_allowed:
             bad_inject.append(rel)
     assert bad_variant == [] and bad_inject == []
+
+
+def test_the_reassessment_baseline_only_replays_the_ratifications_recorded_in_the_envelope():
+    """La simulación de reassessment (#259) no decide ratificaciones: reproduce el Juicio persistido con las que su propio sobre registra en
+    ``judgment.decision_inputs`` y nada más (sin la variante experimental, sin fuentes externas de decisiones)."""
+    import ast, pathlib
+    src = (pathlib.Path(__file__).resolve().parents[1] / "tools/catalog/reassessment/baseline.py").read_text(encoding="utf-8")
+    assert "GOVERNED_CONTRACT_RATIFIED" not in src and "judgment_decisions" not in src and "governed_ratification" not in src
+    calls = [n for n in ast.walk(ast.parse(src)) if isinstance(n, ast.Call) and getattr(n.func, "id", None) == "evaluate_judgment"]
+    assert len(calls) == 1
+    kw = {k.arg: ast.unparse(k.value) for k in calls[0].keywords}
+    assert set(kw) == {"ruleset", "ratified_contracts"} and kw["ratified_contracts"] == "rc"
+    assert '((jdg.get("decision_inputs") or {}).get("ratified_contracts") or [])' in src.replace("rc = ", "", 1)
 
 
 def test_the_production_derivation_is_the_current_ruleset_and_without_injected_decisions_it_keeps_every_v2_level_on_the_golden_fixtures():
