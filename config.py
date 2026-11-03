@@ -338,6 +338,17 @@ HC_DOCUMENT_WRITE_SCOPE = _env("HC_DOCUMENT_WRITE_SCOPE", "")
 # funcionales estables") -- el archivo en sí NUNCA se duplica/regenera en
 # este repo, sólo se enlaza.
 HC_BULK_IMPORT_TEMPLATE_URL = "https://danwor.sharepoint.com/:x:/s/Comunicaciones/IQD3fDpMJOn2TZJeHT5hz0BfAfIuEVQGL0aeoQx8MZA7jCI?e=aoYIt3"
+# Bandeja de Carga masiva (`webapp/services/cv_inbox.py`): ubicación FIJA de la
+# zona de entrada que administra Capital Humano = subcarpeta
+# `HC_CV_INBOX_FOLDER_NAME` de `Perfiles` (la carpeta de la importación
+# histórica). Mismo criterio que la plantilla de arriba: constantes ESTÁTICAS
+# de código, no env vars ni feature flags. `Perfiles` se identifica por su link
+# de compartir y se resuelve con el MISMO descubrimiento Graph `/shares` que usó
+# la importación histórica (`sharepoint_graph_diagnostics.discover_sharing_link`);
+# `drive_id`/`item_id` se obtienen en cada uso, nunca se configuran. NO es el
+# repositorio gobernado de CVs (`HC_CV_ROOT_ITEM_ID`), exclusivo del Hub.
+HC_PERFILES_FOLDER_URL = ""
+HC_CV_INBOX_FOLDER_NAME = "carga-masiva"
 # Editor de contenido de Estrategia Comercial (Commercial Strategy — edit
 # authorization): DOS preguntas independientes — "¿puedo VER Estrategia?"
 # (COMMERCIAL_ALLOWED_USERS, arriba) vs "¿puedo EDITARLA?" (acá). Estar en

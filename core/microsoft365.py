@@ -23,7 +23,7 @@ Capital Humano Phase 4.1 (Profile Documents) agregó `graph_post_json`/
 `graph_put_bytes`; Phase 4.1.2 (delete) agregó `graph_delete` — MISMOS
 primitivos de transporte, MISMA filosofía (sin retry/backoff, sin
 jerarquía de errores propia, `HTTPError`/`URLError` se propagan tal cual).
-Sigue sin existir PATCH genérico ni un cliente HTTP arbitrario — cada
+La bandeja de Carga masiva agregó `graph_patch_json` (solo para MOVER un CV dentro de la biblioteca). Sigue sin existir un cliente HTTP arbitrario — cada
 capability nueva declara explícitamente qué verbos necesita.
 
 Capital Humano Fase 2 (descarga múltiple de CVs) agregó `graph_download_capped`:
@@ -207,6 +207,22 @@ def graph_put_bytes(
     headers = graph_headers(access_token)
     headers["Content-Type"] = content_type
     request = urllib.request.Request(url, data=data, headers=headers, method="PUT")
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def graph_patch_json(
+    url: str, access_token: str, body: dict, *, timeout: int = DEFAULT_TIMEOUT, extra_headers: dict[str, str] | None = None,
+) -> dict:
+    """PATCH JSON a Graph, devuelve el `driveItem` actualizado. MISMO idioma que `graph_post_json` (urllib crudo, sin retry/backoff, `HTTPError`/`URLError` se propagan tal cual). Agregado para la bandeja de Carga
+    masiva de Capital Humano: la ÚNICA operación que lo usa es MOVER un CV dentro de la MISMA biblioteca hacia la carpeta del candidato (`parentReference` + `name`, ver
+    `webapp/services/profile_document_service.py::move_document_into_profile_folder`). `extra_headers`: p. ej. `If-Match: <eTag>` (412 si el archivo cambió)."""
+    payload = json.dumps(body).encode("utf-8")
+    headers = graph_headers(access_token)
+    headers["Content-Type"] = "application/json"
+    if extra_headers:
+        headers.update(extra_headers)
+    request = urllib.request.Request(url, data=payload, headers=headers, method="PATCH")
     with urllib.request.urlopen(request, timeout=timeout) as response:
         return json.loads(response.read().decode("utf-8"))
 
