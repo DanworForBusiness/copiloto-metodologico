@@ -61,3 +61,21 @@ table.solicitudes-table { min-width: 52rem; }
   text-transform: inherit;
   cursor: pointer;
 }
+
+/* Keep the indicator out of the swapped panel and out of document flow. */
+.solicitudes-loading-slot { position: relative; }
+.solicitudes-loading {
+  position: absolute;
+  inset: 0 0 auto;
+  margin: 0;
+  visibility: hidden;
+}
+.solicitudes-loading.htmx-request {
+  animation: solicitudes-show-loading 1ms step-end 250ms forwards;
+}
+.module-content:has(#solicitudes-refresh.htmx-request) .solicitudes-loading.htmx-request {
+  animation-delay: 0ms;
+}
+@keyframes solicitudes-show-loading {
+  to { visibility: visible; }
+}

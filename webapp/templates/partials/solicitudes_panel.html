@@ -16,7 +16,6 @@
     <div class="feedback-field feedback-field--wide"><label for="sol-q">Buscar</label><input id="sol-q" autocomplete="off" type="text" name="q" value="{{ query }}" placeholder="Solicitud, proyecto o descripción…" hx-post="/operaciones/solicitudes/data" hx-trigger="input changed delay:500ms" hx-include="closest form"></div>
     <button type="button" class="whatsnew-filter__clear" hx-post="/operaciones/solicitudes/data" hx-params="sort,dir">✕ Limpiar</button>
 </form>
-<p id="solicitudes-loading" class="htmx-indicator section-analysis-loading" role="status">Cargando solicitudes…</p>
 <details class="dashboard-section" open><summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Requerimientos de Arquitectura</span>{% if not error %}<span class="dashboard-section__count">{{ count }} requerimiento{{ 's' if count != 1 }}</span>{% endif %}</summary><div class="dashboard-section__body">
 {% if error %}
 <div class="dashboard-empty" role="alert"><span class="dashboard-empty__label">No disponible</span><p>{{ error }}</p></div>
