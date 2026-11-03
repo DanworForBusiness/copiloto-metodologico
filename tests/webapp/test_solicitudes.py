@@ -146,6 +146,8 @@ def test_detail_form_renders_multiple_lookup_and_escapes_html(monkeypatch):
     assert result.text.count('id="sol-person"') == 1
     assert 'aria-label="Quitar asignación"' in result.text
     assert 'aria-controls="sol-person-list"' in result.text
+    assert 'aria-controls="sol-project-list"' in result.text
+    assert result.text.count('role="combobox"') == 2
 
 
 def test_htmx_feedback_only_replaces_status_for_validation_and_412(monkeypatch):
@@ -236,3 +238,16 @@ def test_individual_assignment_preserves_legacy_and_rejects_multiple_updates():
     for attempted in ([], ["7"], ["9", "7"]):
         with pytest.raises(ValueError):
             service.changes(legacy, {key: attempted}, options)
+
+
+def test_project_lookup_patch_is_partial_and_validated():
+    import pytest
+
+    key = service.PROJECT
+    current = service.form_values({key + "LookupId": "4"})
+    options = {key: {"4": "Proyecto vigente", "8": "Proyecto nuevo"}}
+    assert service.changes(current, {key: "4", "Prioridad": "Alta"}, options) == {"Prioridad": "Alta"}
+    assert service.changes(current, {key: "8"}, options) == {key + "LookupId": "8"}
+    assert service.changes(current, {key: ""}, options) == {key + "LookupId": None}
+    with pytest.raises(ValueError):
+        service.changes(current, {key: "99"}, options)

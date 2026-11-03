@@ -1,3 +1,4 @@
+{% from "partials/solicitudes_lookup_picker.html" import lookup_picker %}
 {% if refresh_hero %}{% include "partials/solicitudes_detail_hero.html" %}{% endif %}
 {% if error %}
 <div class="dashboard-empty" role="alert"><span class="dashboard-empty__label">No disponible</span><p>{{ error }}</p></div>
@@ -28,19 +29,7 @@
       {% endfor %}
     </select>
   </div>
-  <div class="feedback-field feedback-field--medium">
-    <label for="sol-project">Proyecto</label>
-    <select id="sol-project" name="{{ fields.PROJECT }}">
-      <option value="">Sin proyecto</option>
-      {% set project = values[fields.PROJECT] %}
-      {% for id, label in options[fields.PROJECT].items() %}
-      <option value="{{ id }}"{% if id == project %} selected{% endif %}>{{ label }}</option>
-      {% endfor %}
-      {% if project and project not in options[fields.PROJECT] %}
-      <option value="{{ project }}" selected>Referencia no disponible ({{ project }})</option>
-      {% endif %}
-    </select>
-  </div>
+  {{ lookup_picker("sol-project", fields.PROJECT, "Proyecto", values[fields.PROJECT], options[fields.PROJECT], "Buscar proyecto", "Sin proyecto", "Proyectos encontrados", "No se encontraron proyectos.", "Quitar proyecto", "medium") }}
   {% set chosen = values[fields.ASSIGNEES] %}
   {% set people = options[fields.ASSIGNEES] %}
   {% if chosen | length > 1 %}
@@ -52,43 +41,7 @@
     <p class="field-hint">Esta solicitud ya tiene varios colaboradores. La asignación se conserva al guardar otros campos.</p>
   </div>
   {% else %}
-  {% set selected = chosen | first | default('') %}
-  <div class="feedback-field feedback-field--wide"
-       x-data="{query:'', open:false, active:-1, selected:{{ selected | tojson | forceescape }},
-                label:{{ people.get(selected, 'Referencia no disponible (' ~ selected ~ ')' if selected else '') | tojson | forceescape }},
-                people:{{ people | dictsort(by='value') | tojson | forceescape }},
-                get matches(){const term=this.query.trim().toLowerCase();return term.length >= 3 ? this.people.filter(option => option[1].toLowerCase().includes(term)) : []},
-                close(){this.open=false;this.query='';this.active=-1},
-                move(step){if(!this.open){this.open=true;return} const size=this.matches.length;if(!size)return;this.active=this.active<0 ? (step>0 ? 0 : size-1) : (this.active+step+size)%size;this.$nextTick(() => this.$refs.results.querySelectorAll('[role=option]')[this.active]?.scrollIntoView({block:'nearest'}))},
-                choose(id, name){const changed=id!==this.selected;this.selected=id;this.label=name;this.close();if(changed)this.$dispatch('change');this.$nextTick(() => this.$refs.value.focus())}}"
-       @focusout="if (!$el.contains($event.relatedTarget)) close()"
-       @keydown.escape.stop="if (open) { close(); $refs.value.focus() }">
-    <label for="sol-person">Colaborador asignado</label>
-    <input type="hidden" name="{{ fields.ASSIGNEES }}" :value="selected" value="{{ selected }}">
-    <div class="solicitudes-person-control">
-      <input id="sol-person" type="text" autocomplete="off" x-ref="value"
-             :readonly="!open" :value="open ? query : label"
-             :placeholder="open ? 'Buscar colaborador' : 'Sin asignación'"
-             role="combobox" aria-autocomplete="list" :aria-expanded="open" aria-controls="sol-person-list"
-             :aria-activedescendant="open && active >= 0 ? 'sol-person-option-' + active : null"
-             @click="open=true"
-             @input.stop="query=$event.target.value; active=-1" @change.stop
-             @keydown.enter.prevent="if(!open) open=true; else if(active >= 0 || matches.length === 1) choose(...matches[Math.max(0, active)])"
-             @keydown.down.prevent="move(1)" @keydown.up.prevent="move(-1)">
-      <button type="button" class="table-action-btn" x-show="selected && !open" x-cloak
-              aria-label="Quitar asignación" title="Quitar asignación" @click="choose('', '')">×</button>
-      <div id="sol-person-results" class="solicitudes-person-results filter-toolbar-card" x-show="open" x-cloak>
-        <p class="field-hint" x-show="query.trim().length < 3">Escribí al menos tres caracteres para buscar.</p>
-        <p class="field-hint" role="status" x-show="query.trim().length >= 3 && !matches.length">No se encontraron colaboradores.</p>
-        <div id="sol-person-list" role="listbox" aria-label="Colaboradores encontrados" x-ref="results">
-          <template x-for="([id, name], index) in matches" :key="id">
-            <div role="option" :id="'sol-person-option-' + index" :aria-selected="id === selected"
-                 :class="{'is-active': index === active}" @mousedown.prevent @click="choose(id, name)" x-text="name"></div>
-          </template>
-        </div>
-      </div>
-    </div>
-  </div>
+  {{ lookup_picker("sol-person", fields.ASSIGNEES, "Colaborador asignado", chosen | first | default(""), people, "Buscar colaborador", "Sin asignación", "Colaboradores encontrados", "No se encontraron colaboradores.", "Quitar asignación", "wide") }}
   {% endif %}
   </div></section><section class="hc-profile-section">
   <h2>Fechas</h2>
