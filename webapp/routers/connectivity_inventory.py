@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import queue
 import threading
+import time
 
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -31,6 +32,7 @@ from webapp.services import datasphere_assessment_service as asd
 from webapp.services import datasphere_profiles as profiles
 from webapp.services.activity_context import AREA_CATALOG, SCOPE_COPILOT
 from webapp.services.activity_service import log_activity
+from webapp.services.activity_catalog import OUTCOME_FAILED, OUTCOME_REJECTED, OUTCOME_SUCCESS, outcome_of
 
 router = APIRouter()
 
@@ -93,7 +95,7 @@ def run_connectivity_inventory(
                      client=values.client, spaces=len(values.spaces), state=outcome.state, error_code=outcome.error_code,
                      inventory_status=inv.get("status", ""), exhaustiveness=inv.get("exhaustiveness", ""),
                      extracted=cov.get("extracted_connections", 0), duration_s=outcome.duration_s,
-                     operation_id=outcome.operation_id)
+                     operation_id=outcome.operation_id, outcome=outcome_of(outcome.state))
         done = {"t": "done", "state": outcome.state, "error_code": outcome.error_code, "message": outcome.message,
                 "title": outcome.title, "errors": outcome.errors, "operation_id": outcome.operation_id,
                 "duration_s": outcome.duration_s, "summary": outcome.summary}
@@ -143,13 +145,19 @@ def catalog_approve(request: Request, stem: str, operation_id: str = Form(...), 
     user = _authorize(request, stem)
     if not access.is_owner_user(user):
         raise HTTPException(403, "Solo el dueño aprueba cambios en el Catálogo")
+    started = time.monotonic()
     try:
         out = cup.approve(operation_id, actor=asd.owner_email(request), selected=list(selected), rationale=rationale)
     except cup.UpdateRejected as exc:
+        # Métricas de Uso v2 (fase 2): el rechazo también es un resultado (antes no se registraba).
+        log_activity("connectivity_catalog_publish", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG, state="REJECTED",
+                     outcome=OUTCOME_REJECTED, operation_id=operation_id, duration_s=round(time.monotonic() - started, 1))
         return JSONResponse({"detail": str(exc)}, status_code=409, headers=_HEADERS)
     except Exception as exc:  # noqa: BLE001 — el Catálogo quedó como estaba (deshacer)
-        log_activity("connectivity_catalog_publish", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG, state="FAILED", error=type(exc).__name__)
+        log_activity("connectivity_catalog_publish", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG, state="FAILED", error=type(exc).__name__,
+                     outcome=OUTCOME_FAILED, operation_id=operation_id, duration_s=round(time.monotonic() - started, 1))
         return JSONResponse({"detail": "No se pudo publicar; el Catálogo quedó como estaba."}, status_code=500, headers=_HEADERS)
-    log_activity("connectivity_catalog_publish", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG, state="SUCCESS",
-                 operation_id=operation_id, published=len(out["published"]), durability=out["durability"], rationale=rationale.strip()[:300])
+    log_activity("connectivity_catalog_publish", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG, state="SUCCESS", outcome=OUTCOME_SUCCESS,
+                 operation_id=operation_id, published=len(out["published"]), durability=out["durability"],
+                 duration_s=round(time.monotonic() - started, 1))
     return JSONResponse({"status": "PUBLISHED", **out}, headers=_HEADERS)

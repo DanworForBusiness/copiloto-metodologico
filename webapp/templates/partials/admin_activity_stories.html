@@ -1,6 +1,7 @@
 {% set _ns = namespace(qs="date_from=" ~ (date_from|urlencode) ~ "&date_to=" ~ (date_to|urlencode) ~ "&user=" ~ (summary.selected_user|urlencode) ~ "&module=" ~ (summary.selected_module|urlencode)) %}
 {% for f in summary.scope_facets if f.checked %}{% set _ns.qs = _ns.qs ~ "&scope=" ~ (f.key|urlencode) %}{% endfor %}
 {% for f in summary.area_facets if f.checked %}{% set _ns.qs = _ns.qs ~ "&area=" ~ (f.key|urlencode) %}{% endfor %}
+{% if summary.selected_vertical %}{% set _ns.qs = _ns.qs ~ "&vertical=" ~ (summary.selected_vertical|urlencode) %}{% endif %}
 {% set base_qs = _ns.qs %}
 <div id="assistant-stories-body">
   {# Cada pregunta puede tener varios "turnos": el router contesta primero (a
@@ -15,7 +16,8 @@
         <summary class="assistant-story__row">
           <span class="activity-feed__ts"><code>{{ story.turns[0].ts_utc[:19]|replace('T', ' · ') }}</code></span>
           <span class="activity-feed__user">{{ story.user }}</span>
-          <span class="activity-feed__text">{{ story.question }}</span>
+          {# v2 sin texto en assistant_store (se pierde al reiniciar): se muestra igual, con nota neutra. #}
+          <span class="activity-feed__text">{% if story.question %}{{ story.question }}{% else %}<em title="La conversación no se guarda en el registro de actividad; el texto solo vive en memoria hasta un reinicio.">texto no disponible</em>{% endif %}</span>
           <span class="assistant-story__icons">
             {% if story.turn_count > 1 %}<span title="{{ story.turn_count }} turnos en esta conversación">↻ {{ story.turn_count }}</span>{% endif %}
             {% if story.has_api_cost %}<span title="Al menos una respuesta consumió la API de OpenAI">🪙</span>{% endif %}
@@ -60,7 +62,7 @@
                   {%- endif -%}
                   {% if turn.api_cost %} <span class="story-timeline__cost" title="Esta respuesta consumió la API de OpenAI (con costo) — suma al KPI &quot;Consultas a IA (con costo)&quot;">🪙 con costo</span>{% elif turn.bypass or turn.llm %} <span class="story-timeline__cost story-timeline__cost--free" title="La IA respondió en modo simulación: no llamó a OpenAI, sin costo — por eso NO suma al KPI &quot;Consultas a IA (con costo)&quot;">· simulación, sin costo</span>{% endif %}
                 </p>
-                {% if turn.answer_html %}<div class="story-timeline__answer">{{ turn.answer_html|safe }}</div>{% elif turn.answer %}<p class="story-timeline__answer">{{ turn.answer }}</p>{% endif %}
+                {% if turn.answer_html %}<div class="story-timeline__answer">{{ turn.answer_html|safe }}</div>{% elif turn.answer %}<p class="story-timeline__answer">{{ turn.answer }}</p>{% elif not turn.question %}<p class="story-timeline__answer"><em>texto no disponible</em></p>{% endif %}
                 {% if turn.feedback %}
                 <p class="story-timeline__fb story-timeline__fb--{{ turn.feedback.rating }}">
                   El usuario lo calificó {{ '👍 útil' if turn.feedback.rating == 'up' else '👎 no útil' }}{% if turn.feedback.comment %}: <span class="story-timeline__fb-comment">“{{ turn.feedback.comment }}”</span>{% endif %}

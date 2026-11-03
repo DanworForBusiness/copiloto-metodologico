@@ -715,24 +715,25 @@ def _activity_records(tmp_path):
     ]
 
 
-def test_staffing_page_emits_exactly_one_usage_event_with_context(monkeypatch, tmp_path):
-    import json
+def test_staffing_page_visit_is_page_view_attributed_to_op01(monkeypatch, tmp_path):
+    # Métricas de Uso v2 (fase 2): el servidor YA NO escribe `module_viewed` al
+    # servir la página (duplicaba la visita); la visita es el `page_view` del
+    # documento, atribuido a OP01 por `window.DW_MODULE_ID` (ver base.html).
     from webapp.services import activity_service
     monkeypatch.setattr(activity_service, "LOG_ACTIVITY", "BASIC")
     monkeypatch.setattr(activity_service, "ACTIVITY_LOG_DIR", tmp_path)
     resp = client.get("/operaciones/staffing/asignaciones")
     assert resp.status_code == 200
-    # `module_viewed`/`module=OP01` (corrective A2 + MODULE IDENTIFIER
-    # CONVENTION V2 — Fase 2, productor canónico) reemplaza al histórico
-    # `staffing_overview_viewed`/`module=assignments`.
-    viewed = [r for r in _activity_records(tmp_path) if r["event"] == "module_viewed"]
-    assert len(viewed) == 1                                   # exactamente uno por acceso a la página
-    ev = viewed[0]
-    assert ev["scope"] == "operations" and ev["area"] == "staffing"
-    assert ev["module"] == "OP01"
+    assert [r for r in _activity_records(tmp_path) if r["event"] == "module_viewed"] == []
+    assert 'window.DW_MODULE_ID="OP01"' in resp.text
+    # El beacon de esa página resuelve operations/staffing/OP01 con la identidad de la sesión.
+    r = client.post("/telemetry/event", json={"event": "page_view", "view_id": "op01view", "nav_type": "navigate",
+                                              "path": "/operaciones/staffing/asignaciones", "module_id": "OP01"})
+    assert r.status_code == 204
+    (ev,) = [r for r in _activity_records(tmp_path) if r["event"] == "page_view"]
+    assert (ev["scope"], ev["area"], ev["module"]) == ("operations", "staffing", "OP01")
     assert ev["user"] == "staffing-test@danwor.com"           # identidad autenticada de la sesión
-    assert ev["payload"] == {}                                # sin dataset de Staffing
-    assert "graph_token" not in json.dumps(ev) and "token" not in ev["payload"]  # sin token
+    assert set(ev["attrs"]) == {"view_id", "nav_type", "path"}  # sin dataset de Staffing ni token
 
 
 class _ConfigIncompleteService:
@@ -764,7 +765,7 @@ def test_staffing_diagnostics_stay_verbose_only_and_receive_context(monkeypatch,
     assert len(diag) == 1
     assert diag[0]["scope"] == "operations" and diag[0]["area"] == "staffing"
     assert diag[0]["module"] == "OP01"
-    assert diag[0]["payload"].get("operation") == "initial"
+    assert diag[0]["attrs"].get("operation") == "initial"  # envelope v2: attrs
     assert secret_token not in json.dumps(diag[0])            # el token nunca se loguea
 
 

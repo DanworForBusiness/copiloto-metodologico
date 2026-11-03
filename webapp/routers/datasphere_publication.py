@@ -32,6 +32,7 @@ from webapp.services import datasphere_profiles as profiles
 from webapp.services import datasphere_publication_service as svc
 from webapp.services.activity_context import AREA_CATALOG, SCOPE_COPILOT
 from webapp.services.activity_service import log_activity
+from webapp.services.activity_catalog import outcome_of
 
 router = APIRouter()
 
@@ -103,7 +104,8 @@ def run_publication(
         log_activity("datasphere_publication_run", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG,
                      client=values.client, space=values.space, root_object=values.root_object,
                      state=outcome.state, error_code=outcome.error_code, stage=outcome.stage, duration_s=outcome.duration_s,
-                     operation_id=outcome.operation_id, status=getattr(outcome, "status", ""), durability=getattr(outcome, "durability", ""), change=getattr(outcome, "change", ""))
+                     operation_id=outcome.operation_id, status=getattr(outcome, "status", ""), durability=getattr(outcome, "durability", ""), change=getattr(outcome, "change", ""),
+                     outcome=outcome_of(outcome.state))
         # Éxito → abrir la pestaña Catálogo del módulo (el nuevo dominio ya figura tras invalidar la caché).
         result_url = (f"/modules/{stem}?" + urlencode({"pack": selected, "tab": "catalogo"})) if outcome.state == "SUCCESS" else None
         events.put({"t": "done", "state": outcome.state, "error_code": outcome.error_code, "message": outcome.message,

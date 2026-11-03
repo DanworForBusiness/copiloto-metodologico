@@ -1,0 +1,146 @@
+{# Métricas de Uso v2 (fase 3) — drill-down vertical → módulo → sección → eventos (`dash`, ver
+   activity_dashboard.build). Cada nivel es la MISMA ruta (/admin/activity) con más filtros: las filas y el
+   ✕ del subhead hacen hx-get al tablero entero con hx-push-url, así recargar o compartir la URL reconstruye la vista.
+   Las filas en 0 son el INVENTARIO real del Hub (module_registry, content pack, secciones `data-dw-section`) sin
+   actividad en el período — solo dentro de lo que el viewer puede ver. Primitivos: `.dashboard-section`,
+   `.matrix-scroll` + `.dashboard-table`, `.status-badge`, `.catalog-state`, paginador compartido. #}
+{% from "partials/pager.html" import render_pager %}
+<details class="dashboard-section" data-section-id="desglose" open>
+  <summary class="dashboard-section__head" draggable="true">
+    <span class="dashboard-section__grip" aria-hidden="true">⋮⋮</span>
+    <span class="dashboard-section__caret"></span>
+    <span class="dashboard-section__title">Desglose: vertical, módulo y sección</span>
+    {% if dash.level == "section" %}
+    <span class="dashboard-section__count">{{ dash.events.total }} registro(s)</span>
+    {% else %}
+    <span class="dashboard-section__count">{{ dash.rows|length }} fila(s) · {{ dash.zero_count }} sin actividad</span>
+    {% endif %}
+  </summary>
+  <div class="dashboard-section__body" data-activity-drill data-drill-level="{{ dash.level }}">
+    {#- Nivel del desglose con el MISMO subhead que «Eventos» (título + pista + «Filtrado por X ✕»): el ✕ sube UN
+        nivel (vertical → todas, módulo → vertical, sección → módulo) con el mismo hx-get/push-url que las filas. -#}
+    <p class="dashboard-subhead" data-drill-subhead>
+      {{ "Eventos" if dash.level == "section" else dash.rows_title }}{% if dash.level != "section" %} <span class="dashboard-subhead__hint">· click para desglosar →</span>{% endif %}
+      {% if dash.filter_label %}
+      <span class="dashboard-subhead__filter" data-drill-filter>· Filtrado por <strong aria-current="page">{{ dash.filter_label }}</strong> <button type="button" class="dashboard-subhead__reset" data-drill-nav hx-get="{{ dash.parent_url }}" hx-target="#activity-dashboard" hx-swap="outerHTML show:none" hx-push-url="true" title="Volver al nivel anterior">✕</button></span>
+      {% endif %}
+    </p>
+
+    {% if dash.level != "section" %}
+    {% if dash.rows %}
+    {#- Tabla del Hub: anchos en <colgroup> (redimensionables con el primitivo `data-resizable-columns-key`) y cabeceras ordenables
+        `.dashboard-table-th--sortable` (▲/▼, `aria-sort`), como Capital Humano. El orden es en el cliente: son pocas filas y ya están todas. -#}
+    <div class="matrix-scroll" data-resizable-columns-key="metrics-drill">
+      <table class="dashboard-table" data-drill-rows data-client-sort>
+        <colgroup>
+          <col data-column-key="name" style="width:44%"><col data-column-key="visits" style="width:13%"><col data-column-key="users" style="width:13%">
+          <col data-column-key="events" style="width:13%"><col data-column-key="state" style="width:17%">
+        </colgroup>
+        <thead><tr>
+          <th class="left dashboard-table-th--sortable" data-column-key="name" data-sort-type="text" aria-sort="none" title="Ordenar por {{ dash.rows_title }}">{{ dash.rows_title }}</th>
+          <th class="dashboard-table-th--sortable" data-column-key="visits" data-sort-type="number" aria-sort="none" title="Ordenar por Visitas">Visitas</th>
+          <th class="dashboard-table-th--sortable" data-column-key="users" data-sort-type="number" aria-sort="none" title="Ordenar por Usuarios">Usuarios</th>
+          <th class="dashboard-table-th--sortable" data-column-key="events" data-sort-type="number" aria-sort="none" title="Ordenar por Actividad">Actividad</th>
+          <th class="dashboard-table-th--sortable" data-column-key="state" data-sort-type="text" aria-sort="none" title="Ordenar por Estado">Estado</th>
+        </tr></thead>
+        <tbody>
+          {% for r in dash.rows %}
+          <tr data-drill-key="{{ r.key }}"{% if r.zero %} data-drill-zero{% endif %}>
+            <td class="left" data-sort-value="{{ r.label }}"><button type="button" class="dashboard-table-toggle" data-drill-nav hx-get="{{ r.url }}" hx-target="#activity-dashboard" hx-swap="outerHTML show:none" hx-push-url="true"
+                        title="Ver {{ r.label }}"><span class="caret">▸</span>{{ r.label }}</button></td>
+            <td>{{ r.visits }}</td>
+            <td>{{ r.users }}</td>
+            <td>{{ r.events }}</td>
+            <td data-sort-value="{{ 'Sin actividad' if r.zero else 'Con actividad' }}" style="white-space:nowrap">{% if r.zero %}<span class="status-badge status-badge--inactivo">Sin actividad</span>{% else %}<span class="status-badge status-badge--activo">Con actividad</span>{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    {% with state_kind="empty", state_title="Sin datos para este nivel", state_text="No hay actividad ni elementos del inventario visibles con este filtro." %}{% include "partials/catalog_state.html" %}{% endwith %}
+    {% endif %}
+    {% else %}
+    <div id="activity-v2-events" hx-select="#activity-v2-events">
+      {% if dash.events.rows %}
+      <div class="matrix-scroll" data-resizable-columns-key="metrics-events">
+        <table class="dashboard-table" data-drill-events data-client-sort>
+          <colgroup>
+            <col data-column-key="ts" style="width:15%"><col data-column-key="user" style="width:15%"><col data-column-key="event" style="width:17%">
+            <col data-column-key="kind" style="width:9%"><col data-column-key="status" style="width:11%"><col data-column-key="module" style="width:13%">
+            <col data-column-key="attrs" style="width:20%">
+          </colgroup>
+          <thead><tr>
+            {% for key, label in (("ts", "Fecha y hora (UTC)"), ("user", "Usuario"), ("event", "Evento"), ("kind", "Tipo"), ("status", "Resultado"), ("module", "Módulo"), ("attrs", "Datos")) %}
+            <th class="left dashboard-table-th--sortable" data-column-key="{{ key }}" data-sort-type="text" aria-sort="none" title="Ordenar por {{ label }}">{{ label }}</th>
+            {% endfor %}
+          </tr></thead>
+          <tbody>
+            {% for e in dash.events.rows %}
+            <tr>
+              <td><code>{{ e.ts }}</code></td>
+              <td{% if e.user %} title="{{ e.user }}"{% endif %}>{{ e.user_label }}</td>
+              <td title="{{ e.event }}">{{ e.label }}</td>
+              <td>{{ e.kind }}</td>
+              <td>{% if e.status %}<span class="status-badge status-badge--{{ e.status.tone }}">{{ e.status.label }}</span>{% else %}—{% endif %}</td>
+              <td>{{ e.module_label or "—" }}</td>
+              <td>{% for k, v in e.attrs %}<code>{{ k }}={{ v }}</code>{% if not loop.last %} · {% endif %}{% else %}—{% endfor %}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {{ render_pager(dash.events.pager, "#activity-v2-events", "Paginación de eventos", "Eventos por página") }}
+      {% else %}
+      {% with state_kind="empty", state_title="Sin eventos", state_text="No hubo actividad en esta sección con el período y los filtros elegidos." %}{% include "partials/catalog_state.html" %}{% endwith %}
+      {% endif %}
+    </div>
+    {% endif %}
+
+  </div>
+</details>
+{#- Anchos de columna: MISMO primitivo y cableado que las tablas de Capital Humano (restaurar el ancho guardado y habilitar el redimensionado). -#}
+<script>
+  /* Posición al navegar el desglose: el clic en una fila o en el ✕ reemplaza el tablero entero (KPIs y paneles dependen
+     del mismo filtro), así que la página se iba de lugar. `show:none` apaga el scroll de htmx y acá se guarda dónde
+     estaba «Desglose» en la ventana antes del pedido y se lo devuelve a ese mismo lugar después del swap. Se registra
+     una sola vez (este parcial se vuelve a renderizar con cada swap). Lo que scrollea NO siempre es la ventana: en
+     escritorio (≥1180px) `#content.module-content` es una tarjeta de altura fija con scroll propio (tools.css), así que
+     se corrige el contenedor scrolleable más cercano y, si no hay ninguno, el documento. */
+  if (!window.__dwDrillScrollKeeper) {
+    window.__dwDrillScrollKeeper = true;
+    var drillSection = function () { return document.querySelector("[data-section-id='desglose']"); };
+    var drillScroller = function (el) {
+      for (var p = el && el.parentElement; p && p !== document.body && p !== document.documentElement; p = p.parentElement) {
+        var oy = getComputedStyle(p).overflowY;
+        if ((oy === "auto" || oy === "scroll") && p.scrollHeight > p.clientHeight) return p;
+      }
+      return document.scrollingElement || document.documentElement;
+    };
+    var drillRestore = function (anchor) {
+      var sec = drillSection();
+      if (!sec) return;
+      var delta = sec.getBoundingClientRect().top - anchor;
+      if (Math.abs(delta) < 1) return;
+      var sc = drillScroller(sec);
+      sc.scrollTo({ top: sc.scrollTop + delta, behavior: "instant" });   // sin animación: `scroll-behavior: smooth` haría visible el salto
+    };
+    document.addEventListener("htmx:beforeRequest", function (e) {
+      var el = e.detail && e.detail.elt;
+      if (!el || !el.closest || !el.closest("[data-drill-nav]")) return;
+      var sec = drillSection();
+      window.__dwDrillAnchor = sec ? sec.getBoundingClientRect().top : null;
+    });
+    document.addEventListener("htmx:afterSettle", function () {
+      if (window.__dwDrillAnchor == null) return;
+      var anchor = window.__dwDrillAnchor;
+      window.__dwDrillAnchor = null;
+      drillRestore(anchor);                                             // en el mismo frame del swap: el usuario no ve el salto
+      requestAnimationFrame(function () { drillRestore(anchor); });     // y otra vez tras restaurar anchos de columna / layout tardío
+    });
+  }
+  document.querySelectorAll("[data-resizable-columns-key^='metrics-']").forEach(function (container) {
+    if (typeof restorePersistedColumnWidths === "function") restorePersistedColumnWidths(container);
+  });
+  if (typeof initResizableColumns === "function") initResizableColumns(document);
+</script>

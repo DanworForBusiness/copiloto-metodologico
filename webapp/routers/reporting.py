@@ -45,7 +45,7 @@ from webapp import hub_metrics_access, operations_access, workspaces
 from webapp.graph_auth_state import graph_error_state
 from webapp.services import auth_service, feedback_store
 from webapp.services.activity_context import AREA_REPORTING, SCOPE_OPERATIONS
-from webapp.services.activity_service import is_verbose, log_activity, log_verbose
+from webapp.services.activity_service import RESERVED_KEYS, is_verbose, log_activity, log_verbose
 from webapp.services.reporting_repository import (
     ReportingConfigurationError,
     ReportingGraphError,
@@ -570,11 +570,14 @@ _REPORT_TABS: dict[str, str] = {
 # (whitelist — MISMO criterio de seguridad que `telemetry.py`: el cliente NUNCA
 # fija scope/area; los fija el servidor a operations/reporting). Semánticos, no
 # "cada click del DOM".
+# Solo los eventos que reporting.js EMITE de verdad (Métricas de Uso v2):
+# `hierarchy_toggle`/`expand_all`/`collapse_all`/`sort_change`/`refresh`
+# estaban aceptados pero ningún JS los mandaba nunca (verificado por grep) —
+# retirados para que la whitelist refleje el contrato real (ver
+# activity_catalog).
 _REPORTING_TELEMETRY_EVENTS = {
     "reporting.tab_view", "reporting.perspective_change", "reporting.filter_change",
-    "reporting.filter_clear", "reporting.cold_year_load", "reporting.hierarchy_toggle",
-    "reporting.expand_all", "reporting.collapse_all", "reporting.sort_change",
-    "reporting.refresh",
+    "reporting.filter_clear", "reporting.cold_year_load",
 }
 
 
@@ -649,12 +652,17 @@ async def reporting_telemetry(request: Request):
         data = await request.json()
     except Exception:  # noqa: BLE001
         return JSONResponse({"state": "ok"}, status_code=204)
-    event = str((data or {}).get("event") or "").strip()
+    if not isinstance(data, dict):
+        return JSONResponse({"state": "ok"}, status_code=204)
+    event = str(data.get("event") or "").strip()
     if event in _REPORTING_TELEMETRY_EVENTS:
-        # Se excluyen event/scope/area del body para que el cliente no pueda
-        # inyectar/colisionar el contexto de plataforma (keyword-only en
-        # log_verbose). `report_tab`/`perspective`/`filter_name`/`load_scope`
-        # viajan como payload semántico.
-        payload = {k: v for k, v in (data or {}).items() if k not in ("event", "scope", "area", "module")}
+        # Se excluyen del body TODAS las claves reservadas del sink
+        # (`activity_service.RESERVED_KEYS`: event/user/scope/area/module/
+        # section…) para que el cliente no pueda inyectar el contexto de
+        # plataforma ni colisionar con los keyword-only de log_verbose — antes
+        # un body con `user` levantaba TypeError → 500. `report_tab`/
+        # `perspective`/`filter_name`/`load_scope` viajan como payload
+        # semántico y el sink los filtra por la whitelist del catálogo.
+        payload = {k: v for k, v in data.items() if k not in RESERVED_KEYS}
         log_verbose(event, user=user, scope=SCOPE_OPERATIONS, area=AREA_REPORTING, module="reporting", **payload)
     return JSONResponse({"state": "ok"}, status_code=204)

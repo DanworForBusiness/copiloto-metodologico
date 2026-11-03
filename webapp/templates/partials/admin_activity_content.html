@@ -27,14 +27,28 @@
      micro-lenguaje de `hx-trigger` separa modificadores por espacio y rompe
      al parsear un selector CSS que también tiene espacios (produce
      `htmx:syntax:error` en consola, sin avisar de otra forma). #}
-  <form class="whatsnew-filters" hx-get="/admin/activity" hx-target="#activity-dashboard" hx-swap="outerHTML" hx-push-url="true" hx-trigger="submit, change from:.scope-area-checkbox">
+  {# Métricas de Uso v2 (fase 3): Período (presets), Vertical, Sección y Tipo de actividad se suman a los
+     filtros de siempre. Todo el estado viaja en la URL (hx-push-url): recargar/compartir reconstruye la
+     vista. Período y Vertical aplican al elegir; el resto con "Actualizar" (como Usuario/Módulo). Elegir un
+     preset limpia Desde/Hasta (el servidor los recalcula y los muestra); tocar una fecha pasa a
+     "Rango personalizado". Las opciones de Módulo/Sección salen de los datos del período + el inventario
+     real del Hub, siempre dentro de lo que este usuario puede ver (activity_dashboard.build). #}
+  <form class="whatsnew-filters activity-filters" hx-get="/admin/activity" hx-target="#activity-dashboard" hx-swap="outerHTML" hx-push-url="true" hx-trigger="submit, change from:.scope-area-checkbox">
+    <label class="whatsnew-filter">
+      <span>Período</span>
+      <select name="period" onchange="if (this.value !== 'custom') { this.form.date_from.value = ''; this.form.date_to.value = ''; this.form.requestSubmit(); }">
+        {% for o in dash.period_options %}
+        <option value="{{ o.value }}" {% if o.value == dash.period %}selected{% endif %}>{{ o.label }}</option>
+        {% endfor %}
+      </select>
+    </label>
     <label class="whatsnew-filter">
       <span>Desde</span>
-      <input type="date" name="date_from" value="{{ date_from }}">
+      <input type="date" name="date_from" value="{{ date_from }}" oninput="this.form.period.value = 'custom'">
     </label>
     <label class="whatsnew-filter">
       <span>Hasta</span>
-      <input type="date" name="date_to" value="{{ date_to }}">
+      <input type="date" name="date_to" value="{{ date_to }}" oninput="this.form.period.value = 'custom'">
     </label>
     <label class="whatsnew-filter">
       <span>Usuario</span>
@@ -46,15 +60,43 @@
       </select>
     </label>
     <label class="whatsnew-filter">
+      <span>Vertical</span>
+      {# Cambiar de vertical vuelve a tildar todo Ámbito/Área (si no, un Ámbito destildado por un drill-down
+         anterior seguiría recortando) y limpia Módulo/Sección, que pueden no pertenecerle. #}
+      <select name="vertical" onchange="this.form.querySelectorAll('.scope-area-checkbox:not(:disabled)').forEach(c => { c.checked = true; }); this.form.module.value = ''; this.form.section.value = ''; this.form.requestSubmit();">
+        <option value="">Todas</option>
+        {% for o in dash.vertical_options %}
+        <option value="{{ o.value }}" {% if o.value == dash.vertical %}selected{% endif %}>{{ o.label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="whatsnew-filter">
       <span>Módulo</span>
-      {# Transversal (corrective A2 — Copilot Y Operations): {key, label}, no
-         un string plano — key es el identificador estable (round-trips en la
-         URL), label es lo visible (p. ej. "Asignaciones" para "assignments";
-         los módulos de Copiloto no tienen label mapeado, se ven tal cual). #}
-      <select name="module">
+      {# Transversal (corrective A2 — Copilot Y Operations): {value, label} — value es el identificador
+         estable (round-trips en la URL), label es lo visible (p. ej. "Asignaciones" para OP01). v2: datos
+         del período ∪ módulos del inventario (incluye los que no tuvieron actividad). #}
+      <select name="module" onchange="this.form.section.value = '';">
         <option value="">Todos</option>
-        {% for m in summary.available_modules %}
-        <option value="{{ m.key }}" {% if m.key == summary.selected_module %}selected{% endif %}>{{ m.label }}</option>
+        {% for m in dash.module_options %}
+        <option value="{{ m.value }}" {% if m.value == dash.module %}selected{% endif %}>{{ m.label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="whatsnew-filter">
+      <span>Sección</span>
+      <select name="section">
+        <option value="">Todas</option>
+        {% for o in dash.section_options %}
+        <option value="{{ o.value }}" {% if o.value == dash.section %}selected{% endif %}>{{ o.label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="whatsnew-filter">
+      <span>Tipo de actividad</span>
+      <select name="kind">
+        <option value="">Todos</option>
+        {% for o in dash.kind_options %}
+        <option value="{{ o.value }}" {% if o.value == dash.kind %}selected{% endif %}>{{ o.label }}</option>
         {% endfor %}
       </select>
     </label>
@@ -104,12 +146,13 @@
        VERTICAL DATA VISIBILITY" §6). Un Ámbito/Área REALMENTE destildado
        por el usuario (disabled=False, checked=False) sigue disparando
        "Limpiar" como siempre. #}
-    {% if date_from or date_to or summary.selected_user or summary.selected_module
+    {% if date_from or date_to or summary.selected_user or summary.selected_module or dash.has_v2_filters
           or (summary.scope_facets | rejectattr('disabled') | rejectattr('checked') | list)
           or (summary.area_facets | rejectattr('disabled') | rejectattr('checked') | list) %}
     <button type="button" class="whatsnew-filter__clear"
             hx-get="/admin/activity" hx-target="#activity-dashboard" hx-swap="outerHTML" hx-push-url="true">✕ Limpiar</button>
     {% endif %}
+    <span class="activity-filters__break" aria-hidden="true"></span>
   </form>
 </div>
 
@@ -119,6 +162,10 @@
 <div class="dashboard-empty">
   <span class="dashboard-empty__label">Sin actividad</span>
   <p>Todavía no hay eventos registrados para ese filtro. Probá ampliar el rango de fechas, o revisar que <code>LOG_ACTIVITY</code> esté habilitado — en cuanto haya actividad, vas a verla acá.</p>
+</div>
+{# Aun sin actividad, el desglose muestra el inventario visible (módulos/secciones en 0). #}
+<div class="dashboard-sections" data-dashboard-key="activity">
+{% include "partials/admin_activity_v2_drill.html" %}
 </div>
 {% else %}
 
@@ -131,14 +178,17 @@
     <span class="dashboard-section__count">{{ summary.total_events }} evento(s)</span>
   </summary>
   <div class="dashboard-section__body">
+    {# v2 (fase 3): Visitas / Usuarios únicos / Sesiones / Acciones / Resultados desde los agregados
+       diarios (reemplaza el "Usuarios únicos" histórico: misma definición, ahora por unión en el rango),
+       seguidos de los KPIs históricos que siguen teniendo sentido. #}
+    {% include "partials/admin_activity_v2_kpis.html" %}
+    {% if dash.section or dash.kind %}
+    <p class="dashboard-subhead__hint">Sección y Tipo de actividad filtran estos indicadores y el desglose; los paneles de abajo (tendencia, eventos, reacciones, preguntas, árboles) usan período, vertical, módulo y usuario.</p>
+    {% endif %}
     <div class="activity-kpi-grid">
       <div class="activity-kpi">
         <span class="activity-kpi__value">{{ summary.total_events }}</span>
         <span class="activity-kpi__label">Eventos totales</span>
-      </div>
-      <div class="activity-kpi">
-        <span class="activity-kpi__value">{{ summary.unique_users }}</span>
-        <span class="activity-kpi__label">Usuarios únicos</span>
       </div>
       <div class="activity-kpi">
         <span class="activity-kpi__value">{{ summary.avg_per_day }}</span>
@@ -166,6 +216,8 @@
   </div>
 </details>
 
+{% include "partials/admin_activity_v2_drill.html" %}
+
 {# Orden default de bloques (antes de cualquier drag/drop manual del owner):
    Resumen (arriba, fuera de este bloque) → Tendencia → Módulos y usuarios →
    Eventos → Reacciones → Historia de preguntas → Árboles. #}
@@ -183,29 +235,48 @@
 </details>
 {% endif %}
 
-{% if summary.top_modules or summary.top_users %}
-<details class="dashboard-section" data-section-id="modulos-usuarios" open>
+{#- Por vertical (activity_dashboard._nav_panel): sin vertical / Copiloto / Operaciones / Comercial → Top módulos de
+    ESA vertical; CCHH / Plataforma (pantallas sin módulo) → «Secciones y usuarios» con sus secciones. Con una vertical
+    elegida el panel se muestra aunque esté vacío (estado vacío propio), nunca con datos de otra vertical. -#}
+{% set nav = dash.nav_panel %}
+{% if nav.rows or summary.top_users or dash.vertical %}
+<details class="dashboard-section" data-section-id="modulos-usuarios" data-nav-mode="{{ nav.mode }}" open>
   <summary class="dashboard-section__head" draggable="true">
     <span class="dashboard-section__grip" aria-hidden="true">⋮⋮</span>
     <span class="dashboard-section__caret"></span>
-    <span class="dashboard-section__title">Módulos y usuarios</span>
+    <span class="dashboard-section__title">{{ nav.title }}</span>
     {# "N usuario(s)" significa PERSONAS, así que cuenta identidades estables
        (`unique_users`), no filas de la lista: la lista es un "Top" y está
        topeada en 10, así que decía "10 usuario(s)" habiendo 18. El conteo de
        módulos NO es una métrica de identidad y queda como estaba. #}
-    <span class="dashboard-section__count">{{ summary.top_modules|length }} módulo(s) · {{ summary.unique_users }} usuario(s)</span>
+    <span class="dashboard-section__count">{{ nav.rows|length }} {{ nav.noun }} · {{ summary.unique_users }} usuario(s)</span>
   </summary>
   <div class="dashboard-section__body">
     <div class="activity-grid-2">
       <div>
-        <p class="dashboard-subhead">Top módulos <span class="dashboard-subhead__hint">· click para filtro en cascada →</span></p>
-        {% for row in summary.top_modules %}
+        {% if nav.mode == "modules" %}
+        <p class="dashboard-subhead">{{ nav.items_title }} <span class="dashboard-subhead__hint">· click para filtro en cascada →</span></p>
+        {% for row in nav.rows %}
         <div class="activity-bar-row activity-bar-row--clickable" data-module="{{ row.label }}" role="button" tabindex="0" aria-label="Filtrar eventos por {{ row.label }}">
           <span class="activity-bar-label">{{ row.label }}</span>
           <div class="activity-bar"><span class="activity-bar__fill" style="width:{{ row.pct }}%"></span></div>
           <span class="activity-bar-count">{{ row.count }}</span>
         </div>
         {% endfor %}
+        {% else %}
+        {#- Secciones: visitas por pantalla (sin cascada: «Eventos» se filtra por módulo, no por sección). -#}
+        <p class="dashboard-subhead">{{ nav.items_title }}</p>
+        {% for row in nav.rows %}
+        <div class="activity-bar-row" data-nav-section="{{ row.key }}">
+          <span class="activity-bar-label">{{ row.label }}</span>
+          <div class="activity-bar"><span class="activity-bar__fill" style="width:{{ row.pct }}%"></span></div>
+          <span class="activity-bar-count">{{ row.count }}</span>
+        </div>
+        {% endfor %}
+        {% endif %}
+        {% if not nav.rows %}
+        {% with state_kind="empty", state_title="Sin visitas", state_text="No hubo visitas a " ~ ("secciones" if nav.mode == "sections" else "módulos") ~ " de " ~ (dash.vertical_label or "esta vertical") ~ " en el período." %}{% include "partials/catalog_state.html" %}{% endwith %}
+        {% endif %}
       </div>
       <div>
         <p class="dashboard-subhead">Top usuarios</p>
@@ -356,6 +427,9 @@
    sección elegida, MISMO `_breakdown`+`display_names` que cualquier otro
    desglose por usuario de este dashboard — nunca un conteo-por-usuario
    nuevo que Eventos no tenga. #}
+{#- Reacciones solo existe en verticales con mecanismo de feedback catalogado (activity_catalog.feedback_verticals);
+    con otra vertical elegida (p. ej. CCHH) el panel no aplica y no se muestra. -#}
+{% if dash.show_reactions %}
 <details class="dashboard-section" data-section-id="reacciones" open>
   <summary class="dashboard-section__head" draggable="true">
     <span class="dashboard-section__grip" aria-hidden="true">⋮⋮</span>
@@ -463,13 +537,15 @@
        de fuente, MISMA taxonomía que el resto del dashboard). #}
     <div class="dashboard-empty">
       <span class="dashboard-empty__label">Sin reacciones</span>
-      <p>Nadie dejó una reacción (👍/👎 de "¿Qué te pareció?"/"¿Te sirvió?") en Copiloto, Reporting, Asignaciones o Comercial dentro del rango/filtro seleccionado.</p>
+      <p>Nadie dejó una reacción (👍/👎 de "¿Qué te pareció?"/"¿Te sirvió?") en {{ dash.vertical_label or "Copiloto, Reporting, Asignaciones o Comercial" }} dentro del rango/filtro seleccionado.</p>
     </div>
     {% endif %}
   </div>
 </details>
+{% endif %}
 
-{% if summary.assistant_stories %}
+{#- Historia de preguntas y Árboles son del Copiloto: con otra vertical elegida no se muestran. -#}
+{% if summary.assistant_stories and dash.show_copilot_panels %}
 <details class="dashboard-section" data-section-id="preguntas" open>
   <summary class="dashboard-section__head" draggable="true">
     <span class="dashboard-section__grip" aria-hidden="true">⋮⋮</span>
@@ -483,7 +559,7 @@
 </details>
 {% endif %}
 
-{% if summary.tree_started or summary.tree_runs %}
+{% if (summary.tree_started or summary.tree_runs) and dash.show_copilot_panels %}
 <details class="dashboard-section" data-section-id="arboles" open>
   <summary class="dashboard-section__head" draggable="true">
     <span class="dashboard-section__grip" aria-hidden="true">⋮⋮</span>

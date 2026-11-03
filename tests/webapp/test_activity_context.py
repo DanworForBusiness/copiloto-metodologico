@@ -180,11 +180,14 @@ def test_new_event_persists_explicit_scope_area(monkeypatch, tmp_path):
         scope="operations", area="staffing",
     )
     (rec,) = _read_only_file(tmp_path)
-    assert list(rec.keys()) == ["ts_utc", "event", "user", "name", "scope", "area", "payload"]
-    assert rec["scope"] == "operations" and rec["area"] == "staffing"
+    # Envelope v2 (Métricas de Uso v2): `v`/`id`/`kind`/`vertical`, `attrs`
+    # en vez de `payload`, sin `name` por línea (viaja en el login).
+    assert list(rec.keys()) == ["v", "id", "ts_utc", "kind", "event", "user", "vertical", "scope", "area", "surface", "attrs"]
+    assert rec["v"] == 2 and rec["kind"] == "navigation"
+    assert rec["scope"] == "operations" and rec["area"] == "staffing" and rec["vertical"] == "operations"
     assert rec["event"] == "staffing_overview_viewed"
-    assert rec["user"] == "a@danwor.com" and rec["name"] == "A"
-    assert rec["payload"] == {}
+    assert rec["user"] == "a@danwor.com" and "name" not in rec
+    assert rec["attrs"] == {}
 
 
 def test_new_event_persists_optional_module_as_top_level_field(monkeypatch, tmp_path):
@@ -197,7 +200,7 @@ def test_new_event_persists_optional_module_as_top_level_field(monkeypatch, tmp_
         scope="operations", area="staffing", module="assignments",
     )
     (rec,) = _read_only_file(tmp_path)
-    assert list(rec.keys()) == ["ts_utc", "event", "user", "name", "scope", "area", "module", "payload"]
+    assert list(rec.keys()) == ["v", "id", "ts_utc", "kind", "event", "user", "vertical", "scope", "area", "module", "surface", "attrs"]
     assert rec["module"] == "assignments"
 
 
@@ -211,7 +214,9 @@ def test_existing_callers_without_module_remain_compatible(monkeypatch, tmp_path
     )
     (rec,) = _read_only_file(tmp_path)
     assert "module" not in rec
-    assert list(rec.keys()) == ["ts_utc", "event", "user", "name", "scope", "area", "payload"]
+    assert list(rec.keys()) == ["v", "id", "ts_utc", "kind", "event", "user", "vertical", "scope", "area", "surface", "attrs"]
+    # v2: el display name viaja UNA vez, en el login.
+    assert rec["attrs"] == {"display_name": "A"}
 
 
 def test_envelope_omits_context_when_not_passed(monkeypatch, tmp_path):
@@ -222,23 +227,28 @@ def test_envelope_omits_context_when_not_passed(monkeypatch, tmp_path):
     activity_service.log_activity("legacy_shape", user={"sub": "a@danwor.com"})
     (rec,) = _read_only_file(tmp_path)
     assert "scope" not in rec and "area" not in rec
-    assert set(rec.keys()) == {"ts_utc", "event", "user", "name", "payload"}
+    # v2: un evento NO catalogado se escribe igual (no se pierde), sin
+    # contexto inventado y con attrs vacíos.
+    assert set(rec.keys()) == {"v", "id", "ts_utc", "kind", "event", "user", "attrs"}
+    assert rec["kind"] == "unknown" and rec["attrs"] == {}
 
 
-def test_sanitization_and_redaction_unchanged(monkeypatch, tmp_path):
+def test_sanitization_and_redaction_v2(monkeypatch, tmp_path):
+    # v2: la whitelist del catálogo reemplaza a la redacción por nombre de
+    # clave — `token` ni siquiera llega (no está permitido para el evento) y
+    # `question`/`answer` del asistente se convierten en tamaños, sin texto.
     monkeypatch.setattr(activity_service, "LOG_ACTIVITY", "VERBOSE")
     monkeypatch.setattr(activity_service, "ACTIVITY_LOG_DIR", tmp_path)
-    long_normal = "x" * 5000
-    long_answer = "y" * 5000
+    long_heading = "x" * 5000
     activity_service.log_activity(
-        "e", user={"sub": "a@danwor.com"}, scope="copilot", area="assistant",
-        token="super-secret", note=long_normal, answer=long_answer,
+        "assistant_query", user={"sub": "a@danwor.com"}, scope="copilot", area="assistant",
+        token="super-secret", route_heading=long_heading, question="hola", answer="y" * 5000,
     )
     (rec,) = _read_only_file(tmp_path)
-    p = rec["payload"]
-    assert p["token"] == "[redacted]"                       # clave sensible redactada
-    assert p["note"].endswith("…[truncated]") and len(p["note"]) <= 4000 + len("…[truncated]")
-    assert p["answer"] == long_answer                        # long-text: NO truncado (<20000)
+    a = rec["attrs"]
+    assert "token" not in a and "question" not in a and "answer" not in a
+    assert a["route_heading"].endswith("…[truncated]") and len(a["route_heading"]) <= 4000 + len("…[truncated]")
+    assert a["chars_in"] == 4 and a["chars_out"] == 5000
 
 
 def test_basic_verbose_gate_unchanged(monkeypatch, tmp_path):

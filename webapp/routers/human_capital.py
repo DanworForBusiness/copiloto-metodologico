@@ -91,12 +91,17 @@ El deep-link no autenticado entra por
 por `webapp.nav.login_redirect` (Copilot-específico): Capital Humano es un
 workspace distinto del Copiloto, mismo criterio que Operations/Commercial.
 
-Deliberadamente SIN `log_activity`/module id: `activity_service.
-log_activity`'s `module=` es OPCIONAL (ver su firma) — Commercial pasa
-`CM01_MODULE_ID` por elección propia, no porque el contrato lo exija. El
-namespace `CHxx` de `module_registry.py` queda RESERVADO, sin asignar,
-tal como estaba antes de esta fase (ver Phase 1 forensic, "no forzar un
-module ID solo por crear el workspace")."""
+Deliberadamente SIN module id: `activity_service.log_activity`'s `module=`
+es OPCIONAL (ver su firma) — Commercial pasa `CM01_MODULE_ID` por elección
+propia, no porque el contrato lo exija. El namespace `CHxx` de
+`module_registry.py` queda RESERVADO, sin asignar (ver Phase 1 forensic, "no
+forzar un module ID solo por crear el workspace").
+
+Métricas de Uso v2 (fase 2): la navegación la cubren `page_view`/
+`section_view`; acá solo se registran ACCIONES funcionales (`cchh.*`, ver
+`_log_cchh`) con atributos limitados a `outcome`, conteos y enums no
+identificatorios — nunca nombres, emails, texto de CV, nombres de archivo,
+contenido de búsquedas ni valores de formulario."""
 from __future__ import annotations
 
 from datetime import datetime
@@ -122,6 +127,10 @@ from webapp.services import (
 from webapp.services import cv_history_acceptance, cv_history_drafts, cv_history_import, cv_history_import_exec, cv_history_inventory, cv_history_manifest, cv_history_pilot, cv_history_review
 from webapp.services import human_capital_contact, human_capital_export, human_capital_share, profile_consolidation_service
 from webapp.services import scoring_engine, scoring_evaluation_repository, scoring_grid_repository, scoring_service
+from webapp.services.activity_catalog import (
+    AREA_CCHH, OUTCOME_FAILED, OUTCOME_PARTIAL, OUTCOME_REJECTED, OUTCOME_SUCCESS, SCOPE_HUMAN_CAPITAL,
+)
+from webapp.services.activity_service import log_activity
 from webapp.services.human_capital_service import (
     ProfileConcurrentModificationError,
     ProfileConfigIncompleteError,
@@ -133,6 +142,15 @@ from webapp.services.human_capital_service import (
 from webapp.templating import templates
 
 router = APIRouter()
+
+
+def _log_cchh(request: Request, event: str, **attrs) -> None:
+    """Acción funcional de Capital Humano (Métricas de Uso v2, fase 2). SOLO
+    `outcome` + conteos/enums no identificatorios: el catálogo
+    (`activity_catalog`, `cchh.*`) es la whitelist y el sink descarta
+    cualquier otra clave. Sin `module` (namespace CHxx reservado, ver docstring
+    del módulo). Nunca levanta (best-effort, como todo el log de actividad)."""
+    log_activity(event, user=auth_service.session_user(request), scope=SCOPE_HUMAN_CAPITAL, area=AREA_CCHH, **attrs)
 
 
 def _require_human_capital_session(request: Request, *, next_path: str | None = None):
@@ -428,6 +446,8 @@ async def human_capital_profile_new_submit(
         # que el caso de arriba (ver profile_repository._cleanup_failed_write).
         return _render(create_error=str(exc))
 
+    _log_cchh(request, "cchh.profile_created", outcome=OUTCOME_SUCCESS, with_cv=bool(file_bytes))
+
     if not file_bytes:
         # Sin CV seleccionado: MISMO éxito de siempre, vuelve al listado.
         return RedirectResponse(url="/cchh/candidatos", status_code=303)
@@ -512,6 +532,7 @@ async def human_capital_profile_new_submit(
         )
     # Éxito confirmado: Profile Y ProfileDocument ambos persistidos.
     # MISMO criterio que el alta sin CV — vuelve al listado.
+    _log_cchh(request, "cchh.cv_uploaded", outcome=OUTCOME_SUCCESS, origin="create")
     return RedirectResponse(url="/cchh/candidatos", status_code=303)
 
 
@@ -682,6 +703,7 @@ def human_capital_profile_edit_submit(
     # Éxito: vuelve al listado -- "guardar" implica "terminé de editar
     # esto", MISMO criterio que un alta exitosa vuelve al panel con el
     # form limpio, pero acá la edición vive en su propia página. Vuelve al MISMO contexto de listado (filtros/página/tamaño) si vino de él (`?return_to=`).
+    _log_cchh(request, "cchh.profile_updated", outcome=OUTCOME_SUCCESS)
     return _return_redirect(request, "/cchh/candidatos")
 
 
@@ -750,6 +772,8 @@ def human_capital_profile_delete(
             # Resultado PARCIAL: los documentos ya se eliminaron de SharePoint pero la baja lógica no se confirmó. Se dice tal cual.
             delete_error += f" Atención: sus {docs_deleted} documento(s) YA fueron eliminados de SharePoint."
 
+    _log_cchh(request, "cchh.profile_deleted", outcome=(OUTCOME_FAILED if delete_error else OUTCOME_SUCCESS),
+              documents_deleted=docs_deleted)
     if folder_notice and not delete_error:
         # Éxito PARCIAL: baja lógica + documentos eliminados, pero la carpeta se conservó. Se muestra el listado con el aviso (en vez de la redirección silenciosa).
         context = {
@@ -893,6 +917,12 @@ def human_capital_profiles_import_confirm(
     summary = profile_import_service.summarize(
         results, total_rows=len(all_tokens) + invalid_row_count, invalid_count=invalid_row_count,
     )
+    _created = summary.get("CREATED", 0)
+    _failed = sum(summary.get(k, 0) for k in ("SOURCE_ERROR", "REMOTE_OUTCOME_UNKNOWN", "PROFILE_ID_CONFLICT"))
+    _log_cchh(request, "cchh.profiles_imported",
+              outcome=(OUTCOME_SUCCESS if not _failed else OUTCOME_PARTIAL if _created else OUTCOME_FAILED),
+              total_rows=summary.get("total_rows", 0), created=_created, failed=_failed, invalid=summary.get("INVALID", 0),
+              skipped=sum(summary.get(k, 0) for k in ("ALREADY_COMMITTED", "DUPLICATE_SKIPPED", "DUPLICATE_REQUIRES_CONFIRMATION")))
     return templates.TemplateResponse(
         request=request, name="human_capital/profile_import_result.html",
         context={
@@ -1073,7 +1103,11 @@ async def human_capital_profiles_consolidate_confirm(request: Request):
     outcome = await run_in_threadpool(
         profile_consolidation_service.execute, primary_id, duplicate_id, resolutions=resolutions, plan_digest=str(form.get("plan_digest") or ""), actor=actor,
         confirmed=str(form.get("confirm") or "") == "1")
-    if outcome.status == profile_consolidation_service.STALE_PLAN or outcome.code in ("UNRESOLVED_CONFLICT", "CONFIRMATION_REQUIRED"):
+    _replan = outcome.status == profile_consolidation_service.STALE_PLAN or outcome.code in ("UNRESOLVED_CONFLICT", "CONFIRMATION_REQUIRED")
+    _log_cchh(request, "cchh.profiles_consolidated", status=str(outcome.status or ""),
+              outcome=(OUTCOME_REJECTED if _replan else {profile_consolidation_service.COMPLETED: OUTCOME_SUCCESS,
+                                                          profile_consolidation_service.PENDING: OUTCOME_PARTIAL}.get(outcome.status, OUTCOME_FAILED)))
+    if _replan:
         plan = profile_consolidation_service.build_plan(primary_id, duplicate_id)
         return _consolidation_page(request, state="plan", plan=plan, primary_id=primary_id, duplicate_id=duplicate_id, swap_id=duplicate_id,
                                    message=outcome.message, resolutions=resolutions)
@@ -1283,6 +1317,7 @@ async def human_capital_profile_documents_upload(
         return _render_profile_edit_with_documents(
             request, profile_id, profile, document_state={"kind": "DOCUMENT_ID_CONFLICT", "message": str(exc)},
         )
+    _log_cchh(request, "cchh.cv_uploaded", outcome=OUTCOME_SUCCESS, origin="edit")
     return _edit_redirect(request, profile_id)
 
 
@@ -1849,6 +1884,7 @@ def human_capital_busqueda_new_submit(
             request=request, name="human_capital/busqueda_form.html",
             context=_busqueda_shell(request, _busqueda_form_context(
                 form_values=form_values, is_edit=False, error=str(exc))))
+    _log_cchh(request, "cchh.search_created", outcome=OUTCOME_SUCCESS)
     return RedirectResponse(url=f"/cchh/busquedas/{busqueda['busqueda_id']}", status_code=303)
 
 
@@ -2089,14 +2125,19 @@ def human_capital_busqueda_add_candidate(request: Request, busqueda_id: str, pro
     if redirect is not None:
         return redirect
     notice = None
+    outcome = OUTCOME_SUCCESS
     try:
         human_capital_service.add_candidate_to_busqueda(busqueda_id, profile_id, actor=_pipeline_actor(request))
     except busqueda_repository.BusquedaNotFoundError:
         raise HTTPException(404, "Búsqueda no encontrada") from None
     except human_capital_service.CandidateNotEligibleError as exc:
         notice = str(exc)                                              # regla de elegibilidad: no se incorpora y se AVISA (no es un fallo silencioso)
-    except (ValueError, *_BUSQUEDA_SOLICITUD_ERRORS, *_BUSQUEDA_SHELL_ERRORS):
-        pass  # el body se re-renderiza igual; un fallo de durabilidad no rompe la vista
+        outcome = OUTCOME_REJECTED
+    except ValueError:
+        outcome = OUTCOME_REJECTED
+    except (*_BUSQUEDA_SOLICITUD_ERRORS, *_BUSQUEDA_SHELL_ERRORS):
+        outcome = OUTCOME_FAILED  # el body se re-renderiza igual; un fallo de durabilidad no rompe la vista
+    _log_cchh(request, "cchh.candidate_added", outcome=outcome)
     if request.headers.get("HX-Request"):
         return _busqueda_detail_body(request, busqueda_id, notice=notice)
     return RedirectResponse(url=f"/cchh/busquedas/{busqueda_id}" + ("?aviso=no_elegible" if notice else ""), status_code=303)
@@ -2111,12 +2152,16 @@ def human_capital_busqueda_move_stage(
     redirect = _require_human_capital_session(request)
     if redirect is not None:
         return redirect
+    outcome = OUTCOME_SUCCESS
     try:
         human_capital_service.move_application_stage(busqueda_id, application_id, etapa, resultado_final, actor=_pipeline_actor(request))
     except (busqueda_repository.BusquedaNotFoundError, busqueda_repository.ApplicationNotFoundError):
         raise HTTPException(404, "No encontrado") from None
-    except (ValueError, *_BUSQUEDA_SOLICITUD_ERRORS, *_BUSQUEDA_SHELL_ERRORS):
-        pass
+    except ValueError:
+        outcome = OUTCOME_REJECTED
+    except (*_BUSQUEDA_SOLICITUD_ERRORS, *_BUSQUEDA_SHELL_ERRORS):
+        outcome = OUTCOME_FAILED
+    _log_cchh(request, "cchh.stage_changed", outcome=outcome)
     if request.headers.get("HX-Request"):
         return _busqueda_detail_body(request, busqueda_id)
     return RedirectResponse(url=f"/cchh/busquedas/{busqueda_id}", status_code=303)
@@ -2262,12 +2307,14 @@ async def human_capital_busqueda_close(request: Request, busqueda_id: str):
         return redirect
     form = await request.form()
     finalize_ids = form.getlist("finalize_application_id")
+    outcome = OUTCOME_SUCCESS
     try:
         human_capital_service.close_busqueda(busqueda_id, finalize_ids, actor=_pipeline_actor(request))
     except busqueda_repository.BusquedaNotFoundError:
         raise HTTPException(404, "Búsqueda no encontrada") from None
     except (*_BUSQUEDA_SOLICITUD_ERRORS, *_BUSQUEDA_SHELL_ERRORS):
-        pass
+        outcome = OUTCOME_FAILED
+    _log_cchh(request, "cchh.search_closed", outcome=outcome, finalized=len(finalize_ids))
     return RedirectResponse(url=f"/cchh/busquedas/{busqueda_id}", status_code=303)
 
 
@@ -2501,6 +2548,7 @@ def human_capital_entrevista_new_submit(
             request=request, name="human_capital/entrevista_form.html",
             context=_entrevistas_shell(request, _entrevista_form_context_foco(_entrevista_form_context(
                 form_values={**form_values, **({"profile_id": profile_id, "busqueda_id": busqueda_id} if busqueda_id else {})}, is_edit=False, error=str(exc)), foco)))
+    _log_cchh(request, "cchh.interview_created", outcome=OUTCOME_SUCCESS, origin=("pipeline" if busqueda_id else "manual"))
     # Sin vista de detalle standalone (owner UX pass 1: "la experiencia de
     # producto no la necesita" -- ver Editar mismo, que ya muestra todos los
     # campos): después de crear, se sigue editando directo.
@@ -2840,6 +2888,7 @@ def human_capital_onboarding_toggle_item(request: Request, application_id: str, 
         raise HTTPException(404, str(exc)) from None
     except _ONBOARDING_SHELL_ERRORS as exc:
         error = str(exc)
+    _log_cchh(request, "cchh.onboarding_item_toggled", outcome=(OUTCOME_FAILED if error else OUTCOME_SUCCESS), checked=(checked == "1"))
     onboarding = human_capital_service.get_onboarding(application_id)
     if onboarding is None:
         raise HTTPException(404, "Onboarding no encontrado")
@@ -2974,6 +3023,7 @@ def human_capital_publicacion_new_submit(
         return _render(error=str(exc))
     except _PUBLICACION_SHELL_ERRORS as exc:
         return _render(error=str(exc))
+    _log_cchh(request, "cchh.publication_created", outcome=OUTCOME_SUCCESS)
     return _return_redirect(request, "/cchh/publicaciones")
 
 

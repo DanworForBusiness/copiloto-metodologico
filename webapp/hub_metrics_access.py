@@ -54,12 +54,12 @@ from typing import Callable
 
 from fastapi import Request
 
-from webapp import access, commercial_access, operations_access
+from webapp import access, commercial_access, human_capital_access, operations_access
 from webapp.services import auth_service, module_registry
 from webapp.services.activity_context import (
-    AREA_ACADEMY, AREA_ASSISTANT, AREA_AUTH, AREA_CATALOG,
+    AREA_ACADEMY, AREA_ASSISTANT, AREA_AUTH, AREA_CATALOG, AREA_CCHH, AREA_HUB,
     AREA_METHODOLOGY, AREA_REPORTING, AREA_UNKNOWN,
-    SCOPE_COMMERCIAL, SCOPE_COPILOT, SCOPE_OPERATIONS, SCOPE_PLATFORM, SCOPE_UNKNOWN,
+    SCOPE_COMMERCIAL, SCOPE_COPILOT, SCOPE_HUMAN_CAPITAL, SCOPE_OPERATIONS, SCOPE_PLATFORM, SCOPE_UNKNOWN,
 )
 from config import HUB_METRICS_ALLOWED_USERS, HUB_METRICS_ENABLED_VERTICALS
 
@@ -172,11 +172,22 @@ def metrics_visibility_for(user: dict | None) -> tuple[frozenset[str], frozenset
     criterio que antes, solo que ahora cubre TODOS los módulos de ese
     workspace en `module_registry`, no una lista de áreas copiada a mano."""
     allowed_scopes = {SCOPE_PLATFORM, SCOPE_COPILOT, SCOPE_UNKNOWN}
-    allowed_areas = {AREA_AUTH, AREA_METHODOLOGY, AREA_ASSISTANT, AREA_ACADEMY, AREA_CATALOG, AREA_UNKNOWN}
+    # AREA_HUB (Métricas de Uso v2): `page_view` de pantallas propias de la
+    # plataforma (inicio, novedades, admin) — compartida igual que `auth`.
+    allowed_areas = {AREA_AUTH, AREA_HUB, AREA_METHODOLOGY, AREA_ASSISTANT, AREA_ACADEMY, AREA_CATALOG, AREA_UNKNOWN}
     for workspace, is_authorized in _WORKSPACE_AUTHORIZATION.items():
         if not is_authorized(user):
             continue
         allowed_scopes.add(_WORKSPACE_SCOPE[workspace])
         allowed_areas.update(d.area for d in module_registry.all_entries() if d.workspace == workspace)
         allowed_areas.update(_WORKSPACE_EXTRA_AREAS.get(workspace, frozenset()))
+    # Capital Humano (Métricas de Uso v2, fase 2): su vertical NO tiene
+    # módulos en `module_registry` (namespace CHxx reservado), así que no entra
+    # por `_WORKSPACE_AUTHORIZATION`. Se habilita SOLO si el viewer de Metrics
+    # ADEMÁS pasa el MISMO predicado que gobierna el acceso real a CCHH
+    # (`human_capital_access.is_human_capital_authorized_user`) — nunca un
+    # parser nuevo de la allowlist. Sin ese acceso: fail-closed como antes.
+    if human_capital_access.is_human_capital_authorized_user(user):
+        allowed_scopes.add(SCOPE_HUMAN_CAPITAL)
+        allowed_areas.add(AREA_CCHH)
     return frozenset(allowed_scopes), frozenset(allowed_areas)

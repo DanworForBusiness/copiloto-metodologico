@@ -249,14 +249,15 @@ def test_human_capital_surface_has_no_legacy_role_literal():
         assert '"hiring_manager"' not in surface and "'hiring_manager'" not in surface
 
 
-def test_human_capital_router_never_calls_log_activity_with_a_module_id():
-    # Deliberado (ver Phase 1 forensic): `log_activity(module=...)` es
-    # OPCIONAL -- Capital Humano no lo llama en absoluto en esta fase, así
-    # que nunca necesita un module id de CHxx. El propio comentario del
-    # router SÍ nombra `CM01_MODULE_ID`/`module_registry.py` en prosa, al
-    # explicar por qué Capital Humano no los usa -- por eso este test
-    # chequea la ausencia de la LLAMADA real, no de esas palabras sueltas.
-    assert "log_activity(" not in _HUMAN_CAPITAL_PY
+def test_human_capital_router_logs_only_through_the_cchh_helper_and_never_with_a_module_id():
+    # Métricas de Uso v2 (fase 2): Capital Humano registra ACCIONES (`cchh.*`)
+    # por UN solo punto (`_log_cchh`), con scope/area fijos y SIN `module=`
+    # (namespace CHxx reservado, ver Phase 1 forensic). Que cada llamada use
+    # solo atributos permitidos por el catálogo y ninguna clave con PII lo
+    # prueba tests/webapp/test_activity_v2_instrumentation.py.
+    assert _HUMAN_CAPITAL_PY.count("log_activity(") == 1
+    assert "module=" not in _HUMAN_CAPITAL_PY.split("def _log_cchh(", 1)[1].split("\ndef ", 1)[0]
+    assert "log_verbose(" not in _HUMAN_CAPITAL_PY
 
 
 def test_human_capital_router_has_zero_business_data_fetch():

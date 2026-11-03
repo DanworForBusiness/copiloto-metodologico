@@ -44,6 +44,7 @@ from webapp.services import datasphere_profiles as profiles
 from webapp.services import datasphere_assessment_service as svc
 from webapp.services.activity_context import AREA_CATALOG, SCOPE_COPILOT
 from webapp.services.activity_service import log_activity
+from webapp.services.activity_catalog import outcome_of
 from webapp.services.content_service import academy_asset_for, list_academy, list_appendices, list_modules
 from webapp.templating import templates
 
@@ -139,7 +140,7 @@ def run_assessment(
         log_activity("datasphere_assessment_run", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG,
                      client=values.client, space=values.space, root_object=values.root_object,
                      state=outcome.state, error_code=outcome.error_code, stage=outcome.stage, duration_s=outcome.duration_s,
-                     operation_id=outcome.operation_id)
+                     operation_id=outcome.operation_id, outcome=outcome_of(outcome.state))
         result_url = _result_urls(stem, outcome.result_id, selected)[0] if outcome.result_id else None
         events.put({"t": "done", "state": outcome.state, "error_code": outcome.error_code, "message": outcome.message,
                     "title": outcome.title, "errors": outcome.errors, "operation_id": outcome.operation_id,
@@ -256,5 +257,6 @@ def refresh_catalog(request: Request, stem: str, pack: str = Form(DEFAULT_PACK))
     user = _authorize_owner(request, stem)
     outcome = svc.refresh_catalog(user_email=svc.owner_email(request))
     log_activity("datasphere_assessment_refresh_catalog", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG,
-                 state=outcome.state, error_code=outcome.error_code, duration_s=outcome.duration_s, operation_id=outcome.operation_id)
+                 state=outcome.state, error_code=outcome.error_code, duration_s=outcome.duration_s, operation_id=outcome.operation_id,
+                 outcome=outcome_of(outcome.state))
     return templates.TemplateResponse(request=request, name="partials/datasphere_assessment_refresh.html", context={"outcome": outcome})

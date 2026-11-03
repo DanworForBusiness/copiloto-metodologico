@@ -1,0 +1,26 @@
+{# Métricas de Uso v2 (fase 3) — KPIs + tendencia de visitas/usuarios/acciones, desde los agregados diarios
+   (`activity_aggregates.query`, vía `activity_dashboard.build` → `dash`). Mismos primitivos del Resumen histórico
+   (`.activity-kpi-grid`/`.activity-kpi`). La actividad por día vive en el panel «Tendencia diaria» de siempre.
+   Las barras NO llevan `data-day` a propósito: el filtro por clic de día es de la Tendencia diaria histórica. #}
+<div class="activity-kpi-grid" data-activity-v2-kpis>
+  <div class="activity-kpi" title="Vistas de página distintas (un reload no suma una visita nueva).">
+    <span class="activity-kpi__value">{{ dash.kpis.visits }}</span>
+    <span class="activity-kpi__label">Visitas</span>
+  </div>
+  <div class="activity-kpi" title="Personas distintas en todo el período: alguien activo varios días cuenta una sola vez.">
+    <span class="activity-kpi__value">{{ dash.kpis.unique_users }}</span>
+    <span class="activity-kpi__label">Usuarios únicos</span>
+  </div>
+  <div class="activity-kpi" title="Tramos de uso con pausas de hasta 30 minutos; una sesión que cruza la medianoche cuenta una vez.">
+    <span class="activity-kpi__value">{{ dash.kpis.sessions }}</span>
+    <span class="activity-kpi__label">Sesiones</span>
+  </div>
+  <div class="activity-kpi">
+    <span class="activity-kpi__value">{{ dash.kpis.actions }}</span>
+    <span class="activity-kpi__label">Acciones</span>
+  </div>
+  <div class="activity-kpi" title="Operaciones con resultado (extracciones, publicaciones, regeneraciones, assessments y acciones que declaran su resultado): {{ dash.kpis.ok }} con éxito · {{ dash.kpis.fail }} con falla · {{ dash.kpis.partial }} parciales · {{ dash.kpis.outcomes_total }} en total.">
+    <span class="activity-kpi__value">{{ dash.kpis.ok }} / {{ dash.kpis.fail }}</span>
+    <span class="activity-kpi__label">Operaciones (éxito / falla){% if dash.kpis.success_rate is not none %} · {{ dash.kpis.success_rate }}% de éxito{% endif %}</span>
+  </div>
+</div>

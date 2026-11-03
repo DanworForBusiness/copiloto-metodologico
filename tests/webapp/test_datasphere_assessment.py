@@ -1253,7 +1253,9 @@ def test_old_profile_without_evidence_scope_renders_exactly_as_before(owner, fak
     assert "Evidencia no adquirida" not in html                                                # alcance desconocido NO es alcance reducido
     rec["profile"]["scope"]["evidence_scope"] = None
     path.write_text(json.dumps(rec), encoding="utf-8")
-    assert _report_html(owner, rid) == html
+    # `window.DW_VIEW_ID` (Métricas de Uso v2) es un id NUEVO por render: se neutraliza para comparar el resto byte a byte.
+    _no_view_id = lambda text: re.sub(r'DW_VIEW_ID="[0-9a-f]*"', 'DW_VIEW_ID=""', text)
+    assert _no_view_id(_report_html(owner, rid)) == _no_view_id(html)
 
 
 def test_reopened_result_shows_its_own_stored_scope_not_the_current_form_state(owner, fake_export):

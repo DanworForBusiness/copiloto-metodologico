@@ -8,6 +8,7 @@ import logging
 import os
 import re
 import sys
+import time
 import unicodedata
 import zlib
 
@@ -27,7 +28,8 @@ from core.utils import slugify
 from webapp.services import auth_service
 from webapp.services import catalog_reads
 from webapp.services import odoo_client  # pool de conexiones de proceso (cierre en lifespan)
-from webapp.services.activity_service import log_activity, log_verbose
+from webapp.services.activity_service import log_activity
+from webapp.services.activity_catalog import OUTCOME_FAILED, OUTCOME_REJECTED, OUTCOME_SUCCESS, outcome_of
 from webapp.services.activity_context import SCOPE_COPILOT, AREA_CATALOG
 from webapp.services.content_service import (
     academy_asset_for,
@@ -37,6 +39,7 @@ from webapp.services.content_service import (
 )
 from webapp.services import admin_tools
 from webapp.services import activity_analytics
+from webapp.services import activity_dashboard
 from webapp.services import guides_service as guides
 from webapp.routers import system as system_router
 from webapp.routers import telemetry as telemetry_router
@@ -435,6 +438,38 @@ def _admin_result(request: Request, title: str, output: str):
     )
 
 
+def _activity_dashboard_context(
+    request: Request, allowed_scopes: frozenset[str], allowed_areas: frozenset[str],
+    *, date_from: str, date_to: str, user_filter: str, module_filter: str,
+    scope_filter: list[str], area_filter: list[str],
+) -> dict:
+    """Contexto COMPLETO del tablero (Métricas de Uso v2, fase 3): resuelve
+    período/vertical/módulo/sección/usuario/tipo desde los query params
+    (`activity_dashboard`), corre los paneles históricos (`build_summary`) con
+    ESE mismo filtro y arma el modelo v2 (KPIs, drill-down, inventario sin
+    actividad, detalle de eventos). La visibilidad (`allowed_scopes`/
+    `allowed_areas`) llega a AMBOS motores — nunca opcional."""
+    qp = request.query_params
+    params = {
+        "period": qp.get("period", ""), "date_from": date_from, "date_to": date_to,
+        "user": user_filter, "module": module_filter, "scope": scope_filter, "area": area_filter,
+        "vertical": qp.get("vertical", ""), "section": qp.get("section", ""), "kind": qp.get("kind", ""),
+        "epage": qp.get("epage", ""), "epage_size": qp.get("epage_size", ""),
+    }
+    today = activity_dashboard._today()
+    legacy = activity_dashboard.legacy_args(params, visible_verticals=allowed_scopes, today=today)
+    summary = activity_analytics.build_summary(
+        legacy["date_from"], legacy["date_to"], legacy["user"], legacy["module"],
+        scopes=legacy["scopes"], areas=legacy["areas"],
+        allowed_scopes=allowed_scopes, allowed_areas=allowed_areas, vertical=legacy["vertical"],
+    )
+    dash = activity_dashboard.build(
+        params, summary=summary, visible_verticals=allowed_scopes, allowed_areas=allowed_areas,
+        log_dir=activity_analytics.ACTIVITY_LOG_DIR, today=today,
+    )
+    return {"summary": summary, "dash": dash, "date_from": legacy["date_from"], "date_to": legacy["date_to"]}
+
+
 @app.get("/admin/activity", response_class=HTMLResponse, include_in_schema=False)
 def admin_activity(
     request: Request, date_from: str = "", date_to: str = "",
@@ -443,12 +478,10 @@ def admin_activity(
 ):
     _require_hub_metrics(request)
     allowed_scopes, allowed_areas = _hub_metrics_visibility(request)
-    summary = activity_analytics.build_summary(
-        date_from, date_to, user_filter, module_filter,
-        scopes=scope_filter, areas=area_filter,
-        allowed_scopes=allowed_scopes, allowed_areas=allowed_areas,
+    ctx = _activity_dashboard_context(
+        request, allowed_scopes, allowed_areas, date_from=date_from, date_to=date_to,
+        user_filter=user_filter, module_filter=module_filter, scope_filter=scope_filter, area_filter=area_filter,
     )
-    ctx = {"summary": summary, "date_from": date_from, "date_to": date_to}
     if request.headers.get("HX-Request"):
         return templates.TemplateResponse(
             request=request, name="partials/admin_activity_content.html", context=ctx,
@@ -478,6 +511,7 @@ def admin_activity_trend(
     request: Request, date_from: str = "", date_to: str = "",
     user_filter: str = Query("", alias="user"), module_filter: str = Query("", alias="module"),
     scope_filter: list[str] = Query([], alias="scope"), area_filter: list[str] = Query([], alias="area"),
+    vertical: str = "",
     trend_page: int = 1,
 ):
     """Fragment liviano de solo 'Tendencia diaria' (barras + paginador-
@@ -491,6 +525,7 @@ def admin_activity_trend(
         trend_page=trend_page,
         scopes=scope_filter, areas=area_filter,
         allowed_scopes=allowed_scopes, allowed_areas=allowed_areas,
+        vertical=vertical.strip(),        # paginar no rompe la vertical estricta
     )
     return templates.TemplateResponse(
         request=request, name="partials/admin_activity_trend.html",
@@ -503,6 +538,7 @@ def admin_activity_stories(
     request: Request, date_from: str = "", date_to: str = "",
     user_filter: str = Query("", alias="user"), module_filter: str = Query("", alias="module"),
     scope_filter: list[str] = Query([], alias="scope"), area_filter: list[str] = Query([], alias="area"),
+    vertical: str = "",
     story_page: int = 1, story_page_size: int = 10,
 ):
     """Fragment liviano de solo la 'Historia de preguntas' (lista + paginador),
@@ -514,6 +550,7 @@ def admin_activity_stories(
         date_from, date_to, user_filter, module_filter, story_page, story_page_size,
         scopes=scope_filter, areas=area_filter,
         allowed_scopes=allowed_scopes, allowed_areas=allowed_areas,
+        vertical=vertical.strip(),        # paginar no rompe la vertical estricta
     )
     return templates.TemplateResponse(
         request=request, name="partials/admin_activity_stories.html",
@@ -526,6 +563,7 @@ def admin_activity_tree_runs(
     request: Request, date_from: str = "", date_to: str = "",
     user_filter: str = Query("", alias="user"), module_filter: str = Query("", alias="module"),
     scope_filter: list[str] = Query([], alias="scope"), area_filter: list[str] = Query([], alias="area"),
+    vertical: str = "",
     run_page: int = 1, run_page_size: int = 10,
 ):
     """Fragment liviano de solo 'Recorridos' (árboles de decisión) — mismo
@@ -538,6 +576,7 @@ def admin_activity_tree_runs(
         run_page=run_page, run_page_size=run_page_size,
         scopes=scope_filter, areas=area_filter,
         allowed_scopes=allowed_scopes, allowed_areas=allowed_areas,
+        vertical=vertical.strip(),        # paginar no rompe la vertical estricta
     )
     return templates.TemplateResponse(
         request=request, name="partials/admin_activity_tree_runs.html",
@@ -573,10 +612,9 @@ def operations_metrics(
     _require_hub_metrics(request)
     user = auth_service.session_user(request)
     allowed_scopes, allowed_areas = hub_metrics_access.metrics_visibility_for(user)
-    summary = activity_analytics.build_summary(
-        date_from, date_to, user_filter, module_filter,
-        scopes=scope_filter, areas=area_filter,
-        allowed_scopes=allowed_scopes, allowed_areas=allowed_areas,
+    ctx = _activity_dashboard_context(
+        request, allowed_scopes, allowed_areas, date_from=date_from, date_to=date_to,
+        user_filter=user_filter, module_filter=module_filter, scope_filter=scope_filter, area_filter=area_filter,
     )
     return templates.TemplateResponse(
         request=request, name="operations/metrics.html",
@@ -591,7 +629,7 @@ def operations_metrics(
             # a secas, MISMO campo que staffing.py/reporting.py calculan
             # para que el link se siga mostrando (activo) en esta página.
             "can_hub_metrics": True,
-            "summary": summary, "date_from": date_from, "date_to": date_to,
+            **ctx,
         },
     )
 
@@ -1823,7 +1861,6 @@ def catalog_security_detail(
 
 @app.get("/catalog/domain", response_class=HTMLResponse, include_in_schema=False)
 def catalog_domain(request: Request, dominio: str = "", modulo: str = "", pack: str = Query(DEFAULT_PACK)):
-    log_verbose("catalog_view", user=(auth_service.session_user(request) or {}), scope=SCOPE_COPILOT, area=AREA_CATALOG, kind="domain", ref=(dominio or modulo))
     # Determinístico y sin tokens → disponible para cualquier usuario logueado
     # (incluido el perfil de solo lectura), como Árbol/Diagnóstico.
     if not auth_service.session_user(request):
@@ -2052,7 +2089,6 @@ def catalog_lob(request: Request, lob: str = "", pack: str = Query(DEFAULT_PACK)
     """Flujos de una LÍNEA DE NEGOCIO (tercera modalidad del Catálogo, junto a Dominios y Data Products). Solo LEE la clasificación v2 PERSISTIDA
     (``domain_classification_service.effective_lob_by_entry``): precedencia manual > automática HIGH > sin clasificar; la MEDIUM no agrupa. Jamás deriva,
     clasifica ni escribe. Reusa las tarjetas de ``catalog_flows.html`` y su navegación al detalle."""
-    log_verbose("catalog_view", user=(auth_service.session_user(request) or {}), scope=SCOPE_COPILOT, area=AREA_CATALOG, kind="lob", ref=lob)
     if not auth_service.session_user(request):
         raise HTTPException(401, "Sin sesión")
     wanted = (lob or "").strip().upper()
@@ -2088,7 +2124,6 @@ def catalog_lob(request: Request, lob: str = "", pack: str = Query(DEFAULT_PACK)
 def catalog_client(request: Request, cliente: str = "", pack: str = Query(DEFAULT_PACK)):
     """Todos los modelos (flujos) de un CLIENTE: cuarta modalidad del Catálogo. Mismas tarjetas y navegación que Modelos; solo filtra por ``entry.cliente``
     (coincidencia exacta sin distinguir mayúsculas), sin reglas por cliente. Solo lectura."""
-    log_verbose("catalog_view", user=(auth_service.session_user(request) or {}), scope=SCOPE_COPILOT, area=AREA_CATALOG, kind="client", ref=cliente)
     if not auth_service.session_user(request):
         raise HTTPException(401, "Sin sesión")
     selected = _pack(pack)
@@ -3036,7 +3071,6 @@ def _catalog_flow_view(entry, show_assoc: bool | None = None, pack: str = "", fo
 def catalog_flow(request: Request, cliente: str = "", dominio: str = "", flow: str = "",
                  pack: str = Query(DEFAULT_PACK), assoc: int | None = None, frag: str = "",
                  focus: str = ""):
-    log_verbose("catalog_view", user=(auth_service.session_user(request) or {}), scope=SCOPE_COPILOT, area=AREA_CATALOG, kind="flow", ref=(flow or f"{cliente}/{dominio}"), assoc=bool(assoc))
     """Detalle de un flujo del catálogo, renderizado en el panel central con el
     MISMO pipeline de contenido de los módulos (hero + diagrama de linaje +
     artículo .methodology). El contenido vive en los .md del catálogo. `assoc=1`
@@ -3125,7 +3159,6 @@ def catalog_flow(request: Request, cliente: str = "", dominio: str = "", flow: s
 
 @app.get("/catalog/data-product", response_class=HTMLResponse, include_in_schema=False)
 def catalog_data_product(request: Request, product_id: str = "", pack: str = Query(DEFAULT_PACK), lineage: int = 0):
-    log_verbose("catalog_view", user=(auth_service.session_user(request) or {}), scope=SCOPE_COPILOT, area=AREA_CATALOG, kind="data_product", ref=product_id, lineage=bool(lineage))
     """Detalle central de un Data Product del catálogo BDC."""
     user = auth_service.session_user(request)
     if not user:
@@ -3175,7 +3208,6 @@ def catalog_data_product(request: Request, product_id: str = "", pack: str = Que
 @app.get("/catalog/cds", response_class=HTMLResponse, include_in_schema=False)
 def catalog_cds(request: Request, name: str = "", cliente: str = "", dominio: str = "",
                 flow: str = "", pack: str = Query(DEFAULT_PACK)):
-    log_verbose("catalog_view", user=(auth_service.session_user(request) or {}), scope=SCOPE_COPILOT, area=AREA_CATALOG, kind="cds", ref=name)
     """Código de una CDS view (extractor corporativo), renderizado en el panel
     central con el mismo pipeline de contenido. Se abre desde el botón "Abrir CDS
     View" del detalle de un flujo; "Volver" re-abre ese flujo (cliente+dominio)."""
@@ -3223,7 +3255,6 @@ def catalog_sql(request: Request, name: str = "", cliente: str = "", dominio: st
     la MISMA plantilla que "Abrir CDS View". Mismo acceso que el Catálogo (sesión obligatoria); 404 si la vista no es SQL con consulta.
     "Volver" re-abre el flujo de origen. No ejecuta, reescribe ni infiere SQL; el texto no se registra en logs."""
     user = auth_service.session_user(request)
-    log_verbose("catalog_view", user=(user or {}), scope=SCOPE_COPILOT, area=AREA_CATALOG, kind="sql", ref=name)
     if not user:
         return _login_redirect(request, _pack(pack))
     selected = _pack(pack) if _diagnostic(request) else DEFAULT_PACK
@@ -3266,7 +3297,6 @@ def catalog_sql(request: Request, name: str = "", cliente: str = "", dominio: st
 @app.get("/catalog/guide/{slug}", response_class=HTMLResponse, include_in_schema=False)
 def catalog_guide(request: Request, slug: str, pack: str = Query(DEFAULT_PACK),
                   embed: int = 0, theme: str = ""):
-    log_verbose("catalog_view", user=(auth_service.session_user(request) or {}), scope=SCOPE_COPILOT, area=AREA_CATALOG, kind="guide", ref=slug)
     """Guía (autoservicio) para publicar un catálogo. GENÉRICA por `slug`: cada
     how-to es un `guides/<slug>.yaml` del pack (dominios, orígenes/conexiones, …) —
     agregar una guía nueva NO requiere código, solo el YAML + un link. Se cuenta como
@@ -3389,7 +3419,9 @@ def catalog_regenerate(request: Request, graph_token: str = Form("")):
     user = auth_service.session_user(request)
     if not user:
         raise HTTPException(401, "Sin sesión")
+    started = time.monotonic()
     ran, message = admin_tools.run_catalog_generation_locked(graph_token=graph_token)
+    duration_s = round(time.monotonic() - started, 1)
     ok = ran
     if ran:
         _invalidate_catalog_cache()
@@ -3399,7 +3431,9 @@ def catalog_regenerate(request: Request, graph_token: str = Form("")):
         ok = False
         message = ("Tu token SharePoint expiró, necesitamos que reinicies tu sesión al "
                    "copiloto (logout/login) y vuelvas a repetir esta acción con un token nuevo.")
-    log_activity("catalog_regenerate", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG, ran=ran, ok=ok)
+    # outcome (Métricas de Uso v2): no corrió (lock ocupado) → rejected; corrió y falló → failed.
+    log_activity("catalog_regenerate", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG, ran=ran, ok=ok, duration_s=duration_s,
+                 outcome=(OUTCOME_SUCCESS if ok else OUTCOME_FAILED if ran else OUTCOME_REJECTED))
     return JSONResponse({"ok": ok, "message": message})
 
 
@@ -3408,6 +3442,7 @@ def _admin_apis_only(request: Request, graph_token: str, step: str, plan_id: str
     from webapp.services import catalog_apis_sync as apis
     context = {"plan": None, "outcome": None, "error": "", "confirm_phrase": apis.CONFIRM_PHRASE, "rollback_phrase": apis.ROLLBACK_PHRASE,
                "statement": apis.untouched_statement(), "status_text": apis.STATUS_TEXT}
+    started = time.monotonic()
     try:
         if step == "apply":
             context["outcome"] = apis.apply(graph_token, plan_id, confirm)
@@ -3424,7 +3459,10 @@ def _admin_apis_only(request: Request, graph_token: str, step: str, plan_id: str
     if outcome is not None and outcome.state in ("ok", "local_only", "rolled_back", "incomplete"):
         _invalidate_catalog_cache()
     user = auth_service.session_user(request) or {}
-    log_activity("catalog_apis_sync", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG, step=step or "preflight", state=(outcome.state if outcome else "preflight"))
+    # outcome (Métricas de Uso v2): error del panel → failed; preflight sin error → success; apply/rollback → según su estado.
+    log_activity("catalog_apis_sync", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG, step=step or "preflight", state=(outcome.state if outcome else "preflight"),
+                 outcome=(OUTCOME_FAILED if context["error"] else outcome_of(outcome.state) if outcome else OUTCOME_SUCCESS),
+                 duration_s=round(time.monotonic() - started, 1))
     return templates.TemplateResponse(request=request, name="partials/admin_apis_sync.html", context=context)
 
 

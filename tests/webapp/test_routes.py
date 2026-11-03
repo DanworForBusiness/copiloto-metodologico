@@ -1183,20 +1183,19 @@ def test_activity_log_records_module_and_academy_views(monkeypatch, tmp_path):
     from webapp.services import activity_service
     monkeypatch.setattr(activity_service, "LOG_ACTIVITY", "ON")
     monkeypatch.setattr(activity_service, "ACTIVITY_LOG_DIR", tmp_path)
-    client.get("/modules/01_Arquitectura_y_Conectividad")
+    page = client.get("/modules/01_Arquitectura_y_Conectividad")
     client.get("/academy/ACAD01_Paradigmas")
     lines = []
     for path in tmp_path.glob("activity_*.jsonl"):
         lines += [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
     events = {entry["event"] for entry in lines}
-    # `module_viewed` (corrective A2 — Transversal Module + Event Semantics):
-    # reemplaza al histórico `module_selected` como nombre de evento persistido.
-    assert "module_viewed" in events and "academy_selected" in events
+    # Métricas de Uso v2 (fase 2): la vista del módulo ya NO la escribe el
+    # servidor (`module_viewed` duplicaba la visita); la lleva el `page_view`
+    # del documento con el module_id CANÓNICO (CP01, no el stem legacy) en
+    # `window.DW_MODULE_ID`. Academy conserva su `academy_selected`.
+    assert "module_viewed" not in events and "academy_selected" in events
     assert all(entry["user"] == "test@danwor.com" for entry in lines)
-    # test 14 (MODULE IDENTIFIER CONVENTION V2 — Fase 2): el productor NUEVO
-    # de Copiloto persiste el module_id CANÓNICO (CP01), no el stem legacy.
-    module_viewed = next(e for e in lines if e["event"] == "module_viewed")
-    assert module_viewed["module"] == "CP01"
+    assert 'window.DW_MODULE_ID="CP01"' in page.text
 
 
 def test_activity_log_disabled_by_default(monkeypatch, tmp_path):
