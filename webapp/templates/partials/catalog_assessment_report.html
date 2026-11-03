@@ -420,15 +420,24 @@
   </div>
 </section>
 {% if governed_contracts %}
-<section class="content-section">
-  <h3>Contratos de origen gobernados</h3>
-  <p class="catalog-note__ev">CDS/API externas de origen de este modelo. Ver o gestionar su ratificación — la ratificación pertenece a la CDS/API, no aprueba este Assessment ni su Judgment.</p>
-  <div class="support-links">
-    {% for g in governed_contracts %}
-    <a class="support-link" href="{{ g.url }}">{{ g.remote_connection or '—' }} · {{ g.remote_entity }} — Ver contrato de origen <span>↗</span></a>
-    {% endfor %}
+{# Contratos de origen gobernados: colapsable del Hub (`dashboard-section`, cerrado) + tabla compacta `matrix-scroll`, como el resto del informe. #}
+<details class="dashboard-section" data-governed-contracts>
+  <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Contratos de origen gobernados</span><span class="dashboard-section__count">{{ governed_contracts|length }}</span></summary>
+  <div class="dashboard-section__body">
+    <p class="catalog-note__ev">CDS/API externas de origen de este modelo. La ratificación pertenece a la CDS/API: no aprueba este Assessment ni su Judgment.</p>
+    <div class="matrix-scroll"><table>
+      <thead><tr><th>Contrato de origen (entidad)</th><th>Conexión</th></tr></thead>
+      <tbody>
+        {% for g in governed_contracts %}
+        <tr>
+          <td><a href="{{ g.url }}" title="Ver el contrato de origen"><code>{{ g.remote_entity }}</code></a></td>
+          <td><span class="catalog-note__ev"><code>{{ g.remote_connection or '—' }}</code></span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table></div>
   </div>
-</section>
+</details>
 {% endif %}
 </article>
 {% endif %}

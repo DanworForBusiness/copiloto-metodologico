@@ -694,6 +694,8 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
    adoptarlo envolviendo su propia barra de filtros; no asume Alpine,
    HTMX, ni ningún modelo de datos particular. */
 .filter-toolbar-card { border: 1px solid rgba(128,128,128,.24); border-radius: 12px; padding: 20px 22px; }
+/* Dentro del detalle del Catálogo (p. ej. Contratos Gobernados) la barra va justo debajo del separador del hero: aire arriba y abajo. */
+.catalog-detail > .filter-toolbar-card { margin: 24px 0 18px; }
 
 /* Capital Humano Phase 3.2 — barra de búsqueda/filtros compacta sobre el
    Banco de Perfiles: layout mínimo (flex-wrap), reusa .feedback-field/

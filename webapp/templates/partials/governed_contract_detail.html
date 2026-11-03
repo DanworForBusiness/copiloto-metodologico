@@ -47,17 +47,9 @@
         </tbody>
       </table></div>
       {% else %}
-      <p class="catalog-note__ev">{{ observed_note or 'No verificable ahora.' }}</p>
+      {% with state_kind="empty", state_title="Evidencia no verificable", state_text=(observed_note or "No verificable ahora.") %}{% include "partials/catalog_state.html" %}{% endwith %}
       {% endif %}
-      <p class="catalog-note__ev">El digest refleja la identidad y la clasificación observadas en los Assessments; no prueba el contenido funcional completo de la CDS/API ni una aprobación corporativa previa.</p>
-    </div>
-  </details>
-
-  <details class="dashboard-section">
-    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Consumidores (trazabilidad)</span><span class="dashboard-section__count">{{ consumers|length }}</span></summary>
-    <div class="dashboard-section__body">
-      <p class="catalog-note__ev">Trazabilidad — los Assessments consumidores no son sujetos aprobados.</p>
-      {% if consumers %}<ul>{% for c in consumers %}<li>{{ c }}</li>{% endfor %}</ul>{% else %}<p class="catalog-note__ev">Sin Assessments consumidores observados.</p>{% endif %}
+      <div class="catalog-note__ev">El digest refleja la identidad y la clasificación observadas en los Assessments; no prueba el contenido funcional completo de la CDS/API ni una aprobación corporativa previa.</div>
     </div>
   </details>
 
@@ -77,25 +69,45 @@
         </tbody>
       </table></div>
       {% else %}
-      <p class="catalog-note__ev">Este contrato aún no tiene ratificaciones ni revocaciones registradas.</p>
+      {% with state_kind="empty", state_title="Sin decisiones", state_text="Este contrato aún no tiene ratificaciones ni revocaciones registradas." %}{% include "partials/catalog_state.html" %}{% endwith %}
+      {% endif %}
+    </div>
+  </details>
+
+  <details class="dashboard-section">
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Consumidores (trazabilidad)</span><span class="dashboard-section__count">{{ consumers|length }}</span></summary>
+    <div class="dashboard-section__body">
+      <div class="catalog-note__ev">Trazabilidad: los Assessments consumidores no son sujetos aprobados.</div>
+      {% if consumers %}
+      <div class="matrix-scroll"><table>
+        <thead><tr><th>Assessment consumidor</th></tr></thead>
+        <tbody>{% for c in consumers %}<tr><td>{{ c }}</td></tr>{% endfor %}</tbody>
+      </table></div>
+      {% else %}
+      {% with state_kind="empty", state_title="Sin consumidores", state_text="Sin Assessments consumidores observados." %}{% include "partials/catalog_state.html" %}{% endwith %}
       {% endif %}
     </div>
   </details>
 
   {% if is_owner %}
-  <section class="content-section" data-gc-actions
+  <details class="dashboard-section" open data-gc-actions
            data-client="{{ client }}" data-remote-connection="{{ identity.remote_connection or '' }}" data-remote-entity="{{ identity.remote_entity }}">
-    <h2>Acciones del dueño</h2>
-    <p class="catalog-note__ev">Ratificar/Revocar quedan registrados de forma permanente (append-only) y requieren justificación.</p>
-    <label>Justificación<textarea data-gc-rationale rows="2" placeholder="Motivo de la decisión (obligatorio)" style="width:100%;margin-top:4px"></textarea></label>
-    <div class="admin-actions">
-      <button type="button" class="btn-primary" data-gc-ratify>Ratificar</button>
-      <button type="button" class="support-link" data-gc-revoke>Revocar</button>
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Acciones del dueño</span><span class="dashboard-section__count">Ratificar · Revocar</span></summary>
+    <div class="dashboard-section__body">
+      <div class="hc-profile-filters filter-toolbar-card">
+        <div class="feedback-field feedback-field--wide">
+          <label for="gc-rationale">Justificación</label>
+          <input type="text" id="gc-rationale" data-gc-rationale maxlength="500" autocomplete="off" placeholder="Motivo de la decisión (obligatorio)">
+        </div>
+        <button type="button" class="btn-primary" data-gc-ratify>Ratificar</button>
+        <button type="button" class="btn-secondary" data-gc-revoke>Revocar</button>
+      </div>
+      <div class="catalog-note__ev">La decisión y su justificación quedan registradas de forma permanente (append-only).</div>
+      <div class="section-analysis-loading" role="status" data-gc-progress hidden>
+        <span class="section-analysis-spinner" data-gc-spinner></span><span class="section-analysis-loading-copy" data-gc-status></span>
+      </div>
+      <div class="feedback-error" role="alert" data-gc-error hidden><strong data-gc-error-title></strong> <span data-gc-error-msg></span></div>
     </div>
-    <div class="section-analysis-loading" role="status" data-gc-progress hidden>
-      <span class="section-analysis-spinner" data-gc-spinner></span><span class="section-analysis-loading-copy" data-gc-status></span>
-    </div>
-    <div class="feedback-error" role="alert" data-gc-error hidden><strong data-gc-error-title></strong> <span data-gc-error-msg></span></div>
-  </section>
+  </details>
   {% endif %}
 </article>
