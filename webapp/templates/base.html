@@ -26,6 +26,12 @@
         <label data-dw-confirm-check-label><input type="checkbox" data-dw-confirm-check></label>
         <p class="dw-confirm__hint" data-dw-confirm-check-hint></p>
       </div>
+      {# Selector OPCIONAL (solo si quien llama pasa `select`, p. ej. «Reclasificar» del Catálogo): `dwConfirmChoice` devuelve el valor elegido; la nota se recalcula al cambiar la opción. #}
+      <div class="dw-confirm__select" data-dw-confirm-select-wrap hidden>
+        <label for="dwConfirmSelect" data-dw-confirm-select-label></label>
+        <select id="dwConfirmSelect" data-dw-confirm-select></select>
+        <p class="dw-confirm__hint" data-dw-confirm-select-hint></p>
+      </div>
     </div>
     <div class="dw-confirm__actions">
       <button type="submit" value="cancel" class="btn-secondary" data-dw-confirm-cancel>Cancelar</button>

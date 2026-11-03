@@ -1546,7 +1546,7 @@ function dwConfirmChoice(opts) {
   if (!dlg || typeof dlg.showModal !== "function") {
     // Fallback (navegador sin <dialog>): confirm nativo, nunca omitir el paso. Sin diálogo no hay casilla: nunca se asume una acción destructiva extra.
     const txt = (opts.title ? opts.title + "\n\n" : "") + (opts.message || "¿Confirmar?");
-    return Promise.resolve({ ok: window.confirm(txt), checked: false });
+    return Promise.resolve({ ok: window.confirm(txt), checked: false, selected: null });     // sin diálogo no hay selector: nunca se reclasifica a ciegas
   }
   dlg.querySelector(".dw-confirm__title").textContent = opts.title || "Confirmar";
   dlg.querySelector("[data-dw-confirm-msg]").textContent = opts.message || "";
@@ -1554,6 +1554,23 @@ function dwConfirmChoice(opts) {
   const okBtn = dlg.querySelector("[data-dw-confirm-ok]");
   cancelBtn.textContent = opts.cancelLabel || "Cancelar";
   okBtn.textContent = opts.confirmLabel || "Eliminar";
+  okBtn.className = opts.okClass || "btn-danger";                                          // acción NO destructiva (p. ej. reclasificar) puede pedir `btn-primary`; sin opción, idéntico a antes
+  const selWrap = dlg.querySelector("[data-dw-confirm-select-wrap]");
+  const sel = dlg.querySelector("[data-dw-confirm-select]");
+  if (selWrap && sel) {
+    selWrap.hidden = !opts.select;
+    sel.replaceChildren();
+    sel.onchange = null;
+    if (opts.select) {
+      selWrap.querySelector("[data-dw-confirm-select-label]").textContent = opts.select.label || "";
+      (opts.select.options || []).forEach(function (o) { const op = document.createElement("option"); op.value = o.value; op.textContent = o.label; sel.appendChild(op); });
+      if (opts.select.value != null) sel.value = opts.select.value;
+      const hint = selWrap.querySelector("[data-dw-confirm-select-hint]");
+      const refresh = function () { hint.textContent = typeof opts.select.hint === "function" ? (opts.select.hint(sel.value) || "") : (opts.select.hint || ""); };
+      sel.onchange = refresh;
+      refresh();
+    }
+  }
   const wrap = dlg.querySelector("[data-dw-confirm-check-wrap]");
   const box = dlg.querySelector("[data-dw-confirm-check]");
   if (wrap && box) {
@@ -1569,8 +1586,9 @@ function dwConfirmChoice(opts) {
       if (dlg.open) return;                                                                 // un `close` tardío de un diálogo anterior no puede cerrar el nuevo
       dlg.removeEventListener("close", onClose);
       const ok = dlg.returnValue === "confirm";
-      resolve({ ok: ok, checked: !!(ok && opts.checkbox && box && box.checked) });
+      resolve({ ok: ok, checked: !!(ok && opts.checkbox && box && box.checked), selected: (ok && opts.select && sel) ? sel.value : null });
       if (wrap) wrap.hidden = true;
+      if (selWrap) selWrap.hidden = true;
     }
     dlg.addEventListener("close", onClose);
     dlg.returnValue = "";
@@ -1616,6 +1634,65 @@ document.addEventListener("click", function (ev) {
 }, true);
 document.addEventListener("keyup", function (ev) {
   if (ev.target.closest && ev.target.closest("[data-catalog-retire]")) ev.stopPropagation();    // Enter/Espacio sobre el ícono no abre el detalle de la tarjeta
+}, true);
+
+// Catálogo → «Reclasificar» (línea de negocio) desde el tile: diálogo compartido con selector de destinos de la taxonomía + «Restaurar» (retira SOLO la asignación del tile).
+// La nota muestra ANTES de confirmar qué clasificación queda. Se intercepta en captura (no abre el detalle de la tarjeta). Tras guardar, se vuelve a pedir la vista actual
+// (el selector que alimenta la lista: misma URL, mismos filtros) para refrescar tiles, grupos y contadores.
+const DW_LOB_RESTORE = "RESTORE";
+function _dwReclassifyRefresh(el) {
+  const list = el.closest("[data-catalog-results], .catalog-flows");
+  const sel = list && list.id ? document.querySelector('[hx-target="#' + list.id + '"]') : null;
+  if (sel && window.htmx) window.htmx.trigger(sel, "change");
+  else window.location.reload();
+}
+document.addEventListener("click", function (ev) {
+  const el = ev.target.closest && ev.target.closest("[data-catalog-reclassify]");
+  if (!el) return;
+  ev.preventDefault();
+  ev.stopPropagation();
+  let choices = [];
+  try { choices = JSON.parse(el.getAttribute("data-options") || "[]"); } catch (e) { choices = []; }
+  fetch("/catalog/flow/lob?flow=" + encodeURIComponent(el.getAttribute("data-flow") || ""), { credentials: "same-origin", headers: { "HX-Request": "true" } })
+    .then(function (res) { return res.json().catch(function () { return { ok: false }; }); })
+    .then(function (st) {
+      if (!st || !st.ok) { dwConfirm({ title: "No se pudo abrir Reclasificar", message: (st && st.message) || "No se pudo leer la clasificación de este tile.", confirmLabel: "Entendido" }); return; }
+      _dwReclassifyOpen(el, st, choices);
+    })
+    .catch(function () { dwConfirm({ title: "No se pudo abrir Reclasificar", message: "Sin conexión con el servidor.", confirmLabel: "Entendido" }); });
+}, true);
+function _dwReclassifyOpen(el, st, choices) {
+  const lines = ["Actual: " + (st.current_label || "Sin clasificar") + (st.origin ? " (" + st.origin + ")" : "")];
+  if (st.has_tile && (st.actor || st.at)) lines.push("Asignada desde el tile" + (st.actor ? " por " + st.actor : "") + (st.at ? " · " + st.at : ""));
+  if (st.flow_label) lines.push("Asignación histórica del flujo: " + st.flow_label + " (se conserva y no se modifica)");
+  if (st.auto_label) lines.push("Clasificación automática: " + st.auto_label + (st.auto_confidence ? " (confianza " + st.auto_confidence + ")" : ""));
+  const options = choices.slice();
+  if (st.has_tile) options.push({ value: DW_LOB_RESTORE, label: "Restaurar: quitar la asignación del tile" });
+  dwConfirmChoice({
+    title: "Reclasificar «" + (el.getAttribute("data-name") || "") + "»",
+    message: lines.join("\n"),
+    confirmLabel: "Guardar", okClass: "btn-primary",
+    select: {
+      label: "Línea de negocio", options: options, value: st.current || st.auto_id || (options[0] && options[0].value),   // sin asignación: arranca en la sugerencia automática (si la hay)
+      hint: function (v) {
+        if (v === DW_LOB_RESTORE) return "Quedará: " + (st.restore_label || "Sin clasificar") + " (" + (st.restore_origin || "sin clasificar") + ").";
+        return "Queda como asignación manual desde el tile, identificable y reversible. No cambia el modelo, el assessment ni la clasificación automática.";
+      },
+    },
+  }).then(function (r) {
+    if (!r.ok || !r.selected || (r.selected === st.current && st.has_tile)) return;
+    const body = new URLSearchParams({ flow: el.getAttribute("data-flow") || "", lob: r.selected, pack: el.getAttribute("data-pack") || "" });
+    fetch("/catalog/flow/lob", { method: "POST", body: body, credentials: "same-origin", headers: { "HX-Request": "true" } })
+      .then(function (res) { return res.json().catch(function () { return { ok: false }; }).then(function (j) { return { status: res.status, json: j }; }); })
+      .then(function (out) {
+        if (out.json && out.json.ok) { _dwReclassifyRefresh(el); return; }
+        dwConfirm({ title: "No se pudo reclasificar", message: (out.json && out.json.message) || ("El servidor respondió " + out.status + ". No se aplicó ningún cambio."), confirmLabel: "Entendido" });
+      })
+      .catch(function () { dwConfirm({ title: "No se pudo reclasificar", message: "Sin conexión con el servidor. No se aplicó ningún cambio.", confirmLabel: "Entendido" }); });
+  });
+}
+document.addEventListener("keyup", function (ev) {
+  if (ev.target.closest && ev.target.closest("[data-catalog-reclassify]")) ev.stopPropagation();       // Enter/Espacio sobre el ícono no abre el detalle de la tarjeta
 }, true);
 
 function _dwConfirmOptsFrom(el) {

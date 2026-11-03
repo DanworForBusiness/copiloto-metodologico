@@ -108,6 +108,15 @@ def _sap_connection_catalog(pack: str) -> dict:
 templates.env.globals["sap_connection_catalog"] = _sap_connection_catalog
 
 
+def _lob_choices() -> list[dict]:
+    """Destinos de «Reclasificar» del Catálogo: SOLO las líneas de negocio de la taxonomía gobernada (sin «Sin clasificar»: eso se logra restaurando)."""
+    from tools.catalog.business_classification import LINES_OF_BUSINESS
+    return [{"value": x["id"], "label": x["label"]} for x in LINES_OF_BUSINESS]
+
+
+templates.env.globals["lob_choices"] = _lob_choices
+
+
 def _connectivity_registry_can_read(request) -> bool:
     """«Tenants y ambientes» del Catálogo de conectividad (módulo 01, F2.2c.1): visibilidad de la opción (ver connectivity_registry_view)."""
     from webapp.services import connectivity_registry_view as _crv
