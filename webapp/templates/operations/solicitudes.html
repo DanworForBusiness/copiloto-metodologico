@@ -10,11 +10,16 @@
   {% include "partials/operations_nav.html" %}
   {{ sidebar_resize_handle() }}
   <main id="content" class="module-content">
+    {% if item_id %}
+    <a class="catalog-back" href="/operaciones/solicitudes">← Volver a Solicitudes</a>
+    {% include "partials/solicitudes_detail_hero.html" %}
+    {% else %}
     <section class="module-hero opsb-hero">
       <div class="catalog-actionbar"><p class="eyebrow">Operaciones</p></div>
-      <h1>{{ "Editar solicitud" if item_id else "Solicitudes" }}</h1>
+      <h1>Solicitudes</h1>
       <p class="hero-lead full-page-subtitle">Consultá los requerimientos de Arquitectura en SharePoint.</p>
     </section>
+    {% endif %}
     <div id="solicitudes-panel" class="dashboard-sections">
       <div hx-post="/operaciones/solicitudes/{{ item_id ~ '/detalle' if item_id else 'data' }}" hx-trigger="load" hx-target="#solicitudes-panel" data-dw-graph-token>
         <p class="section-analysis-loading"><span class="section-analysis-spinner"></span>Cargando solicitudes…</p>

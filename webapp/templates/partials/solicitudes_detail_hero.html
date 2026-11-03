@@ -1,0 +1,14 @@
+<section id="solicitudes-detail-hero" class="module-hero hc-profiles-hero"{% if refresh_hero %} hx-swap-oob="outerHTML"{% endif %}>
+  <div class="hc-profiles-hero-text">
+    <p class="eyebrow">Operaciones</p>
+    <h1>{{ detail_project or 'Solicitud #' ~ item_id }}</h1>
+    {% if detail_project %}<div class="hero-meta"><span>Requerimiento #{{ item_id }}</span></div>{% endif %}
+    {% if detail_loaded %}
+    <div class="busqueda-status-row">
+      {% for label, value in detail_badges %}
+      <span class="status-badge status-badge--inactivo">{{ label }}: {{ value or 'Sin informar' }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+</section>

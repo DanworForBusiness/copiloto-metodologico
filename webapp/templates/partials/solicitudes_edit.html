@@ -1,3 +1,4 @@
+{% if refresh_hero %}{% include "partials/solicitudes_detail_hero.html" %}{% endif %}
 {% if error %}
 <div class="dashboard-empty" role="alert"><span class="dashboard-empty__label">No disponible</span><p>{{ error }}</p></div>
 <a class="btn-secondary" href="/operaciones/solicitudes">Volver a Solicitudes</a>
@@ -11,22 +12,22 @@
       hx-target="#solicitudes-save-result" hx-indicator="#solicitudes-saving" hx-disabled-elt="find button[type=submit]">
   <input type="hidden" name="etag" value="{{ etag }}">
   <section class="hc-profile-section"><h2>Estado y asignación</h2><div class="hc-profile-section__grid hc-profile-section__grid--fluid">
-  <p>Status funnel: {{ funnel or '—' }}</p>
-  <label class="feedback-field feedback-field--medium">Status Arquitectura
+  <div class="feedback-field feedback-field--medium">
+    <label for="sol-status">Status Arquitectura</label>
     {% if destinations %}
-    <select name="{{ fields.STATUS }}">
+    <select id="sol-status" name="{{ fields.STATUS }}">
       <option value="{{ current[fields.STATUS] }}">{{ current[fields.STATUS] or 'Sin estado' }}</option>
       {% for destination in destinations %}<option>{{ destination }}</option>{% endfor %}
     </select>
     {% else %}<span>{{ current[fields.STATUS] or '—' }}</span>{% endif %}
-  </label>
-  <label class="feedback-field feedback-field--compact">Prioridad
-    <select name="Prioridad"><option value="">Sin prioridad</option>
+  </div>
+  <div class="feedback-field feedback-field--compact"><label for="sol-priority">Prioridad</label>
+    <select id="sol-priority" name="Prioridad"><option value="">Sin prioridad</option>
       {% for choice in ('Baja', 'Media', 'Alta') %}
       <option{% if values.Prioridad == choice %} selected{% endif %}>{{ choice }}</option>
       {% endfor %}
     </select>
-  </label>
+  </div>
   <div class="feedback-field feedback-field--medium">
     <label for="sol-project">Proyecto</label>
     <select id="sol-project" name="{{ fields.PROJECT }}">
@@ -45,13 +46,14 @@
   <fieldset class="feedback-field feedback-field--wide" x-data="{query:'', chosen:{{ chosen | tojson | forceescape }}}">
     <legend>Colaboradores asignados</legend>
     <label for="sol-people-search">Buscar colaboradores</label>
-    <input id="sol-people-search" type="text" autocomplete="off" x-model="query">
+    <input id="sol-people-search" type="text" autocomplete="off" x-model="query" @input.stop @change.stop>
+    <p class="field-hint" x-show="query.trim().length < 3">Escribí al menos tres caracteres para buscar.</p>
     <p class="field-hint" x-text="chosen.length ? chosen.length + ' seleccionados' : 'Sin colaboradores seleccionados'"></p>
     <input type="hidden" name="{{ fields.ASSIGNEES }}" value="">
     <div class="dashboard-checkbox-group">
       {% for id, label in people.items() %}
       <label class="dashboard-checkbox-option"
-             x-show="chosen.includes($el.dataset.id) || $el.dataset.label.toLowerCase().includes(query.trim().toLowerCase())"
+             x-show="chosen.includes($el.dataset.id) || (query.trim().length >= 3 && $el.dataset.label.toLowerCase().includes(query.trim().toLowerCase()))"
              data-id="{{ id }}" data-label="{{ label }}">
         <input type="checkbox" name="{{ fields.ASSIGNEES }}" value="{{ id }}" x-model="chosen"{% if id in chosen %} checked{% endif %}>
         <span>{{ label }}</span>

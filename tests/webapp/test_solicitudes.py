@@ -203,3 +203,12 @@ def test_list_separates_project_and_action_and_hides_single_page_pager(monkeypat
     assert 'aria-current="page">2 / 2' in result
     assert 'value="Proyecto"' in result
     assert result.count('aria-label="Abrir solicitud ') == 3
+
+
+def test_detail_context_uses_lookup_label_and_keeps_empty_statuses():
+    from webapp.routers.solicitudes import _detail_context
+
+    context = _detail_context({"fields": {"ProyectoLookupId": "4", "Prioridad": "Alta"}}, {"Proyecto": {"4": "Proyecto de prueba"}})
+    assert context["detail_project"] == "Proyecto de prueba"
+    assert context["detail_badges"] == (("Status funnel", None), ("Status Arquitectura", None), ("Prioridad", "Alta"))
+    assert _detail_context({"fields": {}}, {})["detail_project"] == ""
