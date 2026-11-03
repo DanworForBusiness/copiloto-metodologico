@@ -36,7 +36,10 @@ def test_legacy_list_tile_template_and_scoring_modules_are_untouched_by_the_asse
     # del generador (evaluación de cumplimiento, veredicto, portabilidad) se sigue vigilando con las reglas de abajo.
     # Cuarta excepción admitida (publicación segura, fase 0): escritura atómica del manifiesto del catálogo y generación/poda ACOTADAS a un cliente (`generate_all(only_clients=…)`,
     # `_prune_stale_domain_outputs`, `_save_catalog_manifest`, `_write_text`). Es orquestación/E-S del catálogo, no scoring: `evaluate_compliance`, `_write_flow` y el veredicto no se tocan.
-    exempt = {"fetch_csn_folder", "_sync_apis", "_same_text", "generate_all", "_prune_stale_domain_outputs", "_save_catalog_manifest", "_write_text"}
+    # Quinta excepción admitida (dominio de un modelo único): `process_folder` NOMBRA el dominio por el cubo también con un solo modelo y hereda la curaduría del 'General'
+    # previo (`_legacy_general_manual`, `_seed_legacy_manual`). Es nombrado/migración de salidas, no scoring: `evaluate_compliance`, `_write_flow` y el veredicto no se tocan.
+    exempt = {"fetch_csn_folder", "_sync_apis", "_same_text", "generate_all", "_prune_stale_domain_outputs", "_save_catalog_manifest", "_write_text",
+              "process_folder", "_legacy_general_manual", "_seed_legacy_manual"}
 
     def without_exempt(src: str) -> list[str]:
         kept, skipping = [], False
