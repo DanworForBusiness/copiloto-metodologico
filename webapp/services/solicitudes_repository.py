@@ -29,3 +29,45 @@ def read_requests(token: str) -> list[dict]:
 
 def read_columns(token: str) -> dict:
     return graph_get_json(f"{list_url(token)}/columns", token)
+
+
+def item_url(token: str, item_id: str) -> str:
+    return f"{list_url(token)}/items/{quote(item_id, safe='')}"
+
+
+def read_item(token: str, item_id: str) -> dict:
+    return graph_get_json(f"{item_url(token, item_id)}?$expand=fields", token)
+
+
+def update_item(token: str, item_id: str, payload: dict, etag: str) -> dict:
+    from core.microsoft365 import graph_patch_json
+
+    return graph_patch_json(f"{item_url(token, item_id)}/fields", token, payload, etag=etag)
+
+
+def lookup_options(token: str) -> dict:
+    base = list_url(token)
+    columns = graph_get_json(f"{base}/columns", token)["value"]
+    definitions = {column["name"]: column for column in columns}
+    site = base.rsplit("/lists/", 1)[0]
+    result = {}
+    for field in ("Proyecto", "Colaborador_x0020_Asignado"):
+        lookup = definitions[field]["lookup"]
+        label = quote(lookup["columnName"], safe="")
+        target = quote(lookup["listId"].strip("{}"), safe="")
+        prefix = f"{site}/lists/{target}/items"
+        url = f"{prefix}?$expand=fields($select={label})"
+        options = {}
+        for _ in range(40):
+            if not url.startswith(prefix + "?"):
+                raise ValueError("Invalid lookup continuation URL")
+            page = graph_get_json(url, token)
+            for item in page["value"]:
+                options[str(item["id"])] = item["fields"].get(lookup["columnName"]) or item["id"]
+            url = page.get("@odata.nextLink")
+            if not url:
+                break
+        else:
+            raise ValueError("Lookup page limit exceeded")
+        result[field] = options
+    return result

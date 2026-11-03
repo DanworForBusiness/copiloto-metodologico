@@ -1,0 +1,56 @@
+{% if error %}
+<div class="callout" role="alert"><div class="callout__body">{{ error }}</div></div>
+<a class="btn-secondary" href="/operaciones/solicitudes">Volver a Solicitudes</a>
+{% else %}
+<form class="hc-profile-form" data-dw-graph-token
+      x-data="{dirty:false,saved:false}"
+      @input="dirty=true" @change="dirty=true"
+      @beforeunload.window="if (dirty) { $event.preventDefault(); $event.returnValue = true }"
+      @htmx:after-swap.window="if ($event.detail.target.id === 'solicitudes-save-result' && $event.detail.target.querySelector('[data-solicitudes-saved]')) { dirty=false; saved=true }"
+      hx-post="/operaciones/solicitudes/{{ item_id }}/guardar"
+      hx-target="#solicitudes-save-result" hx-disabled-elt="find button[type=submit]">
+  <input type="hidden" name="etag" value="{{ etag }}">
+  <p>Status funnel: {{ funnel or '—' }}</p>
+  <label>Status Arquitectura
+    {% if destinations %}
+    <select name="{{ fields.STATUS }}">
+      <option value="{{ current[fields.STATUS] }}">{{ current[fields.STATUS] or 'Sin estado' }}</option>
+      {% for destination in destinations %}<option>{{ destination }}</option>{% endfor %}
+    </select>
+    {% else %}<span>{{ current[fields.STATUS] or '—' }}</span>{% endif %}
+  </label>
+  <label>Prioridad
+    <select name="Prioridad"><option value="">Sin prioridad</option>
+      {% for choice in ('Baja', 'Media', 'Alta') %}
+      <option{% if values.Prioridad == choice %} selected{% endif %}>{{ choice }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  {% for key, label in ((fields.PROJECT, 'Proyecto'), (fields.ASSIGNEES, 'Colaboradores asignados')) %}
+  {% set chosen = values[key] if key == fields.ASSIGNEES else [values[key]] %}
+  <label>{{ label }}
+    {% if key == fields.ASSIGNEES %}<input type="hidden" name="{{ key }}" value="">{% endif %}
+    <select name="{{ key }}"{% if key == fields.ASSIGNEES %} multiple{% endif %}>
+      {% if key == fields.PROJECT %}<option value="">Sin proyecto</option>{% endif %}
+      {% for id, label in options[key].items() %}
+      <option value="{{ id }}"{% if id in chosen %} selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+      {% for id in chosen if id and id not in options[key] %}
+      <option value="{{ id }}" selected>Referencia no disponible ({{ id }})</option>
+      {% endfor %}
+    </select>
+  </label>
+  {% endfor %}
+  <label>Fecha de inicio planificada <input type="date" name="{{ fields.PLANNED }}" value="{{ values[fields.PLANNED] }}"></label>
+  <label>Fecha de inicio Real <input type="date" name="{{ fields.ACTUAL }}" value="{{ values[fields.ACTUAL] }}"></label>
+  <label>Descripción de la demanda (HTML) <textarea name="{{ fields.DESCRIPTION }}" rows="8">{{ values[fields.DESCRIPTION] }}</textarea></label>
+  <label>Comentarios de Arquitectura (HTML) <textarea name="{{ fields.COMMENTS }}" rows="8">{{ values[fields.COMMENTS] }}</textarea></label>
+  <p>El contenido HTML se conserva si no se modifica. Los cambios con etiquetas o atributos no admitidos se rechazan.</p>
+  <div class="support-links">
+    <a class="btn-secondary" href="/operaciones/solicitudes"
+       @click="if (dirty && !window.confirm('¿Descartar los cambios sin guardar?')) $event.preventDefault(); else dirty=false">Cancelar</a>
+    <button type="submit" class="btn-primary" :disabled="saved"{% if not etag %} disabled{% endif %}>Guardar</button>
+  </div>
+</form>
+<div id="solicitudes-save-result" class="callout" role="status"></div>
+{% endif %}

@@ -255,3 +255,15 @@ def graph_get_paged_values(
             on_page(len(page_items))
         next_url = payload.get("@odata.nextLink") or ""
     return items
+
+
+def graph_patch_json(url: str, access_token: str, body: dict, *, etag: str) -> dict:
+    """Patch JSON conditionally with the version read by the caller."""
+    if not etag or etag == "*":
+        raise ValueError("A specific ETag is required")
+    headers = graph_headers(access_token)
+    headers.update({"Content-Type": "application/json", "If-Match": etag})
+    payload = json.dumps(body).encode("utf-8")
+    request = urllib.request.Request(url, data=payload, headers=headers, method="PATCH")
+    with urllib.request.urlopen(request, timeout=DEFAULT_TIMEOUT) as response:
+        return json.loads(response.read().decode("utf-8"))

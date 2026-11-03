@@ -29,7 +29,7 @@
     <thead><tr><th>Proyecto</th><th>Descripción resumida</th><th>Prioridad</th><th>Status funnel</th><th>Status Arquitectura</th><th>Colaboradores asignados</th></tr></thead>
     <tbody>
       {% for row in rows %}{% set f = row.fields %}
-      <tr><td>{{ values(f.get('Proyecto')) | join(', ') }}</td><td>{{ plain_text(f.get(description)) | truncate(160) }}</td>
+      <tr><td><a href="/operaciones/solicitudes/{{ row.id }}/editar">{{ values(f.get('Proyecto')) | join(', ') or 'Abrir solicitud' }}</a></td><td>{{ plain_text(f.get(description)) | truncate(160) }}</td>
       <td>{{ f.get('Prioridad') or '—' }}</td><td>{{ f.get(funnel) or '—' }}</td><td>{{ f.get(status) or '—' }}</td>
       <td>{{ values(f.get(assignees)) | join(', ') }}</td></tr>
       {% endfor %}

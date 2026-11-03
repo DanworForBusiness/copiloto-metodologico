@@ -58,3 +58,88 @@ def values(value) -> list[str]:
     if isinstance(value, dict):
         value = value.get("LookupValue") or value.get("lookupValue")
     return [str(value)] if value is not None and value != "" else []
+
+PLANNED = "Fecha_x0020_de_x0020_inicio_x002"
+ACTUAL = "Fecha_x0020_de_x0020_inicio_x0020"
+COMMENTS = "Comentarios_x0020_de_x0020_Arqui"
+PROJECT = "Proyecto"
+EDITABLE = (STATUS, "Prioridad", PROJECT, ASSIGNEES, PLANNED, ACTUAL, DESCRIPTION, COMMENTS)
+
+
+def lookup_ids(fields, key):
+    raw = fields.get(key + "LookupId")
+    if raw is None:
+        raw = fields.get(key)
+        raw = raw if isinstance(raw, list) else [raw]
+        return [str(item.get("LookupId")) for item in raw if isinstance(item, dict) and item.get("LookupId") is not None]
+    return [str(item) for item in (raw if isinstance(raw, list) else [raw]) if item not in ("", None)]
+
+
+def form_values(fields):
+    result = {key: fields.get(key) or "" for key in EDITABLE}
+    for key in (PLANNED, ACTUAL):
+        result[key] = result[key][:10]
+    result[PROJECT] = next(iter(lookup_ids(fields, PROJECT)), "")
+    result[ASSIGNEES] = lookup_ids(fields, ASSIGNEES)
+    return result
+
+
+class _SafeMarkup(HTMLParser):
+    tags = set("p div span br strong b em i u s strike ul ol li a img table caption thead tbody tfoot tr td th h1 h2 h3 h4 h5 h6 blockquote pre code hr".split())
+    attributes = {"a": {"href", "title"}, "img": {"src", "alt", "title", "width", "height"},
+                  "td": {"colspan", "rowspan"}, "th": {"colspan", "rowspan", "scope"}}
+
+    def handle_starttag(self, tag, attrs):
+        from urllib.parse import urlsplit
+
+        if tag not in self.tags:
+            raise ValueError("El HTML incluye un elemento no admitido.")
+        for name, value in attrs:
+            if name not in self.attributes.get(tag, set()) or value is None:
+                raise ValueError("El HTML incluye un atributo no admitido.")
+            if name in {"href", "src"}:
+                url = urlsplit(value)
+                if url.scheme.lower() not in ("", "https", "http") or value.startswith(("//", "\\")) or any(ord(c) < 32 for c in value):
+                    raise ValueError("El HTML incluye un enlace no admitido.")
+
+    def handle_endtag(self, tag):
+        if tag not in self.tags:
+            raise ValueError("El HTML incluye un elemento no admitido.")
+
+    def handle_decl(self, decl):
+        raise ValueError("El HTML incluye una declaración no admitida.")
+
+
+def changes(current, submitted, options):
+    from datetime import date
+
+    if set(submitted) - set(EDITABLE):
+        raise ValueError("Se intentó editar un campo protegido.")
+    result = {}
+    for key, value in submitted.items():
+        if key == ASSIGNEES:
+            if len(value) != len(set(value)) or any(item not in options[key] for item in value if item not in current[key]):
+                raise ValueError("Seleccioná colaboradores válidos.")
+            if set(value) != set(current[key]):
+                result[key + "LookupId@odata.type"] = "Collection(Edm.String)"
+                result[key + "LookupId"] = value
+            continue
+        if value == current[key]:
+            continue
+        if key == STATUS and value not in allowed_destinations(current[key]):
+            raise ValueError("La transición de estado no está permitida.")
+        if key == "Prioridad" and value not in ("", "Baja", "Media", "Alta"):
+            raise ValueError("Seleccioná una prioridad válida.")
+        if key == PROJECT:
+            if value and value not in options[key]:
+                raise ValueError("Seleccioná un proyecto válido.")
+            result[key + "LookupId"] = value or None
+        elif key in (PLANNED, ACTUAL):
+            if value and date.fromisoformat(value).isoformat() != value:
+                raise ValueError("Ingresá una fecha válida.")
+            result[key] = value + "T00:00:00Z" if value else None
+        else:
+            if key in (DESCRIPTION, COMMENTS):
+                _SafeMarkup().feed(value)
+            result[key] = value or None
+    return result
