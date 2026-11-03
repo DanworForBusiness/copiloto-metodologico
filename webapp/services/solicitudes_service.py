@@ -118,11 +118,14 @@ def changes(current, submitted, options):
     result = {}
     for key, value in submitted.items():
         if key == ASSIGNEES:
-            if len(value) != len(set(value)) or any(item not in options[key] for item in value if item not in current[key]):
-                raise ValueError("Seleccioná colaboradores válidos.")
-            if set(value) != set(current[key]):
-                result[key + "LookupId@odata.type"] = "Collection(Edm.String)"
-                result[key + "LookupId"] = value
+            if value == current[key]:
+                continue
+            if len(current[key]) > 1:
+                raise ValueError("La asignación múltiple existente debe conservarse.")
+            if len(value) > 1 or any(item not in options[key] for item in value):
+                raise ValueError("Seleccioná un único colaborador válido.")
+            result[key + "LookupId@odata.type"] = "Collection(Edm.String)"
+            result[key + "LookupId"] = value
             continue
         if value == current[key]:
             continue

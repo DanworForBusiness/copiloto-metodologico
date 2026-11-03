@@ -43,32 +43,48 @@
   </div>
   {% set chosen = values[fields.ASSIGNEES] %}
   {% set people = options[fields.ASSIGNEES] %}
-  <div class="feedback-field feedback-field--wide"
-       x-data="{query:'', open:false, chosen:{{ chosen | tojson | forceescape }}, get term(){return this.query.trim().toLowerCase()}}"
-       @focusout="if (!$el.contains($event.relatedTarget)) open=false" @keydown.escape.stop="open=false; $refs.search.focus()">
-    <label for="sol-people-search">Colaboradores asignados</label>
-    <input id="sol-people-search" type="text" autocomplete="off" placeholder="Buscar colaboradores" x-ref="search" x-model="query"
-           aria-describedby="sol-people-hint" @focus="open=true" @input.stop="open=true" @change.stop>
-    <p id="sol-people-hint" class="field-hint" x-show="open && term.length < 3">Escribí al menos tres caracteres para buscar.</p>
-    <input type="hidden" name="{{ fields.ASSIGNEES }}" value="">
-    <div class="dashboard-checkbox-group">
-      {% for id, label in people.items() %}
-      <label class="dashboard-checkbox-option"
-             x-show="chosen.includes($el.dataset.id) || (open && term.length >= 3 && $el.dataset.label.toLowerCase().includes(term))"
-             data-id="{{ id }}" data-label="{{ label }}">
-        <input type="checkbox" name="{{ fields.ASSIGNEES }}" value="{{ id }}" x-model="chosen"{% if id in chosen %} checked{% endif %}>
-        <span>{{ label }}</span>
-      </label>
-      {% endfor %}
-      {% for id in chosen if id not in people %}
-      <label class="dashboard-checkbox-option" x-show="chosen.includes($el.dataset.id)" data-id="{{ id }}"><input type="checkbox" name="{{ fields.ASSIGNEES }}" value="{{ id }}" x-model="chosen" checked>
-        <span>Referencia no disponible ({{ id }})</span>
-      </label>
-      {% endfor %}
-    </div>
-    <p class="field-hint" role="status"
-       x-show="open && term.length >= 3 && !Array.from($el.previousElementSibling.querySelectorAll('[data-label]')).some(option => option.dataset.label.toLowerCase().includes(term))">No se encontraron colaboradores.</p>
+  {% if chosen | length > 1 %}
+  <div class="feedback-field feedback-field--wide">
+    <label>Colaborador asignado</label>
+    <ul class="hc-field-value">
+      {% for id in chosen %}<li>{{ people.get(id, 'Referencia no disponible (' ~ id ~ ')') }}</li>{% endfor %}
+    </ul>
+    <p class="field-hint">Esta solicitud ya tiene varios colaboradores. La asignación se conserva al guardar otros campos.</p>
   </div>
+  {% else %}
+  {% set selected = chosen | first | default('') %}
+  <div class="feedback-field feedback-field--wide"
+       x-data="{query:'', open:false, selected:{{ selected | tojson | forceescape }},
+                label:{{ people.get(selected, 'Referencia no disponible (' ~ selected ~ ')' if selected else '') | tojson | forceescape }},
+                people:{{ people | dictsort(by='value') | tojson | forceescape }},
+                get matches(){const term=this.query.trim().toLowerCase();return term.length >= 3 ? this.people.filter(option => option[1].toLowerCase().includes(term)) : []},
+                choose(id, name){this.selected=id;this.label=name;this.query='';this.open=false;this.$dispatch('change');this.$nextTick(() => this.$refs.value.focus())}}"
+       @focusout="if (!$el.contains($event.relatedTarget)) { open=false; query='' }"
+       @keydown.escape.stop="if (open) { open=false; query=''; $nextTick(() => $refs.value.focus()) }">
+    <label for="sol-person">Colaborador asignado</label>
+    <input type="hidden" name="{{ fields.ASSIGNEES }}" :value="selected" value="{{ selected }}">
+    <input id="sol-person" type="text" readonly x-ref="value" :value="label" placeholder="Sin asignación">
+    <div class="support-links">
+      <button type="button" class="btn-secondary" :aria-expanded="open" aria-controls="sol-person-results"
+              @click="open=!open; query=''; if(open) $nextTick(() => $refs.search.focus())"
+              x-text="selected ? 'Cambiar colaborador' : 'Buscar colaborador'">Buscar colaborador</button>
+      <button type="button" class="btn-secondary" x-show="selected" @click="choose('', '')">Quitar asignación</button>
+    </div>
+    <div id="sol-person-results" x-show="open" x-cloak>
+      <input type="text" autocomplete="off" aria-label="Buscar colaborador" placeholder="Buscar colaborador"
+             x-ref="search" x-model="query" @input.stop @change.stop
+             @keydown.enter.prevent="if(matches.length === 1) choose(...matches[0])"
+             @keydown.down.prevent="$refs.results.querySelector('button')?.focus()">
+      <p class="field-hint" x-show="query.trim().length < 3">Escribí al menos tres caracteres para buscar.</p>
+      <p class="field-hint" role="status" x-show="query.trim().length >= 3 && !matches.length">No se encontraron colaboradores.</p>
+      <div class="dashboard-checkbox-group" x-ref="results">
+        <template x-for="[id, name] in matches" :key="id">
+          <button type="button" class="btn-secondary" @click="choose(id, name)" x-text="name"></button>
+        </template>
+      </div>
+    </div>
+  </div>
+  {% endif %}
   </div></section><section class="hc-profile-section">
   <h2>Fechas</h2>
   <div class="hc-profile-section__grid">

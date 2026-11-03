@@ -43,15 +43,15 @@ def test_partial_changes_preserve_untouched_html_and_dates():
     fields = {
         service.STATUS: None,
         service.DESCRIPTION: '<div style="color:red"><img src="/image.png"></div>',
-        service.ASSIGNEES + "LookupId": ["7", "9"],
+        service.ASSIGNEES + "LookupId": ["7"],
         service.PLANNED: "2026-11-03T00:00:00Z",
     }
     current = service.form_values(fields)
-    submitted = dict(current, **{service.STATUS: "Pendiente", service.PLANNED: "", service.ASSIGNEES: ["9", "12"]})
+    submitted = dict(current, **{service.STATUS: "Pendiente", service.PLANNED: "", service.ASSIGNEES: ["12"]})
     assert service.changes(current, submitted, {service.ASSIGNEES: {"9": "A", "12": "B"}}) == {
         service.STATUS: "Pendiente", service.PLANNED: None,
         service.ASSIGNEES + "LookupId@odata.type": "Collection(Edm.String)",
-        service.ASSIGNEES + "LookupId": ["9", "12"],
+        service.ASSIGNEES + "LookupId": ["12"],
     }
 
 
@@ -140,7 +140,7 @@ def test_detail_form_renders_multiple_lookup_and_escapes_html(monkeypatch):
     monkeypatch.setattr(repository, "lookup_options", lambda token: {service.PROJECT: {}, service.ASSIGNEES: {"9": "Test"}})
     result = TestClient(app).post("/operaciones/solicitudes/1/detalle", data={"graph_token": "fake"})
     assert result.status_code == 200
-    assert f'type="checkbox" name="{service.ASSIGNEES}" value="9"' in result.text
+    assert f'type="hidden" name="{service.ASSIGNEES}" :value="selected" value="9"' in result.text
     assert "&lt;b&gt;Test&lt;/b&gt;" in result.text
     assert "<option>Pendiente</option>" in result.text
 
@@ -212,3 +212,24 @@ def test_detail_context_uses_lookup_label_and_keeps_empty_statuses():
     assert context["detail_project"] == "Proyecto de prueba"
     assert context["detail_badges"] == (("Status funnel", None), ("Status Arquitectura", None), ("Prioridad", "Alta"))
     assert _detail_context({"fields": {}}, {})["detail_project"] == ""
+
+
+def test_individual_assignment_preserves_legacy_and_rejects_multiple_updates():
+    import pytest
+
+    key = service.ASSIGNEES
+    options = {key: {"7": "A", "9": "B"}}
+    empty = service.form_values({})
+    assert service.changes(empty, {key: ["7"]}, options)[key + "LookupId"] == ["7"]
+    single = service.form_values({key + "LookupId": ["7"]})
+    assert service.changes(single, {key: ["7"]}, options) == {}
+    assert service.changes(single, {key: ["9"]}, options)[key + "LookupId"] == ["9"]
+    assert service.changes(single, {key: []}, options)[key + "LookupId"] == []
+    with pytest.raises(ValueError):
+        service.changes(single, {key: ["7", "9"]}, options)
+    legacy = service.form_values({key + "LookupId": ["7", "9"]})
+    assert service.changes(legacy, {"Prioridad": "Alta"}, options) == {"Prioridad": "Alta"}
+    assert service.changes(legacy, {key: ["7", "9"]}, options) == {}
+    for attempted in ([], ["7"], ["9", "7"]):
+        with pytest.raises(ValueError):
+            service.changes(legacy, {key: attempted}, options)
