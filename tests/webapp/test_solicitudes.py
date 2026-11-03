@@ -143,6 +143,9 @@ def test_detail_form_renders_multiple_lookup_and_escapes_html(monkeypatch):
     assert f'type="hidden" name="{service.ASSIGNEES}" :value="selected" value="9"' in result.text
     assert "&lt;b&gt;Test&lt;/b&gt;" in result.text
     assert "<option>Pendiente</option>" in result.text
+    assert result.text.count('id="sol-person"') == 1
+    assert 'aria-label="Quitar asignación"' in result.text
+    assert 'aria-controls="sol-person-results"' in result.text
 
 
 def test_htmx_feedback_only_replaces_status_for_validation_and_412(monkeypatch):

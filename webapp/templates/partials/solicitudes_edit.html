@@ -58,29 +58,31 @@
                 label:{{ people.get(selected, 'Referencia no disponible (' ~ selected ~ ')' if selected else '') | tojson | forceescape }},
                 people:{{ people | dictsort(by='value') | tojson | forceescape }},
                 get matches(){const term=this.query.trim().toLowerCase();return term.length >= 3 ? this.people.filter(option => option[1].toLowerCase().includes(term)) : []},
-                choose(id, name){this.selected=id;this.label=name;this.query='';this.open=false;this.$dispatch('change');this.$nextTick(() => this.$refs.value.focus())}}"
-       @focusout="if (!$el.contains($event.relatedTarget)) { open=false; query='' }"
-       @keydown.escape.stop="if (open) { open=false; query=''; $nextTick(() => $refs.value.focus()) }">
+                close(){this.open=false;this.query=''},
+                choose(id, name){const changed=id!==this.selected;this.selected=id;this.label=name;this.close();if(changed)this.$dispatch('change');this.$nextTick(() => this.$refs.value.focus())}}"
+       @focusout="if (!$el.contains($event.relatedTarget)) close()"
+       @keydown.escape.stop="if (open) { close(); $refs.value.focus() }">
     <label for="sol-person">Colaborador asignado</label>
     <input type="hidden" name="{{ fields.ASSIGNEES }}" :value="selected" value="{{ selected }}">
-    <input id="sol-person" type="text" readonly x-ref="value" :value="label" placeholder="Sin asignación">
-    <div class="support-links">
-      <button type="button" class="btn-secondary" :aria-expanded="open" aria-controls="sol-person-results"
-              @click="open=!open; query=''; if(open) $nextTick(() => $refs.search.focus())"
-              x-text="selected ? 'Cambiar colaborador' : 'Buscar colaborador'">Buscar colaborador</button>
-      <button type="button" class="btn-secondary" x-show="selected" @click="choose('', '')">Quitar asignación</button>
-    </div>
-    <div id="sol-person-results" x-show="open" x-cloak>
-      <input type="text" autocomplete="off" aria-label="Buscar colaborador" placeholder="Buscar colaborador"
-             x-ref="search" x-model="query" @input.stop @change.stop
-             @keydown.enter.prevent="if(matches.length === 1) choose(...matches[0])"
-             @keydown.down.prevent="$refs.results.querySelector('button')?.focus()">
-      <p class="field-hint" x-show="query.trim().length < 3">Escribí al menos tres caracteres para buscar.</p>
-      <p class="field-hint" role="status" x-show="query.trim().length >= 3 && !matches.length">No se encontraron colaboradores.</p>
-      <div class="dashboard-checkbox-group" x-ref="results">
-        <template x-for="[id, name] in matches" :key="id">
-          <button type="button" class="btn-secondary" @click="choose(id, name)" x-text="name"></button>
-        </template>
+    <div class="solicitudes-person-control">
+      <input id="sol-person" type="text" autocomplete="off" x-ref="value"
+             :readonly="!open" :value="open ? query : label"
+             :placeholder="open ? 'Buscar colaborador' : 'Sin asignación'"
+             :aria-expanded="open" aria-controls="sol-person-results"
+             @click="open=true"
+             @input.stop="query=$event.target.value" @change.stop
+             @keydown.enter.prevent="if(!open) open=true; else if(matches.length === 1) choose(...matches[0])"
+             @keydown.down.prevent="if(!open) open=true; else $refs.results.querySelector('button')?.focus()">
+      <button type="button" class="table-action-btn" x-show="selected && !open" x-cloak
+              aria-label="Quitar asignación" title="Quitar asignación" @click="choose('', '')">×</button>
+      <div id="sol-person-results" class="solicitudes-person-results filter-toolbar-card" x-show="open" x-cloak>
+        <p class="field-hint" x-show="query.trim().length < 3">Escribí al menos tres caracteres para buscar.</p>
+        <p class="field-hint" role="status" x-show="query.trim().length >= 3 && !matches.length">No se encontraron colaboradores.</p>
+        <div class="dashboard-checkbox-group" x-ref="results">
+          <template x-for="[id, name] in matches" :key="id">
+            <button type="button" class="btn-secondary" @click="choose(id, name)" x-text="name"></button>
+          </template>
+        </div>
       </div>
     </div>
   </div>

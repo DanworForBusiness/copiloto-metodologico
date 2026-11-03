@@ -12,3 +12,10 @@
 .opsb-checks { flex-direction: row; flex-wrap: wrap; gap: 8px 28px; }
 /* Estado vacío de Búsquedas: la acción «+» (formato de los estados vacíos de CCHH, primitivos compartidos) respira bajo el texto. */
 .dashboard-empty [data-empty-new] { margin-top: 8px; }
+
+/* Solicitudes: el desplegable contextual queda fuera del flujo de la grilla. */
+.solicitudes-person-control { position: relative; display: flex; align-items: center; }
+.solicitudes-person-control > input { min-width: 0; flex: 1; }
+.solicitudes-person-control > .table-action-btn { position: absolute; inset-inline-end: 4px; }
+.solicitudes-person-control > input[readonly] { padding-inline-end: 32px; }
+.solicitudes-person-results { position: absolute; inset: 100% 0 auto; z-index: 5; max-height: 40vh; overflow: auto; }
