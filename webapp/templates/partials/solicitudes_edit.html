@@ -54,11 +54,12 @@
   {% else %}
   {% set selected = chosen | first | default('') %}
   <div class="feedback-field feedback-field--wide"
-       x-data="{query:'', open:false, selected:{{ selected | tojson | forceescape }},
+       x-data="{query:'', open:false, active:-1, selected:{{ selected | tojson | forceescape }},
                 label:{{ people.get(selected, 'Referencia no disponible (' ~ selected ~ ')' if selected else '') | tojson | forceescape }},
                 people:{{ people | dictsort(by='value') | tojson | forceescape }},
                 get matches(){const term=this.query.trim().toLowerCase();return term.length >= 3 ? this.people.filter(option => option[1].toLowerCase().includes(term)) : []},
-                close(){this.open=false;this.query=''},
+                close(){this.open=false;this.query='';this.active=-1},
+                move(step){if(!this.open){this.open=true;return} const size=this.matches.length;if(!size)return;this.active=this.active<0 ? (step>0 ? 0 : size-1) : (this.active+step+size)%size;this.$nextTick(() => this.$refs.results.querySelectorAll('[role=option]')[this.active]?.scrollIntoView({block:'nearest'}))},
                 choose(id, name){const changed=id!==this.selected;this.selected=id;this.label=name;this.close();if(changed)this.$dispatch('change');this.$nextTick(() => this.$refs.value.focus())}}"
        @focusout="if (!$el.contains($event.relatedTarget)) close()"
        @keydown.escape.stop="if (open) { close(); $refs.value.focus() }">
@@ -68,19 +69,21 @@
       <input id="sol-person" type="text" autocomplete="off" x-ref="value"
              :readonly="!open" :value="open ? query : label"
              :placeholder="open ? 'Buscar colaborador' : 'Sin asignación'"
-             :aria-expanded="open" aria-controls="sol-person-results"
+             role="combobox" aria-autocomplete="list" :aria-expanded="open" aria-controls="sol-person-list"
+             :aria-activedescendant="open && active >= 0 ? 'sol-person-option-' + active : null"
              @click="open=true"
-             @input.stop="query=$event.target.value" @change.stop
-             @keydown.enter.prevent="if(!open) open=true; else if(matches.length === 1) choose(...matches[0])"
-             @keydown.down.prevent="if(!open) open=true; else $refs.results.querySelector('button')?.focus()">
+             @input.stop="query=$event.target.value; active=-1" @change.stop
+             @keydown.enter.prevent="if(!open) open=true; else if(active >= 0 || matches.length === 1) choose(...matches[Math.max(0, active)])"
+             @keydown.down.prevent="move(1)" @keydown.up.prevent="move(-1)">
       <button type="button" class="table-action-btn" x-show="selected && !open" x-cloak
               aria-label="Quitar asignación" title="Quitar asignación" @click="choose('', '')">×</button>
       <div id="sol-person-results" class="solicitudes-person-results filter-toolbar-card" x-show="open" x-cloak>
         <p class="field-hint" x-show="query.trim().length < 3">Escribí al menos tres caracteres para buscar.</p>
         <p class="field-hint" role="status" x-show="query.trim().length >= 3 && !matches.length">No se encontraron colaboradores.</p>
-        <div class="dashboard-checkbox-group" x-ref="results">
-          <template x-for="[id, name] in matches" :key="id">
-            <button type="button" class="btn-secondary" @click="choose(id, name)" x-text="name"></button>
+        <div id="sol-person-list" role="listbox" aria-label="Colaboradores encontrados" x-ref="results">
+          <template x-for="([id, name], index) in matches" :key="id">
+            <div role="option" :id="'sol-person-option-' + index" :aria-selected="id === selected"
+                 :class="{'is-active': index === active}" @mousedown.prevent @click="choose(id, name)" x-text="name"></div>
           </template>
         </div>
       </div>

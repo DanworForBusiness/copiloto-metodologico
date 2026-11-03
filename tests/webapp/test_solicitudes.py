@@ -145,7 +145,7 @@ def test_detail_form_renders_multiple_lookup_and_escapes_html(monkeypatch):
     assert "<option>Pendiente</option>" in result.text
     assert result.text.count('id="sol-person"') == 1
     assert 'aria-label="Quitar asignación"' in result.text
-    assert 'aria-controls="sol-person-results"' in result.text
+    assert 'aria-controls="sol-person-list"' in result.text
 
 
 def test_htmx_feedback_only_replaces_status_for_validation_and_412(monkeypatch):
