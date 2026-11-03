@@ -35,8 +35,8 @@
     </div>
     {% endif %}
     <div id="solicitudes-panel" class="dashboard-sections">
-      <div hx-post="/operaciones/solicitudes/{{ item_id ~ '/detalle' if item_id else 'data' }}" hx-trigger="load" hx-target="#solicitudes-panel" data-dw-graph-token>
-        <p class="section-analysis-loading"><span class="section-analysis-spinner"></span>Cargando solicitudes…</p>
+      <div hx-post="/operaciones/solicitudes/{{ item_id ~ '/detalle' if item_id else 'data' }}" hx-trigger="load" hx-target="#solicitudes-panel"{% if not item_id %} hx-indicator="#solicitudes-loading"{% endif %} data-dw-graph-token>
+        {% if item_id %}<p class="section-analysis-loading"><span class="section-analysis-spinner"></span>Cargando solicitudes…</p>{% endif %}
       </div>
     </div>
   </main>

@@ -454,6 +454,12 @@ def test_snapshot_reuses_filters_sort_and_pages_and_refreshes(monkeypatch):
     assert 'activity-pager__size' not in post(q="Solicitud", sort="title")
     assert '/solicitudes/101/editar' in post(sort="title", page="3")
     assert calls == [token]
+    assert client.get("/operaciones/solicitudes/1/editar").status_code == 200
+    listing = client.get("/operaciones/solicitudes").text
+    assert listing.count("Cargando solicitudes…") == 1
+    assert 'hx-trigger="load" hx-target="#solicitudes-panel" hx-indicator="#solicitudes-loading"' in listing
+    post()
+    assert calls == [token]
     post(refresh="1")
     assert calls == [token, token]
     snapshot.invalidate(actor)
