@@ -1205,6 +1205,41 @@ def _slug_domain(dom: str) -> str:
     return re.sub(r"[^A-Za-z0-9]+", "_", dom).strip("_") or "flujo"
 
 
+def _legacy_general_manual(cli_dir: Path) -> tuple[dict, dict]:
+    """Curaduría (bloques `manual:`) del flujo 'General' de una generación anterior del
+    cliente: (manual del flujo, {entidad: manual de su vista}). Se lee ANTES de limpiar
+    'General' para que el dominio que lo reemplaza no la pierda. Sin `proyecto`: ese
+    rótulo ('<Cliente> · General') lo vuelve a armar el generador con el dominio nuevo."""
+    old = cli_dir / "General"
+
+    def _clean(manual: dict) -> dict:
+        return {k: v for k, v in manual.items() if k != "proyecto"}
+
+    flow = _clean(_read_manual(old / "flujo_General.md"))
+    vistas = {}
+    for vp in sorted((old / "vistas").glob("*.md")) if (old / "vistas").is_dir() else []:
+        manual = _clean(_read_manual(vp))
+        if manual:
+            vistas[vp.stem] = manual
+    return flow, vistas
+
+
+def _seed_legacy_manual(out_dir: Path, folder: str, sub: dict,
+                        legacy_flow: dict | None, legacy_vistas: dict | None) -> None:
+    """Siembra la curaduría heredada del 'General' previo (modelo único renombrado) en
+    los .md del destino que todavía NO tienen bloque manual, para que `_write_flow` la
+    preserve como cualquier otra (la curaduría propia del destino siempre gana). La siembra es solo front-matter:
+    `_write_flow` reescribe el archivo completo a continuación."""
+    def _seed(path: Path, manual: dict | None) -> None:
+        if manual and not _read_manual(path):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(_fm({}, manual), encoding="utf-8")
+
+    _seed(out_dir / f"flujo_{folder}.md", legacy_flow)
+    for name in sub:
+        _seed(out_dir / "vistas" / f"{name}.md", (legacy_vistas or {}).get(name))
+
+
 def _write_flow(out_dir: Path, cliente: str, dom: str, sub: dict, folder: str) -> str:
     """Escribe vistas + flujo de un dominio (preserva bloques manual). Devuelve línea de log."""
     proyecto = f"{cliente} · {dom}"
@@ -1236,7 +1271,14 @@ def process_folder(src: Path, out_root: Path, cliente: str | None = None,
     SEGMENTACIÓN: si la carpeta es 1-nivel (dominio 'General') y tiene ≥2 modelos
     analíticos (cubos), se emite UN dominio por cubo (Stock, Despachos…), cada uno con
     su linaje. Así los .json se dejan planos en SharePoint (dedup de dims compartidas)
-    y el copiloto separa los dominios solo."""
+    y el copiloto separa los dominios solo.
+
+    MODELO ÚNICO: con UN solo cubo y sin vocabulario, el dominio se nombra por el cubo
+    (misma regla que con ≥2) sin recortar el pool, en vez de quedar en el rótulo
+    genérico 'General' que la pestaña «Modelos» excluye. Como ese renombrado más la
+    limpieza de dominios hermanos borraría el 'General' previo junto con su curaduría,
+    se MIGRA su bloque `manual:` (flujo + vistas) al dominio nuevo; la curaduría propia
+    del destino, si existe, gana."""
     src, out_root = Path(src), Path(out_root)
     if cliente is None:
         cliente = src.parent.name.replace("_", " ")
@@ -1278,11 +1320,20 @@ def process_folder(src: Path, out_root: Path, cliente: str | None = None,
 
     # Un solo flujo (carpeta con dominio real 2-niveles, o ≤1 cubo).
     dom_final = dominio if (dominio and dominio != "General") else _infer_domain(entities)
+    legacy = None
+    if dom_final == "General" and len(cubes) == 1:
+        # Modelo único sin vocabulario: se nombra por su cubo (misma regla que con ≥2),
+        # pero el flujo conserva TODO el pool (no se recorta al subgrafo del cubo). La
+        # curaduría del 'General' previo se lee ANTES de que la limpieza lo borre.
+        dom_final = _domain_for_cube(cubes[0], _cube_subgraph(entities, cubes[0]))
+        legacy = _legacy_general_manual(cli_dir)
     folder = dominio.replace(" ", "_") if (dominio and dominio != "General") else _slug_domain(dom_final)
     if dominio == "General":
         for child in cli_dir.iterdir() if cli_dir.exists() else []:
             if child.is_dir() and child.name != folder and any(child.glob("flujo_*.md")):
                 shutil.rmtree(child, ignore_errors=True)
+    if legacy:
+        _seed_legacy_manual(cli_dir / folder, folder, entities, *legacy)
     return "[OK] " + _write_flow(cli_dir / folder, cliente, dom_final, entities, folder)
 
 
