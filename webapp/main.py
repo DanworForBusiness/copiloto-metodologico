@@ -1946,11 +1946,15 @@ def _lob_tile_state(flows, user, statuses: dict | None = None) -> dict:
         return {}
 
 
-def _lob_note(eff: dict) -> str | None:
-    """Texto discreto de la tarjeta en la vista por línea de negocio (SOLO presentación de lo persistido/efectivo; no decide nada)."""
+def _lob_note(eff: dict, *, is_owner: bool = False) -> str | None:
+    """Texto discreto de la tarjeta en la vista por línea de negocio (SOLO presentación de lo persistido/efectivo; no decide nada).
+    La procedencia de una asignación MANUAL (quién, cuándo, desde dónde) es información de gobierno: solo la ve el APP_OWNER. El error de lectura y la
+    sugerencia de un modelo sin clasificar siguen visibles para todos."""
     if not eff["available"]:
         return "Clasificación no disponible (error de lectura)."
     if eff["source"] == "MANUAL":
+        if not is_owner:
+            return None
         extra = f" · la clasificación automática sugiere {eff['automatic_label']}" if eff.get("automatic_label") else ""
         if eff.get("manual_origin") == "TILE":
             who = f" · por {eff['manual_actor']}" if eff.get("manual_actor") else ""
@@ -2137,7 +2141,7 @@ def catalog_lob(request: Request, lob: str = "", pack: str = Query(DEFAULT_PACK)
     n_unavailable = sum(1 for v in eff.values() if not v["available"])
     ctx.update({"flows": flows, "grades": assessment_presenter.tile_grades(flows, statuses), "deletable": catalog_governance.deletable_ids(auth_service.session_user(request), flows),
                 "logical_counts": {f.entry_id: _catalog_logical_artifact_count(f) for f in flows},
-                "lob_info": {f.entry_id: {"note": _lob_note(eff[f.entry_id])} for f in flows},
+                "lob_info": {f.entry_id: {"note": _lob_note(eff[f.entry_id], is_owner=access.is_owner(request))} for f in flows},
                 "empty_kind": "empty", "empty_title": "Sin modelos disponibles", "empty_message": _LOB_EMPTY.get(wanted, "Todavía no hay modelos asociados a esta línea de negocio."),
                 "lob_unavailable": n_unavailable if wanted != dcs.UNAVAILABLE else 0})
     return templates.TemplateResponse(request=request, name="partials/catalog_flows.html", context=ctx)

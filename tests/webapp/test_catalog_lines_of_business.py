@@ -245,10 +245,20 @@ def listed(html):
     return {a or b for a, b in re.findall(r"flow=([a-z0-9-]+)&pack|flow=([a-z0-9-]+)&amp;pack", html)}
 
 
+def test_the_manual_assignment_note_is_shown_only_to_the_app_owner(client, catalog, monkeypatch):
+    """La leyenda de procedencia manual (quién/cuándo/desde dónde) es gobierno: la ve solo el APP_OWNER; el resto ve el tile sin esa leyenda."""
+    url = "/catalog/lob?lob=FINANCE&pack=datasphere_core"
+    assert "Asignación manual" not in client.get(url).text
+    monkeypatch.setattr(main.access, "owner_emails", lambda: {"t@d.com"})
+    r = client.get(url)
+    assert "Asignación manual" in r.text and "la clasificación automática sugiere Ventas" in r.text
+    assert listed(r.text) == ids(catalog, ["Gastos", "Manual"])                                  # mismo listado: solo cambia la leyenda
+
+
 def test_route_lists_only_the_flows_of_the_selected_line(client, catalog):
     r = client.get("/catalog/lob?lob=FINANCE&pack=datasphere_core")
     assert r.status_code == 200 and listed(r.text) == ids(catalog, ["Gastos", "Manual"])
-    assert "Asignación manual" in r.text and "la clasificación automática sugiere Ventas" in r.text
+    assert "Asignación manual" not in r.text                                                       # procedencia manual: solo el APP_OWNER
     assert listed(client.get("/catalog/lob?lob=SALES").text) == ids(catalog, ["Ventas1"])
     assert listed(client.get("/catalog/lob?lob=supply_chain").text) == ids(catalog, ["Stock"])        # tolera minúsculas
 
