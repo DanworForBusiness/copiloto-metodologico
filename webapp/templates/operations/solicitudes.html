@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% from "partials/platform_topbar.html" import platform_topbar %}
+{% from "partials/workspace_shell.html" import sidebar_resize_handle %}
+{% block title %}Solicitudes · Operaciones · Danwor{% endblock %}
+{% block body %}
+<div x-data="copilotLayout('solicitudes')" x-init="init()" class="app-shell no-copilot">
+  {% set identity %}<iframe src="/brand/dancing/{{ pack }}?title={{ config.OPERATIONS_APP_TITLE | urlencode }}&subtitle={{ config.OPERATIONS_APP_SUBTITLE | urlencode }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
+  {% call platform_topbar(current_workspace, available_workspaces, current_workspace.home_url, identity, "Menú") %}{% endcall %}
+  {% include "partials/operations_nav.html" %}
+  {{ sidebar_resize_handle() }}
+  <main id="content" class="module-content">
+    <section class="module-hero">
+      <p class="eyebrow">Operaciones</p>
+      <h1>Solicitudes</h1>
+      <p class="hero-lead full-page-subtitle">Consultá los requerimientos de Arquitectura en SharePoint.</p>
+    </section>
+    <div id="solicitudes-panel">
+      <div hx-post="/operaciones/solicitudes/data" hx-trigger="load" hx-target="#solicitudes-panel" data-dw-graph-token>
+        <p class="section-analysis-loading"><span class="section-analysis-spinner"></span>Cargando solicitudes…</p>
+      </div>
+    </div>
+  </main>
+</div>
+{% endblock %}

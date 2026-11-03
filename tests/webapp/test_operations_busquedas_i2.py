@@ -59,9 +59,9 @@ def test_nav_has_busquedas_as_02_right_below_asignaciones_and_reporting_and_metr
     monkeypatch.setattr(hub_metrics_access, "is_vertical_metrics_enabled", lambda vertical: True)
     monkeypatch.setattr(hub_metrics_access, "can_access_hub_metrics", lambda user: True)
     html = text(ops().get(BASE))
-    order = [html.index(x) for x in ("<strong>Asignaciones</strong>", "<strong>Búsquedas</strong>", "<strong>Reporting</strong>", "<strong>Métricas de uso</strong>")]
+    order = [html.index(x) for x in ("<strong>Asignaciones</strong>", "<strong>Búsquedas</strong>", "<strong>Solicitudes</strong>", "<strong>Reporting</strong>", "<strong>Métricas de uso</strong>")]
     assert order == sorted(order)
-    assert re.search(r"<span>02</span><strong>Búsquedas</strong>", html) and re.search(r"<span>03</span><strong>Reporting</strong>", html) and re.search(r"<span>04</span><strong>Métricas de uso</strong>", html)
+    assert re.search(r"<span>02</span><strong>Búsquedas</strong>", html) and re.search(r"<span>04</span><strong>Reporting</strong>", html) and re.search(r"<span>05</span><strong>Métricas de uso</strong>", html)
     assert re.search(r'href="/operaciones/busquedas" class="module-link is-active"', html)
 
 
