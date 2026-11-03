@@ -26,14 +26,13 @@ from __future__ import annotations
 import functools
 import hashlib
 import time
-import urllib.error
 import uuid
 from collections import Counter, defaultdict
 
 import config
 
-from webapp.services import (cv_extract, cv_history_import as planning, cv_history_manifest as manifest, cv_history_pilot as pilot, cv_reconcile, human_capital_service, profile_document_repository,
-                             profile_document_service as docsvc, profile_document_validation, profile_repository)
+from webapp.services import (cv_extract, cv_history_import as planning, cv_history_manifest as manifest, cv_history_pilot as pilot, cv_incorporation as core, cv_reconcile, human_capital_service,
+                             profile_document_repository, profile_document_service as docsvc, profile_document_validation, profile_repository)
 
 NAMESPACE = uuid.UUID("5d3f2c1e-8a47-4b9e-9c1d-0e6b7a2f4d11")
 TAG_HISTORICO, TAG_REVIEW = "Histórico SharePoint", "Revisar identidad"
@@ -282,24 +281,7 @@ def _revalidate_link(entry: dict, group: dict) -> str | None:
 
 
 # ═══════════════════ documento: conciliación real + subida ═══════════════════
-def _is_401(exc: BaseException) -> bool:
-    seen = 0
-    while exc is not None and seen < 5:
-        if isinstance(exc, urllib.error.HTTPError) and exc.code == 401:
-            return True
-        exc, seen = exc.__cause__ or exc.__context__, seen + 1
-    return False
-
-
-def _verify_remote(remote: dict, group: dict, token: str) -> bool:
-    """¿El archivo que ya está en SharePoint ES este contenido? Por TAMAÑO y por CONTENIDO: el hash comparable del origen (mismo algoritmo) o, si Graph no informa uno comparable, el sha256 del archivo remoto descargado."""
-    if int(remote.get("size") or -1) != int(group["size"]):
-        return False
-    source_hash = group.get("hash") or {}
-    remote_hashes = (remote.get("file") or {}).get("hashes") or {}
-    if source_hash.get("algo") and source_hash.get("value") and remote_hashes.get(source_hash["algo"]):
-        return remote_hashes[source_hash["algo"]] == source_hash["value"]
-    return hashlib.sha256(docsvc.read_remote_document_bytes(remote["id"], token)).hexdigest() == group["sha256"]
+_is_401, _verify_remote = core.is_401, core.verify_remote                          # motor común (`cv_incorporation`): mismas funciones, extraídas sin cambios
 
 
 def _upload_document(run: dict, key: str, entry: dict, group: dict, token: str, actor: str, sleep) -> str:
@@ -334,13 +316,8 @@ def _upload_document(run: dict, key: str, entry: dict, group: dict, token: str, 
     return _terminal(run_id, key, entry, DONE, None)
 
 
-def _content_type(filename: str) -> str:
-    return profile_document_validation.ACCEPTED_CONTENT_TYPES[filename.rsplit(".", 1)[-1].lower() if "." in filename else ""]
-
-
-_RETRYABLE = (docsvc.ProfileDocumentGraphSourceError, docsvc.ProfileDocumentFolderOutcomeUnknownError, docsvc.ProfileDocumentUploadRetryRequired, docsvc.ProfileDocumentCommitRetryRequired,
-              profile_repository.ProfileStorageError, profile_repository.ProfileRemoteOutcomeUnknownError, profile_document_repository.ProfileDocumentRemoteOutcomeUnknownError,
-              urllib.error.URLError, OSError)
+_content_type = core.content_type
+_RETRYABLE = core.RETRYABLE
 
 
 def _run_unit(run: dict, key: str, entry: dict | None, plan: dict, banco: _Banco, ledgers: dict[str, dict], token: str, actor: str, sleep) -> str:
@@ -375,26 +352,20 @@ def _run_unit(run: dict, key: str, entry: dict | None, plan: dict, banco: _Banco
         outcome = _upload_document(run, key, entry, group, token, actor, sleep)
         ledgers[key] = entry
         return outcome
-    except docsvc.ProfileDocumentPermissionDeniedError:
-        raise _Stop("PERMISSION_DENIED") from None
-    except (docsvc.ProfileDocumentConfigIncompleteError, profile_repository.ProfileConfigIncompleteError, profile_document_repository.ProfileDocumentConfigIncompleteError):
-        raise _Stop("CONFIG_INCOMPLETE") from None
-    except manifest.ManifestDurabilityError:
-        raise _Stop("PERSISTENCE_ERROR") from None
-    except profile_document_validation.ProfileDocumentValidationError:
-        return _terminal(run_id, key, entry, FAILED, "INVALID_DOCUMENT")
-    except profile_repository.ProfileIdConflictError:
-        return _terminal(run_id, key, entry, BLOCKED, "PROFILE_ID_CONFLICT")
-    except profile_document_repository.ProfileDocumentIdConflictError:
-        return _terminal(run_id, key, entry, BLOCKED, "DOC_ID_CONFLICT")
-    except ValueError:
-        return _terminal(run_id, key, entry, FAILED, "INVALID_PROFILE_FIELDS")
-    except _RETRYABLE as exc:
-        if _is_401(exc):
+    except Exception as exc:                                                        # la tabla de errores es la del motor común (`core.classify`), en el mismo orden que el `except` original
+        verdict = core.classify(exc)
+        if verdict is None:
+            raise
+        kind, code = verdict
+        if kind == core.STOP:
+            raise _Stop(code) from None
+        if kind == core.TOKEN:
             entry["attempts"] = max(0, int(entry.get("attempts", 0)) - 1)           # un token vencido no es un intento fallido del documento
             _save(run_id, key, entry)
             raise _Stop("TOKEN_EXPIRED") from None
-        entry["last_error"] = type(exc).__name__
+        if kind in (core.FAILED, core.BLOCKED):
+            return _terminal(run_id, key, entry, FAILED if kind == core.FAILED else BLOCKED, code)
+        entry["last_error"] = code
         if int(entry.get("attempts", 0)) >= MAX_ATTEMPTS:
             return _terminal(run_id, key, entry, FAILED, "RETRIES_EXHAUSTED")
         _save(run_id, key, entry, "RETRY")
