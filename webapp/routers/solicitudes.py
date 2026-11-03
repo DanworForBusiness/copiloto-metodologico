@@ -69,7 +69,10 @@ async def solicitudes_data(request: Request, graph_token: str = Form("")):
         key: sorted({value for row in rows for value in service.values(row.get("fields", {}).get(key))})
         for key in FILTERS
     }
-    matches = service.select_rows(rows, query, selected)
+    sort = str(form.get("sort", ""))
+    sort = sort if sort in service.SORT_COLUMNS else ""
+    direction = "desc" if form.get("dir") == "desc" else "asc"
+    matches = service.sort_rows(service.select_rows(rows, query, selected), sort, direction)
     pages = max(1, (len(matches) + 49) // 50)
     raw_page = str(form.get("page", "1"))
     page = min(pages, max(1, int(raw_page))) if raw_page.isascii() and raw_page.isdigit() and len(raw_page) < 8 else 1
@@ -77,6 +80,7 @@ async def solicitudes_data(request: Request, graph_token: str = Form("")):
         "rows": matches[(page - 1) * 50:page * 50], "page": page, "pages": pages,
         "count": len(matches), "source_count": len(rows), "error": error, "query": query,
         "selected": selected, "filters": FILTERS, "options": options,
+        "columns": service.SORT_COLUMNS, "sort": sort, "direction": direction,
         "status": service.STATUS, "funnel": service.FUNNEL,
         "assignees": service.ASSIGNEES, "values": service.values, "project_label": service.row_project_label,
     })

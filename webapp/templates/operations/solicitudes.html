@@ -27,4 +27,5 @@
     </div>
   </main>
 </div>
+{% if not item_id %}<script src="{{ url_for('static', path='operations_solicitudes.js') }}?v={{ static_version }}" defer></script>{% endif %}
 {% endblock %}

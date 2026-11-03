@@ -49,3 +49,15 @@ table.solicitudes-table { min-width: 52rem; }
 .solicitudes-filters > .whatsnew-filter__clear {
   block-size: 2.25rem;
 }
+
+.solicitudes-sort {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}

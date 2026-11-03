@@ -193,8 +193,8 @@ def test_list_separates_project_and_action_and_hides_single_page_pager(monkeypat
     client = TestClient(app)
     path = "/operaciones/solicitudes/data"
     result = client.post(path, data={"graph_token": "fake"}).text
-    assert '<td class="left">Proyecto de prueba</td>' in result
-    assert '<td class="left">—</td>' in result
+    assert '<td class="left" data-column-key="project">Proyecto de prueba</td>' in result
+    assert '<td class="left" data-column-key="project">—</td>' in result
     assert result.count('aria-label="Abrir solicitud ') == 2
     assert 'class="activity-pager"' not in result
     assert "Página 1 de 1" not in result
@@ -307,10 +307,10 @@ def test_list_prioritizes_description_without_truncating_search(monkeypatch):
     result = TestClient(app).post("/operaciones/solicitudes/data",
         data={"graph_token": "fake", "q": "término final"}).text
     headers = ("Solicitud", "Proyecto", "Prioridad", "Status funnel", "Status Arquitectura", "Colaborador", "Acciones")
-    positions = [result.index(f">{label}</th>") for label in headers]
+    positions = [result.index(label, result.index("<thead>")) for label in headers]
     assert positions == sorted(positions)
     assert "Solicitud #1" in result and description not in result
-    assert 'style="width:39%"' in result
+    assert 'style="width:27%"' in result
     assert 'href="/operaciones/solicitudes/1/editar"' in result
 
 
@@ -381,7 +381,38 @@ def test_list_and_detail_share_catalog_label_without_overwriting_graph_fields(mo
     client = TestClient(app)
     listed = client.post("/operaciones/solicitudes/data", data={"graph_token": "fake"}).text
     detail = client.post("/operaciones/solicitudes/1/detalle", data={"graph_token": "fake"}).text
-    assert '<td class="left">Proyecto de prueba del catalogo</td>' in listed
+    assert '<td class="left" data-column-key="project">Proyecto de prueba del catalogo</td>' in listed
     assert "Proyecto de prueba del catalogo" in detail
     assert 'name="Proyecto" :value="selected" value="4"' in detail
     assert fields["Proyecto"] == 4
+
+
+def test_sort_projects_uses_visible_labels_and_keeps_blanks_last():
+    rows = [{"id": "1", "project_label": "Zulu"}, {"id": "2", "project_label": ""},
+            {"id": "3", "project_label": "Alfa"}, {"id": "4", "project_label": "Alfa"}]
+    assert [r["id"] for r in service.sort_rows(rows, "project", "asc")] == ["3", "4", "1", "2"]
+    assert [r["id"] for r in service.sort_rows(rows, "project", "desc")] == ["1", "3", "4", "2"]
+    assert service.sort_rows(rows, "actions", "asc") == rows
+    priorities = [{"fields": {"Prioridad": p}} for p in ("Alta", "Baja", "Media")]
+    assert [r["fields"]["Prioridad"] for r in service.sort_rows(priorities, "priority", "asc")] == ["Baja", "Media", "Alta"]
+
+
+def test_sort_filters_then_paginates_and_keeps_actions_fixed(monkeypatch):
+    from fastapi.testclient import TestClient
+    from webapp.main import app
+    from webapp.routers import solicitudes
+
+    monkeypatch.setattr(solicitudes, "_user", lambda request: {"sub": "test"})
+    rows = [{"id": str(i), "fields": {"Title": f"Título {i:02}", "Prioridad": "Alta"}} for i in range(1, 56)]
+    monkeypatch.setattr(repository, "read_requests", lambda token: rows[::-1])
+    result = TestClient(app).post("/operaciones/solicitudes/data", data={
+        "graph_token": "fake", "sort": "title", "dir": "asc", "page": "2", "Prioridad": "Alta", "q": "título",
+    }).text
+    assert 'href="/operaciones/solicitudes/51/editar"' in result
+    assert 'href="/operaciones/solicitudes/50/editar"' not in result
+    assert 'aria-sort="ascending"' in result
+    assert 'data-draggable-columns-key="operaciones-solicitudes-v1"' in result
+    assert 'data-resizable-columns-key="operaciones-solicitudes-v1"' in result
+    assert '<th class="center" scope="col">Acciones</th>' in result
+    assert 'hx-params="sort,dir"' in result
+    assert 'name="sort" value="title"' in result

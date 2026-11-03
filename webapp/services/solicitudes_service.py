@@ -209,3 +209,39 @@ def changes(current, submitted, options):
                 value = "<div>" + escape(value, quote=False).replace("\n", "<br>") + "</div>"
             result[key] = value or None
     return result
+
+SORT_COLUMNS = {
+    "title": ("Solicitud", 27),
+    "project": ("Proyecto", 21),
+    "priority": ("Prioridad", 8),
+    "funnel": ("Status funnel", 12),
+    "architecture": ("Status Arquitectura", 13),
+    "collaborator": ("Colaborador", 12),
+}
+
+
+def sort_rows(rows, column, direction):
+    """Sort the filtered universe, retaining creation order for ties."""
+    if column not in SORT_COLUMNS:
+        return rows
+    priority_order = {"baja": 1, "media": 2, "alta": 3}
+
+    def key(row):
+        fields = row.get("fields", {})
+        value = {
+            "title": fields.get("Title"),
+            "project": row_project_label(row),
+            "priority": fields.get("Prioridad"),
+            "funnel": fields.get(FUNNEL),
+            "architecture": fields.get(STATUS),
+            "collaborator": ", ".join(values(fields.get(ASSIGNEES))),
+        }[column]
+        text = (value or "").strip().casefold()
+        return (priority_order.get(text, 0), text) if column == "priority" and text else text
+
+    populated, empty = [], []
+    for row in rows:
+        value = key(row)
+        (populated if value else empty).append((value, row))
+    populated.sort(key=lambda pair: pair[0], reverse=direction == "desc")
+    return [row for _, row in populated + empty]
