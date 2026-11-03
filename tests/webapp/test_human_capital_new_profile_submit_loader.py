@@ -71,7 +71,9 @@ def test_the_text_and_markup_are_the_existing_pattern_not_a_new_component():
     assert not [c for c in new_classes if "load" in c or "spin" in c or "busy" in c or "overlay" in c]
     for rule in (".asr-generate.htmx-request .asr-generate__busy", ".asr-generate.htmx-request .asr-generate__label", ".asr-generate:disabled", ".asr-generate__spinner", "@keyframes analysis-spin"):
         assert rule in _TOOLS_CSS                                                  # el patrón sigue existiendo en el CSS Hub-wide (no se redeclara acá)
-    assert ".asr-generate {" not in _HC_CSS and "@keyframes" not in _HC_CSS
+    # El contrato: human_capital.css NO redeclara la regla BASE del componente (`.asr-generate { … }` como selector propio, al inicio de una regla o de una lista de selectores).
+    # Una regla de UBICACIÓN acotada a un contenedor (p. ej. `.hc-inbox-toolbar .asr-generate { margin-left: auto; }`) no redefine el componente y no cuenta.
+    assert not re.search(r"(?:^|[},/])\s*\.asr-generate\s*\{", _HC_CSS, re.M) and "@keyframes" not in _HC_CSS
 
 
 # ── CSS específico mínimo ─────────────────────────────────────────────────────────────────────────────────────
