@@ -20,7 +20,7 @@ from webapp.services import cv_history_manifest as mf, cv_inbox as inbox, profil
 GRAPH = "https://graph.microsoft.com/v1.0"
 DRIVE = "drive-p"
 ITEMS = f"/drives/{DRIVE}/items/"
-PERFILES_URL = "https://danwor.sharepoint.com/:f:/s/Comunicaciones/IgPERFILESLINK?e=tok"
+INBOX_URL = "https://danwor.sharepoint.com/:f:/s/Comunicaciones/IgCARGAMASIVALINK?e=tok"
 ACTOR = "cchh-inbox@danwor.com"
 BODY = "Consultora con experiencia en migraciones de datos y analítica avanzada"
 
@@ -33,7 +33,7 @@ MARTIN_2 = make_pdf(["Martín Sosa", "martin.sosa@mail.com", "Cel 11 7777 1234",
 
 
 class Intake:
-    """`Perfiles` (link fijo) → `carga-masiva` con archivos directos; `incorporados`/`descartados` se crean al retirar. Mueve con PATCH (If-Match); borra (If-Match) SOLO si el test lo habilita."""
+    """Link fijo → `Perfiles/carga-masiva` MISMA, con archivos directos; `incorporados`/`descartados` se crean al retirar. Mueve con PATCH (If-Match); borra (If-Match) SOLO si el test lo habilita."""
 
     def __init__(self, has_inbox=True):
         self.has_inbox = has_inbox
@@ -42,6 +42,8 @@ class Intake:
         if has_inbox:
             self.folders["inbox"] = ("carga-masiva", "perfiles")
         self.downloads: list[str] = []
+        self.requests: list[str] = []
+        self.share_target = "inbox"                                                       # a qué carpeta apunta el link de compartir
         self.patches: list[str] = []
         self.deny_patch = False
         self.deny_delete = False
@@ -66,12 +68,15 @@ class Intake:
 
     def _folder(self, fid):
         name, parent = self.folders[fid]
-        return {"id": fid, "name": name, "folder": {}, "parentReference": {"id": parent, "driveId": DRIVE}, "webUrl": f"https://danwor.sharepoint.com/sites/Comunicaciones/{name}"}
+        parent_name = self.folders[parent][0] if parent in self.folders else None
+        return {"id": fid, "name": name, "folder": {}, "parentReference": {"id": parent, "driveId": DRIVE, **({"name": parent_name} if parent_name else {})},
+                "webUrl": f"https://danwor.sharepoint.com/sites/Comunicaciones/{name}"}
 
     def get_json(self, url, token, **kw):
         assert token == TOKEN
+        self.requests.append(urllib.parse.unquote(url))
         if "/shares/" in url:
-            return {**self._folder("perfiles"), "parentReference": {"driveId": DRIVE, "siteId": "site-p"}}
+            return {**self._folder(self.share_target), "parentReference": {"driveId": DRIVE, "siteId": "site-p"}}
         rest = urllib.parse.unquote(url.split(ITEMS, 1)[1]).split("?", 1)[0]
         if rest.endswith("/children"):
             parent = rest[: -len("/children")]
@@ -141,7 +146,7 @@ class Intake:
 
 @pytest.fixture()
 def world(home, monkeypatch):
-    for name, value in (("HC_SHAREPOINT_SITE_ID", "site-1"), ("HC_SHAREPOINT_DRIVE_ID", "drive-1"), ("HC_CV_ROOT_ITEM_ID", "root-1"), ("HC_PERFILES_FOLDER_URL", PERFILES_URL)):
+    for name, value in (("HC_SHAREPOINT_SITE_ID", "site-1"), ("HC_SHAREPOINT_DRIVE_ID", "drive-1"), ("HC_CV_ROOT_ITEM_ID", "root-1"), ("HC_CV_INBOX_FOLDER_URL", INBOX_URL)):
         monkeypatch.setattr(config, name, value)
     store, intake = CVStore(), Intake()
 
@@ -201,18 +206,28 @@ def form(row, **over):
 
 
 # ═══════════════════ ubicación ═══════════════════
-def test_the_intake_is_resolved_from_the_fixed_perfiles_location_and_a_missing_folder_is_reported(world, monkeypatch):
+def test_the_fixed_link_is_the_intake_itself_and_no_subfolder_is_resolved(world, monkeypatch):
     store, intake = world
     found = inbox.resolve_inbox(TOKEN)
     assert found["id"] == "inbox" and found["drive_id"] == DRIVE and found["same_drive"] is False
-    intake.folders.pop("inbox")
+    assert not any(":/carga-masiva" in u or "/items/inbox:/" in u for u in intake.requests)             # nunca se busca `carga-masiva` dentro de `carga-masiva`
+    assert any(u.endswith("/items/inbox?$select=id,name,folder,webUrl,parentReference") for u in intake.requests)
+    intake.share_target = "perfiles"                                                                     # un link a `Perfiles` (la carpeta padre) no es la bandeja
     with pytest.raises(inbox.InboxError) as err:
         inbox.resolve_inbox(TOKEN)
-    assert err.value.code == "INBOX_MISSING" and "Perfiles/carga-masiva" in str(err.value)
-    monkeypatch.setattr(config, "HC_PERFILES_FOLDER_URL", "")
+    assert err.value.code == "INBOX_INVALID"
+    intake.share_target = "historico"                                                                     # otra carpeta de `Perfiles`, tampoco
+    with pytest.raises(inbox.InboxError):
+        inbox.resolve_inbox(TOKEN)
+    monkeypatch.setattr(config, "HC_CV_INBOX_FOLDER_URL", "")
     with pytest.raises(inbox.InboxError) as err:
         inbox.resolve_inbox(TOKEN)
     assert err.value.code == "CONFIG_INCOMPLETE"
+
+
+def test_the_fixed_location_is_the_confirmed_carga_masiva_link():
+    assert config.HC_CV_INBOX_FOLDER_URL.startswith("https://danwor.sharepoint.com/:f:/s/Comunicaciones/") and config.HC_CV_INBOX_FOLDER_NAME == "carga-masiva"
+    assert not hasattr(config, "HC_PERFILES_FOLDER_URL")
 
 
 def test_only_direct_files_of_the_intake_are_listed(world):

@@ -5,9 +5,9 @@ NO es otra importación histórica ni un framework: orquesta lo que ya existe �
 idempotente (`human_capital_service.create_profile_for_import`), conciliación y subida verificada con el contrato documental vigente (`cv_incorporation.reconcile_or_upload` → `profile_document_service`), tabla de
 errores (`cv_incorporation.classify`) y persistencia/candados/auditoría (`cv_history_manifest`, área `cv-inbox`, separada de los lotes de Históricos)—.
 
-SEPARACIÓN DE RESPONSABILIDADES: `Perfiles/carga-masiva` es la zona de entrada que administra Capital Humano, en una ubicación FIJA de código (`config.HC_PERFILES_FOLDER_URL` +
-`config.HC_CV_INBOX_FOLDER_NAME`, sin variables de entorno): `Perfiles` se resuelve con el MISMO descubrimiento Graph por link que usó la importación histórica y `carga-masiva` como subcarpeta directa, obteniendo
-`drive_id`/`item_id` en cada uso. Si falta la carpeta se informa (no se buscan alternativas ni se crea). Solo se leen los archivos DIRECTOS de esa carpeta (no se recorre el resto de `Perfiles` ni sus subcarpetas). `CVs` (`HC_CV_ROOT_ITEM_ID`) es el repositorio definitivo y solo lo escribe el Hub, con el mismo contrato documental de siempre
+SEPARACIÓN DE RESPONSABILIDADES: `Perfiles/carga-masiva` es la zona de entrada que administra Capital Humano, en una ubicación FIJA de código (`config.HC_CV_INBOX_FOLDER_URL`, el link de compartir de esa
+carpeta MISMA; sin variables de entorno): se resuelve con el MISMO descubrimiento Graph por link que usó la importación histórica, obteniendo `drive_id`/`item_id` en cada uso, y se verifica que sea `carga-masiva`
+dentro de `Perfiles` y fuera de `CVs`. NO se busca ninguna subcarpeta adentro. Si el link no resuelve se informa (no se buscan alternativas ni se crea nada). Solo se leen los archivos DIRECTOS de esa carpeta (no se recorre el resto de `Perfiles` ni sus subcarpetas). `CVs` (`HC_CV_ROOT_ITEM_ID`) es el repositorio definitivo y solo lo escribe el Hub, con el mismo contrato documental de siempre
 (carpeta por candidato, `<document_id>__<nombre>`, metadata con drive/item/web_url). Por eso la incorporación COPIA el contenido verificado (descarga + subida, que solo requiere escritura sobre `CVs`, ya vigente) y no
 mueve el original: el origen no se modifica hasta que el documento definitivo y su metadata están confirmados. Recién entonces se RETIRA el original de la bandeja moviéndolo a `carga-masiva/incorporados`
 (PATCH dentro del mismo drive, sin borrar nada: recuperable por Capital Humano). El retiro es un paso aparte y reintentable: si falla (p. ej. sin permiso de escritura sobre `carga-masiva`), el CV queda
@@ -161,10 +161,10 @@ def _sha(value) -> str:
 # ═══════════════════ zona de entrada (SharePoint) ═══════════════════
 _INBOX_TEXT = {
     "CONFIG_INCOMPLETE": "Falta en el Hub la ubicación de la carpeta «Perfiles» o de la carpeta de CVs.",
-    "PERFILES_UNAVAILABLE": "No se pudo acceder a la carpeta «Perfiles» de SharePoint con tus permisos actuales.",
+    "INBOX_UNAVAILABLE": f"No se pudo acceder a la carpeta «Perfiles/{FOLDER_NAME}» de SharePoint con tus permisos actuales.",
     "INBOX_MISSING": f"Falta la carpeta «Perfiles/{FOLDER_NAME}». Pedí que la creen en SharePoint para usar la bandeja.",
     "INBOX_FORBIDDEN": f"Tu usuario no tiene acceso a la carpeta «Perfiles/{FOLDER_NAME}» en SharePoint.",
-    "INBOX_INVALID": f"«Perfiles/{FOLDER_NAME}» no es una carpeta válida (o es parte del repositorio de CVs del Hub).",
+    "INBOX_INVALID": f"El enlace configurado no apunta a la carpeta «Perfiles/{FOLDER_NAME}» (o apunta al repositorio de CVs del Hub).",
     "TOKEN_EXPIRED": "La sesión de Microsoft 365 venció: reconectá y reintentá.",
     "GRAPH_UNAVAILABLE": "Microsoft 365 no respondió bien. Reintentá en un momento.",
     "NOT_FOUND": "Ese archivo ya no figura en la bandeja.",
@@ -186,31 +186,36 @@ def _items(drive_id: str) -> str:
 
 
 def configured() -> bool:
-    return bool(config.HC_PERFILES_FOLDER_URL and config.HC_SHAREPOINT_SITE_ID and config.HC_SHAREPOINT_DRIVE_ID and config.HC_CV_ROOT_ITEM_ID)
+    return bool(config.HC_CV_INBOX_FOLDER_URL and config.HC_SHAREPOINT_SITE_ID and config.HC_SHAREPOINT_DRIVE_ID and config.HC_CV_ROOT_ITEM_ID)
 
 
-def _perfiles(token: str) -> dict:
-    """`Perfiles` por su link fijo, con el MISMO descubrimiento `/shares` de la importación histórica (solo lectura): `{drive_id, item_id}`."""
-    record, found = diag.discover_sharing_link(config.HC_PERFILES_FOLDER_URL, token)
-    if not found or not found.get("item_id") or not found.get("drive_id") or not found.get("is_folder"):
-        raise _fail({401: "TOKEN_EXPIRED"}.get(record.get("status"), "PERFILES_UNAVAILABLE"))
-    return {"drive_id": found["drive_id"], "item_id": found["item_id"]}
+def _parent_name(parent: dict) -> str:
+    """Nombre de la carpeta padre según Graph (`parentReference.name`, o el último tramo de `parentReference.path`); vacío si Graph no lo informa."""
+    name = str(parent.get("name") or "")
+    if not name and parent.get("path"):
+        name = urllib.parse.unquote(str(parent["path"]).rstrip("/").rsplit("/", 1)[-1].split(":", 1)[-1])
+    return name
 
 
 def resolve_inbox(token: str, *, sleep=time.sleep) -> dict:
-    """`{id, drive_id, web_url, same_drive}` de `Perfiles/carga-masiva`, verificada (carpeta directa de `Perfiles`, fuera de `CVs`). Lanza `InboxError`; si no existe lo dice (no busca alternativas)."""
+    """`{id, drive_id, web_url, same_drive}` de `Perfiles/carga-masiva`. El link fijo apunta a la carpeta de entrada MISMA: se descubre con `/shares` (como Históricos) y se relee por id para verificar que
+    es la carpeta `carga-masiva`, hija de `Perfiles` y fuera de `CVs`. NUNCA se busca una subcarpeta adentro. Lanza `InboxError` (sin acceso, inválida, token vencido)."""
     if not configured():
         raise _fail("CONFIG_INCOMPLETE")
-    perfiles = _perfiles(token)
-    drive = perfiles["drive_id"]
-    url = f"{_items(drive)}/{urllib.parse.quote(perfiles['item_id'], safe='')}:/{urllib.parse.quote(FOLDER_NAME, safe='')}?$select=id,name,folder,webUrl,parentReference"
+    record, found = diag.discover_sharing_link(config.HC_CV_INBOX_FOLDER_URL, token)
+    if not found or not found.get("item_id") or not found.get("drive_id"):
+        raise _fail({401: "TOKEN_EXPIRED"}.get(record.get("status"), "INBOX_UNAVAILABLE"))
+    drive = found["drive_id"]
+    url = f"{_items(drive)}/{urllib.parse.quote(found['item_id'], safe='')}?$select=id,name,folder,webUrl,parentReference"
     try:
         item = inventory.call_with_retry(lambda: microsoft365.graph_get_json(url, token), sleep=sleep)
     except (urllib.error.URLError, OSError, ValueError) as exc:
         raise _fail(_graph_code(exc)) from None
     parent = item.get("parentReference") or {}
-    if not (isinstance(item.get("folder"), dict) and item.get("id") and parent.get("id") == perfiles["item_id"] and item["id"] != config.HC_CV_ROOT_ITEM_ID
-            and parent.get("id") != config.HC_CV_ROOT_ITEM_ID):
+    parent_name = _parent_name(parent)
+    if not (isinstance(item.get("folder"), dict) and item.get("id") == found["item_id"] and str(item.get("name") or "").casefold() == FOLDER_NAME.casefold()
+            and item["id"] != config.HC_CV_ROOT_ITEM_ID and parent.get("id") != config.HC_CV_ROOT_ITEM_ID
+            and (not parent_name or parent_name.casefold() == config.HC_CV_INBOX_PARENT_NAME.casefold())):
         raise _fail("INBOX_INVALID")
     return {"id": item["id"], "drive_id": drive, "web_url": _safe_url(item.get("webUrl")), "same_drive": drive == config.HC_SHAREPOINT_DRIVE_ID}
 
