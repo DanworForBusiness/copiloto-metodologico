@@ -188,3 +188,122 @@ def test_destinations_are_only_the_governed_taxonomy():
     from tools.catalog.business_classification import LINES_OF_BUSINESS
     from webapp.templating import templates
     assert [c["value"] for c in templates.env.globals["lob_choices"]()] == [x["id"] for x in LINES_OF_BUSINESS]
+
+
+# ═══════════════ verificación 1 · identidad histórica: ante ambigüedad, falla segura ═══════════════
+def _orphan(world, name, cliente, am, lob="SALES"):
+    d = world.root / cla.ASSIGN_DIR
+    d.mkdir(parents=True, exist_ok=True)
+    (d / f"{name}.json").write_text(json.dumps({"schema": 1, "cliente": cliente, "terminal_am": am, "flow_path": f"{cliente}/Viejo_{name}/flujo_Viejo.md",
+                                                "mode": "ASSIGNED", "line_of_business": lob, "actor": OWNER, "at": "2026-11-01T00:00:00+00:00",
+                                                "history": [{"mode": "ASSIGNED", "to": lob}]}), encoding="utf-8")
+
+
+def test_an_unambiguous_orphan_applies_to_its_only_tile(world):
+    _orphan(world, "viejo", "Contreras", "AM_Turnover")
+    e = eff("Contreras")
+    assert (e["line_of_business"], e["manual_origin"], e["relinked_from"]) == ("SALES", "TILE", "viejo")
+
+
+def test_duplicate_tiles_with_the_same_model_make_an_orphan_ambiguous(world):
+    """Caso real: Contreras tiene el flujo viejo «General» y «HCM_Turnover», los dos con AM_Turnover: ninguno se apropia del registro histórico."""
+    _write_flow(world.root, "Contreras", "HCM_Turnover", "AM_Turnover")
+    main._invalidate_catalog_cache()
+    _orphan(world, "viejo", "Contreras", "AM_Turnover")
+    tiles = [e for e in main._catalog_entries()[1] if e.cliente == "Contreras"]
+    assert len(tiles) == 2
+    effs = dcs.effective_lob_by_entry(tiles, {t.entry_id: None for t in tiles})
+    assert all(v["source"] == "UNCLASSIFIED" and v["manual_origin"] is None for v in effs.values())
+
+
+def test_a_retired_duplicate_does_not_count_as_a_claimant(world):
+    _write_flow(world.root, "Contreras", "HCM_Turnover", "AM_Turnover")
+    main._invalidate_catalog_cache()
+    dup = next(e for e in main._catalog_entries()[1] if e.cliente == "Contreras" and e.dominio == "HCM_Turnover")
+    gov.retire(dup, OWNER)
+    _orphan(world, "viejo", "Contreras", "AM_Turnover")
+    assert eff("Contreras")["line_of_business"] == "SALES"
+
+
+def test_a_homonymous_model_of_another_client_never_applies(world):
+    _orphan(world, "otro", "Kensing", "AM_Turnover")                    # mismo nombre de modelo, OTRO cliente
+    assert eff("Contreras")["source"] == "UNCLASSIFIED"
+
+
+def test_two_orphans_for_the_same_tile_are_ambiguous(world):
+    _orphan(world, "viejo-1", "Contreras", "AM_Turnover", "SALES")
+    _orphan(world, "viejo-2", "Contreras", "AM_Turnover", "FINANCE")
+    assert eff("Contreras")["source"] == "UNCLASSIFIED"
+
+
+def test_the_tile_own_record_always_wins_over_orphans(world):
+    _orphan(world, "viejo", "Contreras", "AM_Turnover", "SALES")
+    post(OWNER, "Contreras", "FINANCE")
+    assert eff("Contreras")["line_of_business"] == "FINANCE"
+
+
+# ═══════════════ verificación 2 · permisos: la política de gobierno del retiro ═══════════════
+def test_permission_matrix_matches_the_governance_policy_of_retire(world):
+    """Owner: cualquiera. Perfil completo: solo el tile cuyo ÚLTIMO publicador es él. Solo lectura: nunca. Mismo predicado para ícono, GET y POST."""
+    eid = entry("Contreras").entry_id
+    readonly = _client(READER)
+    assert readonly.get(URL, params={"flow": eid}).status_code == 403 and post(READER, "Contreras", "SALES").status_code == 403
+    assert "data-catalog-reclassify" not in readonly.get("/catalog/client?cliente=Contreras").text
+    assert post(ANA, "Contreras", "SALES").status_code == 403                      # perfil completo SIN ser el último publicador
+    gov.record_publication([entry("Contreras")], ANA, "op-test")
+    assert gov.can_retire({"sub": ANA}, eid)
+    assert post(ANA, "Contreras", "SALES").status_code == 200                      # último publicador: sí, igual que retirar
+    assert post(ANA, "Kensing", "SALES").status_code == 403                        # pero no un tile ajeno
+    for email, expected in ((OWNER, True), (ANA, True), (READER, False)):
+        assert gov.can_retire({"sub": email}, eid) is expected
+
+
+# ═══════════════ verificación 3 · concurrencia y auditoría ═══════════════
+def test_concurrent_writes_are_serialized_and_no_history_is_lost(world, monkeypatch):
+    import threading
+    import time
+    real_write = gov._write
+
+    def slow_write(path, payload):
+        time.sleep(0.2)                                                 # ensancha la ventana de carrera leer → escribir
+        return real_write(path, payload)
+    monkeypatch.setattr(gov, "_write", slow_write)
+    e = entry("Contreras")
+    errors = []
+
+    def run(lob):
+        try:
+            cla.assign(e, lob, OWNER, terminal_am="AM_Turnover", previous=None)
+        except Exception as exc:                                        # noqa: BLE001
+            errors.append(exc)
+    threads = [threading.Thread(target=run, args=(lob,)) for lob in ("SALES", "FINANCE", "HUMAN_RESOURCES")]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert not errors
+    rec = cla.record_for(e)
+    assert sorted(h["to"] for h in rec["history"]) == ["FINANCE", "HUMAN_RESOURCES", "SALES"]     # ninguna operación se pierde
+    assert rec["line_of_business"] == rec["history"][-1]["to"]                                   # el estado coincide con la última entrada
+
+
+def test_a_busy_catalog_rejects_without_writing_anything(world, monkeypatch):
+    from tools.catalog import publication_txn as txn
+    monkeypatch.setattr(cla, "LOCK_TIMEOUT_S", 0.0)
+
+    class Busy:
+        def __enter__(self):
+            raise txn.CatalogBusyError("ocupado")
+
+        def __exit__(self, *a):
+            return False
+    monkeypatch.setattr(txn, "writer_lock", lambda timeout=None: Busy())
+    r = post(OWNER, "Contreras", "SALES")
+    assert r.status_code == 409 and r.json()["ok"] is False and "otra operación" in r.json()["message"]
+    assert cla.record_for(entry("Contreras")) is None and eff("Contreras")["source"] == "UNCLASSIFIED"
+
+
+def test_the_write_lock_is_the_catalog_single_writer_lock():
+    import inspect
+    src = inspect.getsource(cla._save)
+    assert "txn.writer_lock(" in src and "_save_locked" in src

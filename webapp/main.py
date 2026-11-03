@@ -2002,6 +2002,8 @@ def catalog_flow_lob(request: Request, flow: str = Form(""), lob: str = Form("")
             cla.restore(entry, actor, terminal_am=terminal_am, previous=previous)
         else:
             cla.assign(entry, wanted, actor, terminal_am=terminal_am, previous=previous)
+    except cla.AssignmentBusyError:
+        return JSONResponse({"ok": False, "message": "Hay otra operación del Catálogo en curso. No se aplicó ningún cambio: reintentá en unos segundos."}, status_code=409)
     except cla.AssignmentStorageError:
         return JSONResponse({"ok": False, "message": "No se pudo guardar la asignación (persistencia no confirmada). No se aplicó ningún cambio."}, status_code=503)
     after = dcs.effective_lob_by_entry([entry], statuses)[entry_id]
