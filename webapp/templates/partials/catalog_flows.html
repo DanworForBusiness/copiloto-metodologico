@@ -22,6 +22,16 @@
       <span class="catalog-card__verdict catalog-card__verdict--{{ g.tone }}" title="Adopción metodológica">{{ g.label }}</span>
       {# Retirar del Catálogo: ícono (sin texto), alineado al borde derecho del tile, MISMO primitivo `.table-action-btn--danger` + tooltip `.chart-tooltip` que la papelera de Capital Humano. Solo se dibuja si ESTE usuario
          puede retirar el tile (`deletable`, mismo predicado que el endpoint: dueño, o el último publicador). Confirmación con el diálogo compartido (app.js, `data-catalog-retire`). #}
+      {# Reclasificar (línea de negocio): MISMO primitivo `.table-action-btn` (neutro, sin `--danger`) + tooltip `.chart-tooltip` y MISMA regla de visibilidad que retirar (`deletable`).
+         El estado (actual, histórica del flujo, automática y lo que queda al «Restaurar») lo pide el diálogo al abrirse (`GET /catalog/flow/lob`): el listado no lee clasificaciones. #}
+      {% if deletable and e.entry_id in deletable %}
+      <button type="button" class="table-action-btn chart-tooltip-anchor catalog-card__action" data-catalog-reclassify
+              data-flow="{{ e.entry_id }}" data-pack="{{ pack|default('datasphere_core') }}" data-name="{{ e.cliente }}{% if e.consumo %} · {{ e.consumo|join(', ') }}{% endif %}"
+              data-options='{{ lob_choices()|tojson }}' aria-label="Reclasificar">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><path d="M7.5 7.5h.01"/></svg>
+        <span class="chart-tooltip" aria-hidden="true"><p>Reclasificar</p></span>
+      </button>
+      {% endif %}
       {% if deletable and e.entry_id in deletable %}
       <button type="button" class="table-action-btn table-action-btn--danger chart-tooltip-anchor catalog-card__action" data-catalog-retire
               hx-post="/catalog/flow/retire" hx-vals='{"flow": "{{ e.entry_id }}", "pack": "{{ pack|default('datasphere_core') }}"}' hx-trigger="confirmed" hx-target="closest li" hx-swap="outerHTML"

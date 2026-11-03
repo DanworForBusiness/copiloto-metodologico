@@ -101,12 +101,33 @@ def resolve_business(persisted: dict | None, entry: Any, terminal_am: str | None
 
 
 def manual_lob(entry: Any, *, strict: bool = False) -> str | None:
-    """Asignación MANUAL explícita de línea de negocio del flujo: ``manual.linea_de_negocio`` del front-matter del ``flujo_*.md`` (bloque ``manual:`` que la
+    """Asignación MANUAL efectiva de línea de negocio. Precedencia: (1) la del tile («Reclasificar», ``catalog_lob_assignments``) → (2) la histórica del flujo
+    (ver ``flow_lob``). Lo que sigue describe la histórica: ``manual.linea_de_negocio`` del front-matter del ``flujo_*.md`` (bloque ``manual:`` que la
     regeneración del Catálogo preserva; clave en español snake_case como el resto de ese bloque: ``dominio``, ``intent_negocio``…). Solo LECTURA: jamás se escribe
     metadata del cliente desde el resultado automático. ``None`` si no hay asignación o no es un ID de la taxonomía.
     ``strict=True`` NO oculta un error real de lectura/parseo (lo propaga): la navegación por línea de negocio no puede inventar "sin asignación manual".
     El archivo se lee SIEMPRE (barato); solo el parseo YAML —lo caro— se memoiza por el HASH del contenido: nunca sirve un valor viejo y evita re-parsear ~35
     archivos en cada navegación por línea de negocio."""
+    tile = tile_lob_of(entry)                              # (1) asignación desde el tile («Reclasificar»): gana sobre la histórica del flujo
+    if tile:
+        return tile["line_of_business"]
+    return flow_lob(entry, strict=strict)                  # (2) asignación histórica del flujo (solo lectura)
+
+
+def tile_lob_of(entry: Any) -> dict | None:
+    """Asignación ACTIVA del tile (``catalog_lob_assignments``) si su LOB es de la taxonomía; ``None`` si no hay o se restauró. Nunca lanza."""
+    try:
+        from tools.catalog.business_classification import LOB_BY_ID
+        from webapp.services import catalog_lob_assignments as cla
+        tile = cla.tile_lob(entry)
+        return tile if tile and tile["line_of_business"] in LOB_BY_ID else None
+    except Exception:                                       # noqa: BLE001 — una asignación ilegible no rompe la navegación: rige la precedencia siguiente
+        log.exception("línea de negocio: no se pudo leer la asignación del tile de %s", getattr(entry, "entry_id", "?"))
+        return None
+
+
+def flow_lob(entry: Any, *, strict: bool = False) -> str | None:
+    """Asignación HISTÓRICA del flujo: ``manual.linea_de_negocio`` del ``flujo_*.md`` (solo lectura). ``None`` si no hay o no es de la taxonomía."""
     try:
         from pathlib import Path
         from tools.catalog.business_classification import LOB_BY_ID
@@ -164,7 +185,8 @@ def _effective_for(entry: Any, status: Any) -> dict:
     auto = ((bc or {}).get("line_of_business") or {})
     out = {"entry_id": entry.entry_id, "available": True, "source": eff["source"], "line_of_business": eff["line_of_business"], "label": eff["label"],
            "group": eff["line_of_business"] or UNCLASSIFIED, "alignment": eff.get("automatic_alignment"), "reason": None, "suggestion": None,
-           "automatic_label": auto.get("label") if eff["source"] == "MANUAL" and eff.get("automatic_alignment") == "DISAGREES" else None}
+           "automatic_label": auto.get("label") if eff["source"] == "MANUAL" and eff.get("automatic_alignment") == "DISAGREES" else None,
+           **manual_origin(entry, strict=True)}
     if eff["source"] == "UNCLASSIFIED":
         if getattr(status, "state", None) == "NOT_APPLICABLE":
             out["reason"] = WHY_NO_MODEL                    # sin AM terminal: no hay raíz que el clasificador pudiera evaluar (≠ UNDETERMINED)
@@ -176,6 +198,14 @@ def _effective_for(entry: Any, status: Any) -> dict:
         else:
             out["reason"] = WHY_UNDETERMINED
     return out
+
+
+def manual_origin(entry: Any, *, strict: bool = False) -> dict:
+    """Origen de la asignación manual: ``manual_origin`` TILE | FLOW | None, quién y cuándo (tile), y la histórica del flujo SIEMPRE visible (``flow_lob``)."""
+    tile = tile_lob_of(entry)
+    flow = flow_lob(entry, strict=strict)
+    return {"manual_origin": "TILE" if tile else ("FLOW" if flow else None), "manual_actor": (tile or {}).get("actor"), "manual_at": (tile or {}).get("at"),
+            "flow_lob": flow, "relinked_from": (tile or {}).get("relinked_from")}
 
 
 def effective_lob_by_entry(entries: Any, statuses: dict | None = None) -> dict[str, dict]:

@@ -1849,13 +1849,54 @@ _LOB_NOTES = {
 }
 
 
+def _lob_tile_state(flows, user, statuses: dict | None = None) -> dict:
+    """Estado del diálogo «Reclasificar» de los tiles que ESTE usuario puede gobernar (mismo predicado que retirar): actual, histórica del flujo, automática y el
+    resultado de «Restaurar» (retirar solo la asignación del tile), para mostrarlo ANTES de confirmar. Solo lectura. Lo pide el diálogo al abrirse (no los listados)."""
+    allowed = [f for f in flows if catalog_governance.can_retire(user, f.entry_id)]
+    if not allowed:
+        return {}
+    try:
+        from tools.catalog import business_classification as BC
+        statuses = statuses if statuses is not None else assessment_service.statuses_for_entries(allowed)
+        eff = dcs.effective_lob_by_entry(allowed, statuses)
+        out = {}
+        for f in allowed:
+            e = eff[f.entry_id]
+            if not e.get("available"):
+                continue
+            bc = dcs._persisted_business(statuses.get(f.entry_id))
+            after = BC.effective_classification(bc, e.get("flow_lob"))        # retirar la del tile => rige la histórica del flujo, si no la automática HIGH
+            origins = {"TILE": "asignación manual desde el tile", "FLOW": "asignación histórica del flujo"}
+            sources = {"AUTOMATIC": "clasificación automática", "UNCLASSIFIED": "sin clasificar"}
+            origin = origins.get(e.get("manual_origin") or "") or sources.get(e["source"], "")
+            auto = ((bc or {}).get("line_of_business") or {})
+            confidence = {"HIGH": "alta", "MEDIUM": "media", "LOW": "baja"}.get((bc or {}).get("confidence") or "", "")
+            if e.get("flow_lob"):
+                restore_origin = "asignación histórica del flujo"
+            else:
+                restore_origin = "clasificación automática" if after["source"] == "AUTOMATIC" else "sin clasificar"
+            out[f.entry_id] = {"current": e.get("line_of_business") or "", "current_label": e.get("label") or "Sin clasificar", "origin": origin,
+                               "has_tile": e.get("manual_origin") == "TILE", "actor": e.get("manual_actor") or "", "at": (e.get("manual_at") or "")[:10],
+                               "flow_label": BC.lob_label(e["flow_lob"]) if e.get("flow_lob") else "",
+                               "auto_id": auto.get("id") or "", "auto_label": auto.get("label") or "", "auto_confidence": confidence,
+                               "restore_label": after.get("label") or "Sin clasificar", "restore_origin": restore_origin}
+        return out
+    except Exception:                                                     # noqa: BLE001 — presentación: sin la acción antes que romper el listado
+        logging.getLogger("danwor.catalog").exception("reclasificar: no se pudo armar el estado del tile")
+        return {}
+
+
 def _lob_note(eff: dict) -> str | None:
     """Texto discreto de la tarjeta en la vista por línea de negocio (SOLO presentación de lo persistido/efectivo; no decide nada)."""
     if not eff["available"]:
         return "Clasificación no disponible (error de lectura)."
     if eff["source"] == "MANUAL":
         extra = f" · la clasificación automática sugiere {eff['automatic_label']}" if eff.get("automatic_label") else ""
-        return f"Asignación manual{extra}"
+        if eff.get("manual_origin") == "TILE":
+            who = f" · por {eff['manual_actor']}" if eff.get("manual_actor") else ""
+            when = f" · {str(eff['manual_at'])[:10]}" if eff.get("manual_at") else ""
+            return f"Asignación manual desde el tile{who}{when}{extra}"
+        return f"Asignación manual (histórica del flujo){extra}"
     if eff["source"] == "UNCLASSIFIED":
         sug = eff.get("suggestion")
         if sug:
@@ -1906,6 +1947,69 @@ def catalog_flow_retire(request: Request, flow: str = Form(""), pack: str = Form
     log_activity("catalog_entry_retired", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG, entry_id=entry_id, cliente=entry.cliente, dominio=entry.dominio,
                  files_requested=want_files, files_deleted=(purged or {}).get("deleted", 0))
     return templates.TemplateResponse(request=request, name="partials/catalog_retired_tile.html", context={**ctx, "ok": True})
+
+
+@app.get("/catalog/flow/lob", include_in_schema=False)
+def catalog_flow_lob_state(request: Request, flow: str = ""):
+    """Estado que muestra el diálogo «Reclasificar» de UN tile (solo lectura). Mismos controles que la acción: sin sesión 401; sin permiso 403 aunque el tile no exista; 404."""
+    user = auth_service.session_user(request)
+    if not user:
+        raise HTTPException(401, "Sin sesión")
+    entry_id = (flow or "").strip()
+    if not catalog_governance.can_retire(user, entry_id):
+        raise HTTPException(403, "No autorizado")
+    _mod, entries = _catalog_entries()
+    entry = next((e for e in entries if e.entry_id == entry_id), None)
+    if entry is None:
+        raise HTTPException(404, "El tile ya no está en el Catálogo")
+    state = _lob_tile_state([entry], user).get(entry_id)
+    if state is None:
+        return JSONResponse({"ok": False, "message": "No se pudo leer la clasificación de este tile. No se aplicó ningún cambio."}, status_code=503)
+    return JSONResponse({"ok": True, **state}, headers={"Cache-Control": "no-store"})
+
+
+@app.post("/catalog/flow/lob", include_in_schema=False)
+def catalog_flow_lob(request: Request, flow: str = Form(""), lob: str = Form(""), pack: str = Form(DEFAULT_PACK)):
+    """«Reclasificar» desde el tile: asigna MANUALMENTE una línea de negocio de la taxonomía (``lob=<ID>``) o retira SOLO la asignación del tile
+    (``lob=RESTORE``). Mismos controles que el retiro (``catalog_governance.can_retire``): sin sesión 401; mismo origen; sin permiso 403 aunque el tile no
+    exista; destino fuera de la taxonomía 400. El cliente sale de la ENTRADA, nunca del formulario. Persiste en ``catalog_lob_assignments`` (sidecar propio,
+    espejo a Spaces, falla cerrado); no toca el flujo curado, el pool, el assessment, el Juicio ni la clasificación automática."""
+    from tools.catalog.business_classification import LOB_BY_ID
+    from webapp.services import catalog_lob_assignments as cla
+    user = auth_service.session_user(request)
+    if not user:
+        raise HTTPException(401, "Sin sesión")
+    if not same_origin_guard.is_same_origin_write(request):
+        raise HTTPException(403, "Origen no permitido")
+    entry_id = (flow or "").strip()
+    if not catalog_governance.can_retire(user, entry_id):
+        raise HTTPException(403, "No autorizado")
+    wanted = (lob or "").strip().upper()
+    if wanted != "RESTORE" and wanted not in LOB_BY_ID:
+        raise HTTPException(400, "Línea de negocio desconocida")
+    _mod, entries = _catalog_entries()
+    entry = next((e for e in entries if e.entry_id == entry_id), None)
+    if entry is None:
+        raise HTTPException(404, "El tile ya no está en el Catálogo")
+    statuses = assessment_service.statuses_for_entries([entry])
+    before = dcs.effective_lob_by_entry([entry], statuses)[entry_id]
+    previous = {"source": before.get("source"), "manual_origin": before.get("manual_origin"), "line_of_business": before.get("line_of_business")}
+    res = assessment_service.resolve_entries([entry]).get(entry_id)
+    terminal_am = res.terminal_am if res is not None and res.kind == "OK" else None
+    actor = str(user.get("sub") or user.get("email") or "")
+    try:
+        if wanted == "RESTORE":
+            cla.restore(entry, actor, terminal_am=terminal_am, previous=previous)
+        else:
+            cla.assign(entry, wanted, actor, terminal_am=terminal_am, previous=previous)
+    except cla.AssignmentStorageError:
+        return JSONResponse({"ok": False, "message": "No se pudo guardar la asignación (persistencia no confirmada). No se aplicó ningún cambio."}, status_code=503)
+    after = dcs.effective_lob_by_entry([entry], statuses)[entry_id]
+    log_activity("catalog_lob_assigned", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG, entry_id=entry_id, cliente=entry.cliente, dominio=entry.dominio,
+                 lob_to=(None if wanted == "RESTORE" else wanted), restored=(wanted == "RESTORE"), lob_from=previous.get("line_of_business"),
+                 source_from=previous.get("source"))
+    return JSONResponse({"ok": True, "line_of_business": after.get("line_of_business"), "label": after.get("label") or "Sin clasificar",
+                         "source": after.get("source"), "manual_origin": after.get("manual_origin")}, headers={"HX-Trigger": "catalog-lob-changed"})
 
 
 @app.post("/catalog/connections/retire", response_class=HTMLResponse, include_in_schema=False)
