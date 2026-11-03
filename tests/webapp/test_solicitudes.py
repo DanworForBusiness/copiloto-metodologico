@@ -143,3 +143,38 @@ def test_detail_form_renders_multiple_lookup_and_escapes_html(monkeypatch):
     assert f'name="{service.ASSIGNEES}" multiple' in result.text
     assert "&lt;b&gt;Test&lt;/b&gt;" in result.text
     assert "<option>Pendiente</option>" in result.text
+
+
+def test_htmx_feedback_only_replaces_status_for_validation_and_412(monkeypatch):
+    from urllib.error import HTTPError
+    from fastapi.testclient import TestClient
+    from webapp.main import app
+    from webapp.routers import solicitudes
+
+    monkeypatch.setattr(solicitudes, "_user", lambda request: {"sub": "test-actor"})
+    monkeypatch.setattr(repository, "read_item", lambda *args: {"eTag": '"7"', "fields": {}})
+    monkeypatch.setattr(repository, "lookup_options", lambda *args: {})
+    def conflict(*args):
+        raise HTTPError("https://graph.microsoft.com", 412, "Conflict", {}, None)
+    monkeypatch.setattr(repository, "update_item", conflict)
+    client = TestClient(app)
+    headers = {"Origin": "http://testserver", "HX-Request": "true", "HX-Target": "solicitudes-save-result"}
+    path = "/operaciones/solicitudes/1/guardar"
+    data = {"graph_token": "fake", "etag": '"7"'}
+    invalid = client.post(path, data=dict(data, **{service.STATUS: "Finalizado"}), headers=headers)
+    assert invalid.status_code == 200
+    assert "transición de estado no está permitida" in invalid.text
+    assert "<form" not in invalid.text and "data-solicitudes-review" not in invalid.text
+    remote = client.post(path, data=dict(data, Prioridad="Alta"), headers=headers)
+    assert remote.status_code == 200
+    assert "data-solicitudes-review" in remote.text and 'target="_blank"' in remote.text
+    assert "<form" not in remote.text and 'name="etag"' not in remote.text
+
+
+def test_rich_html_round_trip_does_not_rewrite_unchanged_styles():
+    original = '<div style="color:#123456"><table><tr><td><a href="/a">Enlace</a><img src="/b"></td></tr></table></div>'
+    fields = {service.DESCRIPTION: original}
+    current = service.form_values(fields)
+    patch = service.changes(current, {service.DESCRIPTION: original, "Prioridad": "Alta"}, {})
+    assert patch == {"Prioridad": "Alta"}
+    assert service.form_values(fields | patch)[service.DESCRIPTION] == original

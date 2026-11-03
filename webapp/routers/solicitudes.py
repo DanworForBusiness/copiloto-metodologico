@@ -97,14 +97,22 @@ def solicitudes_edit(request: Request, item_id: str):
     return response
 
 
-def _edit_panel(request, item_id, *, item=None, options=None, error="", message="", draft=None, token_missing=False):
+def _edit_panel(request, item_id, *, item=None, options=None, error=""):
     values = service.form_values(item["fields"]) if item else {}
     return templates.TemplateResponse(request=request, name="partials/solicitudes_edit.html", context={
-        "item_id": item_id, "values": values if draft is None else draft, "current": values,
-        "options": options or {}, "error": error, "message": message, "token_missing": token_missing,
+        "item_id": item_id, "values": values, "current": values,
+        "options": options or {}, "error": error,
         "etag": _etag(item) if item else "", "funnel": item["fields"].get(service.FUNNEL) if item else "",
         "destinations": service.allowed_destinations(values.get(service.STATUS)),
         "fields": service,
+    })
+
+
+def _feedback(request, item_id, state, message):
+    # HTMX swaps only the status region. Validation and remote failures must
+    # leave the form controls, dirty state and original ETag intact.
+    return templates.TemplateResponse(request=request, name="partials/solicitudes_feedback.html", context={
+        "item_id": item_id, "state": state, "message": message,
     })
 
 
@@ -124,7 +132,7 @@ def solicitudes_detail(request: Request, item_id: str, graph_token: str = Form("
     if not item_id.isascii() or not item_id.isdecimal():
         raise HTTPException(404)
     if not graph_token:
-        return _edit_panel(request, item_id, error="No pudimos obtener tu token de Microsoft.", token_missing=True)
+        return _edit_panel(request, item_id, error="No pudimos obtener tu token de Microsoft.")
     try:
         item = repository.read_item(graph_token, item_id)
         options = repository.lookup_options(graph_token)
@@ -150,9 +158,11 @@ async def solicitudes_save(request: Request, item_id: str, graph_token: str = Fo
     form = await request.form()
     allowed = set(service.EDITABLE) | {"graph_token", "token_diagnostic", "etag"}
     if set(form) - allowed or any(len(form.getlist(key)) != 1 for key in form if key != service.ASSIGNEES):
+        if request.headers.get("HX-Request") == "true":
+            return _feedback(request, item_id, "invalid", "El formulario contiene campos inválidos. Revisá el borrador antes de volver a intentar.")
         raise HTTPException(422, "Campos de guardado inválidos")
     if not graph_token:
-        return HTMLResponse("No se obtuvo el token de Microsoft. Conservá los cambios y reautenticá.")
+        return _feedback(request, item_id, "auth", "Volvé a autenticarte con Microsoft sin cerrar este formulario y después reintentá.")
     submitted = {key: str(form[key]) for key in service.EDITABLE if key in form and key != service.ASSIGNEES}
     if service.ASSIGNEES in form:
         submitted[service.ASSIGNEES] = [str(value) for value in form.getlist(service.ASSIGNEES) if value != ""]
@@ -164,26 +174,26 @@ async def solicitudes_save(request: Request, item_id: str, graph_token: str = Fo
         etag = _etag(item)
         if not etag or etag == "*" or etag != form.get("etag"):
             outcome = "conflict"
-            return HTMLResponse("La solicitud cambió. Abrí el detalle actualizado en otra pestaña antes de volver a guardar.")
+            return _feedback(request, item_id, "conflict", "La versión cambió. Consultá los valores vigentes antes de volver a guardar.")
         options = await run_in_threadpool(repository.lookup_options, graph_token)
         current = service.form_values(item["fields"])
         try:
             payload = service.changes(current, submitted, options)
-        except ValueError:
+        except ValueError as exc:
             outcome = "invalid_fields"
-            return HTMLResponse("Revisá la transición, las fechas, las referencias y el HTML antes de guardar.")
+            return _feedback(request, item_id, "invalid", str(exc))
         if not payload:
             outcome = "unchanged"
-            return HTMLResponse("No hay cambios para guardar.")
+            return _feedback(request, item_id, "unchanged", "No hay cambios para guardar.")
         try:
             await run_in_threadpool(repository.update_item, graph_token, item_id, payload, etag)
         except HTTPError as exc:
             if exc.code == 412:
                 outcome = "conflict"
-                return HTMLResponse("La solicitud cambió durante el guardado. Revisá los valores vigentes antes de volver a guardar.")
+                return _feedback(request, item_id, "conflict", "Otro usuario modificó la solicitud durante el guardado. Compará los valores vigentes con tu borrador.")
             if exc.code < 500:
                 outcome = f"http_{exc.code}"
-                return HTMLResponse(_edit_error(exc))
+                return _feedback(request, item_id, "auth" if getattr(exc, "code", None) == 401 else "error", _edit_error(exc))
             outcome = "uncertain"
         except (URLError, TimeoutError, ValueError):
             outcome = "uncertain"
@@ -195,16 +205,17 @@ async def solicitudes_save(request: Request, item_id: str, graph_token: str = Fo
             matches = all(
                 set(observed[key]) == set(value) if key == service.ASSIGNEES else observed[key] == value
                 for key, value in submitted.items()
+                if key in payload or key + "LookupId" in payload
             )
         except (HTTPError, URLError, TimeoutError, ValueError, KeyError):
             matches = False
         if not matches or not _etag(updated):
             outcome = "uncertain"
-            return HTMLResponse("No se pudo confirmar el resultado. Revisá la versión vigente antes de reintentar.")
+            return _feedback(request, item_id, "uncertain", "No pudimos confirmar el guardado. Consultá los valores vigentes antes de reintentar.")
         outcome = "confirmed"
-        return HTMLResponse(f'<span data-solicitudes-saved>Guardado confirmado en SharePoint. <a href="{PATH}/{item_id}/editar">Volver a cargar</a></span>')
+        return _feedback(request, item_id, "saved", "Guardado confirmado en SharePoint.")
     except (HTTPError, URLError, TimeoutError, ValueError, KeyError) as exc:
-        return HTMLResponse(_edit_error(exc))
+        return _feedback(request, item_id, "auth" if getattr(exc, "code", None) == 401 else "error", _edit_error(exc))
     finally:
         logging.getLogger("danwor.solicitudes.audit").info(
             "actor=%s item=%s fields=%s outcome=%s correlation=%s",

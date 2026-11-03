@@ -3,10 +3,10 @@
 <a class="btn-secondary" href="/operaciones/solicitudes">Volver a Solicitudes</a>
 {% else %}
 <form class="hc-profile-form" data-dw-graph-token
-      x-data="{dirty:false,saved:false}"
+      x-data="{dirty:false,saved:false,review:false}"
       @input="dirty=true" @change="dirty=true"
       @beforeunload.window="if (dirty) { $event.preventDefault(); $event.returnValue = true }"
-      @htmx:after-swap.window="if ($event.detail.target.id === 'solicitudes-save-result' && $event.detail.target.querySelector('[data-solicitudes-saved]')) { dirty=false; saved=true }"
+      @htmx:after-swap.window="if ($event.detail.target.id === 'solicitudes-save-result') { if ($event.detail.target.querySelector('[data-solicitudes-saved]')) { dirty=false; saved=true } if ($event.detail.target.querySelector('[data-solicitudes-review]')) review=true }"
       hx-post="/operaciones/solicitudes/{{ item_id }}/guardar"
       hx-target="#solicitudes-save-result" hx-disabled-elt="find button[type=submit]">
   <input type="hidden" name="etag" value="{{ etag }}">
@@ -49,7 +49,7 @@
   <div class="support-links">
     <a class="btn-secondary" href="/operaciones/solicitudes"
        @click="if (dirty && !window.confirm('¿Descartar los cambios sin guardar?')) $event.preventDefault(); else dirty=false">Cancelar</a>
-    <button type="submit" class="btn-primary" :disabled="saved"{% if not etag %} disabled{% endif %}>Guardar</button>
+    <button type="submit" class="btn-primary" :disabled="saved || review"{% if not etag %} disabled{% endif %}>Guardar</button>
   </div>
 </form>
 <div id="solicitudes-save-result" class="callout" role="status"></div>

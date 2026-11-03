@@ -1,0 +1,17 @@
+<div class="callout{% if state == 'saved' %} callout--success{% endif %}"
+     {% if state == 'saved' %}data-solicitudes-saved{% endif %}
+     {% if state in ('conflict', 'uncertain') %}data-solicitudes-review{% endif %}>
+  <div class="callout__body">
+    <p>{{ message }}</p>
+    {% if state in ('conflict', 'uncertain') %}
+      <a class="btn-secondary" href="/operaciones/solicitudes/{{ item_id }}/editar" target="_blank" rel="noopener">Consultar valores vigentes en otra pestaña</a>
+      <p>Tu borrador sigue en este formulario. Si necesitás volver a guardar, trasladá tus cambios a la versión vigente.</p>
+    {% elif state == 'auth' %}
+      <button type="button" class="btn-secondary" x-data="{busy:false, message:''}" :disabled="busy"
+              @click="busy=true; try { message=await window.dwGraphReauthenticate() ? 'Autorización recuperada. Podés volver a guardar.' : 'No se pudo recuperar la autorización. Conservá tu borrador.' } finally { busy=false }"
+              x-text="message || 'Reautenticar Microsoft'">Reautenticar Microsoft</button>
+    {% elif state == 'saved' %}
+      <a href="/operaciones/solicitudes/{{ item_id }}/editar">Volver a cargar la solicitud</a>
+    {% endif %}
+  </div>
+</div>
