@@ -8,12 +8,14 @@ No existía un handoff aparte de Presentaciones antes de este: el registro previ
 
 | | |
 |---|---|
-| Rama | `feat/commercial-presentations-v1` (base `origin/main` `3b996fb`, que no avanzó: sin divergencia) |
-| HEAD del PR | el commit que agrega este archivo (solo documentación; ver `git rev-parse HEAD` de la rama) · último commit de código: `a04750b` |
-| Commits propios | 19 (V1 y su pulido, copias cerradas, reveal, encabezado, V2.0, V2.1 y este handoff; ver `git log origin/main..HEAD`) |
-| PR | contra `main`, **sin merge ni deploy**; URL y descripción en GitHub (copia local con los valores finales: `_handoffs/PRESENTACIONES_V1_20261028/HANDOFF_MAESTRO.md`) |
-| CI | lo dispara el push sobre el HEAD; su estado se registra en la copia local y en el PR. **No se da por aprobado mientras esté pendiente.** |
-| Suite local pristine sobre el HEAD | corrida en segundo plano al publicar; resultado exacto en la copia local y en el PR. **Pendiente = no aprobada.** |
+| Estado | **PR #242 MERGEADO a `main`** (merge commit `fffcc19`, 2026-10-29) con CI aprobado; **despliegue en DigitalOcean validado por el owner**. V1, V2.0 y V2.1 están integradas en `main`. El árbol de `main` es idéntico al de `bbd16ea`. Pendiente: V2.2 y siguientes (sección 10) |
+| Rama | trabajo terminado en `feat/commercial-presentations-v1` (HEAD `bbd16ea`, ya integrada; rama local y remota conservadas, sin borrar). **El nuevo trabajo parte de `main`** (`fffcc19` o posterior) en una rama nueva, p. ej. `feat/commercial-presentations-v2-2`, en el directorio único de desarrollo (sin worktrees) |
+| HEAD del PR | `bbd16ea` (corrección del primitivo `(i)` posterior al handoff original; último commit de código de V2.1: `a04750b`) |
+| Commits propios | 20 (V1 y su pulido, copias cerradas, reveal, encabezado, V2.0, V2.1, este handoff y la corrección del `(i)`); hoy dentro de `main` (`git log 3b996fb..bbd16ea`) |
+| PR | **#242** https://github.com/DanworForBusiness/copiloto-metodologico/pull/242 — **mergeado** a `main` (`fffcc19`) |
+| CI | **aprobado** (success) sobre `bbd16ea`: https://github.com/DanworForBusiness/copiloto-metodologico/actions/runs/40913502999. El CI de `0b5eafb` había fallado en «Run tests» (regresión `test_hub_tile_info`), corregida en `bbd16ea` |
+| Suite local pristine sobre `bbd16ea` | **1 fallo (el conocido de portabilidad, ambiental) · 11 503 pasados · 29 omitidos** en 0:41:48, con `git` y Node en el PATH; sin fallos nuevos |
+| Deploy | validado por el owner en DigitalOcean tras el merge (informado en el cierre; el prerrequisito `SPACES_PERSIST_PATHS` + `DANWOR_PERSISTENCE=remote` queda como contrato de despliegue, sección 12) |
 | Árbol | limpio salvo `human-capital/` y `reporting_cache/` (sin trackear; **ajenos/runtime, no tocar, no commitear**) |
 | Stash ajeno | `stash@{0}` «datasphere A04 unrelated — preserve, do NOT mix into CCHH closure»: **preservar** |
 
@@ -98,7 +100,8 @@ Los scripts (no versionados, ~80 KB) se conservaron en `_handoffs/PRESENTACIONES
 | `5d2a55b` | 1 fallo conocido · 11 435 pasados · 29 omitidos | válida |
 | `4a36ec4` | 2 fallos (conocido + `git` ausente del PATH) · 11 356 · 119 omitidos | **inválida** (PATH sin `git`) |
 | `73783fe` | 1 fallo conocido · 11 400 · 119 omitidos | **inconclusa**: sin Node en el PATH se omiten ~90 tests dependientes de Node |
-| `0b5eafb` | 2 fallos: el conocido + **uno nuevo** `tests/webapp/test_hub_tile_info.py::test_the_affordance_lives_in_shared_css_so_the_primitive_is_hub_reusable` (V2.0 agregó a `commercial.css` una regla sobre `.activity-kpi__info`, primitivo que debe vivir solo en `tools.css`) · 11 502 pasados · 29 omitidos | **válida** (git y Node en el PATH). El fallo nuevo se corrigió en el commit siguiente (quitar la regla); sobre ese SHA no hay corrida local completa: la cubre el CI |
+| `0b5eafb` | 2 fallos: el conocido + **uno nuevo** `tests/webapp/test_hub_tile_info.py::test_the_affordance_lives_in_shared_css_so_the_primitive_is_hub_reusable` (V2.0 agregó a `commercial.css` una regla sobre `.activity-kpi__info`, primitivo que debe vivir solo en `tools.css`) · 11 502 pasados · 29 omitidos | **válida** (git y Node en el PATH). El fallo nuevo se corrigió en el commit siguiente (quitar la regla) |
+| `bbd16ea` (HEAD del PR, hoy en `main`) | 1 fallo conocido · 11 503 pasados · 29 omitidos (0:41:48) | **válida** (git y Node en el PATH); CI success |
 
 **Fallo conocido, clasificado aparte:** `tests/test_portability_scoring_v2.py::test_the_35_flows_match_the_calibrated_v2_results` — el `catalog_local` git-ignorado de esta máquina tiene 34 flujos y el test espera 35. Ambiental, preexistente, **no relacionado con Presentaciones**; no se modificó el test ni `catalog_local`. Cualquier otro fallo es nuevo y atribuible a la rama hasta demostrar lo contrario.
 
@@ -127,11 +130,12 @@ No push/PR/merge/deploy sin autorización explícita · REUSE → EXTEND MÍNIMA
 
 ## 12. Riesgos y bloqueantes reales
 
-* CI y la corrida pristine del HEAD: ver sección 1 (si alguna sigue pendiente al leer esto, no está aprobada).
+* CI y corrida pristine de `bbd16ea`: aprobados y ya integrados en `main` (sección 1). Sin bloqueantes abiertos; el trabajo nuevo (V2.2+) no empezó.
 * Despliegue: `SPACES_PERSIST_PATHS` + `DANWOR_PERSISTENCE=remote` antes de producción.
-* `gh` no está instalado en esta máquina: el PR se crea por API/URL; el seguimiento de CI es por las herramientas del escritorio.
+* `gh` no está instalado en esta máquina: un PR nuevo se crea por la API de GitHub con la credencial de `git credential fill` (sin imprimir el token) o por URL; `bind_pr` de la app no lo lee.
+* Higiene: la rama `feat/commercial-presentations-v1` (local y remota) está integrada y sigue sin borrar; borrarla requiere autorización del owner.
 * V2.4 (nueva diapositiva) toca contratos pinneados: exige gate de paridad byte a byte de Galaxia.
 
 ## 13. Primer prompt recomendado para el nuevo agente
 
-> Retomás **Presentaciones (Gestión Comercial)** de Danwor Hub. Leé primero `docs/COMMERCIAL_PRESENTATIONS_HANDOFF.md` y luego `docs/COMMERCIAL_PRESENTATIONS.md`. Verificá `git status`, la rama `feat/commercial-presentations-v1`, el estado del PR y del CI; preservá íntegramente `human-capital/`, `reporting_cache/` y los stashes. **No hagas push, merge ni deploy sin mi autorización explícita.** Primera tarea: confirmar el estado del PR y del CI sobre el HEAD y, si hay una regresión atribuible a la rama, corregir solo lo necesario. Después, y solo con mi GO, implementá **V2.2 (estilo Galaxia/Classic con portada por presets)** siguiendo la sección 10 del handoff: REUSE → EXTEND MÍNIMAMENTE, sin duplicar Vanture, preservando Galaxia byte a byte, con tests focalizados, E2E en claro/oscuro y desktop/mobile (barras de scroll reales) y un commit local separado.
+> Retomás **Presentaciones (Gestión Comercial)** de Danwor Hub. Leé primero `docs/COMMERCIAL_PRESENTATIONS_HANDOFF.md` y luego `docs/COMMERCIAL_PRESENTATIONS.md`. Verificá `git status` y que `main` esté en `origin/main` (el PR #242 con V1, V2.0 y V2.1 ya está mergeado y desplegado); preservá íntegramente `human-capital/`, `reporting_cache/` y los stashes. **No hagas push, merge ni deploy sin mi autorización explícita.** Primera tarea: confirmar el estado de Git y, solo con mi GO, crear desde `main` la rama nueva e implementar **V2.2 (estilo Galaxia/Classic con portada por presets)** siguiendo la sección 10 del handoff: REUSE → EXTEND MÍNIMAMENTE, sin duplicar Vanture, preservando Galaxia byte a byte, con tests focalizados, E2E en claro/oscuro y desktop/mobile (barras de scroll reales) y un commit local separado.
