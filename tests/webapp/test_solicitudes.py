@@ -140,7 +140,7 @@ def test_detail_form_renders_multiple_lookup_and_escapes_html(monkeypatch):
     monkeypatch.setattr(repository, "lookup_options", lambda token: {service.PROJECT: {}, service.ASSIGNEES: {"9": "Test"}})
     result = TestClient(app).post("/operaciones/solicitudes/1/detalle", data={"graph_token": "fake"})
     assert result.status_code == 200
-    assert f'name="{service.ASSIGNEES}" multiple' in result.text
+    assert f'type="checkbox" name="{service.ASSIGNEES}" value="9"' in result.text
     assert "&lt;b&gt;Test&lt;/b&gt;" in result.text
     assert "<option>Pendiente</option>" in result.text
 
@@ -197,6 +197,7 @@ def test_list_separates_project_and_action_and_hides_single_page_pager(monkeypat
     assert result.count('aria-label="Abrir solicitud ') == 2
     assert 'class="activity-pager"' not in result
     assert "Página 1 de 1" not in result
+    assert "2 requerimientos" in result and "chart-tooltip-anchor" in result
     rows.extend({"id": str(i), "fields": {"Proyecto": "Proyecto de prueba"}} for i in range(3, 55))
     result = client.post(path, data={"graph_token": "fake", "q": "Proyecto", "page": "2"}).text
     assert 'aria-current="page">2 / 2' in result

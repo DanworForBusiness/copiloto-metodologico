@@ -14,7 +14,7 @@
     <button type="submit" class="btn-primary">Aplicar</button>
 </form>
 <p id="solicitudes-loading" class="htmx-indicator section-analysis-loading" role="status">Cargando solicitudes…</p>
-<details class="dashboard-section" open><summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Requerimientos de Arquitectura</span>{% if not error %}<span class="dashboard-section__count">{{ count }}</span>{% endif %}</summary><div class="dashboard-section__body">
+<details class="dashboard-section" open><summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Requerimientos de Arquitectura</span>{% if not error %}<span class="dashboard-section__count">{{ count }} requerimiento{{ 's' if count != 1 }}</span>{% endif %}</summary><div class="dashboard-section__body">
 {% if error %}
 <div class="dashboard-empty" role="alert"><span class="dashboard-empty__label">No disponible</span><p>{{ error }}</p></div>
 {% elif not rows %}
@@ -28,7 +28,7 @@
       <tr><td class="left">{{ values(f.get('Proyecto')) | join(', ') or '—' }}</td><td class="left">{{ plain_text(f.get(description)) | truncate(160) }}</td>
       <td class="left">{{ f.get('Prioridad') or '—' }}</td><td class="left">{{ f.get(funnel) or '—' }}</td><td class="left">{{ f.get(status) or '—' }}</td>
       <td class="left">{{ values(f.get(assignees)) | join(', ') }}</td>
-<td class="center"><div class="dw-row-actions"><a class="table-action-btn" href="/operaciones/solicitudes/{{ row.id }}/editar" aria-label="Abrir solicitud {{ row.id }}" title="Abrir solicitud">↗</a></div></td></tr>
+<td class="center"><div class="dw-row-actions"><a class="table-action-btn chart-tooltip-anchor" href="/operaciones/solicitudes/{{ row.id }}/editar" aria-label="Abrir solicitud {{ row.id }}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Editar solicitud</p></span></a></div></td></tr>
       {% endfor %}
     </tbody>
   </table>
