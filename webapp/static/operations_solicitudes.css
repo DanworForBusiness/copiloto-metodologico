@@ -42,3 +42,10 @@ table.solicitudes-table { min-width: 52rem; }
   overflow-wrap: anywhere;
   white-space: normal;
 }
+
+/* Normalize native select and input line boxes before aligning toolbar fields. */
+.solicitudes-filters select,
+.solicitudes-filters input[type="text"],
+.solicitudes-filters > .whatsnew-filter__clear {
+  block-size: 2.25rem;
+}

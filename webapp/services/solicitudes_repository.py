@@ -15,7 +15,7 @@ def list_url(token: str) -> str:
 
 def read_requests(token: str) -> list[dict]:
     """Read every authorized page before applying global search and filters."""
-    fields = ",".join(("Title", service.PROJECT, service.DESCRIPTION, "Prioridad", service.FUNNEL,
+    fields = ",".join(("Title", service.PROJECT, service.PROJECT + "LookupId", service.DESCRIPTION, "Prioridad", service.FUNNEL,
                        service.STATUS, service.ASSIGNEES, service.CREATION_DATE))
     base = list_url(token)
     url = f"{base}/items?$expand=fields($select={fields})"

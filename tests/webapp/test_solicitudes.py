@@ -19,7 +19,7 @@ def test_read_follows_graph_pages(monkeypatch):
     next_link = f"{list_url}/items?$skiptoken=next"
     responses = {
         f"{base}/sites/danwor.sharepoint.com:/sites/Gestion": {"id": "example,site,web"},
-        f"{list_url}/items?$expand=fields($select=Title,Proyecto,{service.DESCRIPTION},Prioridad,{service.FUNNEL},{service.STATUS},{service.ASSIGNEES},{service.CREATION_DATE})": {"value": [{"id": "1"}], "@odata.nextLink": next_link},
+        f"{list_url}/items?$expand=fields($select=Title,Proyecto,ProyectoLookupId,{service.DESCRIPTION},Prioridad,{service.FUNNEL},{service.STATUS},{service.ASSIGNEES},{service.CREATION_DATE})": {"value": [{"id": "1"}], "@odata.nextLink": next_link},
         next_link: {"value": [{"id": "2"}]},
     }
     monkeypatch.setattr(repository, "graph_get_json", lambda url, token: responses[url])

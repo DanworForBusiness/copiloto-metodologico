@@ -1,7 +1,7 @@
-<form id="solicitudes-filters" class="hc-profile-filters filter-toolbar-card" hx-post="/operaciones/solicitudes/data" hx-target="#solicitudes-panel" hx-disabled-elt="find button"
+<form id="solicitudes-filters" class="hc-profile-filters filter-toolbar-card solicitudes-filters" hx-post="/operaciones/solicitudes/data" hx-target="#solicitudes-panel" hx-disabled-elt="find button"
       hx-indicator="#solicitudes-loading" hx-sync="this:replace" data-dw-graph-token>
     {% for key, label in filters.items() %}
-    <div class="feedback-field feedback-field--auto"><label for="sol-filter-{{ loop.index }}">{{ label }}</label>
+    <div class="feedback-field {{ 'feedback-field--medium' if loop.first or loop.last else 'feedback-field--compact' }}"><label for="sol-filter-{{ loop.index }}">{{ label }}</label>
       <select id="sol-filter-{{ loop.index }}" name="{{ key }}" hx-post="/operaciones/solicitudes/data" hx-trigger="change" hx-include="closest form">
         <option value="">Todos</option>
         {% for option in options[key] %}
