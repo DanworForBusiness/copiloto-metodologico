@@ -20,7 +20,15 @@
 {% if error %}
 <div class="dashboard-empty" role="alert"><span class="dashboard-empty__label">No disponible</span><p>{{ error }}</p></div>
 {% elif not rows %}
-<div class="dashboard-empty">{{ "No hay resultados para los filtros." if source_count else "No hay solicitudes." }}</div>
+<div class="dashboard-empty">
+  {% if source_count %}
+  <span class="dashboard-empty__label">Sin resultados</span>
+  <p>No se encontraron solicitudes con los filtros seleccionados.</p>
+  {% else %}
+  <span class="dashboard-empty__label">Sin solicitudes</span>
+  <p>Todavía no hay solicitudes de Arquitectura e Innovación.</p>
+  {% endif %}
+</div>
 {% else %}
 <div class="matrix-scroll" data-draggable-columns-key="operaciones-solicitudes-v1"
      data-resizable-columns-key="operaciones-solicitudes-v1">
