@@ -129,7 +129,8 @@ def test_an_unreadable_ledger_is_never_the_same_as_no_history(ctx):             
 
 def test_a_disk_that_no_longer_matches_the_ledger_is_republished_not_declared_unchanged(ctx):                 # noqa: F811
     ctx.publish()
-    (ctx.catalog / CLIENT / "General" / "vistas" / "RAW_PROD.md").write_text("alterado", encoding="utf-8")
+    view_md, = (ctx.catalog / CLIENT).glob("*/vistas/RAW_PROD.md")                                          # la carpeta de dominio la decide el generador (con un solo modelo, su nombre)
+    view_md.write_text("alterado", encoding="utf-8")
     res, _ = ctx.publish()
     assert res.outcome == "CHANGED"                                                                          # nunca «sin cambios» si el disco no es la versión del ledger
 
