@@ -24,7 +24,6 @@ EXCEPCIONES (los pendientes del plan y los bloqueados al ejecutar): completar id
 from __future__ import annotations
 
 import functools
-import hashlib
 import time
 import uuid
 from collections import Counter, defaultdict
@@ -296,24 +295,12 @@ def _upload_document(run: dict, key: str, entry: dict, group: dict, token: str, 
     entry.update({"state": UPLOADING, "attempts": int(entry.get("attempts", 0)) + 1, "sha256": group.get("sha256")})
     _save(run_id, key, entry)
     rep = group["representative"]
-    folder = docsvc.ensure_profile_folder(pid, token, first_name=profile.get("first_name"), last_name=profile.get("last_name"))
-    remote_name = docsvc.build_remote_filename(doc_id, rep["name"])
     origin = {"import_origin": {"kind": "sharepoint_historical", "run_id": run_id, "content_key": key, "sha256": group.get("sha256"), "specialties": group.get("specialties") or []}}
-    remote = docsvc.find_remote_document(folder, remote_name, token)                # (2) conciliación con el estado REAL de SharePoint
-    if remote is not None:
-        if not _verify_remote(remote, group, token):
-            return _terminal(run_id, key, entry, FAILED, "REMOTE_CONTENT_MISMATCH")   # existe algo distinto en esa ruta: no se pisa
-        docsvc.adopt_remote_document(document_id=doc_id, profile_id=pid, drive_item=remote, filename=rep["name"], content_type=_content_type(rep["name"]),
-                                     size_bytes=int(group["size"]), uploaded_by=actor, folder_item_id=folder, extra_fields=origin)
-        entry.update({"item_id": remote.get("id"), "folder_item_id": folder, "reconciled": True})
-        return _terminal(run_id, key, entry, DONE, None)
-    data = pilot._download(rep["item_id"], rep["drive_id"], token, sleep)           # (3) no existe: se sube desde el origen (solo lectura), verificando su contenido contra el análisis
-    if hashlib.sha256(data).hexdigest() != group.get("sha256") or len(data) != int(group["size"]):
-        return _terminal(run_id, key, entry, FAILED, "SOURCE_CHANGED")
-    document = docsvc.upload_document(profile_id=pid, filename=rep["name"], data=data, access_token=token, uploaded_by=actor, first_name=profile.get("first_name"), last_name=profile.get("last_name"),
-                                      document_id=doc_id, extra_fields=origin)
-    entry.update({"item_id": document.get("item_id"), "folder_item_id": document.get("folder_item_id") or folder})
-    return _terminal(run_id, key, entry, DONE, None)
+    state, reason, info = core.reconcile_or_upload(                                 # (2) conciliación con el estado REAL de SharePoint y (3) subida desde el origen (solo lectura), en el motor común
+        profile_id=pid, document_id=doc_id, group=group, filename=rep["name"], fetch=lambda: pilot._download(rep["item_id"], rep["drive_id"], token, sleep), token=token, actor=actor,
+        first_name=profile.get("first_name"), last_name=profile.get("last_name"), extra_fields=origin)
+    entry.update(info)
+    return _terminal(run_id, key, entry, state, reason)
 
 
 _content_type = core.content_type

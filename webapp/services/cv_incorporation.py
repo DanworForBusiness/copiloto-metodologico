@@ -68,3 +68,28 @@ def verify_remote(remote: dict, group: dict, token: str) -> bool:
 
 def content_type(filename: str) -> str:
     return profile_document_validation.ACCEPTED_CONTENT_TYPES[filename.rsplit(".", 1)[-1].lower() if "." in filename else ""]
+
+
+DONE = "DONE"
+
+
+def reconcile_or_upload(*, profile_id: str, document_id: str, group: dict, filename: str, fetch, token: str, actor: str, first_name=None, last_name=None, extra_fields: dict | None = None) -> tuple[str, str | None, dict]:
+    """Deja el CV en la carpeta gobernada del candidato SIN duplicar, conciliando antes con el estado REAL de SharePoint: (1) si el archivo remoto ya está en su ruta determinística (`<document_id>__<nombre>`) y ES
+    este contenido (`verify_remote`), registra su metadata sin subir nada; si en esa ruta hay OTRO contenido, no lo pisa; (2) si no está, obtiene los bytes del origen (`fetch()`, solo lectura), verifica tamaño y sha256
+    contra el análisis (`group`: `size`, `hash`, `sha256`) y lo sube con el contrato vigente (`upload_document` con `document_id` determinístico). La metadata ya persistida para `document_id` la resuelve el llamador
+    ANTES (es su propio libro el que decide). Devuelve `(DONE|FAILED, código, {item_id, folder_item_id[, reconciled]})`; los errores de los servicios se propagan (ver `classify`)."""
+    folder = docsvc.ensure_profile_folder(profile_id, token, first_name=first_name, last_name=last_name)
+    remote_name = docsvc.build_remote_filename(document_id, filename)
+    remote = docsvc.find_remote_document(folder, remote_name, token)
+    if remote is not None:
+        if not verify_remote(remote, group, token):
+            return FAILED, "REMOTE_CONTENT_MISMATCH", {}                            # existe algo distinto en esa ruta: no se pisa
+        docsvc.adopt_remote_document(document_id=document_id, profile_id=profile_id, drive_item=remote, filename=filename, content_type=content_type(filename),
+                                     size_bytes=int(group["size"]), uploaded_by=actor, folder_item_id=folder, extra_fields=extra_fields)
+        return DONE, None, {"item_id": remote.get("id"), "folder_item_id": folder, "reconciled": True}
+    data = fetch()
+    if hashlib.sha256(data).hexdigest() != group.get("sha256") or len(data) != int(group["size"]):
+        return FAILED, "SOURCE_CHANGED", {}
+    document = docsvc.upload_document(profile_id=profile_id, filename=filename, data=data, access_token=token, uploaded_by=actor, first_name=first_name, last_name=last_name,
+                                      document_id=document_id, extra_fields=extra_fields)
+    return DONE, None, {"item_id": document.get("item_id"), "folder_item_id": document.get("folder_item_id") or folder}
