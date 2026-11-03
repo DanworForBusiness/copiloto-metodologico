@@ -19,7 +19,7 @@ def test_read_follows_graph_pages(monkeypatch):
     next_link = f"{list_url}/items?$skiptoken=next"
     responses = {
         f"{base}/sites/danwor.sharepoint.com:/sites/Gestion": {"id": "example,site,web"},
-        f"{list_url}/items?$expand=fields": {"value": [{"id": "1"}], "@odata.nextLink": next_link},
+        f"{list_url}/items?$expand=fields($select=Proyecto,{service.DESCRIPTION},Prioridad,{service.FUNNEL},{service.STATUS},{service.ASSIGNEES},{service.CREATION_DATE})": {"value": [{"id": "1"}], "@odata.nextLink": next_link},
         next_link: {"value": [{"id": "2"}]},
     }
     monkeypatch.setattr(repository, "graph_get_json", lambda url, token: responses[url])
@@ -178,3 +178,27 @@ def test_rich_html_round_trip_does_not_rewrite_unchanged_styles():
     patch = service.changes(current, {service.DESCRIPTION: original, "Prioridad": "Alta"}, {})
     assert patch == {"Prioridad": "Alta"}
     assert service.form_values(fields | patch)[service.DESCRIPTION] == original
+
+
+def test_list_separates_project_and_action_and_hides_single_page_pager(monkeypatch):
+    from fastapi.testclient import TestClient
+    from webapp.main import app
+    from webapp.routers import solicitudes
+
+    monkeypatch.setattr(solicitudes, "_user", lambda request: {"sub": "test"})
+    rows = [{"id": "1", "fields": {"Proyecto": "Proyecto de prueba"}},
+            {"id": "2", "fields": {"Proyecto": None}}]
+    monkeypatch.setattr(repository, "read_requests", lambda token: rows)
+    client = TestClient(app)
+    path = "/operaciones/solicitudes/data"
+    result = client.post(path, data={"graph_token": "fake"}).text
+    assert '<td class="left">Proyecto de prueba</td>' in result
+    assert '<td class="left">—</td>' in result
+    assert result.count('aria-label="Abrir solicitud ') == 2
+    assert 'class="activity-pager"' not in result
+    assert "Página 1 de 1" not in result
+    rows.extend({"id": str(i), "fields": {"Proyecto": "Proyecto de prueba"}} for i in range(3, 55))
+    result = client.post(path, data={"graph_token": "fake", "q": "Proyecto", "page": "2"}).text
+    assert 'aria-current="page">2 / 2' in result
+    assert 'value="Proyecto"' in result
+    assert result.count('aria-label="Abrir solicitud ') == 3

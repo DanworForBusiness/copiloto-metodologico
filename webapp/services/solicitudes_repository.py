@@ -2,6 +2,7 @@
 from urllib.parse import quote
 
 from core.microsoft365 import graph_get_json
+from webapp.services import solicitudes_service as service
 
 GRAPH = "https://graph.microsoft.com/v1.0"
 LIST_ID = "5d054bcc-8516-4fd5-b538-2d4cc5d754fb"
@@ -14,7 +15,9 @@ def list_url(token: str) -> str:
 
 def read_requests(token: str) -> list[dict]:
     """Read every authorized page before applying global search and filters."""
-    url = f"{list_url(token)}/items?$expand=fields"
+    fields = ",".join((service.PROJECT, service.DESCRIPTION, "Prioridad", service.FUNNEL,
+                       service.STATUS, service.ASSIGNEES, service.CREATION_DATE))
+    url = f"{list_url(token)}/items?$expand=fields($select={fields})"
     rows = []
     for _ in range(40):
         if not url.startswith(f"{GRAPH}/sites/"):

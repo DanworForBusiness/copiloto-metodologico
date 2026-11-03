@@ -1,4 +1,4 @@
-<form class="hc-profile-filters filter-toolbar-card" hx-post="/operaciones/solicitudes/data" hx-target="#solicitudes-panel" hx-disabled-elt="find button"
+<form id="solicitudes-filters" class="hc-profile-filters filter-toolbar-card" hx-post="/operaciones/solicitudes/data" hx-target="#solicitudes-panel" hx-disabled-elt="find button"
       hx-indicator="#solicitudes-loading" data-dw-graph-token>
     {% for key, label in filters.items() %}
     <div class="feedback-field feedback-field--auto"><label for="sol-filter-{{ loop.index }}">{{ label }}</label>
@@ -12,8 +12,6 @@
     {% endfor %}
     <div class="feedback-field feedback-field--wide"><label for="sol-q">Buscar</label><input id="sol-q" autocomplete="off" type="text" name="q" value="{{ query }}" placeholder="Proyecto o descripción…"></div>
     <button type="submit" class="btn-primary">Aplicar</button>
-    {% if page > 1 %}<button type="submit" class="btn-secondary" name="page" value="{{ page - 1 }}">Anterior</button>{% endif %}
-    {% if page < pages %}<button type="submit" class="btn-secondary" name="page" value="{{ page + 1 }}">Siguiente</button>{% endif %}
 </form>
 <p id="solicitudes-loading" class="htmx-indicator section-analysis-loading" role="status">Cargando solicitudes…</p>
 <details class="dashboard-section" open><summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Requerimientos de Arquitectura</span>{% if not error %}<span class="dashboard-section__count">{{ count }}</span>{% endif %}</summary><div class="dashboard-section__body">
@@ -22,19 +20,26 @@
 {% elif not rows %}
 <div class="dashboard-empty">{{ "No hay resultados para los filtros." if source_count else "No hay solicitudes." }}</div>
 {% else %}
-<p role="status">{{ count }} solicitudes · Página {{ page }} de {{ pages }}</p>
 <div class="matrix-scroll">
   <table class="dashboard-table">
-    <thead><tr><th class="left">Proyecto</th><th class="left">Descripción resumida</th><th class="left">Prioridad</th><th class="left">Status funnel</th><th class="left">Status Arquitectura</th><th class="left">Colaboradores asignados</th></tr></thead>
+    <thead><tr><th class="left">Proyecto</th><th class="left">Descripción resumida</th><th class="left">Prioridad</th><th class="left">Status funnel</th><th class="left">Status Arquitectura</th><th class="left">Colaboradores asignados</th><th class="center">Acciones</th></tr></thead>
     <tbody>
       {% for row in rows %}{% set f = row.fields %}
-      <tr><td class="left"><a href="/operaciones/solicitudes/{{ row.id }}/editar">{{ values(f.get('Proyecto')) | join(', ') or 'Abrir solicitud' }}</a></td><td class="left">{{ plain_text(f.get(description)) | truncate(160) }}</td>
+      <tr><td class="left">{{ values(f.get('Proyecto')) | join(', ') or '—' }}</td><td class="left">{{ plain_text(f.get(description)) | truncate(160) }}</td>
       <td class="left">{{ f.get('Prioridad') or '—' }}</td><td class="left">{{ f.get(funnel) or '—' }}</td><td class="left">{{ f.get(status) or '—' }}</td>
-      <td class="left">{{ values(f.get(assignees)) | join(', ') }}</td></tr>
+      <td class="left">{{ values(f.get(assignees)) | join(', ') }}</td>
+<td class="center"><div class="dw-row-actions"><a class="table-action-btn" href="/operaciones/solicitudes/{{ row.id }}/editar" aria-label="Abrir solicitud {{ row.id }}" title="Abrir solicitud">↗</a></div></td></tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
+{% if pages > 1 %}
+<nav class="activity-pager" aria-label="Páginas de solicitudes">
+  <button type="submit" form="solicitudes-filters" class="activity-pager__btn" name="page" value="{{ page - 1 }}" aria-label="Anterior"{% if page == 1 %} disabled{% endif %}>‹</button>
+  <span class="activity-pager__page is-active" aria-current="page">{{ page }} / {{ pages }}</span>
+  <button type="submit" form="solicitudes-filters" class="activity-pager__btn" name="page" value="{{ page + 1 }}" aria-label="Siguiente"{% if page == pages %} disabled{% endif %}>›</button>
+</nav>
+{% endif %}
 {% endif %}
 
 </div></details>
