@@ -125,6 +125,7 @@ from webapp.services import (
     profile_document_validation, profile_import_service, sharepoint_graph_diagnostics,
 )
 from webapp.services import cv_history_acceptance, cv_history_drafts, cv_history_import, cv_history_import_exec, cv_history_inventory, cv_history_manifest, cv_history_pilot, cv_history_review
+from webapp.services import cv_inbox
 from webapp.services import human_capital_contact, human_capital_export, human_capital_share, profile_consolidation_service
 from webapp.services import scoring_engine, scoring_evaluation_repository, scoring_grid_repository, scoring_service
 from webapp.services.activity_catalog import (
@@ -821,12 +822,13 @@ def _import_page_context(**kwargs) -> dict:
         "max_upload_mb": profile_import_service.MAX_UPLOAD_BYTES // (1024 * 1024),
         "max_import_rows": profile_import_service.MAX_IMPORT_ROWS,
         "bulk_import_template_url": config.HC_BULK_IMPORT_TEMPLATE_URL,
+        "inbox_folder_name": cv_inbox.FOLDER_NAME,
         **kwargs,
     }
 
 
 @router.get("/cchh/candidatos/importar", response_class=HTMLResponse, include_in_schema=False)
-def human_capital_profiles_import_page(request: Request):
+def human_capital_profiles_import_page(request: Request, modo: str = Query("sharepoint")):
     redirect = _require_human_capital_session(request)
     if redirect is not None:
         return redirect
@@ -839,7 +841,7 @@ def human_capital_profiles_import_page(request: Request):
             "pack": DEFAULT_PACK,
             "user": user,
             "active_page": "importar",
-            **_import_page_context(),
+            **_import_page_context(modo="excel" if modo == "excel" else "sharepoint"),
         },
     )
 
@@ -935,6 +937,161 @@ def human_capital_profiles_import_confirm(
             "summary": summary,
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# Carga masiva · bandeja de SharePoint (`Perfiles/carga-masiva` → Banco + `CVs`)
+# ---------------------------------------------------------------------------
+# Segunda modalidad de Carga masiva (la de Excel queda intacta). Toda la lógica vive en
+# `webapp/services/cv_inbox.py`; acá solo: sesión de Capital Humano, mismo origen en las
+# escrituras, traducción de errores a un mensaje y el fragmento HTMX del panel. El token
+# DELEGADO viaja en el cuerpo: `data-dw-graph-token` (lectura: listar, analizar, revisar)
+# o `data-hc-write-token` (escritura en CVs: aceptar, reintentar, retirar). Datos
+# personales ⇒ `no-store`. Sin token ⇒ el panel lo pide (nunca un error crudo).
+_INBOX_VIEWS = {
+    "abiertos": lambda r: r["status"] not in (cv_inbox.INCORPORATED, cv_inbox.DISCARDED) or r.get("can_retire"),
+    "incorporados": lambda r: r["status"] == cv_inbox.INCORPORATED,
+    "descartados": lambda r: r["status"] == cv_inbox.DISCARDED,
+    "todos": lambda r: True,
+}
+_INBOX_ACTIONS = ("guardar", "resolver", "aceptar", "reintentar", "descartar", "reabrir", "retirar")
+
+
+def _inbox_actor(request: Request) -> str:
+    return str((auth_service.session_user(request) or {}).get("sub") or "").strip().lower()
+
+
+def _inbox_panel(request: Request, graph_token: str, *, vista: str = "abiertos", result: dict | None = None, open_key: str | None = None):
+    vista = vista if vista in _INBOX_VIEWS else "abiertos"
+    context = {"request": request, "vista": vista, "result": result, "open_key": open_key, "error": None, "overview": None, "rows": [],
+               "limits": {"file_mb": cv_inbox.MAX_FILE_BYTES // (1024 * 1024), "analyze": cv_inbox.ANALYZE_MAX_DOCS, "accept": cv_inbox.ACCEPT_MAX_SELECTION, "listed": cv_inbox.MAX_LISTED},
+               "folder_name": cv_inbox.FOLDER_NAME, "dismiss_reasons": cv_inbox.DISMISS_REASONS}
+    if not graph_token:
+        context["error"] = {"code": "NO_TOKEN", "message": "Conectá tu cuenta de Microsoft 365 para ver la bandeja de SharePoint."}
+    else:
+        try:
+            overview = cv_inbox.overview(graph_token)
+        except cv_inbox.InboxError as exc:
+            context["error"] = {"code": exc.code, "message": str(exc)}
+        except (cv_history_manifest.ManifestError, ProfileStorageError, profile_document_repository.ProfileDocumentStorageError):
+            context["error"] = {"code": "STORAGE", "message": "No se pudo leer el estado de la bandeja en el Hub. Reintentá en un momento."}
+        else:
+            context.update({"overview": overview, "rows": [r for r in overview["rows"] if _INBOX_VIEWS[vista](r)]})
+    return templates.TemplateResponse(request=request, name="partials/cv_inbox_panel.html", context=context, headers=_NO_STORE)
+
+
+def _require_inbox_write(request: Request):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    if not same_origin_guard.is_same_origin_write(request):
+        raise HTTPException(403, "Origen no permitido")
+    return None
+
+
+@router.post("/cchh/candidatos/importar/bandeja", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_cv_inbox_panel(request: Request, graph_token: str = Form(""), vista: str = Form("abiertos")):
+    """Panel de la bandeja (SOLO LECTURA: lista la carpeta y deriva los estados; no escribe nada). POST para que el token viaje en el cuerpo."""
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    return _inbox_panel(request, graph_token, vista=vista)
+
+
+@router.post("/cchh/candidatos/importar/bandeja/analizar", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_cv_inbox_analyze(request: Request, graph_token: str = Form(""), vista: str = Form("abiertos")):
+    """Una tanda de análisis (descarga y extracción, sin crear candidatos ni escribir en SharePoint). Si quedan pendientes, el panel continúa solo con la tanda siguiente."""
+    redirect = _require_inbox_write(request)
+    if redirect is not None:
+        return redirect
+    if not graph_token:
+        return _inbox_panel(request, graph_token, vista=vista)
+    try:
+        out = cv_inbox.analyze(graph_token, actor=_inbox_actor(request))
+    except cv_inbox.InboxError as exc:
+        return _inbox_panel(request, graph_token, vista=vista, result={"kind": "error", "message": str(exc)})
+    stop = out["stopped_reason"]
+    message = {"BUSY": "Otra persona está analizando la bandeja en este momento: reintentá en unos segundos.", "TOKEN_EXPIRED": cv_inbox.STOP_TEXT["TOKEN_EXPIRED"],
+               "PERSISTENCE_ERROR": cv_inbox.STOP_TEXT["PERSISTENCE_ERROR"], "PERMISSION_DENIED": "Sin permiso para leer archivos de la carpeta de carga masiva."}.get(stop)
+    result = {"kind": "error" if message else "ok", "analysis": out, "message": message or f"Analizados: {out['analyzed']} · con error: {out['failed']} · pendientes: {out['remaining'] or 0}.",
+              "continue": stop in ("BATCH_LIMIT", "TIME_BUDGET") and bool(out["remaining"])}
+    return _inbox_panel(request, graph_token, vista=vista, result=result)
+
+
+@router.post("/cchh/candidatos/importar/bandeja/aceptar", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_cv_inbox_accept_batch(request: Request, graph_token: str = Form(""), sel: list[str] = Form([]), vista: str = Form("abiertos")):
+    """Aceptación por lote de las filas seleccionadas (`<item_key>|<huella>`): solo las seguras o resueltas por una persona; cada una se revalida antes de escribir."""
+    redirect = _require_inbox_write(request)
+    if redirect is not None:
+        return redirect
+    selection = []
+    for raw in sel[: cv_inbox.ACCEPT_MAX_SELECTION]:
+        key, _sep, fp = str(raw).partition("|")
+        if cv_history_manifest.KEY_RE.match(key) and fp:
+            selection.append((key, fp))
+    if not graph_token:
+        return _inbox_panel(request, graph_token, vista=vista, result={"kind": "error", "message": "Autorizá la escritura en CVs para aceptar."})
+    if not selection:
+        return _inbox_panel(request, graph_token, vista=vista, result={"kind": "error", "message": "Seleccioná al menos un CV listo para aceptar."})
+    try:
+        out = cv_inbox.accept_batch(selection, graph_token, actor=_inbox_actor(request))
+    except cv_inbox.InboxError as exc:
+        return _inbox_panel(request, graph_token, vista=vista, result={"kind": "error", "message": str(exc)})
+    c = out["counts"]
+    return _inbox_panel(request, graph_token, vista=vista, result={"kind": "ok" if not c["errors"] and not c["pending"] else "partial", "batch": out,
+                                                                    "message": f"Incorporados: {c['done']} · pendientes: {c['pending']} · con error o revisión: {c['errors']}."})
+
+
+@router.post("/cchh/candidatos/importar/bandeja/{key}/{accion}", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_cv_inbox_row_action(
+    request: Request, key: str, accion: str, graph_token: str = Form(""), vista: str = Form("abiertos"),
+    first_name: str = Form(""), last_name: str = Form(""), email: str = Form(""), phone: str = Form(""), profile_skills: str = Form(""),
+    decision: str = Form(""), fingerprint: str = Form(""), revision: str = Form("0"), acks: list[str] = Form([]), reason: str = Form(""),
+):
+    """Acciones explícitas sobre UN CV de la bandeja: guardar la revisión, guardar la decisión, aceptar (crear o vincular), reintentar, descartar, reabrir o retirar el original."""
+    redirect = _require_inbox_write(request)
+    if redirect is not None:
+        return redirect
+    if accion not in _INBOX_ACTIONS or not cv_history_manifest.KEY_RE.match(key or ""):
+        raise HTTPException(404, "Acción inexistente")
+    actor = _inbox_actor(request)
+    raw = {"first_name": first_name, "last_name": last_name, "email": email, "phone": phone, "profile_skills": profile_skills}
+    op, _sep, target = decision.partition(":")
+    needs_token = accion not in ("descartar", "reabrir")
+    if needs_token and not graph_token:
+        return _inbox_panel(request, graph_token, vista=vista, open_key=key, result={"kind": "error", "key": key, "message": "Conectá Microsoft 365 (o autorizá la escritura en CVs) y reintentá."})
+    try:
+        if accion == "guardar":
+            res = cv_inbox.save_draft(key, graph_token, actor=actor, raw=raw, expected_revision=revision)
+        elif accion == "resolver":
+            res = cv_inbox.save_decision(key, graph_token, actor=actor, raw=raw, op=op, target_profile_id=target, fingerprint_seen=fingerprint, expected_revision=revision, acks=acks)
+        elif accion == "aceptar":
+            res = cv_inbox.accept_one(key, graph_token, actor=actor, raw=raw, op=op, target_profile_id=target, fingerprint_seen=fingerprint, expected_revision=revision, acks=acks)
+        elif accion == "reintentar":
+            res = cv_inbox.accept_one(key, graph_token, actor=actor)
+        elif accion == "descartar":
+            res = cv_inbox.dismiss(key, actor=actor, reason=reason)
+        elif accion == "reabrir":
+            res = cv_inbox.reopen(key, actor=actor)
+        else:
+            res = cv_inbox.retire(key, graph_token)
+    except cv_history_manifest.ManifestBusyError:
+        res = {"ok": False, "error": "Otra persona está procesando este CV en este momento. Reintentá en unos segundos."}
+    except cv_history_drafts.DraftConflict:
+        res = {"ok": False, "error": "Alguien guardó cambios en esta revisión mientras la editabas: se muestra lo vigente."}
+    except cv_history_drafts.DraftError as exc:
+        res = {"ok": False, "error": str(exc)}
+    except cv_inbox.InboxError as exc:
+        res = {"ok": False, "error": str(exc)}
+    except cv_history_manifest.ManifestError:
+        res = {"ok": False, "error": cv_inbox.STOP_TEXT["PERSISTENCE_ERROR"]}
+    message = res.get("error") or {"guardar": "Revisión guardada.", "resolver": "Decisión guardada: el CV quedó listo para aceptar.", "descartar": "CV descartado: queda en la carpeta hasta que Capital Humano decida.",
+                                   "reabrir": "El CV volvió a quedar por resolver.", "retirar": "Original retirado a «incorporados»."}.get(accion, "CV incorporado al Banco.")
+    if res.get("ok") and accion in ("aceptar", "reintentar") and res.get("retire") not in (None, cv_inbox.RETIRE_DONE):
+        message += " " + cv_inbox.REASON_TEXT["RETIRE_PENDING"]
+    keep_open = not res.get("ok") and accion in ("guardar", "resolver", "aceptar")
+    return _inbox_panel(request, graph_token, vista=vista, open_key=key if keep_open else None,
+                        result={"kind": "ok" if res.get("ok") else "error", "key": key, "message": message, "profile_id": res.get("profile_id")})
 
 
 # ---------------------------------------------------------------------------

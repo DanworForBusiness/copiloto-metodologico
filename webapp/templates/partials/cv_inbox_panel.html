@@ -1,0 +1,72 @@
+{# Bandeja de Carga masiva (fragmento HTMX; datos personales: solo Capital Humano autorizado). Toda acción re-renderiza este panel (`#cvinbox-panel`). Token: `data-dw-graph-token` (lectura) o
+   `data-hc-write-token` (escritura en CVs). Componentes del Hub: `.callout`, `.dashboard-section`, `.dashboard-table`, `.status-badge`, `.filter-toolbar-card` y el panel de revisión `.hc-exc-*` de Históricos. #}
+{% set _post = "/cchh/candidatos/importar/bandeja" %}
+{% set _target = 'hx-target="#cvinbox-panel" hx-swap="outerHTML"' %}
+<div id="cvinbox-panel" class="hc-inbox" data-cvinbox-panel>
+  {% if result and result.message %}
+    <aside class="callout {{ 'callout--success' if result.kind == 'ok' else 'callout--warn' }} hc-inbox-result" role="status" data-cvinbox-result>
+      <div class="callout__body"><p>{{ result.message }}{% if result.profile_id %} <a href="/cchh/candidatos/{{ result.profile_id }}">Ver candidato</a>{% endif %}</p>
+      {% if result.batch %}<ul class="hc-inbox-batch" data-cvinbox-batch-results>{% for r in result.batch.results %}{% set _row = (overview.rows | selectattr('key', 'equalto', r.key) | first) if overview else none %}
+        <li><strong>{{ (_row.name if _row else r.key) }}</strong>: {% if r.outcome == 'DONE' %}incorporado{% if r.profile_id %} (<a href="/cchh/candidatos/{{ r.profile_id }}">ver</a>){% endif %}{% else %}{{ r.message }}{% endif %}</li>{% endfor %}</ul>{% endif %}
+      </div>
+    </aside>
+    {% if result.continue %}<div hidden hx-post="{{ _post }}/analizar" hx-trigger="load delay:300ms" {{ _target | safe }} hx-vals='{"vista": "{{ vista }}"}' data-dw-graph-token data-cvinbox-continue></div>{% endif %}
+  {% endif %}
+
+  {% if error %}
+    <aside class="callout callout--warn" role="alert" data-cvinbox-error="{{ error.code }}"><div class="callout__body"><p>{{ error.message }}</p>
+      <p><button type="button" class="btn-secondary" hx-post="{{ _post }}" {{ _target | safe }} hx-vals='{"vista": "{{ vista }}"}' data-dw-graph-token>Reintentar</button></p></div></aside>
+  {% else %}
+    {% set c = overview.counts %}
+    <div class="hc-inbox-toolbar hc-profile-filters filter-toolbar-card" data-cvinbox-toolbar>
+      <p class="hc-inbox-summary" data-cvinbox-summary>
+        <span><strong>{{ c.READY }}</strong> listos para aceptar</span>
+        <span><strong>{{ c.REVIEW }}</strong> requieren revisión</span>
+        <span><strong>{{ c.INCOMPLETE }}</strong> con identidad incompleta</span>
+        <span><strong>{{ overview.pending_analysis }}</strong> por analizar</span>
+        {% if c.ACCEPTING %}<span><strong>{{ c.ACCEPTING }}</strong> sin terminar</span>{% endif %}
+        {% if c.ERROR %}<span><strong>{{ c.ERROR }}</strong> no legibles</span>{% endif %}
+        {% if overview.retire_pending %}<span><strong>{{ overview.retire_pending }}</strong> por retirar de la carpeta</span>{% endif %}
+      </p>
+      <div class="hc-inbox-actions">
+        <button type="button" class="btn-primary" hx-post="{{ _post }}/analizar" {{ _target | safe }} hx-vals='{"vista": "{{ vista }}"}' hx-disabled-elt="this" data-dw-graph-token
+                {{ 'disabled' if not overview.pending_analysis }} data-cvinbox-analyze>{% if overview.pending_analysis %}Analizar {{ overview.pending_analysis }} pendiente{{ '' if overview.pending_analysis == 1 else 's' }}{% else %}Sin CVs por analizar{% endif %}</button>
+        <button type="button" class="btn-secondary" data-hc-authorize-write>Autorizar escritura en CVs</button>
+        <span class="field-hint" data-hc-authorize-status role="status"></span>
+        <div class="feedback-field feedback-field--compact"><label for="cvinbox-vista">Ver</label>
+          <select id="cvinbox-vista" name="vista" hx-post="{{ _post }}" {{ _target | safe }} hx-trigger="change" data-dw-graph-token data-cvinbox-view>
+            {% for code, label in (('abiertos', 'Por resolver'), ('incorporados', 'Incorporados recientes'), ('descartados', 'Descartados'), ('todos', 'Todos')) %}<option value="{{ code }}" {{ 'selected' if vista == code }}>{{ label }}</option>{% endfor %}
+          </select></div>
+      </div>
+      <p class="field-hint">Carpeta de entrada: {% if overview.inbox.web_url %}<a href="{{ overview.inbox.web_url }}" target="_blank" rel="noopener noreferrer">Perfiles/{{ folder_name }}</a>{% else %}Perfiles/{{ folder_name }}{% endif %}.
+        Hasta {{ limits.file_mb }} MB por archivo (PDF, DOC o DOCX) · se analizan {{ limits.analyze }} por tanda · hasta {{ limits.accept }} por aceptación.{% if overview.truncated %} <strong>Se muestran los primeros {{ limits.listed }} archivos de la carpeta.</strong>{% endif %}</p>
+    </div>
+
+    <form id="cvinbox-batch" class="hc-inbox-batch-form" onsubmit="return false" data-cvinbox-batch>
+      <input type="hidden" name="vista" value="{{ vista }}">
+    </form>
+    <div class="dashboard-sections">
+      <details class="dashboard-section" data-section-id="cvinbox" open>
+        <summary class="dashboard-section__head">
+          <span class="dashboard-section__caret"></span>
+          <span class="dashboard-section__title">CVs en la carpeta de entrada</span>
+          <span class="dashboard-section__count">{{ rows | length }} archivo{{ '' if rows | length == 1 else 's' }}</span>
+        </summary>
+        <div class="dashboard-section__body">
+          <div class="matrix-scroll"><table class="dashboard-table hc-inbox-table" data-cvinbox-rows>
+            <thead><tr><th scope="col" class="left hc-inbox-sel" aria-label="Seleccionar"></th><th scope="col" class="left">Documento</th><th scope="col" class="left">Datos propuestos</th>
+              <th scope="col" class="left">Coincidencias</th><th scope="col" class="left">Estado</th><th scope="col" class="left">Acciones</th></tr></thead>
+            {% for r in rows %}{% include "partials/cv_inbox_row.html" %}
+            {% else %}<tbody><tr><td class="left" colspan="6"><span class="field-hint" data-cvinbox-empty>{% if vista == 'abiertos' %}No hay CVs por resolver. Capital Humano puede dejar PDF o DOCX en «Perfiles/{{ folder_name }}» y volver acá.{% else %}No hay CVs con este filtro.{% endif %}</span></td></tr></tbody>{% endfor %}
+          </table></div>
+        </div>
+      </details>
+    </div>
+    {% if overview.batch_ready %}
+    <div class="hc-inbox-accept">
+      <button type="button" class="btn-primary" hx-post="{{ _post }}/aceptar" hx-include="#cvinbox-batch, [form='cvinbox-batch']" {{ _target | safe }} hx-disabled-elt="this" data-hc-write-token data-cvinbox-accept-batch>Aceptar seleccionados</button>
+      <span class="field-hint">Solo se pueden seleccionar los CVs listos: identidad corroborada y sin coincidencias dudosas, o ya resueltos por una persona. Las altas sin email se aceptan de a una.</span>
+    </div>
+    {% endif %}
+  {% endif %}
+</div>

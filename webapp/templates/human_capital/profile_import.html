@@ -24,9 +24,30 @@
     <section class="module-hero">
       <p class="eyebrow">Capital Humano</p>
       <h1>Carga masiva de CVs</h1>
-      <p>Subí un Excel con varios candidatos para cargarlos al banco de CVs de una sola vez.</p>
+      <p>Incorporá varios candidatos de una vez: desde los CVs que Capital Humano deja en SharePoint, o con el Excel de siempre.</p>
     </section>
 
+    {# Dos modalidades con el primitivo de pestañas del Hub (`.tool-tabs`). La de Excel es la de siempre, sin cambios de contrato. #}
+    {% set _modo = 'excel' if (file_error or modo == 'excel') else 'sharepoint' %}
+    <div x-data="{ modo: '{{ _modo }}' }" data-import-modes>
+    <nav class="tool-tabs hc-import-tabs" role="tablist" aria-label="Modalidad de carga masiva">
+      <button type="button" role="tab" @click="modo='sharepoint'" :class="modo==='sharepoint' && 'is-active'" :aria-selected="modo==='sharepoint'" class="{{ 'is-active' if _modo == 'sharepoint' }}" data-import-tab="sharepoint">Desde SharePoint</button>
+      <button type="button" role="tab" @click="modo='excel'" :class="modo==='excel' && 'is-active'" :aria-selected="modo==='excel'" class="{{ 'is-active' if _modo == 'excel' }}" data-import-tab="excel">Desde Excel</button>
+    </nav>
+
+    <section class="tool-tab-panel" role="tabpanel" x-show="modo==='sharepoint'" {{ 'x-cloak' if _modo != 'sharepoint' }} data-import-panel="sharepoint">
+      <p class="hc-hist-note"><strong>Dejá los CV (PDF, DOC o DOCX) en «Perfiles/{{ inbox_folder_name }}»</strong>, sin renombrarlos ni preparar un Excel. El Hub propone los datos de cada candidato y los concilia con el Banco; nada se incorpora hasta que lo aceptes. Esta sección contiene datos personales.</p>
+      <details class="hc-hist-help"><summary>Cómo funciona</summary><ul>
+        <li>«Analizar» lee los CV nuevos o modificados y propone nombre, apellido, email y teléfono con la evidencia que encontró. No crea candidatos ni toca SharePoint.</li>
+        <li>Revisá y corregí los datos (perfil y skills incluidos) y elegí: crear un candidato nuevo o vincular el CV a uno existente. Las coincidencias dudosas siempre requieren tu decisión.</li>
+        <li>Al aceptar, el CV se guarda en el repositorio de CVs del Hub, en la carpeta del candidato. Recién después el original se retira a «{{ inbox_folder_name }}/incorporados» (no se borra). Los descartados y los que tienen errores quedan en la carpeta.</li>
+      </ul></details>
+      <div hx-post="/cchh/candidatos/importar/bandeja" hx-trigger="load" hx-target="this" hx-swap="outerHTML" data-dw-graph-token data-cvinbox-loader>
+        <p class="field-hint">Cargando la bandeja…</p>
+      </div>
+    </section>
+
+    <section class="tool-tab-panel" role="tabpanel" x-show="modo==='excel'" {{ 'x-cloak' if _modo != 'excel' }} data-import-panel="excel">
     {% if file_error %}<p class="feedback-error">{{ file_error }}</p>{% endif %}
 
     <form class="hc-profile-form" method="post" action="/cchh/candidatos/importar/preview" enctype="multipart/form-data">
@@ -56,7 +77,10 @@
       <p class="field-hint">Columnas esperadas (encabezados en la primera fila): <code>nombre</code>* <code>apellido</code>* <code>email</code> <code>telefono</code> <code>linkedin</code> <code>ubicacion</code> <code>perfil_skills</code> <code>seniority</code> <code>fuente</code> <code>tags</code> <code>notas</code> <code>potencial</code> <code>marca_potencial</code> — (*) requeridas, el resto puede quedar vacío o ausente.</p>
       <button type="submit" class="btn-primary">Ver vista previa</button>
     </form>
+    </section>
+    </div>
   </main>
 </div>
+<script src="{{ url_for('static', path='human_capital_import.js') }}?v={{ static_version }}" defer></script>
 
 {% endblock %}

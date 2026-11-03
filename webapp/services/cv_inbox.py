@@ -64,7 +64,7 @@ ANALYZE_MAX_DOCS, ANALYZE_BUDGET_S = 15, 45.0
 ACCEPT_MAX_SELECTION, ACCEPT_BUDGET_S = 25, 45.0
 MAX_ATTEMPTS = 3
 RECENT_DONE = 50                                                                    # incorporados recientes que se siguen mostrando (filtro «Incorporados»)
-LIST_SELECT = "id,name,size,file,folder,eTag,cTag,lastModifiedDateTime,parentReference"
+LIST_SELECT = "id,name,size,file,folder,eTag,cTag,lastModifiedDateTime,parentReference,webUrl"
 FIELDS = ("first_name", "last_name", "email", "phone", "profile_skills")
 SKILLS_MAX = 500
 
@@ -82,14 +82,14 @@ STATUS_VIEW = {
     MODIFIED: ("Modificado: volver a analizar", "status-badge--otro"),
     READY: ("Lista para aceptar", "status-badge--activo"),
     REVIEW: ("Requiere revisión", "status-badge--tentativo"),
-    INCOMPLETE: ("Identidad incompleta", "status-badge--potential"),
+    INCOMPLETE: ("Identidad incompleta", "status-badge--tentativo"),
     PROCESSED: ("CV ya incorporado", "status-badge--inactivo"),
     DUPLICATE: ("Archivo repetido en la bandeja", "status-badge--inactivo"),
-    ACCEPTING: ("Incorporación sin terminar", "status-badge--estancada"),
-    INCORPORATED: ("Incorporado", "status-badge--finalizado"),
+    ACCEPTING: ("Incorporación sin terminar", "status-badge--tentativo"),
+    INCORPORATED: ("Incorporado", "status-badge--activo"),
     DISCARDED: ("Descartado", "status-badge--inactivo"),
-    ERROR_RETRY: ("Error recuperable", "status-badge--estancada"),
-    ERROR: ("No se pudo leer", "status-badge--estancada"),
+    ERROR_RETRY: ("Error recuperable", "status-badge--tentativo"),
+    ERROR: ("No se pudo leer", "status-badge--tentativo"),
     MISSING: ("Ya no está en la carpeta", "status-badge--inactivo"),
 }
 REASON_TEXT = {
@@ -232,13 +232,20 @@ def list_inbox(token: str, inbox: dict, *, sleep=time.sleep) -> dict:
             algo = next((a for a in ("quickXorHash", "sha256Hash", "sha1Hash") if hashes.get(a)), None)
             files.append({"key": item_key(inbox["drive_id"], it["id"]), "item_id": it["id"], "drive_id": inbox["drive_id"], "parent_id": inbox["id"], "name": str(it.get("name") or ""),
                           "size": int(it.get("size") or 0), "ctag": it.get("cTag"), "etag": it.get("eTag"), "hash": {"algo": algo, "value": hashes[algo]} if algo else None,
-                          "modified": it.get("lastModifiedDateTime")})
+                          "modified": it.get("lastModifiedDateTime"), "web_url": _safe_url(it.get("webUrl"))})
         nxt = page.get("@odata.nextLink") or ""
         if truncated or not nxt or nxt in seen:
             break
         seen.add(nxt)
         url = nxt
     return {"files": files, "truncated": truncated}
+
+
+def _safe_url(value) -> str | None:
+    """Enlace para «Ver CV original» (con los permisos de quien lo abre): solo https de SharePoint; nunca se persiste."""
+    text = str(value or "")
+    host = urllib.parse.urlsplit(text).netloc.lower()
+    return text if text.startswith("https://") and (host.endswith(".sharepoint.com") or host == "sp") else None
 
 
 def _get_item(drive_id: str, item_id: str, token: str) -> dict | None:
@@ -279,7 +286,7 @@ def _needs_analysis(entry: dict, record: dict | None, ledger: dict | None) -> bo
 
 
 def _save_record(entry: dict, **fields) -> dict:
-    base = {k: entry[k] for k in ("item_id", "drive_id", "parent_id", "name", "size", "ctag", "etag", "hash", "modified")}
+    base = {k: entry.get(k) for k in ("item_id", "drive_id", "parent_id", "name", "size", "ctag", "etag", "hash", "modified")}
     return manifest.put_group(AREA, entry["key"], {**base, **fields})
 
 
@@ -482,7 +489,7 @@ def classify(ctx: Context, key: str) -> dict | None:
     record, entry, ledger, draft = ctx.records.get(key), ctx.listing.get(key), ctx.ledgers.get(key), ctx.drafts.get(key)
     state = (ledger or {}).get("state")
     base = entry or record or {}
-    row = {"key": key, "name": base.get("name") or "", "size_kb": max(1, int(base.get("size") or 0) // 1024), "item_id": base.get("item_id"), "drive_id": base.get("drive_id"), "listed": entry is not None,
+    row = {"key": key, "name": base.get("name") or "", "web_url": (entry or {}).get("web_url"), "size_kb": max(1, int(base.get("size") or 0) // 1024), "item_id": base.get("item_id"), "drive_id": base.get("drive_id"), "listed": entry is not None,
            "batch_ok": False, "can_accept": False, "can_dismiss": False, "can_reopen": False, "can_retry": False, "can_retire": False, "op": None, "target": None, "reasons": [], "matches": [], "peers": [],
            "fields": None, "evidence": None, "fingerprint": None, "draft_revision": int((draft or {}).get("revision") or 0), "field_source": None}
     if state == DONE:
