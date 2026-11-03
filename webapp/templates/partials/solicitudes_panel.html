@@ -1,39 +1,40 @@
-<form hx-post="/operaciones/solicitudes/data" hx-target="#solicitudes-panel" hx-disabled-elt="find fieldset"
+<form class="hc-profile-filters filter-toolbar-card" hx-post="/operaciones/solicitudes/data" hx-target="#solicitudes-panel" hx-disabled-elt="find button"
       hx-indicator="#solicitudes-loading" data-dw-graph-token>
-  <fieldset class="whatsnew-filters">
     {% for key, label in filters.items() %}
-    <label class="whatsnew-filter">{{ label }}
-      <select name="{{ key }}">
+    <div class="feedback-field feedback-field--auto"><label for="sol-filter-{{ loop.index }}">{{ label }}</label>
+      <select id="sol-filter-{{ loop.index }}" name="{{ key }}">
         <option value="">Todos</option>
         {% for option in options[key] %}
         <option{% if selected[key] == option %} selected{% endif %}>{{ option }}</option>
         {% endfor %}
       </select>
-    </label>
+    </div>
     {% endfor %}
-    <label class="whatsnew-filter">Buscar <input type="search" name="q" value="{{ query }}"></label>
+    <div class="feedback-field feedback-field--wide"><label for="sol-q">Buscar</label><input id="sol-q" autocomplete="off" type="text" name="q" value="{{ query }}" placeholder="Proyecto o descripción…"></div>
     <button type="submit" class="btn-primary">Aplicar</button>
     {% if page > 1 %}<button type="submit" class="btn-secondary" name="page" value="{{ page - 1 }}">Anterior</button>{% endif %}
     {% if page < pages %}<button type="submit" class="btn-secondary" name="page" value="{{ page + 1 }}">Siguiente</button>{% endif %}
-  </fieldset>
 </form>
 <p id="solicitudes-loading" class="htmx-indicator section-analysis-loading" role="status">Cargando solicitudes…</p>
+<details class="dashboard-section" open><summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Requerimientos de Arquitectura</span>{% if not error %}<span class="dashboard-section__count">{{ count }}</span>{% endif %}</summary><div class="dashboard-section__body">
 {% if error %}
-<div class="callout" role="alert"><div class="callout__body">{{ error }}</div></div>
+<div class="dashboard-empty" role="alert"><span class="dashboard-empty__label">No disponible</span><p>{{ error }}</p></div>
 {% elif not rows %}
 <div class="dashboard-empty">{{ "No hay resultados para los filtros." if source_count else "No hay solicitudes." }}</div>
 {% else %}
 <p role="status">{{ count }} solicitudes · Página {{ page }} de {{ pages }}</p>
-<div class="dashboard-table-wrap">
+<div class="matrix-scroll">
   <table class="dashboard-table">
-    <thead><tr><th>Proyecto</th><th>Descripción resumida</th><th>Prioridad</th><th>Status funnel</th><th>Status Arquitectura</th><th>Colaboradores asignados</th></tr></thead>
+    <thead><tr><th class="left">Proyecto</th><th class="left">Descripción resumida</th><th class="left">Prioridad</th><th class="left">Status funnel</th><th class="left">Status Arquitectura</th><th class="left">Colaboradores asignados</th></tr></thead>
     <tbody>
       {% for row in rows %}{% set f = row.fields %}
-      <tr><td><a href="/operaciones/solicitudes/{{ row.id }}/editar">{{ values(f.get('Proyecto')) | join(', ') or 'Abrir solicitud' }}</a></td><td>{{ plain_text(f.get(description)) | truncate(160) }}</td>
-      <td>{{ f.get('Prioridad') or '—' }}</td><td>{{ f.get(funnel) or '—' }}</td><td>{{ f.get(status) or '—' }}</td>
-      <td>{{ values(f.get(assignees)) | join(', ') }}</td></tr>
+      <tr><td class="left"><a href="/operaciones/solicitudes/{{ row.id }}/editar">{{ values(f.get('Proyecto')) | join(', ') or 'Abrir solicitud' }}</a></td><td class="left">{{ plain_text(f.get(description)) | truncate(160) }}</td>
+      <td class="left">{{ f.get('Prioridad') or '—' }}</td><td class="left">{{ f.get(funnel) or '—' }}</td><td class="left">{{ f.get(status) or '—' }}</td>
+      <td class="left">{{ values(f.get(assignees)) | join(', ') }}</td></tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
 {% endif %}
+
+</div></details>

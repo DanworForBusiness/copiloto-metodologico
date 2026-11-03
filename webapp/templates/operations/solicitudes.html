@@ -2,7 +2,7 @@
 {% from "partials/platform_topbar.html" import platform_topbar %}
 {% from "partials/workspace_shell.html" import sidebar_resize_handle %}
 {% block title %}Solicitudes · Operaciones · Danwor{% endblock %}
-{% block head_styles %}<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}">{% endblock %}
+{% block head_styles %}<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}"><link rel="stylesheet" href="{{ url_for('static', path='operations_busquedas.css') }}?v={{ static_version }}">{% endblock %}
 {% block body %}
 <div x-data="copilotLayout('solicitudes')" x-init="init()" class="app-shell no-copilot">
   {% set identity %}<iframe src="/brand/dancing/{{ pack }}?title={{ config.OPERATIONS_APP_TITLE | urlencode }}&subtitle={{ config.OPERATIONS_APP_SUBTITLE | urlencode }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
@@ -10,12 +10,12 @@
   {% include "partials/operations_nav.html" %}
   {{ sidebar_resize_handle() }}
   <main id="content" class="module-content">
-    <section class="module-hero">
-      <p class="eyebrow">Operaciones</p>
+    <section class="module-hero opsb-hero">
+      <div class="catalog-actionbar"><p class="eyebrow">Operaciones</p></div>
       <h1>{{ "Editar solicitud" if item_id else "Solicitudes" }}</h1>
       <p class="hero-lead full-page-subtitle">Consultá los requerimientos de Arquitectura en SharePoint.</p>
     </section>
-    <div id="solicitudes-panel">
+    <div id="solicitudes-panel" class="dashboard-sections">
       <div hx-post="/operaciones/solicitudes/{{ item_id ~ '/detalle' if item_id else 'data' }}" hx-trigger="load" hx-target="#solicitudes-panel" data-dw-graph-token>
         <p class="section-analysis-loading"><span class="section-analysis-spinner"></span>Cargando solicitudes…</p>
       </div>

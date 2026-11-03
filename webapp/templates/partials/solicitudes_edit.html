@@ -1,5 +1,5 @@
 {% if error %}
-<div class="callout" role="alert"><div class="callout__body">{{ error }}</div></div>
+<div class="dashboard-empty" role="alert"><span class="dashboard-empty__label">No disponible</span><p>{{ error }}</p></div>
 <a class="btn-secondary" href="/operaciones/solicitudes">Volver a Solicitudes</a>
 {% else %}
 <form class="hc-profile-form" data-dw-graph-token
@@ -10,6 +10,7 @@
       hx-post="/operaciones/solicitudes/{{ item_id }}/guardar"
       hx-target="#solicitudes-save-result" hx-disabled-elt="find button[type=submit]">
   <input type="hidden" name="etag" value="{{ etag }}">
+  <section class="hc-profile-section"><h2>Estado y asignación</h2><div class="hc-profile-section__grid hc-profile-section__grid--fluid">
   <p>Status funnel: {{ funnel or '—' }}</p>
   <label>Status Arquitectura
     {% if destinations %}
@@ -41,12 +42,15 @@
     </select>
   </label>
   {% endfor %}
+  </div></section><section class="hc-profile-section"><h2>Fechas</h2><div class="hc-profile-section__grid hc-profile-section__grid--fluid">
   <label>Fecha de inicio planificada <input type="date" name="{{ fields.PLANNED }}" value="{{ values[fields.PLANNED] }}"></label>
   <label>Fecha de inicio Real <input type="date" name="{{ fields.ACTUAL }}" value="{{ values[fields.ACTUAL] }}"></label>
+  </div></section><section class="hc-profile-section"><h2>Detalle</h2><div class="hc-profile-section__grid hc-profile-section__grid--fluid">
   <label>Descripción de la demanda (HTML) <textarea name="{{ fields.DESCRIPTION }}" rows="8">{{ values[fields.DESCRIPTION] }}</textarea></label>
   <label>Comentarios de Arquitectura (HTML) <textarea name="{{ fields.COMMENTS }}" rows="8">{{ values[fields.COMMENTS] }}</textarea></label>
-  <p>El contenido HTML se conserva si no se modifica. Los cambios con etiquetas o atributos no admitidos se rechazan.</p>
-  <div class="support-links">
+  </div><p class="field-hint">El contenido HTML se conserva si no se modifica. Los cambios con etiquetas o atributos no admitidos se rechazan.</p>
+  </section>
+  <div class="hc-profile-form__actions">
     <a class="btn-secondary" href="/operaciones/solicitudes"
        @click="if (dirty && !window.confirm('¿Descartar los cambios sin guardar?')) $event.preventDefault(); else dirty=false">Cancelar</a>
     <button type="submit" class="btn-primary" :disabled="saved || review"{% if not etag %} disabled{% endif %}>Guardar</button>
