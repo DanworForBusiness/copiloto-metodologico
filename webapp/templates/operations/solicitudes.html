@@ -15,9 +15,18 @@
     {% include "partials/solicitudes_detail_hero.html" %}
     {% else %}
     <section class="module-hero opsb-hero">
-      <div class="catalog-actionbar"><p class="eyebrow">Operaciones</p></div>
+      <div class="catalog-actionbar">
+        <p class="eyebrow">Operaciones</p>
+        <div class="support-links catalog-actionbar__actions">
+          <button type="button" class="btn-secondary" data-dw-graph-token
+                  hx-post="/operaciones/solicitudes/data" hx-target="#solicitudes-panel"
+                  hx-include="#solicitudes-filters" hx-sync="#solicitudes-filters:replace"
+                  hx-indicator="#solicitudes-loading" hx-disabled-elt="this"
+                  hx-vals='{"refresh":"1"}'>Actualizar</button>
+        </div>
+      </div>
       <h1>Solicitudes</h1>
-      <p class="hero-lead full-page-subtitle">Consultá los requerimientos de Arquitectura en SharePoint.</p>
+      <p class="hero-lead full-page-subtitle">Solicitudes y requerimientos del área de Arquitectura e Innovación</p>
     </section>
     {% endif %}
     <div id="solicitudes-panel" class="dashboard-sections">

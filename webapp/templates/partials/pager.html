@@ -3,32 +3,38 @@
    `pg` viene de `webapp.services.pagination.paginate` (trae las URLs ya armadas con TODO el estado de la consulta: filtros/búsqueda/page_size). Disabled = botón `disabled` (opacidad
    .35), ventana y «…» = `page_window`. Se muestra cuando `pg.show` (hay más filas que el tamaño mínimo): con una sola página las flechas quedan deshabilitadas pero el selector sigue
    disponible para volver a un tamaño menor. El `<select>` hace `hx-get` a la base SIN página: al cambiar el tamaño vuelve a la página 1 y conserva los filtros. #}
-{% macro render_pager(pg, target, label, size_label) %}
+{% macro page_request(url, page, target, post_url, form) -%}
+  {% if post_url %}hx-post="{{ post_url }}" hx-include="{{ form }}" hx-vals='{{ {"page": page} | tojson }}'
+  {% else %}hx-get="{{ url }}" hx-swap="outerHTML"{% endif %} hx-target="{{ target }}"
+{%- endmacro %}
+{% macro render_pager(pg, target, label, size_label, show_size=true, post_url=none, form=none, indicator=none) %}
 {% if pg.show %}
-<nav class="activity-pager" aria-label="{{ label }}" data-pager data-pager-page="{{ pg.page }}" data-pager-pages="{{ pg.total_pages }}" data-pager-size="{{ pg.page_size }}">
+<nav {% if post_url %}data-dw-graph-token hx-sync="{{ form }}:replace" {% if indicator %}hx-indicator="{{ indicator }}"{% endif %}{% endif %} class="activity-pager" aria-label="{{ label }}" data-pager data-pager-page="{{ pg.page }}" data-pager-pages="{{ pg.total_pages }}" data-pager-size="{{ pg.page_size }}">
   <button type="button" class="activity-pager__btn" title="Primera página"
-          {% if pg.page > 1 %}hx-get="{{ pg.urls.first }}" hx-target="{{ target }}" hx-swap="outerHTML"{% else %}disabled{% endif %}>«</button>
+          {% if pg.page > 1 %}{{ page_request(pg.urls.first, 1, target, post_url, form) }}{% else %}disabled{% endif %}>«</button>
   <button type="button" class="activity-pager__btn" title="Anterior"
-          {% if pg.page > 1 %}hx-get="{{ pg.urls.prev }}" hx-target="{{ target }}" hx-swap="outerHTML"{% else %}disabled{% endif %}>‹</button>
+          {% if pg.page > 1 %}{{ page_request(pg.urls.prev, pg.page - 1, target, post_url, form) }}{% else %}disabled{% endif %}>‹</button>
   {% for p in pg.page_window %}
     {% if p is none %}
     <span class="activity-pager__ellipsis">…</span>
     {% elif p == pg.page %}
     <span class="activity-pager__page is-active" aria-current="page">{{ p }}</span>
     {% else %}
-    <button type="button" class="activity-pager__page" hx-get="{{ pg.urls[p] }}" hx-target="{{ target }}" hx-swap="outerHTML">{{ p }}</button>
+    <button type="button" class="activity-pager__page" {{ page_request(pg.urls[p], p, target, post_url, form) }}>{{ p }}</button>
     {% endif %}
   {% endfor %}
   <button type="button" class="activity-pager__btn" title="Siguiente"
-          {% if pg.page < pg.total_pages %}hx-get="{{ pg.urls.next }}" hx-target="{{ target }}" hx-swap="outerHTML"{% else %}disabled{% endif %}>›</button>
+          {% if pg.page < pg.total_pages %}{{ page_request(pg.urls.next, pg.page + 1, target, post_url, form) }}{% else %}disabled{% endif %}>›</button>
   <button type="button" class="activity-pager__btn" title="Última página"
-          {% if pg.page < pg.total_pages %}hx-get="{{ pg.urls.last }}" hx-target="{{ target }}" hx-swap="outerHTML"{% else %}disabled{% endif %}>»</button>
+          {% if pg.page < pg.total_pages %}{{ page_request(pg.urls.last, pg.total_pages, target, post_url, form) }}{% else %}disabled{% endif %}>»</button>
+  {% if show_size %}
   <select class="activity-pager__size" name="{{ pg.size_param }}" aria-label="{{ size_label }}"
           hx-get="{{ pg.urls.size }}" hx-trigger="change" hx-target="{{ target }}" hx-swap="outerHTML">
     {% for size in pg.page_sizes %}
     <option value="{{ size }}" {% if size == pg.page_size %}selected{% endif %}>{{ size }}</option>
     {% endfor %}
   </select>
+  {% endif %}
 </nav>
 {% endif %}
 {% endmacro %}

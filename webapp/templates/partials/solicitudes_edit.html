@@ -69,11 +69,9 @@
   </div>
   </section>
   <div class="hc-profile-form__actions">
-    <a class="btn-secondary" href="/operaciones/solicitudes"
-       @click="if (dirty && !window.confirm('¿Descartar los cambios sin guardar?')) $event.preventDefault(); else dirty=false">Cancelar</a>
     <button type="submit" class="btn-primary" :disabled="saved || review"{% if not etag %} disabled{% endif %}>Guardar</button>
     <span id="solicitudes-saving" class="htmx-indicator section-analysis-loading" role="status">Guardando…</span>
   </div>
 </form>
-<div id="solicitudes-save-result" class="callout" role="status"></div>
+<div id="solicitudes-save-result" role="status"></div>
 {% endif %}

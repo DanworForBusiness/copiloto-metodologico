@@ -108,6 +108,8 @@ def test_save_audits_and_reconciles_timeout(monkeypatch, caplog):
     from webapp.routers import solicitudes
 
     monkeypatch.setattr(solicitudes, "_user", lambda request: {"sub": "test-actor"})
+    invalidated = []
+    monkeypatch.setattr(solicitudes.solicitudes_snapshot, "invalidate", invalidated.append)
     observed = iter([{"eTag": '"7"', "fields": {}}, {"eTag": '"8"', "fields": {"Prioridad": "Alta"}}])
     monkeypatch.setattr(repository, "read_item", lambda *args: next(observed))
     monkeypatch.setattr(repository, "lookup_options", lambda token: {})
@@ -121,6 +123,7 @@ def test_save_audits_and_reconciles_timeout(monkeypatch, caplog):
             data={"graph_token": "fake-secret", "etag": '"7"', "Prioridad": "Alta"})
     assert "data-solicitudes-saved" in result.text
     assert "fields=Prioridad outcome=confirmed" in caplog.text
+    assert invalidated == ["test-actor"]
     assert "fake-secret" not in caplog.text
 
 
@@ -138,6 +141,8 @@ def test_detail_form_renders_multiple_lookup_and_escapes_html(monkeypatch):
     assert result.status_code == 200
     assert f'type="hidden" name="{service.ASSIGNEES}" :value="selected" value="9"' in result.text
     assert ">Test</textarea>" in result.text
+    assert ">Cancelar</a>" not in result.text
+    assert 'id="solicitudes-save-result" role="status"' in result.text
     assert "<option>Pendiente</option>" in result.text
     assert result.text.count('id="sol-person"') == 1
     assert 'aria-label="Quitar asignación"' in result.text
@@ -201,7 +206,7 @@ def test_list_separates_project_and_action_and_hides_single_page_pager(monkeypat
     assert "2 requerimientos" in result and "chart-tooltip-anchor" in result
     rows.extend({"id": str(i), "fields": {"Proyecto": "Proyecto de prueba"}} for i in range(3, 55))
     result = client.post(path, data={"graph_token": "fake", "q": "Proyecto", "page": "2"}).text
-    assert 'aria-current="page">2 / 2' in result
+    assert 'aria-current="page">2</span>' in result
     assert 'value="Proyecto"' in result
     assert result.count('aria-label="Abrir solicitud ') == 3
 
@@ -416,3 +421,78 @@ def test_sort_filters_then_paginates_and_keeps_actions_fixed(monkeypatch):
     assert '<th class="center" scope="col">Acciones</th>' in result
     assert 'hx-params="sort,dir"' in result
     assert 'name="sort" value="title"' in result
+
+
+def test_snapshot_reuses_filters_sort_and_pages_and_refreshes(monkeypatch):
+    import base64
+    import json
+    from fastapi.testclient import TestClient
+    from webapp.main import app
+    from webapp.routers import solicitudes
+    from webapp.services import solicitudes_snapshot as snapshot
+
+    actor = "snapshot-test-user"
+    snapshot.invalidate(actor)
+    monkeypatch.setattr(solicitudes, "_user", lambda request: {"sub": actor})
+    calls = []
+    rows = [{"id": str(i), "fields": {"Title": f"Solicitud {i:03}"}} for i in range(1, 106)]
+
+    def read(token):
+        calls.append(token)
+        return rows
+
+    monkeypatch.setattr(repository, "read_requests", read)
+    claims = base64.urlsafe_b64encode(json.dumps({"exp": int(snapshot.time.time()) + 900}).encode()).decode().rstrip("=")
+    token = f"header.{claims}.signature"
+    client = TestClient(app)
+    path = "/operaciones/solicitudes/data"
+
+    def post(**params):
+        return client.post(path, data={"graph_token": token, **params}).text
+
+    assert 'data-pager-pages="3"' in post()
+    assert 'activity-pager__size' not in post(q="Solicitud", sort="title")
+    assert '/solicitudes/101/editar' in post(sort="title", page="3")
+    assert calls == [token]
+    post(refresh="1")
+    assert calls == [token, token]
+    snapshot.invalidate(actor)
+    post()
+    assert len(calls) == 3
+    snapshot.invalidate(actor)
+
+
+def test_snapshot_isolates_and_expires_and_does_not_serve_failed_refresh(monkeypatch):
+    import pytest
+    from urllib.error import HTTPError
+    from webapp.services import solicitudes_snapshot as snapshot
+
+    actors = ("cache-a", "cache-b")
+    for actor in actors:
+        snapshot.invalidate(actor)
+    clock = [1000]
+    monkeypatch.setattr(snapshot.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(snapshot, "_expiration", lambda token: snapshot.time.time() + 1000)
+    calls = []
+
+    def read(token):
+        calls.append(token)
+        return [{"id": str(len(calls))}]
+
+    monkeypatch.setattr(repository, "read_requests", read)
+    assert snapshot.read(actors[0], "token-a") == [{"id": "1"}]
+    assert snapshot.read(actors[1], "token-a") == [{"id": "2"}]
+    assert snapshot.read(actors[0], "token-b") == [{"id": "3"}]
+    clock[0] += snapshot.TTL_SECONDS
+    assert snapshot.read(actors[0], "token-a") == [{"id": "4"}]
+
+    def denied(token):
+        raise HTTPError("", 403, "Forbidden", {}, None)
+
+    monkeypatch.setattr(repository, "read_requests", denied)
+    with pytest.raises(HTTPError):
+        snapshot.read(actors[0], "token-a", refresh=True)
+    with pytest.raises(HTTPError):
+        snapshot.read(actors[0], "token-a")
+    for actor in actors:
+        snapshot.invalidate(actor)

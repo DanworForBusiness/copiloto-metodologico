@@ -7,7 +7,7 @@ from starlette.concurrency import run_in_threadpool
 
 from core.content_registry import DEFAULT_PACK
 from webapp import hub_metrics_access, operations_access, workspaces
-from webapp.services import auth_service
+from webapp.services import auth_service, pagination, solicitudes_snapshot
 from webapp.services import solicitudes_repository as repository
 from webapp.services import solicitudes_service as service
 from webapp.templating import templates
@@ -45,7 +45,8 @@ def solicitudes_page(request: Request):
 
 @router.post(PATH + "/data", response_class=HTMLResponse, include_in_schema=False)
 async def solicitudes_data(request: Request, graph_token: str = Form("")):
-    if not _user(request):
+    user = _user(request)
+    if not user:
         raise HTTPException(401, "Sin sesión")
     form = await request.form()
     selected = {key: str(form.get(key, "")) for key in FILTERS}
@@ -56,7 +57,8 @@ async def solicitudes_data(request: Request, graph_token: str = Form("")):
         error = "No pudimos obtener tu token de Microsoft. Volvé a iniciar sesión."
     else:
         try:
-            rows = await run_in_threadpool(repository.read_requests, graph_token)
+            rows = await run_in_threadpool(solicitudes_snapshot.read, user.get("sub"), graph_token,
+                                           refresh=form.get("refresh") == "1")
         except HTTPError as exc:
             error = {
                 401: "La autorización de Microsoft venció. Volvé a iniciar sesión.",
@@ -73,11 +75,9 @@ async def solicitudes_data(request: Request, graph_token: str = Form("")):
     sort = sort if sort in service.SORT_COLUMNS else ""
     direction = "desc" if form.get("dir") == "desc" else "asc"
     matches = service.sort_rows(service.select_rows(rows, query, selected), sort, direction)
-    pages = max(1, (len(matches) + 49) // 50)
-    raw_page = str(form.get("page", "1"))
-    page = min(pages, max(1, int(raw_page))) if raw_page.isascii() and raw_page.isdigit() and len(raw_page) < 8 else 1
+    pager = pagination.paginate(matches, page=form.get("page"), sizes=(50,), default_size=50)
     return templates.TemplateResponse(request=request, name="partials/solicitudes_panel.html", context={
-        "rows": matches[(page - 1) * 50:page * 50], "page": page, "pages": pages,
+        "rows": pager["items"], "pager": pager,
         "count": len(matches), "source_count": len(rows), "error": error, "query": query,
         "selected": selected, "filters": FILTERS, "options": options,
         "columns": service.SORT_COLUMNS, "sort": sort, "direction": direction,
@@ -223,6 +223,7 @@ async def solicitudes_save(request: Request, item_id: str, graph_token: str = Fo
             outcome = "uncertain"
         else:
             outcome = "verify"
+        await run_in_threadpool(solicitudes_snapshot.invalidate, user["sub"])
         try:
             updated = await run_in_threadpool(repository.read_item, graph_token, item_id)
             observed = service.form_values(updated["fields"])

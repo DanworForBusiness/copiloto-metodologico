@@ -1,3 +1,4 @@
+{% from "partials/pager.html" import render_pager %}
 <form id="solicitudes-filters" class="hc-profile-filters filter-toolbar-card solicitudes-filters" hx-post="/operaciones/solicitudes/data" hx-target="#solicitudes-panel" hx-disabled-elt="find button"
       hx-indicator="#solicitudes-loading" hx-sync="this:replace" data-dw-graph-token>
     <input type="hidden" name="sort" value="{{ sort }}">
@@ -56,13 +57,7 @@
     </tbody>
   </table>
 </div>
-{% if pages > 1 %}
-<nav class="activity-pager" aria-label="Páginas de solicitudes">
-  <button type="submit" form="solicitudes-filters" class="activity-pager__btn" name="page" value="{{ page - 1 }}" aria-label="Anterior"{% if page == 1 %} disabled{% endif %}>‹</button>
-  <span class="activity-pager__page is-active" aria-current="page">{{ page }} / {{ pages }}</span>
-  <button type="submit" form="solicitudes-filters" class="activity-pager__btn" name="page" value="{{ page + 1 }}" aria-label="Siguiente"{% if page == pages %} disabled{% endif %}>›</button>
-</nav>
-{% endif %}
+{{ render_pager(pager, "#solicitudes-panel", "Páginas de solicitudes", "", show_size=false, post_url="/operaciones/solicitudes/data", form="#solicitudes-filters", indicator="#solicitudes-loading") }}
 {% endif %}
 
 </div></details>
