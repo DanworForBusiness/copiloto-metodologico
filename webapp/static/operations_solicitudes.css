@@ -30,3 +30,15 @@
 .solicitudes-person-results [role="option"].is-active {
   background: color-mix(in srgb, var(--gold) 15%, var(--content-surface));
 }
+
+/* Preserve readable columns in the Hub's scrollable table wrapper. */
+table.solicitudes-table { min-width: 52rem; }
+.solicitudes-table .solicitudes-description {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}

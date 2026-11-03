@@ -292,3 +292,23 @@ def test_save_narrative_confirms_plain_text_after_graph_reread(monkeypatch):
               service.COMMENTS: "Conservar"})
     assert "data-solicitudes-saved" in result.text
     assert fields[service.COMMENTS] == "<p><b>Conservar</b></p>"
+
+
+def test_list_prioritizes_description_without_truncating_search(monkeypatch):
+    from fastapi.testclient import TestClient
+    from webapp.main import app
+    from webapp.routers import solicitudes
+
+    monkeypatch.setattr(solicitudes, "_user", lambda request: {"sub": "test"})
+    description = "Detalle extenso " * 30 + "término final"
+    monkeypatch.setattr(repository, "read_requests", lambda token: [
+        {"id": "1", "fields": {service.DESCRIPTION: "<p>" + description + "</p>"}},
+    ])
+    result = TestClient(app).post("/operaciones/solicitudes/data",
+        data={"graph_token": "fake", "q": "término final"}).text
+    headers = ("Descripción resumida", "Proyecto", "Prioridad", "Status funnel", "Status Arquitectura", "Colaborador", "Acciones")
+    positions = [result.index(f">{label}</th>") for label in headers]
+    assert positions == sorted(positions)
+    assert description in result
+    assert 'style="width:39%"' in result
+    assert 'href="/operaciones/solicitudes/1/editar"' in result
