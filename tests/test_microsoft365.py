@@ -17,6 +17,37 @@ import pytest
 from core import microsoft365
 
 
+@pytest.mark.parametrize('kwargs', [
+    {'extra_headers':{'If-Match':'"7"'}, 'timeout':19},
+    {'etag':'"7"'},
+])
+def test_patch_supports_both_existing_cchh_and_solicitudes_contracts(monkeypatch,kwargs):
+    calls=[]
+    def opened(request,timeout):
+        calls.append((request,timeout))
+        return _FakeResponse({'id':'updated'})
+    monkeypatch.setattr(microsoft365.urllib.request,'urlopen',opened)
+    result=microsoft365.graph_patch_json('https://graph.microsoft.com/v1.0/drives/d/items/i','fixture',{'parentReference':{'id':'folder'}},**kwargs)
+    assert result=={'id':'updated'} and len(calls)==1
+    request,timeout=calls[0]
+    assert request.method=='PATCH' and request.get_header('If-match')=='"7"'
+    assert timeout==kwargs.get('timeout',microsoft365.DEFAULT_TIMEOUT)
+
+
+@pytest.mark.parametrize('kwargs',[{'etag':''},{'etag':'*'},{'etag':'"7"','extra_headers':{'If-Match':'"8"'}}])
+def test_patch_rejects_invalid_or_conflicting_versions_before_any_network(monkeypatch,kwargs):
+    def forbidden(*args,**kw):raise AssertionError('Unexpected network')
+    monkeypatch.setattr(microsoft365.urllib.request,'urlopen',forbidden)
+    with pytest.raises(ValueError):microsoft365.graph_patch_json('https://graph.microsoft.com/v1.0/test','fixture',{},**kwargs)
+
+
+def test_patch_transport_has_only_one_definition():
+    import ast
+    from pathlib import Path
+    tree=ast.parse(Path(microsoft365.__file__).read_text(encoding='utf-8'))
+    assert sum(isinstance(node,ast.FunctionDef) and node.name=='graph_patch_json' for node in tree.body)==1
+
+
 class _FakeResponse:
     def __init__(self, payload: dict):
         self._body = json.dumps(payload).encode("utf-8")

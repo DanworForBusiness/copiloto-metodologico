@@ -1577,6 +1577,52 @@ function initAutoDismissFeedback(scope) {
 }
 document.body.addEventListener("htmx:load", () => initAutoDismissFeedback(document));
 
+// CCHH feedback: optional manual close alongside the existing auto-dismiss.
+// No business action, error state or timer is changed by dismissing its message.
+(function () {
+  if (!/^\/(cchh|human-capital)(\/|$)/.test(window.location?.pathname || '')) return;
+  const selector = '.callout--feedback, .feedback-error, .feedback-success, .dashboard-empty[data-error-kind], .dashboard-empty[role="alert"], [data-dw-auto-dismiss]';
+  let queued = false;
+  function wire() {
+    document.querySelectorAll(selector).forEach(notice => {
+      // Acknowledgement fields are part of a form, not dismissible feedback.
+      if (!notice.textContent.trim() || notice.querySelector('input, select, textarea, form')) return;
+      if (notice.matches('[data-dw-auto-dismiss]') && notice.querySelector(selector)) {
+        notice.classList.remove('hc-notice--dismissible');
+        return;
+      }
+      if (notice.querySelector(':scope > [data-hc-notice-close]')) return;
+      notice.classList.add('hc-notice--dismissible');
+      notice.setAttribute('data-hc-dismissible', '');
+      const close = document.createElement('button');
+      close.type = 'button'; close.className = 'panel-close hc-notice-close';
+      close.setAttribute('data-hc-notice-close', '');
+      close.setAttribute('aria-label', 'Cerrar notificación');
+      close.title = 'Cerrar notificación'; close.textContent = '×';
+      notice.appendChild(close);
+    });
+  }
+  function schedule() {
+    if (queued) return;
+    queued = true;
+    queueMicrotask(() => { queued = false; wire(); });
+  }
+  function start() {
+    wire();
+    new MutationObserver(schedule).observe(document.body, {childList: true, subtree: true});
+  }
+  document.addEventListener('click', event => {
+    const close = event.target.closest('[data-hc-notice-close]');
+    if (!close) return;
+    event.preventDefault(); event.stopPropagation();
+    const notice = close.closest('[data-hc-dismissible]');
+    if (notice?.matches('[data-dw-auto-dismiss]')) notice.replaceChildren();
+    else notice?.remove();
+  });
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, {once:true});
+  else start();
+})();
+
 // ── Rating de estrellas 1..N (primitivo COMPARTIDO Hub) ───────────────────
 // Cablea los controles editables `[data-star-rating]` (NO los readonly, que
 // son puro display server-rendered). Contrato de UI (owner):

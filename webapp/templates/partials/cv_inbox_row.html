@@ -25,7 +25,7 @@
   {% if row_actions.count %}<td class="center hc-inbox-actions" data-label="Acciones">
     {# Íconos en orden fijo (`.table-action-btn`, como Candidatos): cada acción que aplica al menos a una fila de la vista aparece en TODAS (deshabilitada donde no aplica, `:disabled` del primitivo); la que no aplica a ninguna no se dibuja (`row_actions`, router). #}
     {# Iconografía del Hub: ojo = ver la ficha del candidato (como Candidatos); enlace externo = abrir el archivo en SharePoint (como los documentos de la ficha).
-       En una fila incorporada, las acciones de bandeja que no le corresponden dejan su lugar vacío (`.hc-inbox-slot`): nunca parecen editar o borrar al candidato. #}
+       Todas las filas conservan los mismos iconos; lo que no aplica queda deshabilitado. La papelera ocupa un único lugar, con la acción apropiada a cada estado. #}
     {% set _closed = r.status == 'INCORPORATED' %}
     <div class="dw-row-actions">
       {% if row_actions.candidate %}
@@ -34,7 +34,7 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
         <span class="chart-tooltip" aria-hidden="true"><p>Ver candidato</p></span>
       </a>
-      {% else %}<span class="table-action-btn hc-inbox-slot" aria-hidden="true"></span>{% endif %}
+      {% else %}<button type="button" class="table-action-btn" disabled aria-label="Ver ficha del candidato"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></button>{% endif %}
       {% endif %}
       {% if row_actions.original %}
       {% if r.web_url %}
@@ -42,15 +42,15 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
         <span class="chart-tooltip" aria-hidden="true"><p>Abrir CV original</p></span>
       </a>
-      {% else %}<span class="table-action-btn hc-inbox-slot" aria-hidden="true"></span>{% endif %}
+      {% else %}<button type="button" class="table-action-btn" disabled aria-label="Abrir el CV original en SharePoint"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg></button>{% endif %}
       {% endif %}
-      {% if row_actions.review and _closed %}<span class="table-action-btn hc-inbox-slot" aria-hidden="true"></span>{% elif row_actions.review %}
+      {% if row_actions.review %}
       <button type="button" class="table-action-btn chart-tooltip-anchor" {% if r.can_accept %}@click="open = !open" :aria-expanded="open"{% else %}disabled{% endif %} aria-label="Revisar e incorporar" data-cvinbox-review-toggle>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
         {% if r.can_accept %}<span class="chart-tooltip" aria-hidden="true"><p>Revisar e incorporar</p></span>{% endif %}
       </button>
       {% endif %}
-      {% if row_actions.retry and _closed and not r.can_retire %}<span class="table-action-btn hc-inbox-slot" aria-hidden="true"></span>{% elif row_actions.retry %}
+      {% if row_actions.retry %}
       {% set _retry = 'reintentar' if r.can_retry else ('retirar' if r.can_retire else '') %}
       <button type="button" class="table-action-btn chart-tooltip-anchor" {% if _retry %}hx-post="{{ _act }}/{{ _retry }}" hx-target="#cvinbox-panel" hx-swap="outerHTML" hx-vals='{{ panel_state | tojson }}' hx-disabled-elt="this" data-hc-write-token data-cvinbox-{{ 'retry' if r.can_retry else 'retire' }}{% else %}disabled{% endif %}
               aria-label="{{ 'Reintentar la incorporación' if r.can_retry else ('Reintentar el retiro del archivo' if r.can_retire else 'Reintentar') }}">
@@ -58,23 +58,14 @@
         {% if _retry %}<span class="chart-tooltip" aria-hidden="true"><p>{{ 'Reintentar la incorporación' if r.can_retry else 'Reintentar el retiro del archivo' }}</p></span>{% endif %}
       </button>
       {% endif %}
-      {% if row_actions.reopen and _closed %}<span class="table-action-btn hc-inbox-slot" aria-hidden="true"></span>{% elif row_actions.reopen %}
+      {% if row_actions.reopen %}
       <button type="button" class="table-action-btn chart-tooltip-anchor" {% if r.can_reopen %}hx-post="{{ _act }}/reabrir" hx-target="#cvinbox-panel" hx-swap="outerHTML" hx-vals='{{ panel_state | tojson }}' data-dw-graph-token data-cvinbox-reopen{% else %}disabled{% endif %}
               aria-label="{{ 'Cancelar la incorporación' if r.status == 'ACCEPTING' else 'Volver a revisar' }}">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 2.6-6.4"/><path d="M3 3v6h6"/></svg>
         {% if r.can_reopen %}<span class="chart-tooltip" aria-hidden="true"><p>{{ 'Cancelar la incorporación' if r.status == 'ACCEPTING' else 'Volver a revisar' }}</p></span>{% endif %}
       </button>
       {% endif %}
-      {% if row_actions.discard and _closed %}<span class="table-action-btn hc-inbox-slot" aria-hidden="true"></span>{% elif row_actions.discard %}
-      {# Descarte: diálogo COMPARTIDO del Hub (`dwConfirmChoice`, base.html) con el motivo y la casilla desmarcada «Eliminar también el archivo original»; marcada, pide una SEGUNDA confirmación
-         (human_capital_import.js). Sin casilla el archivo se mueve a «descartados» (recuperable). #}
-      <button type="button" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" {% if r.can_dismiss %}hx-post="{{ _act }}/descartar" hx-trigger="confirmed" hx-target="#cvinbox-panel" hx-swap="outerHTML"
-              hx-vals='{{ panel_state | tojson }}' data-hc-write-token data-cvinbox-discard data-name="{{ r.name }}" data-reasons='{{ dismiss_options | tojson }}'{% else %}disabled{% endif %} aria-label="Descartar CV">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
-        {% if r.can_dismiss %}<span class="chart-tooltip" aria-hidden="true"><p>Descartar</p></span>{% endif %}
-      </button>
-      {% endif %}
-      {% if row_actions.purge %}
+      {% if row_actions.discard or row_actions.purge %}
       {% if r.can_purge %}
       {# «Eliminar» un CV incorporado = lo MISMO que eliminar el candidato desde Candidatos (sus documentos en «CVs» y la baja; si el CV se sumó a un candidato existente, solo ese documento)
          más el original de la carpeta de carga masiva. Diálogo compartido del Hub (`data-dw-confirm`) + confirmación explícita en el servidor. #}
@@ -87,7 +78,15 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
         <span class="chart-tooltip" aria-hidden="true"><p>Eliminar</p></span>
       </button>
-      {% else %}<span class="table-action-btn hc-inbox-slot" aria-hidden="true"></span>{% endif %}
+      {% else %}
+      {# Descarte: diálogo COMPARTIDO del Hub (`dwConfirmChoice`, base.html) con el motivo y la casilla desmarcada «Eliminar también el archivo original»; marcada, pide una SEGUNDA confirmación
+         (human_capital_import.js). Sin casilla el archivo se mueve a «descartados» (recuperable). #}
+      <button type="button" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" {% if r.can_dismiss %}hx-post="{{ _act }}/descartar" hx-trigger="confirmed" hx-target="#cvinbox-panel" hx-swap="outerHTML"
+              hx-vals='{{ panel_state | tojson }}' data-hc-write-token data-cvinbox-discard data-name="{{ r.name }}" data-reasons='{{ dismiss_options | tojson }}'{% else %}disabled{% endif %} aria-label="Descartar CV">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+        {% if r.can_dismiss %}<span class="chart-tooltip" aria-hidden="true"><p>Descartar</p></span>{% endif %}
+      </button>
+      {% endif %}
       {% endif %}
     </div>
   </td>{% endif %}

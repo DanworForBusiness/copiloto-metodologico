@@ -800,8 +800,6 @@ table.dashboard-table[data-cvinbox-rows] :is(th, td).left { white-space: normal;
 table.dashboard-table[data-cvinbox-rows] :is(th, td).hc-inbox-actions { padding-right: 0; text-align: right; }   /* última columna sin margen derecho: aprovecha todo el ancho */
 /* El asa de redimensionado compartido sobresale 4px a la derecha de su <th> (`right:-4px`, tools.css): en la ÚLTIMA columna ese era el único desborde y dibujaba una barra horizontal sin necesidad. */
 .hc-inbox-scroll th:last-child > .col-resize-handle { right: 0; }
-/* Lugar de una acción que no corresponde a la fila (p. ej. revisar o descartar un CV ya incorporado): conserva la alineación de los íconos sin dibujar un control que confunda. */
-.dw-row-actions > .hc-inbox-slot { visibility: hidden; pointer-events: none; }
 /* Contenedor angosto (laptop chica, panel lateral, móvil): en vez de desplazar en horizontal, cada CV se apila como ficha (rótulo + valor), el MISMO patrón que Históricos en móvil. */
 @container (max-width: 720px) {
   table.dashboard-table[data-cvinbox-rows] colgroup, table.dashboard-table[data-cvinbox-rows] thead { display: none; }
@@ -830,3 +828,5 @@ table.dashboard-table[data-cvinbox-rows] tr.hc-inbox-review-row > td { border-to
 [data-cvinbox-toast].hc-catalog-refresh-feedback--topbar:not(:empty) { width: max-content; max-width: calc(100vw - 32px); }
 /* `.asr-generate:disabled` (tools.css) fuerza opacidad plena para que se vea el spinner durante la carga; deshabilitado SIN carga (falta la confirmación) recupera el aspecto deshabilitado del Hub. */
 .hc-inbox-buttons .asr-generate:disabled:not(.htmx-request), .hc-selection-bar .asr-generate:disabled:not(.htmx-request) { opacity: .45; cursor: not-allowed; }
+.hc-notice--dismissible { position: relative; padding-inline-end: 3rem; }
+.hc-notice--dismissible > .hc-notice-close { position: absolute; inset-inline-end: .5rem; top: .5rem; }

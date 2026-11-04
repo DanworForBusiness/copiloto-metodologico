@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from bs4 import BeautifulSoup
 from fastapi.testclient import TestClient
 
 from tests.webapp.test_cv_history_pilot import TOKEN, home  # noqa: F401  (fixture)
@@ -143,8 +144,14 @@ def test_incorporated_rows_show_the_persisted_candidate_and_only_the_actions_tha
     assert "data-hc-write-token data-cvinbox-delete" in view and "ELIMINAR" in view and "como desde Candidatos" in view      # token de ESCRITURA, confirmación explícita y qué se elimina
     mixed = hc.post("/cchh/candidatos/importar/bandeja", data={"graph_token": TOKEN, "vista": "todos"}).text
     inc = mixed.split(f'data-cvinbox-row="{done["key"]}"', 1)[1].split("</tr>", 1)[0]
-    assert "aria-label=\"Ver ficha del candidato\"" in inc and "hc-inbox-slot" in inc
-    assert "data-cvinbox-review-toggle" not in inc and "data-cvinbox-discard" not in inc                        # su lugar queda vacío: nada que confunda con el candidato del Banco
+    assert "aria-label=\"Ver ficha del candidato\"" in inc
+    assert BeautifulSoup(inc,'html.parser').select_one('[data-cvinbox-review-toggle][disabled]')
+    # Same SVG positions across the displayed page; discard/delete share one slot.
+    displayed=BeautifulSoup(mixed,'html.parser').select('[data-cvinbox-row] .dw-row-actions')
+    shapes=[[[ (element.name, sorted(element.attrs.items())) for element in svg.find_all() ] for svg in row.select('svg')] for row in displayed]
+    assert all(shape==shapes[0] for shape in shapes), shapes
+    assert all(len(row.select('.table-action-btn--danger'))==1 for row in displayed)
+    assert not BeautifulSoup(mixed,'html.parser').select('.hc-inbox-slot')
     pending = mixed.split('data-cvinbox-row="', 1)[1].split("</tr>", 1)[0]
     assert "data-cvinbox-delete" not in pending or "cv1.pdf" in pending                                         # «Eliminar» solo en filas incorporadas
     assert "data-cvinbox-discard" in mixed                                                                       # las filas por resolver conservan sus acciones
