@@ -16,7 +16,7 @@ def list_url(token: str) -> str:
 def read_requests(token: str) -> list[dict]:
     """Read every authorized page before applying global search and filters."""
     fields = ",".join(("Title", service.PROJECT, service.PROJECT + "LookupId", service.DESCRIPTION, "Prioridad", service.FUNNEL,
-                       service.STATUS, service.ASSIGNEES, service.CREATION_DATE))
+                       service.STATUS, service.ASSIGNEES, service.CREATION_DATE, service.PLANNED))
     base = list_url(token)
     url = f"{base}/items?$expand=fields($select={fields})"
     rows = []
@@ -42,6 +42,28 @@ def read_columns(token: str) -> dict:
     return graph_get_json(f"{list_url(token)}/columns", token)
 
 
+def read_creation_columns(token: str) -> list[dict]:
+    base = list_url(token)
+    prefix = f"{base}/columns"
+    url = prefix + "?$select=name,displayName,required,readOnly,hidden,defaultValue,text,choice,dateTime,lookup,calculated,validation"
+    columns = []
+    for _ in range(40):
+        if not url.startswith(prefix + "?"):
+            raise ValueError("Invalid columns continuation URL")
+        page = graph_get_json(url, token)
+        columns.extend(page["value"])
+        url = page.get("@odata.nextLink")
+        if not url:
+            return columns
+    raise ValueError("Columns page limit exceeded")
+
+
+def create_item(token: str, payload: dict) -> dict:
+    from core.microsoft365 import graph_post_json
+
+    return graph_post_json(f"{list_url(token)}/items", token, payload)
+
+
 def item_url(token: str, item_id: str) -> str:
     return f"{list_url(token)}/items/{quote(item_id, safe='')}"
 
@@ -54,6 +76,14 @@ def update_item(token: str, item_id: str, payload: dict, etag: str) -> dict:
     from core.microsoft365 import graph_patch_json
 
     return graph_patch_json(f"{item_url(token, item_id)}/fields", token, payload, etag=etag)
+
+
+def delete_item(token: str, item_id: str, etag: str) -> None:
+    from core.microsoft365 import graph_delete
+
+    if not etag or etag == "*":
+        raise ValueError("A current item ETag is required")
+    graph_delete(item_url(token, item_id), token, extra_headers={"If-Match": etag})
 
 
 def lookup_options(token: str, fields=(service.PROJECT, service.ASSIGNEES), *, base=None) -> dict:

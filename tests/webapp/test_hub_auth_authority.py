@@ -294,7 +294,6 @@ def test_the_marker_is_declarative_and_carries_no_credential():
         "operations/staffing.html": 1,
         "operations/solicitudes.html": 2,
         "partials/pager.html": 1,
-        "partials/solicitudes_edit.html": 1,
         "partials/solicitudes_panel.html": 3,
         "partials/admin_apis_sync.html": 2,
         "partials/admin_panel.html": 4,

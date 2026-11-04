@@ -1,6 +1,7 @@
 """Business rules for Operations requests."""
 from html import escape
 from html.parser import HTMLParser
+from datetime import date
 
 TRANSITIONS = {
     "": ("Pendiente",),
@@ -210,13 +211,30 @@ def changes(current, submitted, options):
             result[key] = value or None
     return result
 
+def date_key(value):
+    """Keep the calendar day supplied by SharePoint, without timezone conversion."""
+    if not value:
+        return ""
+    try:
+        return date.fromisoformat(value[:10]).isoformat()
+    except (TypeError, ValueError):
+        return ""
+
+
+def display_date(value):
+    day = date_key(value)
+    return date.fromisoformat(day).strftime("%d/%m/%Y") if day else "—"
+
+
 SORT_COLUMNS = {
-    "title": ("Solicitud", 27),
-    "project": ("Proyecto", 21),
-    "priority": ("Prioridad", 8),
-    "funnel": ("Status funnel", 12),
-    "architecture": ("Status Arquitectura", 13),
-    "collaborator": ("Colaborador", 12),
+    "title": ("Solicitud", 23),
+    "project": ("Proyecto", 17),
+    "created": ("Creada", 10),
+    "planned": ("Inicio", 10),
+    "priority": ("Prioridad", 7),
+    "funnel": ("Funnel", 9),
+    "architecture": ("Arquitectura", 10),
+    "collaborator": ("Colaborador", 9),
 }
 
 
@@ -231,6 +249,8 @@ def sort_rows(rows, column, direction):
         value = {
             "title": fields.get("Title"),
             "project": row_project_label(row),
+            "created": date_key(fields.get(CREATION_DATE)),
+            "planned": date_key(fields.get(PLANNED)),
             "priority": fields.get("Prioridad"),
             "funnel": fields.get(FUNNEL),
             "architecture": fields.get(STATUS),

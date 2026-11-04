@@ -19,7 +19,7 @@ def test_read_follows_graph_pages(monkeypatch):
     next_link = f"{list_url}/items?$skiptoken=next"
     responses = {
         f"{base}/sites/danwor.sharepoint.com:/sites/Gestion": {"id": "example,site,web"},
-        f"{list_url}/items?$expand=fields($select=Title,Proyecto,ProyectoLookupId,{service.DESCRIPTION},Prioridad,{service.FUNNEL},{service.STATUS},{service.ASSIGNEES},{service.CREATION_DATE})": {"value": [{"id": "1"}], "@odata.nextLink": next_link},
+        f"{list_url}/items?$expand=fields($select=Title,Proyecto,ProyectoLookupId,{service.DESCRIPTION},Prioridad,{service.FUNNEL},{service.STATUS},{service.ASSIGNEES},{service.CREATION_DATE},{service.PLANNED})": {"value": [{"id": "1"}], "@odata.nextLink": next_link},
         next_link: {"value": [{"id": "2"}]},
     }
     monkeypatch.setattr(repository, "graph_get_json", lambda url, token: responses[url])
@@ -311,11 +311,11 @@ def test_list_prioritizes_description_without_truncating_search(monkeypatch):
     ])
     result = TestClient(app).post("/operaciones/solicitudes/data",
         data={"graph_token": "fake", "q": "término final"}).text
-    headers = ("Solicitud", "Proyecto", "Prioridad", "Status funnel", "Status Arquitectura", "Colaborador", "Acciones")
+    headers = ("Solicitud", "Proyecto", "Creada", "Inicio", "Prioridad", "Funnel", "Arquitectura", "Colaborador", "Acciones")
     positions = [result.index(label, result.index("<thead>")) for label in headers]
     assert positions == sorted(positions)
     assert "Solicitud #1" in result and description not in result
-    assert 'style="width:27%"' in result
+    assert 'style="width:23%"' in result
     assert 'href="/operaciones/solicitudes/1/editar"' in result
 
 
@@ -416,8 +416,8 @@ def test_sort_filters_then_paginates_and_keeps_actions_fixed(monkeypatch):
     assert 'href="/operaciones/solicitudes/51/editar"' in result
     assert 'href="/operaciones/solicitudes/50/editar"' not in result
     assert 'aria-sort="ascending"' in result
-    assert 'data-draggable-columns-key="operaciones-solicitudes-v1"' in result
-    assert 'data-resizable-columns-key="operaciones-solicitudes-v1"' in result
+    assert 'data-draggable-columns-key="operaciones-solicitudes-v2"' in result
+    assert 'data-resizable-columns-key="operaciones-solicitudes-v2"' in result
     assert '<th class="center" scope="col">Acciones</th>' in result
     assert 'hx-params="none"' in result
     assert 'name="sort" value="title"' in result
@@ -501,4 +501,92 @@ def test_snapshot_isolates_and_expires_and_does_not_serve_failed_refresh(monkeyp
     with pytest.raises(HTTPError):
         snapshot.read(actors[0], "token-a")
     for actor in actors:
+        snapshot.invalidate(actor)
+
+
+def test_table_dates_preserve_calendar_day_and_sort_chronologically():
+    from webapp.services import solicitudes_service as svc
+
+    for raw, expected in (
+        ("2026-11-03T23:30:00-03:00", "03/11/2026"),
+        ("2026-01-02T00:30:00+14:00", "02/01/2026"),
+        ("2024-02-29", "29/02/2024"),
+        (None, "—"), ("", "—"), ("2026-02-30", "—"),
+    ):
+        assert svc.display_date(raw) == expected
+
+    for column, field in (("created", svc.CREATION_DATE), ("planned", svc.PLANNED)):
+        rows = [
+            {"id": "empty", "fields": {field: None}},
+            {"id": "november", "fields": {field: "2026-11-03T00:00:00Z"}},
+            {"id": "january", "fields": {field: "2026-01-20T00:00:00Z"}},
+            {"id": "previous-year", "fields": {field: "2025-12-31T23:30:00-03:00"}},
+        ]
+        assert [row["id"] for row in svc.sort_rows(rows, column, "asc")] == [
+            "previous-year", "january", "november", "empty",
+        ]
+        assert [row["id"] for row in svc.sort_rows(rows, column, "desc")] == [
+            "november", "january", "previous-year", "empty",
+        ]
+
+
+def test_nine_column_table_dates_snapshot_sort_and_pagination(monkeypatch):
+    import base64
+    import json
+    import re
+    from fastapi.testclient import TestClient
+    from webapp.main import app
+    from webapp.routers import solicitudes
+    from webapp.services import solicitudes_snapshot as snapshot
+
+    actor = "table-dates-test"
+    snapshot.invalidate(actor)
+    monkeypatch.setattr(solicitudes, "_user", lambda request: {"sub": actor})
+    calls = []
+    rows = [{"id": str(i), "fields": {
+        "Title": f"Solicitud {i}",
+        service.CREATION_DATE: f"{2020 + i}-01-02T23:30:00-03:00",
+        service.PLANNED: f"{2020 + i}-11-03T00:00:00Z",
+        service.ACTUAL: "2001-01-01T00:00:00Z",
+    }} for i in range(1, 56)]
+    rows.append({"id": "empty", "fields": {}})
+
+    def read(token):
+        calls.append(token)
+        return rows[::-1]
+
+    monkeypatch.setattr(repository, "read_requests", read)
+    claims = base64.urlsafe_b64encode(json.dumps({"exp": int(snapshot.time.time()) + 900}).encode()).decode().rstrip("=")
+    token = f"header.{claims}.signature"
+    client = TestClient(app)
+    try:
+        for column in ("created", "planned"):
+            result = client.post("/operaciones/solicitudes/data", data={
+                "graph_token": token, "sort": column, "dir": "asc", "page": "2",
+            }, headers={"HX-Request": "true"})
+            assert result.status_code == 200
+            table = result.text.split('<table class="dashboard-table solicitudes-table">', 1)[1].split("</table>", 1)[0]
+            headers = re.findall(r"<th\b[^>]*>(.*?)</th>", table, re.S)
+            labels = [re.sub(r"<[^>]+>", "", value).strip().rstrip("▲").strip() for value in headers]
+            assert labels == [
+                "Solicitud", "Proyecto", "Creada", "Inicio", "Prioridad", "Funnel",
+                "Arquitectura", "Colaborador", "Acciones",
+            ]
+            body = re.findall(r"<tr>(.*?)</tr>", table.split("<tbody>", 1)[1], re.S)
+            assert len(body) == 6
+            assert "/51/editar" in body[0]
+            assert "/empty/editar" in body[-1]
+            assert 'data-column-key="created">02/01/2071</td>' in body[0]
+            assert 'data-column-key="planned">03/11/2071</td>' in body[0]
+            assert 'data-column-key="planned">—</td>' in body[-1]
+            assert 'data-column-key="created">—</td>' in body[-1]
+            assert 'data-layout-version="2"' in result.text
+            assert table.count('draggable="true"') == 8
+            assert '<th class="center" scope="col">Acciones</th>' in table
+            assert 'data-resizable-columns-key="operaciones-solicitudes-v2"' in result.text
+            assert 'data-draggable-columns-key="operaciones-solicitudes-v2"' in result.text
+            assert 'hx-post="/operaciones/solicitudes/data"' in result.text
+        assert len(calls) == 1
+        assert service.form_values(rows[0]["fields"])[service.PLANNED] == "2021-11-03"
+    finally:
         snapshot.invalidate(actor)

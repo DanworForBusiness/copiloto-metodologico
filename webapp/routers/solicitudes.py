@@ -8,6 +8,7 @@ from starlette.concurrency import run_in_threadpool
 from core.content_registry import DEFAULT_PACK
 from webapp import hub_metrics_access, operations_access, workspaces
 from webapp.services import auth_service, pagination, solicitudes_snapshot
+from webapp.services import solicitudes_creation as creation
 from webapp.services import solicitudes_repository as repository
 from webapp.services import solicitudes_service as service
 from webapp.templating import templates
@@ -81,6 +82,7 @@ async def solicitudes_data(request: Request, graph_token: str = Form("")):
         "count": len(matches), "source_count": len(rows), "error": error, "query": query,
         "selected": selected, "filters": FILTERS, "options": options,
         "columns": service.SORT_COLUMNS, "sort": sort, "direction": direction,
+        "display_date": service.display_date, "created": service.CREATION_DATE, "planned": service.PLANNED,
         "status": service.STATUS, "funnel": service.FUNNEL,
         "assignees": service.ASSIGNEES, "values": service.values, "project_label": service.row_project_label,
     })
@@ -88,6 +90,79 @@ async def solicitudes_data(request: Request, graph_token: str = Form("")):
 
 def _etag(item):
     return item.get("eTag") or item.get("@odata.etag") or ""
+
+
+@router.get(PATH + "/nueva", response_class=HTMLResponse, include_in_schema=False)
+def solicitudes_new(request: Request):
+    response = solicitudes_page(request)
+    if hasattr(response, "context"):
+        response.context["is_new"] = True
+        return templates.TemplateResponse(request=request, name="operations/solicitudes.html", context=response.context)
+    return response
+
+
+@router.post(PATH + "/nueva/datos", response_class=HTMLResponse, include_in_schema=False)
+def solicitudes_new_data(request: Request, graph_token: str = Form("")):
+    user = _user(request)
+    if not user or not user.get("sub"):
+        raise HTTPException(401)
+    if not graph_token:
+        return _edit_panel(request, "", error="No pudimos obtener tu token de Microsoft.")
+    try:
+        columns = repository.read_creation_columns(graph_token)
+        options = repository.lookup_options(graph_token)
+        ticket = creation.issue(user["sub"])
+    except (HTTPError, URLError, TimeoutError, ValueError, KeyError) as exc:
+        return _edit_panel(request, "", error=_edit_error(exc))
+    values = service.form_values({service.STATUS: "Pendiente"})
+    title_column = next((column for column in columns if column["name"] == "Title"), {})
+    return templates.TemplateResponse(request=request, name="partials/solicitudes_edit.html", context={
+        "is_new": True, "submission_id": ticket, "values": values, "current": values,
+        "fields": service, "original_fields": {}, "options": options,
+        "destinations": (), "project_display": "", "title_max_length": title_column.get("text", {}).get("maxLength"),
+    })
+
+
+@router.post(PATH + "/nueva", response_class=HTMLResponse, include_in_schema=False)
+async def solicitudes_create(request: Request, graph_token: str = Form("")):
+    from webapp import same_origin_guard
+
+    user = _user(request)
+    if not user:
+        raise HTTPException(401)
+    if not user.get("sub") or not same_origin_guard.is_same_origin_write(request):
+        raise HTTPException(403)
+    form = await request.form()
+    allowed = set(creation.CREATE_FIELDS) | {"graph_token", "token_diagnostic", "submission_id"}
+    if set(form) - allowed or any(len(form.getlist(key)) != 1 for key in form if key != service.ASSIGNEES):
+        return _creation_feedback(request, "invalid", "El formulario contiene campos no permitidos. Revisá el borrador.")
+    if not graph_token:
+        return _creation_feedback(request, "auth", "Autorizá la escritura con Microsoft y después volvé a crear la solicitud. Tu borrador se conserva.")
+    submitted = {key: str(form[key]) for key in creation.CREATE_FIELDS if key in form and key != service.ASSIGNEES}
+    submitted[service.ASSIGNEES] = [str(value) for value in form.getlist(service.ASSIGNEES) if value]
+    for key in service.NARRATIVE_FIELDS:
+        if key in submitted:
+            submitted[key] = service.normalize_narrative(submitted[key])
+    try:
+        item_id = await run_in_threadpool(creation.create, user["sub"], str(form.get("submission_id", "")), graph_token, submitted)
+    except creation.UncertainCreation:
+        return _creation_feedback(request, "uncertain", "No pudimos confirmar el resultado. Revisá el listado antes de iniciar otra alta. Este envío no se repetirá para evitar duplicados.")
+    except creation.SubmissionError as exc:
+        return _creation_feedback(request, "review", str(exc))
+    except ValueError as exc:
+        return _creation_feedback(request, "invalid", str(exc))
+    except (HTTPError, URLError, TimeoutError, KeyError) as exc:
+        return _creation_feedback(request, "auth" if getattr(exc, "code", None) == 401 else "error", _edit_error(exc))
+    response = _creation_feedback(request, "saved", "Solicitud creada y confirmada en SharePoint.")
+    import json
+    response.headers["HX-Trigger-After-Swap"] = json.dumps({"solicitudes-created": {"url": f"{PATH}/{item_id}/editar"}})
+    return response
+
+
+def _creation_feedback(request, state, message):
+    return templates.TemplateResponse(request=request, name="partials/solicitudes_create_feedback.html", context={
+        "state": state, "message": message,
+    })
 
 
 @router.get(PATH + "/{item_id}/editar", response_class=HTMLResponse, include_in_schema=False)
@@ -139,6 +214,7 @@ def _feedback(request, item_id, state, message, **context):
 
 def _edit_error(exc):
     return {
+        400: "SharePoint rechazó los valores enviados. Revisá los campos; tu borrador se conserva.",
         401: "La autorización de Microsoft venció. Volvé a iniciar sesión.",
         403: "Microsoft Graph denegó la operación para tu cuenta.",
         404: "La solicitud ya no está disponible.",
@@ -245,4 +321,66 @@ async def solicitudes_save(request: Request, item_id: str, graph_token: str = Fo
         logging.getLogger("danwor.solicitudes.audit").info(
             "actor=%s item=%s fields=%s outcome=%s correlation=%s",
             user["sub"], item_id, ",".join(sorted(payload)), outcome, correlation,
+        )
+
+
+@router.post(PATH + "/{item_id}/eliminar", response_class=HTMLResponse, include_in_schema=False)
+async def solicitudes_delete(request: Request, item_id: str, graph_token: str = Form("")):
+    import json
+    import logging
+    from uuid import uuid4
+    from webapp import same_origin_guard
+
+    user = _user(request)
+    if not user:
+        raise HTTPException(401)
+    if not user.get("sub") or not same_origin_guard.is_same_origin_write(request):
+        raise HTTPException(403)
+    if not item_id.isascii() or not item_id.isdecimal():
+        raise HTTPException(404)
+    form = await request.form()
+    if (set(form) - {"graph_token", "token_diagnostic", "etag", "confirm_delete"}
+            or any(len(form.getlist(key)) != 1 for key in form)
+            or form.get("confirm_delete") != "yes"):
+        return _feedback(request, item_id, "invalid", "Confirmá explícitamente la eliminación de la solicitud.")
+    if not graph_token:
+        return _feedback(request, item_id, "auth", "Autorizá la escritura con Microsoft antes de eliminar. Tu borrador se conserva.")
+    outcome = "read_error"
+    correlation = uuid4().hex
+    try:
+        item = await run_in_threadpool(repository.read_item, graph_token, item_id)
+        etag = _etag(item)
+        if not etag or etag == "*" or etag != form.get("etag"):
+            outcome = "conflict"
+            return _feedback(request, item_id, "conflict", "La solicitud cambió. Consultá los valores vigentes antes de eliminar.")
+        outcome = "uncertain"
+        try:
+            await run_in_threadpool(repository.delete_item, graph_token, item_id, etag)
+        except HTTPError as exc:
+            if exc.code == 412:
+                outcome = "conflict"
+                return _feedback(request, item_id, "conflict", "Otro usuario modificó la solicitud. La eliminación fue rechazada.")
+            if exc.code < 500 and exc.code != 404:
+                outcome = f"http_{exc.code}"
+                return _feedback(request, item_id, "auth" if exc.code == 401 else "error", _edit_error(exc))
+        except (URLError, TimeoutError, ValueError):
+            pass
+        await run_in_threadpool(solicitudes_snapshot.invalidate, user["sub"])
+        try:
+            await run_in_threadpool(repository.read_item, graph_token, item_id)
+        except HTTPError as exc:
+            if exc.code == 404:
+                outcome = "confirmed_absent"
+                response = _feedback(request, item_id, "deleted", "La solicitud ya no está en la lista de SharePoint.")
+                response.headers["HX-Trigger-After-Swap"] = json.dumps({"solicitudes-deleted": {"url": PATH}})
+                return response
+        except (URLError, TimeoutError, ValueError, KeyError):
+            pass
+        return _feedback(request, item_id, "uncertain", "No pudimos confirmar la eliminación. Revisá el listado antes de intentar nuevamente.")
+    except (HTTPError, URLError, TimeoutError, ValueError, KeyError) as exc:
+        return _feedback(request, item_id, "auth" if getattr(exc, "code", None) == 401 else "error", _edit_error(exc))
+    finally:
+        logging.getLogger("danwor.solicitudes.audit").info(
+            "actor=%s item=%s operation=delete outcome=%s correlation=%s",
+            user["sub"], item_id, outcome, correlation,
         )

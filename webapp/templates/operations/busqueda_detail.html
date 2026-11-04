@@ -18,7 +18,7 @@
   {% include "partials/operations_nav.html" %}
   {{ sidebar_resize_handle() }}
 
-  <main id="content" class="module-content">
+  <main id="content" class="module-content module-content--compact-heroes">
     {# MISMA composición que el detalle de un proceso de CCHH (`.catalog-back` → `.module-hero.hc-profiles-hero` con eyebrow, título, `.hero-meta`, fila de estado `.status-badge` y las acciones a la derecha en
        `.hc-profiles-hero-actions`), MISMO orden de acciones (editar → acción de cierre en rojo → eliminar en rojo intenso con el mismo trash SVG). La botonera de vistas, el tablero del pipeline y la tabla de
        historial son LOS MISMOS partials que usa CCHH (`human_capital_busqueda_views_bar`, `…_detail_body`, `…_historial_section`): una sola lógica para ambas verticales; Operaciones los ve en solo lectura. #}

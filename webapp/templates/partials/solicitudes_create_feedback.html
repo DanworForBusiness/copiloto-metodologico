@@ -1,0 +1,9 @@
+<div class="callout{% if state == 'saved' %} callout--success{% endif %}"
+     {% if state == 'saved' %}data-solicitudes-saved{% endif %}
+     {% if state in ('uncertain', 'review') %}data-solicitudes-review{% endif %}>
+  <div class="callout__body">
+    <p>{{ message }}</p>
+    {% if state == 'auth' %}{% include "partials/solicitudes_write_authorize.html" %}{% endif %}
+    {% if state in ('uncertain', 'review') %}<a href="/operaciones/solicitudes" target="_blank" rel="noopener">Consultar Solicitudes en otra pestaña</a>{% endif %}
+  </div>
+</div>

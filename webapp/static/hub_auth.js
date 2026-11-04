@@ -346,7 +346,7 @@
   //
   // Nunca lanza — mismo contrato que `dwGraphToken`: "" y el caller decide
   // (el router ya trata `graph_token` vacío como falta de autorización).
-  window.dwHumanCapitalDocumentWriteToken = async function (opts) {
+  async function delegatedWriteToken(scope, opts, prefix = "hc_write", recoverAccount = false) {
     // `interactive` (default true, contrato sin cambios para los consumidores
     // existentes -- form de Documentos y su retry): cuando MSAL exige
     // interacción, escala a popup vía `dwGraphReauthenticate`. El alta con CV
@@ -357,33 +357,45 @@
     // (persistir el Profile + subir el CV luego desde Documentos, con gesto real).
     const interactive = !(opts && opts.interactive === false);
     let app;
-    try { app = await getApp(); } catch (e) { recordTokenFailure("hc_write_get_app_failed", false, e); return ""; }
+    try { app = await getApp(); } catch (e) { recordTokenFailure(prefix + "_get_app_failed", false, e); return ""; }
 
-    const writeScope = cachedConfig && cachedConfig.hc_document_write_scope;
-    if (!writeScope) { recordTokenFailure("hc_write_scope_not_configured", false, null); return ""; }   // CONFIG_INCOMPLETE -- fail closed, sin pedir Graph con un scope vacío.
+    const writeScope = scope();
+    if (!writeScope) { recordTokenFailure(prefix + "_scope_not_configured", false, null); return ""; }   // CONFIG_INCOMPLETE -- fail closed, sin pedir Graph con un scope vacío.
     const scopes = GRAPH_SCOPES.concat([writeScope]);
 
-    const account = activeAccount(app);
-    if (!account) { recordTokenFailure("hc_write_no_account", false, null); return ""; }      // Sin cuenta: nada silencioso que intentar (mismo criterio que dwGraphToken).
+    let account = activeAccount(app);
+    if (!account && interactive && recoverAccount) {
+      if (await window.dwGraphReauthenticate([writeScope])) account = activeAccount(app);
+    }
+    if (!account) { recordTokenFailure(prefix + "_no_account", false, null); return ""; }      // Sin cuenta: nada silencioso que intentar (mismo criterio que dwGraphToken).
 
     try {
       const res = await app.acquireTokenSilent({ scopes, account });
       lastTokenDiagnostic = null;
       return (res && res.accessToken) || "";
     } catch (e) {
-      if (!(e instanceof msal.InteractionRequiredAuthError)) { recordTokenFailure("hc_write_silent_error", true, e); return ""; }
-      if (!interactive) { recordTokenFailure("hc_write_interaction_required_silent_only", true, e); return ""; }  // silent-only (create-with-CV): sin popup, cae a partial-success.
+      if (!(e instanceof msal.InteractionRequiredAuthError)) { recordTokenFailure(prefix + "_silent_error", true, e); return ""; }
+      if (!interactive) { recordTokenFailure(prefix + "_interaction_required_silent_only", true, e); return ""; }  // silent-only (create-with-CV): sin popup, cae a partial-success.
       const reauthenticated = await window.dwGraphReauthenticate([writeScope]);
-      if (!reauthenticated) { recordTokenFailure("hc_write_reauth_failed", true, e); return ""; }
+      if (!reauthenticated) { recordTokenFailure(prefix + "_reauth_failed", true, e); return ""; }
       try {
         const res2 = await app.acquireTokenSilent({ scopes, account: activeAccount(app) });
         lastTokenDiagnostic = null;
         return (res2 && res2.accessToken) || "";
       } catch (e2) {
-        recordTokenFailure("hc_write_after_reauth_silent_error", true, e2);
+        recordTokenFailure(prefix + "_after_reauth_silent_error", true, e2);
         return "";
       }
     }
+  }
+
+  window.dwHumanCapitalDocumentWriteToken = async function (opts) {
+    return delegatedWriteToken(() => cachedConfig && cachedConfig.hc_document_write_scope, opts);
+  };
+
+  // Only Solicitudes write actions ask for this scope. Read loaders keep GRAPH_SCOPES.
+  window.dwSolicitudesWriteToken = function (opts) {
+    return delegatedWriteToken(() => "Sites.ReadWrite.All", opts, "solicitudes_write", true);
   };
 
   // ── LA ÚNICA PUERTA A LA INTERACCIÓN ──────────────────────────────────

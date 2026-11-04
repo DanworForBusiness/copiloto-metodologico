@@ -771,6 +771,22 @@ const ACCOUNT = { username: "joe@danwor.com", homeAccountId: "hid" };
     assertTrue(!env.msalLog.includes("acquireTokenPopup"), "O9: sin popup ante un fallo no-auth");
   }
 
+  // Solicitudes asks for delegated write only on an explicit write action.
+  {
+    const env = makeEnv({ accounts: [ACCOUNT], silentToken: "AT-SOL-WRITE" });
+    assertEqual(await env.win.dwSolicitudesWriteToken({interactive:false}), "AT-SOL-WRITE", "Solicitudes: write token returned");
+    assertEqual(JSON.stringify(env.captured.silentScopes), '["User.Read","Sites.Read.All","Sites.ReadWrite.All"]', "Solicitudes: incremental write scope");
+    await env.win.dwGraphToken();
+    assertEqual(JSON.stringify(env.captured.silentScopes), '["User.Read","Sites.Read.All"]', "Solicitudes: ordinary readers keep read scopes");
+  }
+  {
+    const env = makeEnv({ accounts: [ACCOUNT], silent: "interaction_until_popup" });
+    assertEqual(await env.win.dwSolicitudesWriteToken({interactive:false}), "", "Solicitudes: submit never opens a popup");
+    assertTrue(!env.msalLog.includes("acquireTokenPopup"), "Solicitudes: silent write has no popup");
+    assertTrue(!!await env.win.dwSolicitudesWriteToken({interactive:true}), "Solicitudes: explicit authorization recovers token");
+    assertTrue(env.captured.popupScopes.includes("Sites.ReadWrite.All"), "Solicitudes: shared popup requests write scope");
+  }
+
   if (failures > 0) {
     console.log(`${failures} Hub auth authority invariant(s) FAILED`);
     process.exit(1);
