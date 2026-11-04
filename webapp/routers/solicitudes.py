@@ -78,10 +78,20 @@ async def solicitudes_data(request: Request, graph_token: str = Form("")):
     sort = str(form.get("sort", ""))
     sort = sort if sort in service.SORT_COLUMNS else ""
     direction = "desc" if form.get("dir") == "desc" else "asc"
-    matches = service.sort_rows(service.select_rows(rows, query, selected), sort, direction)
-    pager = pagination.paginate(matches, page=form.get("page"), sizes=(50,), default_size=50)
+    matches = service.select_rows(rows, query, selected)
+    classified, unknown_ids = service.classify_rows(matches)
+    groups = []
+    for key, title in (('vigentes', 'Solicitudes Vigentes'), ('cerradas', 'Solicitudes Cerradas')):
+        group_sort = str(form.get('sort_' + key, sort))
+        group_sort = group_sort if group_sort in service.SORT_COLUMNS else ''
+        group_dir = 'desc' if form.get('dir_' + key, direction) == 'desc' else 'asc'
+        ordered = service.sort_rows(classified[key], group_sort, group_dir)
+        pager = pagination.paginate(ordered, page=form.get('page_' + key, form.get('page') if key == 'vigentes' else None), sizes=(50,), default_size=50)
+        groups.append({'key': key, 'title': title, 'rows': pager['items'], 'pager': pager,
+                       'count': len(ordered), 'sort': group_sort, 'direction': group_dir})
+    pager = groups[0]['pager']
     return templates.TemplateResponse(request=request, name="partials/solicitudes_panel.html", context={
-        "rows": pager["items"], "pager": pager,
+        "rows": pager["items"], "pager": pager, "groups": groups, "unknown_ids": unknown_ids,
         "count": len(matches), "source_count": len(rows), "error": error, "query": query,
         "selection_scope": hashlib.sha256((str(user.get('sub', '')) + ':operaciones:' + repository.LIST_ID).encode()).hexdigest(),
         "universe_ids": [str(row['id']) for row in rows],

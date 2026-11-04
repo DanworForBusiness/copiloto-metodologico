@@ -273,3 +273,18 @@ def sort_rows(rows, column, direction):
         (populated if value else empty).append((value, row))
     populated.sort(key=lambda pair: pair[0], reverse=direction == "desc")
     return [row for _, row in populated + empty]
+
+
+def classify_rows(rows):
+    """Presentation only: rejected Funnel wins; unknown states stay visible."""
+    groups = {'vigentes': [], 'cerradas': []}
+    unknown_ids = []
+    for row in rows:
+        fields = row.get('fields', {})
+        status = fields.get(STATUS)
+        rejected = fields.get(FUNNEL) == 'Rechazado, Aplica Operaciones'
+        closed = rejected or status in ('Finalizado', 'Suspendido')
+        groups['cerradas' if closed else 'vigentes'].append(row)
+        if not rejected and status not in ('Pendiente', 'Planificado', 'En curso', 'Finalizado', 'Suspendido'):
+            unknown_ids.append(str(row['id']))
+    return groups, unknown_ids

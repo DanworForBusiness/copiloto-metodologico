@@ -3,11 +3,14 @@
 {% from "partials/pager.html" import render_pager %}
 <form id="solicitudes-filters" class="hc-profile-filters filter-toolbar-card solicitudes-filters" hx-post="/operaciones/solicitudes/data" hx-target="#solicitudes-panel" hx-disabled-elt="find button"
       hx-indicator="#solicitudes-loading" hx-sync="this:replace" data-dw-graph-token>
-    <input type="hidden" name="sort" value="{{ sort }}">
-    <input type="hidden" name="dir" value="{{ direction }}">
+    {% for group in groups %}
+    <input type="hidden" name="sort_{{ group.key }}" value="{{ group.sort }}">
+    <input type="hidden" name="dir_{{ group.key }}" value="{{ group.direction }}">
+    <input type="hidden" name="page_{{ group.key }}" value="{{ group.pager.page }}">
+    {% endfor %}
     {% for key, label in filters.items() %}
     <div class="feedback-field {{ 'feedback-field--medium' if loop.first or loop.last else 'feedback-field--compact' }}"><label for="sol-filter-{{ loop.index }}">{{ label }}</label>
-      <select id="sol-filter-{{ loop.index }}" name="{{ key }}" hx-post="/operaciones/solicitudes/data" hx-trigger="change" hx-include="closest form">
+      <select id="sol-filter-{{ loop.index }}" name="{{ key }}" hx-post="/operaciones/solicitudes/data" hx-trigger="change" hx-include="closest form" hx-vals='{"page_vigentes":1,"page_cerradas":1}'>
         <option value="">Todos</option>
         {% for option in options[key] %}
         <option{% if selected[key] == option %} selected{% endif %}>{{ option }}</option>
@@ -15,10 +18,9 @@
       </select>
     </div>
     {% endfor %}
-    <div class="feedback-field feedback-field--wide"><label for="sol-q">Buscar</label><input id="sol-q" autocomplete="off" type="text" name="q" value="{{ query }}" placeholder="Solicitud, proyecto o descripción…" hx-post="/operaciones/solicitudes/data" hx-trigger="input changed delay:500ms" hx-include="closest form"></div>
+    <div class="feedback-field feedback-field--wide"><label for="sol-q">Buscar</label><input id="sol-q" autocomplete="off" type="text" name="q" value="{{ query }}" placeholder="Solicitud, proyecto o descripción…" hx-post="/operaciones/solicitudes/data" hx-trigger="input changed delay:500ms" hx-include="closest form" hx-vals='{"page_vigentes":1,"page_cerradas":1}'></div>
     <button type="button" class="whatsnew-filter__clear" hx-post="/operaciones/solicitudes/data" hx-params="none">✕ Limpiar</button>
 </form>
-<details class="dashboard-section" open><summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Requerimientos de Arquitectura</span>{% if not error %}<span class="dashboard-section__count">{{ count }} requerimiento{{ 's' if count != 1 }}</span>{% endif %}</summary><div class="dashboard-section__body">
 {% call selection_bar('sol', 'Selección de solicitudes', {'data-sol-scope':selection_scope, 'data-sol-universe':universe_ids | tojson, 'data-sol-source-ok':'no' if error else 'yes'}) %}
   <button type="button" class="btn-primary" data-sol-action="compartir" data-dw-graph-token hx-post="/operaciones/solicitudes/bulk/compartir" hx-target="#solicitudes-bulk-content" hx-sync="#solicitudes-bulk-content:drop">
     <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4"/></svg>Compartir solicitudes</button>
@@ -26,6 +28,12 @@
   <button type="button" class="btn-secondary" data-sol-action="consolidar" data-dw-graph-token hx-post="/operaciones/solicitudes/bulk/consolidar" hx-target="#solicitudes-bulk-content" hx-sync="#solicitudes-bulk-content:drop"><svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>Consolidar solicitudes</button>
   <button type="button" class="whatsnew-filter__clear" data-sol-clear-selection aria-label="Limpiar selección">✕ Limpiar</button>
 {% endcall %}
+<div class="dashboard-sections" data-dashboard-key="ops-solicitudes" data-persist-collapse>
+{% for group in groups %}
+{% set rows = group.rows %}{% set pager = group.pager %}{% set sort = group.sort %}{% set direction = group.direction %}
+<details class="dashboard-section" id="solicitudes-{{ group.key }}" data-section-id="solicitudes-{{ group.key }}" data-persist-collapse{% if group.key == 'vigentes' or not groups[0].count %} open{% endif %}>
+<summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">{{ group.title }}</span>{% if not error %}<span class="dashboard-section__count">{{ group.count }} solicitud{{ 'es' if group.count != 1 }}</span>{% endif %}</summary><div class="dashboard-section__body">
+{% if group.key == 'vigentes' and unknown_ids and not error %}<p class="field-hint busqueda-contact__context" data-unknown-state-count="{{ unknown_ids | length }}">{{ unknown_ids | length }} solicitud{{ 'es' if unknown_ids | length != 1 }} con estado de Arquitectura sin informar o no reconocido. Se mantienen visibles en Vigentes para su revisión.</p>{% endif %}
 {% if error %}
 <div class="dashboard-empty" role="alert"><span class="dashboard-empty__label">No disponible</span><p>{{ error }}</p>
   <button type="button" class="whatsnew-filter__clear" data-dw-graph-token
@@ -36,12 +44,12 @@
 </div>
 {% elif not rows %}
 <div class="dashboard-empty">
-  {% if source_count %}
+  {% if query or selected.values() | select | list %}
   <span class="dashboard-empty__label">Sin resultados</span>
   <p>No se encontraron solicitudes con los filtros seleccionados.</p>
   {% else %}
-  <span class="dashboard-empty__label">Sin solicitudes</span>
-  <p>Todavía no hay solicitudes de Arquitectura e Innovación.</p>
+  <span class="dashboard-empty__label">Sin solicitudes {{ group.key }}</span>
+  <p>No hay solicitudes {{ group.key }} por el momento.</p>
   {% endif %}
 </div>
 {% else %}
@@ -63,7 +71,7 @@
                   hx-post="/operaciones/solicitudes/data" hx-target="#solicitudes-panel"
                   hx-include="#solicitudes-filters" hx-sync="#solicitudes-filters:replace"
                   hx-indicator="#solicitudes-loading" data-dw-graph-token
-                  hx-vals='{{ {"sort": key, "dir": "desc" if sort == key and direction == "asc" else "asc"} | tojson }}'>
+                  hx-vals='{{ {"sort_" ~ group.key: key, "dir_" ~ group.key: "desc" if sort == key and direction == "asc" else "asc", "page_" ~ group.key:1} | tojson }}'>
             {{ label }}{% if sort == key %} <span aria-hidden="true">{{ '▼' if direction == 'desc' else '▲' }}</span>{% endif %}
           </button>
         </th>
@@ -95,7 +103,9 @@
     </tbody>
   </table>
 </div>
-{{ render_pager(pager, "#solicitudes-panel", "Páginas de solicitudes", "", show_size=false, post_url="/operaciones/solicitudes/data", form="#solicitudes-filters", indicator="#solicitudes-loading") }}
+{{ render_pager(pager, "#solicitudes-panel", "Páginas de solicitudes " ~ group.key, "", show_size=false, post_url="/operaciones/solicitudes/data", form="#solicitudes-filters", indicator="#solicitudes-loading", page_param="page_" ~ group.key) }}
 {% endif %}
 
 </div></details>
+{% endfor %}
+</div>
