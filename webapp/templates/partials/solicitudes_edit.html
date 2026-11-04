@@ -116,10 +116,11 @@
     <input type="hidden" name="etag" value="{{ etag }}">
     <input type="hidden" name="observation_ticket" value="{{ observation_ticket }}">
     <input type="hidden" name="confirm_rejection" value="yes">
-    <div class="feedback-field"><label for="sol-rejection-reason">Justificación</label>
+    <section class="hc-profile-section"><div class="feedback-field"><label for="sol-rejection-reason">Justificación</label>
       <textarea id="sol-rejection-reason" name="reason" rows="4" required></textarea>
     </div>
     <div data-rejection-feedback role="status"></div>
+    </section>
     <div class="hc-profile-form__actions">
       <button type="button" class="btn-secondary" data-solicitudes-reject-cancel>Cancelar</button>
       <button type="submit" class="btn-primary">Confirmar rechazo</button>
