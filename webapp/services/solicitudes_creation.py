@@ -48,8 +48,10 @@ def payload(submitted, options, columns):
     title = submitted.get("Title", "").strip()
     if not title:
         raise ValueError("Ingresá el título de la solicitud.")
-    if submitted.get(service.STATUS) != "Pendiente":
-        raise ValueError("Una nueva solicitud debe comenzar en Pendiente.")
+    catalog = service.status_choices(columns)
+    if submitted.get(service.STATUS) not in catalog:
+        raise ValueError("Seleccioná un Status Arquitectura válido del catálogo de SharePoint.")
+    options = {**options, service.STATUS: catalog}
     definitions = {column["name"]: column for column in columns}
     expected = {
         "Title": "text", service.STATUS: "choice", "Prioridad": "choice",
@@ -104,7 +106,7 @@ def create(actor, ticket, token, submitted):
         record["state"] = "validating"
     try:
         columns = repository.read_creation_columns(token)
-        options = repository.lookup_options(token)
+        options = repository.lookup_options(token, columns=columns)
         body = payload(submitted, options, columns)
     except Exception:
         with _lock:

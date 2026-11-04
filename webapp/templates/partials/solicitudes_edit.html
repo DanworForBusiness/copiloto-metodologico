@@ -24,11 +24,10 @@
   <section class="hc-profile-section"><h2>Estado y asignación</h2><div class="hc-profile-section__grid hc-profile-section__grid--fluid">
   <div class="feedback-field feedback-field--medium">
     <label for="sol-status">Status Arquitectura</label>
-    {% if is_new %}<select id="sol-status" name="{{ fields.STATUS }}"><option value="Pendiente" selected>Pendiente</option></select>
-    {% elif destinations %}
-    <select id="sol-status" name="{{ fields.STATUS }}">
-      <option value="{{ current[fields.STATUS] }}">{{ current[fields.STATUS] or 'Sin estado' }}</option>
-      {% for destination in destinations %}<option>{{ destination }}</option>{% endfor %}
+    {% if status_choices %}
+    <select id="sol-status" name="{{ fields.STATUS }}"{% if is_new %} required{% endif %}>
+      {% if current[fields.STATUS] not in status_choices %}<option value="" disabled selected>{{ 'Seleccioná un estado' if is_new else 'Sin estado vigente en el catálogo' }}</option>{% endif %}
+      {% for choice in status_choices %}<option value="{{ choice }}"{% if current[fields.STATUS] == choice %} selected{% endif %}>{{ choice }}</option>{% endfor %}
     </select>
     {% else %}<span>{{ current[fields.STATUS] or '—' }}</span>{% endif %}
   </div>

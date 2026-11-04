@@ -110,16 +110,16 @@ def solicitudes_new_data(request: Request, graph_token: str = Form("")):
         return _edit_panel(request, "", error="No pudimos obtener tu token de Microsoft.")
     try:
         columns = repository.read_creation_columns(graph_token)
-        options = repository.lookup_options(graph_token)
+        options = repository.lookup_options(graph_token, columns=columns)
         ticket = creation.issue(user["sub"])
     except (HTTPError, URLError, TimeoutError, ValueError, KeyError) as exc:
         return _edit_panel(request, "", error=_edit_error(exc))
-    values = service.form_values({service.STATUS: "Pendiente"})
+    values = service.form_values({service.STATUS: "Pendiente" if "Pendiente" in options[service.STATUS] else ""})
     title_column = next((column for column in columns if column["name"] == "Title"), {})
     return templates.TemplateResponse(request=request, name="partials/solicitudes_edit.html", context={
         "is_new": True, "submission_id": ticket, "values": values, "current": values,
         "fields": service, "original_fields": {}, "options": options,
-        "destinations": (), "project_display": "", "title_max_length": title_column.get("text", {}).get("maxLength"),
+        "status_choices": options[service.STATUS], "project_display": "", "title_max_length": title_column.get("text", {}).get("maxLength"),
     })
 
 
@@ -199,7 +199,7 @@ def _edit_panel(request, item_id, *, item=None, options=None, error=""):
         "options": options or {}, "error": error,
         "project_display": service.project_label(item["fields"], (options or {}).get(service.PROJECT)) if item else "",
         "etag": _etag(item) if item else "", "funnel": item["fields"].get(service.FUNNEL) if item else "",
-        "destinations": service.allowed_destinations(values.get(service.STATUS)),
+        "status_choices": (options or {}).get(service.STATUS, []),
         "fields": service, "original_fields": item["fields"] if item else {}, **_detail_context(item),
     })
 
@@ -213,6 +213,8 @@ def _feedback(request, item_id, state, message, **context):
 
 
 def _edit_error(exc):
+    if isinstance(exc, service.StatusCatalogError):
+        return str(exc)
     return {
         400: "SharePoint rechazó los valores enviados. Revisá los campos; tu borrador se conserva.",
         401: "La autorización de Microsoft venció. Volvé a iniciar sesión.",

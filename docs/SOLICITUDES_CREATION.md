@@ -37,8 +37,18 @@ Su aceptación real requiere un registro expresamente autorizado para eliminar.
 
 `GET /operaciones/solicitudes/nueva` abre una página propia. La hidratación
 `POST /nueva/datos` solamente lee metadatos y catálogos. El formulario es el mismo
-partial que usa edición, con Title obligatorio, Pendiente como único estado
-inicial y los selectores existentes de Proyecto y Colaborador.
+partial que usa edición, con Title obligatorio y los selectores existentes de
+Proyecto y Colaborador. Status Arquitectura ofrece todas las opciones de
+`choice.choices` de su columna SharePoint, en el orden del origen. El alta
+preselecciona Pendiente si sigue siendo una opción válida; si falta, solicita
+una selección explícita del catálogo. No existe una matriz de transiciones ni
+un estado terminal adicional en el Hub.
+
+Edición y guardado resuelven ese catálogo en la misma lectura de columnas que
+alimenta las referencias lookup. El alta reutiliza las definiciones ya leídas,
+sin otra consulta de columnas. Una definición ausente o inválida provoca un
+error controlado. El backend rechaza estados ajenos al catálogo vigente y
+conserva el PATCH parcial cuando el estado no cambió.
 
 `POST /operaciones/solicitudes/nueva` valida sesión, acceso a Operaciones,
 mismo origen, cardinalidad de parámetros y una allowlist propia. Antes del POST
