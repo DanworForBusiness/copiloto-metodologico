@@ -18,7 +18,13 @@
 </form>
 <details class="dashboard-section" open><summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Requerimientos de Arquitectura</span>{% if not error %}<span class="dashboard-section__count">{{ count }} requerimiento{{ 's' if count != 1 }}</span>{% endif %}</summary><div class="dashboard-section__body">
 {% if error %}
-<div class="dashboard-empty" role="alert"><span class="dashboard-empty__label">No disponible</span><p>{{ error }}</p></div>
+<div class="dashboard-empty" role="alert"><span class="dashboard-empty__label">No disponible</span><p>{{ error }}</p>
+  <button type="button" class="whatsnew-filter__clear" data-dw-graph-token
+          hx-post="/operaciones/solicitudes/data" hx-target="#solicitudes-panel"
+          hx-include="#solicitudes-filters" hx-sync="#solicitudes-filters:replace"
+          hx-indicator="#solicitudes-loading, #solicitudes-refresh" hx-disabled-elt="this"
+          hx-vals='{"refresh":"1"}'>Reintentar</button>
+</div>
 {% elif not rows %}
 <div class="dashboard-empty">
   {% if source_count %}
