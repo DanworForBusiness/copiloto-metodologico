@@ -65,7 +65,7 @@
       <tr><td class="left" data-column-key="title"><span class="solicitudes-description">{{ (f.get('Title') or '') | trim or 'Solicitud #' ~ row.id }}</span></td><td class="left" data-column-key="project">{{ project_label(row) or '—' }}</td>
       <td class="left" data-column-key="priority">{{ f.get('Prioridad') or '—' }}</td><td class="left" data-column-key="funnel">{{ f.get(funnel) or '—' }}</td><td class="left" data-column-key="architecture">{{ f.get(status) or '—' }}</td>
       <td class="left" data-column-key="collaborator">{{ values(f.get(assignees)) | join(', ') }}</td>
-<td class="center"><div class="dw-row-actions"><a class="table-action-btn chart-tooltip-anchor" href="/operaciones/solicitudes/{{ row.id }}/editar" aria-label="Abrir solicitud {{ row.id }}"><svg viewBox="0 0 24 24" aria-hidden="true">{% if write_enabled %}<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>{% else %}<path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z"/><circle cx="12" cy="12" r="2.5"/>{% endif %}</svg><span class="chart-tooltip" aria-hidden="true"><p>{{ "Editar solicitud" if write_enabled else "Ver solicitud" }}</p></span></a></div></td></tr>
+<td class="center"><div class="dw-row-actions"><a class="table-action-btn chart-tooltip-anchor" href="/operaciones/solicitudes/{{ row.id }}/editar" aria-label="Abrir solicitud {{ row.id }}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Editar solicitud</p></span></a></div></td></tr>
       {% endfor %}
     </tbody>
   </table>
