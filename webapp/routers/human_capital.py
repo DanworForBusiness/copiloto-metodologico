@@ -961,7 +961,7 @@ _INBOX_TILES = {
     "revisar": ("Para revisar", lambda r: r["status"] in (cv_inbox.REVIEW, cv_inbox.INCOMPLETE)),
     "problemas": ("Con problemas", lambda r: r["status"] in (cv_inbox.ERROR, cv_inbox.ACCEPTING) or bool(r.get("can_retire"))),
 }
-_INBOX_ACTIONS = ("guardar", "resolver", "aceptar", "reintentar", "descartar", "reabrir", "retirar", "eliminar-original")
+_INBOX_ACTIONS = ("guardar", "resolver", "aceptar", "reintentar", "descartar", "reabrir", "retirar", "eliminar")
 
 
 def _inbox_actor(request: Request) -> str:
@@ -992,6 +992,14 @@ def _inbox_sorted(rows: list[dict], state: dict) -> list[dict]:
     filled = [r for r in rows if key(r) not in ("", None)]
     empty = [r for r in rows if key(r) in ("", None)]
     return sorted(filled, key=key, reverse=state["dir"] == "desc") + empty
+
+
+def _inbox_deleted_message(removed: dict) -> str:
+    """Resultado de «Eliminar» en Incorporados, en los términos de Candidatos."""
+    folder = f" {removed['folder_notice']}" if removed.get("folder_notice") else ""
+    return {"DELETED": f"Se eliminó el candidato, sus {removed.get('documents', 0)} documento(s) en «CVs» y el CV original de la carpeta de carga masiva.{folder}",
+            "KEPT": "Se eliminó este CV del candidato (que sigue en el Banco con el resto de sus documentos) y el original de la carpeta de carga masiva.",
+            }.get(removed.get("candidate"), "Se eliminó el CV original de la carpeta de carga masiva (el candidato ya no estaba en el Banco).")
 
 
 def _inbox_candidate(row: dict) -> dict:
@@ -1163,7 +1171,7 @@ def human_capital_cv_inbox_row_action(
     request: Request, key: str, accion: str, graph_token: str = Form(""), vista: str = Form("abiertos"), orden: str = Form(""), direction: str = Form("", alias="dir"), page: str = Form(""), page_size: str = Form(""), filtro: str = Form(""),
     first_name: str = Form(""), last_name: str = Form(""), email: str = Form(""), phone: str = Form(""), profile_skills: str = Form(""),
     decision: str = Form(""), fingerprint: str = Form(""), revision: str = Form("0"), acks: list[str] = Form([]), reason: str = Form(""),
-    delete_original: str = Form(""), confirm_delete: str = Form(""),
+    delete_original: str = Form(""), confirm_delete: str = Form(""), auto: str = Form(""),
 ):
     """Acciones explícitas sobre UN CV de la bandeja: guardar la revisión, guardar la decisión, aceptar (crear o vincular), reintentar, descartar, reabrir o retirar el original."""
     redirect = _require_inbox_write(request)
@@ -1190,8 +1198,8 @@ def human_capital_cv_inbox_row_action(
             res = cv_inbox.dismiss(key, graph_token, actor=actor, reason=reason, delete_original=delete_original == "true", confirm_delete=confirm_delete)
         elif accion == "reabrir":
             res = cv_inbox.reopen(key, actor=actor, token=graph_token)
-        elif accion == "eliminar-original":
-            res = cv_inbox.purge_original(key, graph_token, actor=actor, confirm=confirm_delete)
+        elif accion == "eliminar":
+            res = cv_inbox.delete_incorporated(key, graph_token, actor=actor, confirm=confirm_delete)
         else:
             res = cv_inbox.retire(key, graph_token)
     except cv_history_manifest.ManifestBusyError:
@@ -1207,13 +1215,15 @@ def human_capital_cv_inbox_row_action(
     discarded = ("CV descartado. Se eliminó el archivo original de SharePoint." if res.get("mode") == cv_inbox.MODE_DELETE else
                  f"CV descartado. El archivo se movió a «{cv_inbox.FOLDER_NAME}/{cv_inbox.DISCARDED_FOLDER}», desde donde se puede recuperar.")
     message = res.get("error") or {"guardar": "Revisión guardada.", "resolver": "Revisión guardada: el CV quedó listo para incorporarse.", "descartar": discarded,
-                                   "reabrir": "El CV volvió a quedar por resolver.", "retirar": "Listo: el archivo se retiró de la carpeta de carga masiva.",
-                                   "eliminar-original": "Se eliminó el CV original de la carpeta de carga masiva. El candidato y su CV en «CVs» no cambian."}.get(accion, "CV incorporado al Banco.")
+                                   "reabrir": "El CV volvió a quedar por resolver.", "retirar": "El archivo original se retiró de la carpeta de carga masiva.",
+                                   "eliminar": _inbox_deleted_message(res.get("removed") or {})}.get(accion, "CV incorporado al Banco.")
     kind = "ok" if res.get("ok") else "error"
     if res.get("ok") and accion == "descartar" and res.get("warning"):
         message, kind = "CV descartado. " + res["warning"], "partial"
-    if res.get("ok") and accion in ("aceptar", "reintentar") and res.get("retire") not in (None, cv_inbox.RETIRE_DONE):
-        message, kind = message + " " + cv_inbox.REASON_TEXT["RETIRE_PENDING"], "partial"
+    if auto and accion == "retirar":
+        result_shown = res.get("ok")                                                # reintento AUTOMÁTICO del retiro: solo avisa si lo logró; si no, el motivo queda en la fila
+        if not result_shown:
+            return _inbox_panel(request, graph_token, vista=vista, sort=(orden, direction), paging=(page, page_size), filtro=filtro, result=None)
     keep_open = not res.get("ok") and accion in ("guardar", "resolver", "aceptar")
     return _inbox_panel(request, graph_token, vista=vista, sort=(orden, direction), paging=(page, page_size), filtro=filtro, open_key=key if keep_open else None,
                         result={"kind": kind, "key": key, "message": message, "profile_id": res.get("profile_id"), "need_write": res.get("stop") in ("PERMISSION_DENIED", "TOKEN_EXPIRED")})

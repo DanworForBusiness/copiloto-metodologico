@@ -10,7 +10,7 @@
    el caso `auth_required` ofrece un LINK a esa página en vez del botón inerte.
    Sin `reauth_href` (catalogos.html) se conserva el botón de reautenticación. #}
 {% if refresh_result %}
-<div class="callout callout--success" data-refresh-outcome="{{ refresh_result.outcome }}">
+<div class="callout callout--success callout--feedback" data-refresh-outcome="{{ refresh_result.outcome }}">
   <div class="callout__head">
     <span class="callout__icon">✓</span>
     <span class="callout__title">Refresh {{ 'OK' if refresh_result.outcome == 'success' else refresh_result.outcome }}</span>

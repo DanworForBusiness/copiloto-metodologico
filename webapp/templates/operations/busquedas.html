@@ -25,7 +25,7 @@
       <div class="hc-profiles-hero-actions"><a href="{{ new_url }}" class="btn-primary">+ Nueva búsqueda</a></div>
     </section>
 
-    {% if ok_message %}<div class="methodology"><div class="callout callout--success" role="status"><div class="callout__body"><p>{{ ok_message }}</p></div></div></div>{% endif %}
+    {% if ok_message %}<div class="methodology"><div class="callout callout--success callout--feedback" role="status"><div class="callout__body"><p>{{ ok_message }}</p></div></div></div>{% endif %}
 
     {% include "partials/operations_busquedas_panel.html" %}
   </main>

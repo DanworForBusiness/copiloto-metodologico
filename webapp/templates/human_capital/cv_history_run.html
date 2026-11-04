@@ -26,7 +26,7 @@
       <details class="dashboard-section" open>
         <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Resultados individuales</span><span class="dashboard-section__count">{{ rows | length }}</span></summary>
         <div class="dashboard-section__body">
-          <p class="callout callout--warn"><span class="callout__body">Esta tabla contiene datos personales (nombre, email, celular). Solo la ve el owner: no la compartas ni la captures fuera de este análisis. Los registros que requieren revisión van primero. Nada de esto crea candidatos.</span></p>
+          <p class="callout callout--warn callout--feedback"><span class="callout__body">Esta tabla contiene datos personales (nombre, email, celular). Solo la ve el owner: no la compartas ni la captures fuera de este análisis. Los registros que requieren revisión van primero. Nada de esto crea candidatos.</span></p>
           {% if rows %}
           <div class="matrix-scroll"><table class="dashboard-table" data-pilot-rows>
             <thead><tr><th class="left">Contenido</th><th class="left">Estado</th><th class="left">Especialidades (propuesta de Perfil / Skills)</th><th>Copias</th><th class="left">Propuesta de identidad</th><th class="left">Alternativas y evidencia</th>{% if report.kind == 'import' %}<th class="left">Decisión del plan</th>{% else %}<th class="left">Dictamen del owner</th>{% endif %}<th class="left">Email</th><th class="left">Celular</th><th class="left">Revisión</th><th class="left">Coincidencias con el Banco</th><th class="left">Misma persona en el lote</th></tr></thead>

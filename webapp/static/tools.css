@@ -2792,6 +2792,15 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
   background: color-mix(in srgb, var(--callout-accent) 9%, var(--card));
   overflow: hidden;
 }
+/* `.callout--feedback`: AVISO de resultado o estado de una acción del Hub (guardado, error, conflicto, retiro pendiente, baja…). Misma familia visual que el `.callout`
+   (acento, borde izquierdo, fondo teñido) pero en escala COMPACTA, la del «Guardado confirmado» de Solicitudes: texto chico, sin titular gritón. El contenido
+   EDITORIAL (callouts de Copilot, informes, presentaciones, estrategia) conserva la escala grande del primitivo base. Un único lugar para todos los avisos. */
+.callout--feedback { margin: 14px 0; padding: 14px 18px; border-radius: 10px; font-size: .82rem; line-height: 1.5; }
+.callout--feedback .callout__head { gap: 8px; margin-bottom: 4px; }
+.callout--feedback .callout__icon { font-size: 1rem; }
+.callout--feedback .callout__title { font-size: .82rem; font-weight: 700; }
+.callout--feedback .callout__body, .callout--feedback .callout__body p { font-size: inherit; line-height: inherit; }
+.callout--feedback .callout__body p { margin: 0 0 6px; }
 .callout--success { --callout-accent: #22a85a; }
 .callout--punch { --callout-accent: #d3a000; }
 .callout--warn { --callout-accent: #d64c5f; }

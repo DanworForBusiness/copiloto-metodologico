@@ -1,4 +1,4 @@
-<div class="callout{% if state in ('saved', 'deleted') %} callout--success{% else %} callout--punch{% endif %}"
+<div class="callout{% if state in ('saved', 'deleted') %} callout--success{% else %} callout--punch{% endif %} callout--feedback"
      {% if rejection %}data-solicitudes-rejection{% endif %}
      {% if state in ('saved', 'deleted') %}data-solicitudes-saved role="status" aria-live="polite"{% endif %}
      {% if state in ('conflict', 'uncertain') %}data-solicitudes-review{% endif %}>

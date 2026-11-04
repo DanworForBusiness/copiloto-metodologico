@@ -4,9 +4,14 @@
    principal), `.asr-generate` (botón con carga integrada), `.dashboard-section` + `.dashboard-table` (tabla), `.hc-selection-bar` (selección, como Candidatos), `.dashboard-empty` (vacío). #}
 {% set _post = "/cchh/candidatos/importar/bandeja" %}
 <div id="cvinbox-panel" data-cvinbox-panel{% if overview and overview.inbox.web_url %} data-inbox-url="{{ overview.inbox.web_url }}"{% endif %}>
+  {# Retiro físico pendiente (después de incorporar o descartar): la bandeja lo reintenta SOLA, de a un CV por vez y con pausa, hasta `AUTO_RETIRE_MAX` intentos en total; si no se logra, la fila
+     muestra el motivo y el botón manual. Mismo request que «Reintentar el retiro», con el token de escritura silencioso del hook de CCHH. #}
+  {% set _auto = (overview.rows | selectattr("auto_retire") | first) if overview else None %}
+  {% if _auto %}<span hidden hx-post="/cchh/candidatos/importar/bandeja/{{ _auto.key }}/retirar" hx-trigger="load delay:3s" hx-target="#cvinbox-panel" hx-swap="outerHTML"
+        hx-vals='{{ dict(panel_state, auto="1") | tojson }}' data-hc-write-token data-cvinbox-auto-retire="{{ _auto.key }}"></span>{% endif %}
   {% if result and result.message %}
-    <aside class="callout {{ 'callout--success' if result.kind == 'ok' else 'callout--warn' }}" role="status" data-cvinbox-result data-kind="{{ result.kind }}">
-      <div class="callout__head"><strong class="callout__title">{{ result.title or ('Listo' if result.kind == 'ok' else 'Atención') }}</strong></div>
+    <aside class="callout {{ 'callout--success' if result.kind == 'ok' else 'callout--warn' }} callout--feedback" role="status" data-cvinbox-result data-kind="{{ result.kind }}">
+      {% if result.title %}<div class="callout__head"><strong class="callout__title">{{ result.title }}</strong></div>{% endif %}
       <div class="callout__body"><p>{{ result.message }}{% if result.profile_id %} <a href="/cchh/candidatos/{{ result.profile_id }}">Ver candidato</a>{% endif %}</p>
       {% if result.batch %}<ul data-cvinbox-batch-results>{% for r in result.batch.results %}{% set _row = (overview.rows | selectattr('key', 'equalto', r.key) | first) if overview else none %}
         <li><strong>{{ (_row.name if _row else 'CV') }}</strong>: {% if r.outcome == 'DISCARDED' %}descartado{% elif r.outcome == 'DONE' %}incorporado{% if r.profile_id %} · <a href="/cchh/candidatos/{{ r.profile_id }}">ver candidato</a>{% endif %}{% else %}{{ r.message }}{% endif %}</li>{% endfor %}</ul>{% endif %}
@@ -17,7 +22,7 @@
   {% endif %}
 
   {% if error %}
-    <aside class="callout callout--warn" role="alert" data-cvinbox-error="{{ error.code }}">
+    <aside class="callout callout--warn callout--feedback" role="alert" data-cvinbox-error="{{ error.code }}">
       <div class="callout__head"><strong class="callout__title">No se pudo abrir la carpeta de carga masiva</strong></div>
       <div class="callout__body"><p>{{ error.message }}</p>
         <p><button type="button" class="btn-secondary" hx-post="{{ _post }}" hx-target="#cvinbox-panel" hx-swap="outerHTML" hx-vals='{{ panel_state | tojson }}' data-dw-graph-token>Reintentar</button></p></div>

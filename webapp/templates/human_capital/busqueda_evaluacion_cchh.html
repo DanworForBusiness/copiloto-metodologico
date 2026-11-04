@@ -35,7 +35,7 @@
     {% elif not form.ready %}
     <div class="dashboard-empty" data-error-kind="grid-not-ready"><span class="dashboard-empty__label">Grilla no disponible</span><p>La grilla de evaluación CCHH de este proceso todavía no está lista (la ponderación tiene que sumar 100%). <a href="{{ grid_url }}">Configurar la grilla</a>.</p></div>
     {% else %}
-    {% if form.outdated %}<div class="callout callout--warn" role="status" data-evaluation-outdated><div class="callout__body"><p>Tu evaluación anterior corresponde a la versión {{ form.evaluation.grid_version }} de la grilla; la vigente es la {{ form.grid_version }}. Revisá tus respuestas y guardá para actualizarla: mientras tanto no cuenta en el ranking.</p></div></div>{% endif %}
+    {% if form.outdated %}<div class="callout callout--warn callout--feedback" role="status" data-evaluation-outdated><div class="callout__body"><p>Tu evaluación anterior corresponde a la versión {{ form.evaluation.grid_version }} de la grilla; la vigente es la {{ form.grid_version }}. Revisá tus respuestas y guardá para actualizarla: mientras tanto no cuenta en el ranking.</p></div></div>{% endif %}
     {% if not form.editable %}<p class="field-hint">El proceso está cerrado: la evaluación queda en solo lectura.</p>{% endif %}
 
     <form class="hc-profile-form hc-profile-form--plain scoring-form" method="post" action="/cchh/busquedas/{{ busqueda.busqueda_id }}/candidatos/{{ application_id }}/evaluacion-cchh" data-scoring-evaluation-form>

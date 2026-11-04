@@ -76,14 +76,16 @@
       {% endif %}
       {% if row_actions.purge %}
       {% if r.can_purge %}
-      {# Eliminar el ORIGINAL de un CV ya incorporado: diálogo compartido del Hub (`data-dw-confirm`); el servidor verifica antes el CV definitivo en «CVs» y su asociación con el candidato. #}
-      <button type="button" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" hx-post="{{ _act }}/eliminar-original" hx-trigger="confirmed" hx-target="#cvinbox-panel" hx-swap="outerHTML"
-              hx-vals='{{ dict(panel_state, confirm_delete="ELIMINAR") | tojson }}' data-hc-write-token data-cvinbox-purge
-              data-dw-confirm data-dw-confirm-title="Eliminar CV original" data-dw-confirm-ok="Eliminar original"
-              data-dw-confirm-message="Se elimina de SharePoint el archivo original «{{ r.name }}» de la carpeta de carga masiva. Antes se verifica que el CV definitivo esté en «CVs» y asociado al candidato. El candidato y su CV en el Banco no cambian."
-              aria-label="Eliminar el CV original de la carpeta de carga masiva">
+      {# «Eliminar» un CV incorporado = lo MISMO que eliminar el candidato desde Candidatos (sus documentos en «CVs» y la baja; si el CV se sumó a un candidato existente, solo ese documento)
+         más el original de la carpeta de carga masiva. Diálogo compartido del Hub (`data-dw-confirm`) + confirmación explícita en el servidor. #}
+      {% set _linked = r.op == 'link' %}
+      <button type="button" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" hx-post="{{ _act }}/eliminar" hx-trigger="confirmed" hx-target="#cvinbox-panel" hx-swap="outerHTML"
+              hx-vals='{{ dict(panel_state, confirm_delete="ELIMINAR") | tojson }}' data-hc-write-token data-cvinbox-delete
+              data-dw-confirm data-dw-confirm-title="Eliminar CV incorporado" data-dw-confirm-ok="Eliminar"
+              data-dw-confirm-message="{% if c and c.available and not _linked %}Se elimina a {{ c.name or 'este candidato' }} del Banco, como desde Candidatos: sus documentos en «CVs» y su ficha. {% elif c and c.available %}Se elimina este CV de {{ c.name or 'su candidato' }}, que sigue en el Banco con el resto de sus documentos. {% endif %}También se elimina el archivo original «{{ r.name }}» de la carpeta de carga masiva. No se puede deshacer desde el Hub."
+              aria-label="Eliminar el CV incorporado">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
-        <span class="chart-tooltip" aria-hidden="true"><p>Eliminar CV original</p></span>
+        <span class="chart-tooltip" aria-hidden="true"><p>Eliminar</p></span>
       </button>
       {% else %}<span class="table-action-btn hc-inbox-slot" aria-hidden="true"></span>{% endif %}
       {% endif %}

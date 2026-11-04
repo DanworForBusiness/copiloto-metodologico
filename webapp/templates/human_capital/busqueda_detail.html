@@ -50,15 +50,15 @@
        Evaluación / Sugeridos / Reportes existen
        visualmente y quedan marcadas como pendientes (title="Próximamente"),
        nunca ausentes. #}
-    {% if solicitud_ok %}<div class="methodology"><div class="callout callout--success" role="status"><div class="callout__body"><p>{{ solicitud_ok }}</p></div></div></div>{% endif %}
+    {% if solicitud_ok %}<div class="methodology"><div class="callout callout--success callout--feedback" role="status"><div class="callout__body"><p>{{ solicitud_ok }}</p></div></div></div>{% endif %}
     {% if solicitud_error %}<div class="dashboard-empty" data-error-kind="action" role="alert"><span class="dashboard-empty__label">No se pudo completar</span><p>{{ solicitud_error }}</p></div>{% endif %}
     {% if solicitud and not solicitud_gestion %}
     {% if solicitud.estado_solicitud == 'enviada' %}
     <p class="field-hint" data-solicitud-estado="enviada">Solicitud de Operaciones{% if solicitud.reenviada %} (reenvío {{ solicitud.reenvios }}){% endif %} pendiente de atención: tomala en gestión para abrir el proceso o pedí una corrección a Operaciones.</p>
     {% elif solicitud.estado_solicitud == 'observada' %}
-    <div class="methodology"><div class="callout callout--warn" data-solicitud-estado="observada"><div class="callout__head"><strong class="callout__title">Corrección solicitada a Operaciones</strong></div><div class="callout__body"><p>{{ solicitud.observacion.motivo if solicitud.observacion else '' }}</p><p>Queda esperando que Operaciones corrija y reenvíe la solicitud.</p></div></div></div>
+    <div class="methodology"><div class="callout callout--warn callout--feedback" data-solicitud-estado="observada"><div class="callout__head"><strong class="callout__title">Corrección solicitada a Operaciones</strong></div><div class="callout__body"><p>{{ solicitud.observacion.motivo if solicitud.observacion else '' }}</p><p>Queda esperando que Operaciones corrija y reenvíe la solicitud.</p></div></div></div>
     {% elif solicitud.estado_solicitud == 'cancelada' %}
-    <div class="methodology"><div class="callout callout--warn" data-solicitud-estado="cancelada"><div class="callout__head"><strong class="callout__title">{{ 'Proceso eliminado por Capital Humano' if solicitud.proceso_eliminado else 'Solicitud cancelada por Operaciones' }}</strong></div><div class="callout__body"><p>Se conserva solo para consulta: no admite acciones de gestión ni cuenta como proceso de selección.{% if solicitud.motivo_cancelacion %} Motivo: {{ solicitud.motivo_cancelacion }}{% endif %}</p></div></div></div>
+    <div class="methodology"><div class="callout callout--warn callout--feedback" data-solicitud-estado="cancelada"><div class="callout__head"><strong class="callout__title">{{ 'Proceso eliminado por Capital Humano' if solicitud.proceso_eliminado else 'Solicitud cancelada por Operaciones' }}</strong></div><div class="callout__body"><p>Se conserva solo para consulta: no admite acciones de gestión ni cuenta como proceso de selección.{% if solicitud.motivo_cancelacion %} Motivo: {{ solicitud.motivo_cancelacion }}{% endif %}</p></div></div></div>
     {% endif %}
     {% set view = solicitud %}
     <div id="busqueda-detail-body">

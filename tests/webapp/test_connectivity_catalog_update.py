@@ -221,7 +221,7 @@ def test_publication_result_uses_a_single_hub_success_callout(cat):
     _prepare()
     html = _client("owner@danwor.com").get(f"/modules/{STEM}/connectivity-inventory/review/op1").text
     done = html[html.index("data-review-done hidden"):]
-    assert 'class="callout callout--success"' in done and "callout--warn" not in done
+    assert 'class="callout callout--success callout--feedback"' in done and "callout--warn" not in done
     js = (REPO / "webapp" / "static" / "connectivity_inventory.js").read_text(encoding="utf-8")
     assert "Persistencia remota" not in js and "data-review-done-warn" not in js
 
