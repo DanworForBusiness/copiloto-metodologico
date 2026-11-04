@@ -1,6 +1,7 @@
 """Authenticated Operations requests pages."""
 from urllib.error import HTTPError, URLError
 import hashlib
+import logging
 
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse
@@ -79,6 +80,7 @@ async def solicitudes_data(request: Request, graph_token: str = Form("")):
     sort = sort if sort in service.SORT_COLUMNS else ""
     direction = "desc" if form.get("dir") == "desc" else "asc"
     matches = service.select_rows(rows, query, selected)
+    kpis = None if error else service.kpi_counts(matches)                     # sin lectura confirmada no se muestra un cero como resultado
     classified, unknown_ids = service.classify_rows(matches)
     groups = []
     for key, title in (('vigentes', 'Solicitudes Vigentes'), ('cerradas', 'Solicitudes Cerradas')):
@@ -91,7 +93,7 @@ async def solicitudes_data(request: Request, graph_token: str = Form("")):
                        'count': len(ordered), 'sort': group_sort, 'direction': group_dir})
     pager = groups[0]['pager']
     return templates.TemplateResponse(request=request, name="partials/solicitudes_panel.html", context={
-        "rows": pager["items"], "pager": pager, "groups": groups, "unknown_ids": unknown_ids,
+        "rows": pager["items"], "pager": pager, "groups": groups, "unknown_ids": unknown_ids, "kpis": kpis, "kpi_defs": service.KPIS,
         "count": len(matches), "source_count": len(rows), "error": error, "query": query,
         "selection_scope": hashlib.sha256((str(user.get('sub', '')) + ':operaciones:' + repository.LIST_ID).encode()).hexdigest(),
         "universe_ids": [str(row['id']) for row in rows],
@@ -267,22 +269,32 @@ def solicitudes_history(request: Request, item_id: str, graph_token: str = Form(
         raise HTTPException(401)
     if not item_id.isascii() or not item_id.isdecimal():
         raise HTTPException(404)
-    rows, notice, partial = [], '', False
+    rows, coverage, failure = [], journal.coverage_summary(()), None
     if not graph_token:
-        notice = "No se obtuvo la autorización de Microsoft para consultar las versiones. Reintentá sin volver a guardar."
+        failure = ("auth", True, "No se obtuvo la autorización de Microsoft para consultar las versiones. Reintentá sin volver a guardar.")
     else:
+        item = None
         try:
             item = repository.read_item(graph_token, item_id)
-            rows = journal.history(item['fields'].get(service.COMMENTS), item_id)
+            rows = journal.history(item['fields'].get(service.COMMENTS), item_id)          # las observaciones se conservan aunque fallen las versiones
             result = repository.read_item_versions(graph_token, item_id)
-            rows, partial = journal.version_history(item['fields'].get(service.COMMENTS), item_id,
-                                                   result['versions'], partial=result['partial'],
-                                                   current_modified=item.get('lastModifiedDateTime'))
-        except (HTTPError, URLError, TimeoutError, ValueError, KeyError):
-            notice = "No se pudieron verificar los movimientos operativos en SharePoint. Las observaciones disponibles se conservan. Reintentá la consulta; no vuelvas a guardar."
+            rows, coverage = journal.version_history_coverage(item['fields'].get(service.COMMENTS), item_id, result['versions'],
+                                                              issues=result.get('issues') or (('version_read_error',) if result.get('partial') else ()),
+                                                              current_modified=item.get('lastModifiedDateTime'))
+        except HTTPError as exc:
+            failure = ({401: ("auth", True, "La autorización de Microsoft venció antes de leer las versiones. Las observaciones disponibles se conservan: reintentá la consulta."),
+                        403: ("access", False, "Tu cuenta no tiene acceso a las versiones de esta solicitud en SharePoint. Las observaciones disponibles se conservan.")}
+                       .get(exc.code, ("read", True, "SharePoint no respondió al leer las versiones. Las observaciones disponibles se conservan: reintentá la consulta; no vuelvas a guardar.")))
+        except (URLError, TimeoutError):
+            failure = ("read", True, "No se pudo conectar con SharePoint para leer las versiones. Las observaciones disponibles se conservan: reintentá la consulta; no vuelvas a guardar.")
+        except (ValueError, KeyError):
+            failure = ("read", True, "No se pudieron verificar los movimientos operativos en SharePoint. Las observaciones disponibles se conservan. Reintentá la consulta; no vuelvas a guardar.")
+    # Diagnóstico sin datos: solo los códigos de cobertura (nunca contenido, actores ni tokens).
+    logging.getLogger("danwor.solicitudes.history").info("solicitudes.history coverage=%s failure=%s",
+                                                         ",".join(coverage["codes"]) or "complete", failure[0] if failure else "none")
     return templates.TemplateResponse(request=request, name="partials/solicitudes_history.html", context={
-        'item_id': item_id, 'history_rows': rows, 'history_loaded': True,
-        'history_notice': notice, 'history_partial': partial,
+        'item_id': item_id, 'history_rows': rows, 'history_loaded': True, 'history_coverage': coverage,
+        'history_failure': {"kind": failure[0], "retryable": failure[1], "message": failure[2]} if failure else None,
     })
 
 

@@ -122,14 +122,49 @@ def history(html, item_id):
     return rows
 
 
-def version_history(html, item_id, versions, *, partial=False, current_modified=None):
-    """One history projection: signed observations plus verified adjacent versions.
+# Coverage of the reconstructed history: WHY a projection may be incomplete, not just a boolean.
+# Informative codes describe the scope SharePoint retains (never an operational failure); warning codes mean a
+# movement may exist that cannot be verified. `retryable` only when repeating the same read can improve it.
+COVERAGE = {
+    # code: (level, retryable, message)
+    'single_version': ('info', False, 'La solicitud tiene una única versión en SharePoint: todavía no hay movimientos entre versiones.'),
+    'retention_limited': ('info', False, 'Historial disponible desde la primera versión conservada por SharePoint.'),
+    'version_limit': ('info', False, 'Se muestran los movimientos de las versiones más recientes; las anteriores exceden el límite de lectura.'),
+    'version_gap': ('warning', False, 'Algunos movimientos no pueden verificarse porque faltan versiones intermedias.'),
+    'ambiguous_version': ('warning', False, 'Algunas versiones de SharePoint tienen una identificación inválida o duplicada: sus movimientos no se muestran.'),
+    'unverified_time': ('warning', False, 'Algunas versiones no tienen una fecha verificable: sus movimientos no se muestran.'),
+    'malformed_value': ('warning', False, 'Algunos valores de las versiones no tienen un formato verificable: esos cambios no se muestran.'),
+    'missing_fields': ('warning', True, 'No se pudieron leer los datos de algunas versiones: sus movimientos no se muestran.'),
+    'version_read_error': ('warning', True, 'No se pudieron leer algunas versiones en SharePoint: sus movimientos no se muestran.'),
+    'tail_mismatch': ('warning', True, 'La solicitud tiene cambios posteriores a la última versión que informó SharePoint: los movimientos más recientes pueden faltar.'),
+}
+_LEVEL_ORDER = {'info': 1, 'warning': 2}
+TAIL_TOLERANCE = timedelta(seconds=1)
 
-    Never infer a transition from the current item or the oldest retained version.
-    Stable version identities prevent duplicates across reads or UI failures.
+
+def coverage_summary(codes):
+    """Presentation of a set of coverage codes: the most severe level wins; info codes never read as errors."""
+    codes = set(codes)
+    if 'version_read_error' in codes:
+        codes.discard('missing_fields')                                         # una versión que no se pudo leer es la causa de sus datos faltantes: un solo mensaje
+    known = sorted({c for c in codes if c in COVERAGE}, key=lambda c: (-_LEVEL_ORDER[COVERAGE[c][0]], c))
+    if not known:
+        return {'codes': [], 'level': 'complete', 'messages': [], 'retryable': False, 'partial': False}
+    level = COVERAGE[known[0]][0]
+    return {'codes': known, 'level': level, 'messages': [COVERAGE[c][2] for c in known],
+            'retryable': any(COVERAGE[c][1] for c in known), 'partial': level == 'warning'}
+
+
+def version_history_coverage(html, item_id, versions, *, issues=(), current_modified=None):
+    """One history projection: signed observations plus verified ADJACENT versions, and a structured coverage.
+
+    Never infer a transition from the current item, the oldest retained version or across missing versions.
+    Graph omits empty columns from a version's `fields`: an absent operational column is an EMPTY value, not
+    missing metadata (a version without any `fields` object is). Stable version identities prevent duplicates.
     """
     from webapp.services import solicitudes_admission as admission
     rows = history(html, item_id)
+    codes = set(issues)
     indexed, ambiguous = {}, set()
     for version in versions:
         try:
@@ -146,33 +181,44 @@ def version_history(html, item_id, versions, *, partial=False, current_modified=
                 raise ValueError('Conflicting version identity')
             indexed[key] = version
         except (ValueError, KeyError, TypeError, AttributeError):
-            partial = True
+            codes.add('ambiguous_version')
     ordered = sorted(indexed.items())
-    # Retention before the first observed version is not evidence of creation.
-    partial = partial or len(ordered) < 2 or (bool(ordered) and ordered[0][0] != (1, 0))
-    if current_modified is not None:
+    if len(ordered) == 1 and ordered[0][0] == (1, 0):
+        codes.add('single_version')                                             # created and never edited: nothing to reconstruct, nothing wrong
+    elif ordered and ordered[0][0] != (1, 0):
+        codes.add('retention_limited')                                          # retention before the first observed version is not evidence of creation
+    if current_modified is not None and ordered:
         try:
             latest = datetime.fromisoformat(ordered[-1][1]['lastModifiedDateTime'].replace('Z', '+00:00'))
             current = datetime.fromisoformat(current_modified.replace('Z', '+00:00'))
-            partial = partial or latest.utcoffset() is None or current.utcoffset() is None or latest != current
-        except (IndexError, KeyError, ValueError, TypeError, AttributeError):
-            partial = True
+            if latest.utcoffset() is None or current.utcoffset() is None:
+                codes.add('unverified_time')
+            elif current - latest > TAIL_TOLERANCE:                             # two Graph representations of the same instant may differ in precision
+                codes.add('tail_mismatch')
+        except (KeyError, ValueError, TypeError, AttributeError):
+            codes.add('unverified_time')
+
+    def value(fields, key):
+        return fields.get(key)                                                  # absent = empty (Graph omits empty columns)
 
     def commitment(fields):
-        keys = (service.STATUS, service.PLANNED, service.ACTUAL)
-        status = fields.get(service.STATUS)
-        if (isinstance(status, str) and status in admission.COMMITMENT_STATES) or any(service.date_key(fields.get(k)) for k in keys[1:]):
+        status = value(fields, service.STATUS)
+        dates = (value(fields, service.PLANNED), value(fields, service.ACTUAL))
+        if (isinstance(status, str) and status in admission.COMMITMENT_STATES) or any(service.date_key(d) for d in dates):
             return True
-        if (status is not None and not isinstance(status, str)) or any(fields.get(k) and not service.date_key(fields.get(k)) for k in keys[1:]):
+        if (status is not None and not isinstance(status, str)) or any(d and not service.date_key(d) for d in dates):
             return None
-        return False if all(k in fields for k in keys) else None
+        return False
 
     for (old_key, old), (new_key, new) in zip(ordered, ordered[1:]):
         contiguous = (new_key == (old_key[0], old_key[1] + 1)
                       or (old_key[1] == 0 and new_key == (old_key[0] + 1, 0)))
         before, after = old.get('fields'), new.get('fields')
-        if not contiguous or not isinstance(before, dict) or not isinstance(after, dict):
-            partial = True
+        if not contiguous:
+            codes.add('version_gap')
+            continue
+        if not isinstance(before, dict) or not isinstance(after, dict):
+            codes.add('missing_fields')
             continue
         try:
             stamp = datetime.fromisoformat(new['lastModifiedDateTime'].replace('Z', '+00:00'))
@@ -180,19 +226,20 @@ def version_history(html, item_id, versions, *, partial=False, current_modified=
             if stamp.utcoffset() is None or previous_stamp.utcoffset() is None or stamp < previous_stamp:
                 raise ValueError('Unverified version time')
         except (ValueError, KeyError, TypeError, AttributeError):
-            partial = True
+            codes.add('unverified_time')
             continue
         modified_by = new.get('lastModifiedBy')
-        identity = modified_by.get('user') if isinstance(modified_by, dict) else None
-        identity = identity if isinstance(identity, dict) else {}
+        modified_by = modified_by if isinstance(modified_by, dict) else {}
+        identity = modified_by.get('user') if isinstance(modified_by.get('user'), dict) else {}
         actor = identity.get('displayName') or identity.get('email') or identity.get('id')
-        if not isinstance(actor, str) or not actor.strip():
-            actor, partial = 'No identificado en SharePoint', True
+        if not (isinstance(actor, str) and actor.strip()):
+            app = modified_by.get('application') if isinstance(modified_by.get('application'), dict) else {}
+            name = app.get('displayName')
+            # An unattributed version only affects WHO, not whether the change happened: it is shown explicitly, never invented.
+            actor = f'Aplicación: {name}' if isinstance(name, str) and name.strip() else 'No identificado en SharePoint'
         common = {'date': stamp.astimezone(ZONE).strftime('%d/%m/%Y %H:%M'), 'at': stamp.isoformat(),
                   'actor': actor, 'version': new['id'], 'source': 'SharePoint'}
-        if service.FUNNEL not in before or service.FUNNEL not in after:
-            partial = True
-        elif before[service.FUNNEL] == admission.REQUESTED and after[service.FUNNEL] == admission.APPROVED:
+        if value(before, service.FUNNEL) == admission.REQUESTED and value(after, service.FUNNEL) == admission.APPROVED:
             prior, effective = commitment(before), commitment(after)
             reason = ('Reconciliación de compromiso existente' if prior is True and effective is True else
                       'Aprobación por compromiso nuevo' if prior is False and effective is True else
@@ -201,17 +248,14 @@ def version_history(html, item_id, versions, *, partial=False, current_modified=
                          'movement': 'Reclasificación de Funnel', 'before': admission.REQUESTED,
                          'after': admission.APPROVED, 'badge_kind': 'funnel', 'text': reason})
         for key, label in ((service.STATUS, 'Cambio de Arquitectura'), (service.PLANNED, 'Cambio de fecha planificada'), (service.ACTUAL, 'Cambio de fecha real')):
-            if key not in before or key not in after:
-                partial = True
-                continue
-            a, b = before[key], after[key]
+            a, b = value(before, key), value(after, key)
             if key != service.STATUS:
-                if any(value and not service.date_key(value) for value in (a, b)):
-                    partial = True
+                if any(v and not service.date_key(v) for v in (a, b)):
+                    codes.add('malformed_value')
                     continue
                 a, b = service.date_key(a), service.date_key(b)
-            elif any(value is not None and not isinstance(value, str) for value in (a, b)):
-                partial = True
+            elif any(v is not None and not isinstance(v, str) for v in (a, b)):
+                codes.add('malformed_value')
                 continue
             if a != b:
                 rows.append({**common, 'id': f'version:{item_id}:{new["id"]}:{key}', 'movement': label,
@@ -219,7 +263,15 @@ def version_history(html, item_id, versions, *, partial=False, current_modified=
                              'after': b if key == service.STATUS else service.display_date(b),
                              'badge_kind': 'architecture' if key == service.STATUS else '', 'text': ''})
     rows.sort(key=lambda r: datetime.fromisoformat(r['at']) if r.get('at') else datetime.min.replace(tzinfo=timezone.utc), reverse=True)
-    return rows, partial
+    return rows, coverage_summary(codes)
+
+
+def version_history(html, item_id, versions, *, partial=False, current_modified=None):
+    """Compatibility wrapper: `(rows, partial)` where `partial` means a WARNING-level gap (retention and a single
+    version are informative scope, not partial coverage)."""
+    rows, coverage = version_history_coverage(html, item_id, versions, issues=('version_read_error',) if partial else (),
+                                              current_modified=current_modified)
+    return rows, coverage['partial']
 
 
 def _legacy(html, parsed):

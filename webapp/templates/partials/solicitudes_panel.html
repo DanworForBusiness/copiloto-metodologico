@@ -21,6 +21,13 @@
     <div class="feedback-field feedback-field--wide"><label for="sol-q">Buscar</label><input id="sol-q" autocomplete="off" type="text" name="q" value="{{ query }}" placeholder="Solicitud, proyecto o descripción…" hx-post="/operaciones/solicitudes/data" hx-trigger="input changed delay:500ms" hx-include="closest form" hx-vals='{"page_vigentes":1,"page_cerradas":1}'></div>
     <button type="button" class="whatsnew-filter__clear" hx-post="/operaciones/solicitudes/data" hx-params="none">✕ Limpiar</button>
 </form>
+{# Indicadores operativos: el MISMO primitivo `.activity-kpi-grid`/`.activity-kpi` de Carga masiva (CCHH). Se calculan sobre el conjunto filtrado y buscado completo,
+   antes de paginar (`solicitudes_service.kpi_counts`). Sin una lectura confirmada de SharePoint muestran «—», nunca un cero. #}
+<div class="activity-kpi-grid solicitudes-kpis" data-solicitudes-kpis{% if not kpis %} data-kpis-unavailable{% endif %}>
+  {% for key, label, tone in kpi_defs %}
+  <div class="activity-kpi {{ tone }}" data-kpi="{{ key }}"><span class="activity-kpi__value">{{ kpis[key] if kpis else '—' }}</span><span class="activity-kpi__label">{{ label }}</span></div>
+  {% endfor %}
+</div>
 {% call selection_bar('sol', 'Selección de solicitudes', {'data-sol-scope':selection_scope, 'data-sol-universe':universe_ids | tojson, 'data-sol-source-ok':'no' if error else 'yes'}) %}
   <button type="button" class="btn-primary" data-sol-action="compartir" data-dw-graph-token hx-post="/operaciones/solicitudes/bulk/compartir" hx-target="#solicitudes-bulk-content" hx-sync="#solicitudes-bulk-content:drop">
     <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4"/></svg>Compartir solicitudes</button>

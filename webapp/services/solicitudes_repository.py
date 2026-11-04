@@ -81,7 +81,7 @@ def read_item_versions(token: str, item_id: str) -> dict:
     """
     from urllib.error import HTTPError, URLError
     prefix = item_url(token, item_id) + '/versions'
-    url, versions, seen, partial = prefix, [], set(), False
+    url, versions, seen, partial, issues = prefix, [], set(), False, set()
     for _ in range(40):
         if url != prefix and not url.startswith(prefix + '?'):
             raise ValueError('Invalid version continuation URL')
@@ -93,12 +93,15 @@ def read_item_versions(token: str, item_id: str) -> dict:
         url = page.get('@odata.nextLink')
         if len(versions) >= 200:
             partial = bool(url) or len(versions) > 200
+            if partial:
+                issues.add('version_limit')                                     # Graph lists newest first: the most recent 200 are kept
             versions = versions[:200]
             break
         if not url:
             break
     else:
         partial = True
+        issues.add('version_limit')
     result = []
     for version in versions:
         version = dict(version)
@@ -113,8 +116,9 @@ def read_item_versions(token: str, item_id: str) -> dict:
                 version = detail
             except (HTTPError, URLError, TimeoutError, ValueError, KeyError):
                 partial = True
+                issues.add('version_read_error')
         result.append(version)
-    return {'versions': result, 'partial': partial}
+    return {'versions': result, 'partial': partial, 'issues': sorted(issues)}
 
 
 def update_item(token: str, item_id: str, payload: dict, etag: str) -> dict:
