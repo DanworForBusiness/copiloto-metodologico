@@ -64,6 +64,7 @@ table.solicitudes-table { min-width: 76rem; }
 
 /* Keep the indicator out of the swapped panel and out of document flow. */
 .solicitudes-loading-slot { position: relative; }
+.hc-profiles-hero:has(+ .solicitudes-loading-slot) { margin-bottom: 0; }
 .solicitudes-loading {
   position: absolute;
   inset: 0 0 auto;

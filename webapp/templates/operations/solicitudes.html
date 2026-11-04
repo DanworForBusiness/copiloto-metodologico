@@ -9,7 +9,7 @@
   {% call platform_topbar(current_workspace, available_workspaces, current_workspace.home_url, identity, "Menú") %}{% endcall %}
   {% include "partials/operations_nav.html" %}
   {{ sidebar_resize_handle() }}
-  <main id="content" class="module-content">
+  <main id="content" class="module-content module-content--compact-heroes">
     {% if is_new %}
     <a class="catalog-back" href="/operaciones/solicitudes">← Volver a Solicitudes</a>
     <section class="module-hero hc-profiles-hero">

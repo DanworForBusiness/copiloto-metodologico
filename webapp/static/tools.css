@@ -3156,3 +3156,11 @@ details:not([open]) > summary > .panel-close[data-asr-close] { display: none; }
 [data-dw-auto-dismiss-fade] { transition: opacity .3s ease; }
 [data-dw-auto-dismiss-fade].is-dismissing { opacity: 0; }
 @media (prefers-reduced-motion: reduce) { [data-dw-auto-dismiss-fade] { transition: none; } }
+
+/* Opt-in to the compact heading proportions used by CCHH and Solicitudes. */
+.module-content--compact-heroes .module-hero { padding-bottom: 24px; }
+.module-content--compact-heroes .module-hero h1 {
+  margin: 8px 0 10px;
+  font-size: clamp(1.7rem, 2.6vw, 2.3rem);
+  letter-spacing: -.02em;
+}

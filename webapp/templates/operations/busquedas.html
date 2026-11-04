@@ -15,14 +15,14 @@
   {% include "partials/operations_nav.html" %}
   {{ sidebar_resize_handle() }}
 
-  <main id="content" class="module-content">
-    <section class="module-hero opsb-hero">
-      <div class="catalog-actionbar">
+  <main id="content" class="module-content module-content--compact-heroes">
+    <section class="module-hero hc-profiles-hero opsb-hero">
+      <div class="hc-profiles-hero-text">
         <p class="eyebrow">Staffing</p>
-        <div class="support-links catalog-actionbar__actions"><a href="{{ new_url }}" class="btn-primary">+ Nueva búsqueda</a></div>
+        <h1>Búsquedas</h1>
+        <p class="hero-lead full-page-subtitle">Pedidos de perfiles a Capital Humano: creá una solicitud y seguí su estado.</p>
       </div>
-      <h1>Búsquedas</h1>
-      <p class="hero-lead full-page-subtitle">Pedidos de perfiles a Capital Humano: creá una solicitud y seguí su estado.</p>
+      <div class="hc-profiles-hero-actions"><a href="{{ new_url }}" class="btn-primary">+ Nueva búsqueda</a></div>
     </section>
 
     {% if ok_message %}<div class="methodology"><div class="callout callout--success" role="status"><div class="callout__body"><p>{{ ok_message }}</p></div></div></div>{% endif %}
