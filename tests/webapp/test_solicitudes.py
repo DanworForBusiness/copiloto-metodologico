@@ -20,7 +20,7 @@ def test_read_follows_graph_pages(monkeypatch):
     next_link = f"{list_url}/items?$skiptoken=next"
     responses = {
         f"{base}/sites/danwor.sharepoint.com:/sites/Gestion": {"id": "example,site,web"},
-        f"{list_url}/items?$expand=fields($select=Title,Proyecto,ProyectoLookupId,{service.DESCRIPTION},Prioridad,{service.FUNNEL},{service.STATUS},{service.ASSIGNEES},{service.CREATION_DATE},{service.PLANNED})": {"value": [{"id": "1"}], "@odata.nextLink": next_link},
+        f"{list_url}/items?$expand=fields($select=Title,Proyecto,ProyectoLookupId,{service.DESCRIPTION},Prioridad,{service.FUNNEL},{service.STATUS},{service.ASSIGNEES},{service.CREATION_DATE},{service.PLANNED},{service.ASSIGNEES}LookupId,{service.ACTUAL})": {"value": [{"id": "1"}], "@odata.nextLink": next_link},
         next_link: {"value": [{"id": "2"}]},
     }
     monkeypatch.setattr(repository, "graph_get_json", lambda url, token: responses[url])
@@ -316,7 +316,7 @@ def test_list_prioritizes_description_without_truncating_search(monkeypatch):
     positions = [result.index(label, result.index("<thead>")) for label in headers]
     assert positions == sorted(positions)
     assert "Solicitud #1" in result and description not in result
-    assert 'style="width:23%"' in result
+    assert 'style="width:20%"' in result
     assert 'href="/operaciones/solicitudes/1/editar"' in result
 
 
@@ -417,8 +417,8 @@ def test_sort_filters_then_paginates_and_keeps_actions_fixed(monkeypatch):
     assert 'href="/operaciones/solicitudes/51/editar"' in result
     assert 'href="/operaciones/solicitudes/50/editar"' not in result
     assert 'aria-sort="ascending"' in result
-    assert 'data-draggable-columns-key="operaciones-solicitudes-v2"' in result
-    assert 'data-resizable-columns-key="operaciones-solicitudes-v2"' in result
+    assert 'data-draggable-columns-key="operaciones-solicitudes-v3"' in result
+    assert 'data-resizable-columns-key="operaciones-solicitudes-v3"' in result
     assert '<th class="center" scope="col">Acciones</th>' in result
     assert 'hx-params="none"' in result
     assert 'name="sort" value="title"' in result
@@ -575,7 +575,7 @@ def test_nine_column_table_dates_snapshot_sort_and_pagination(monkeypatch):
             headers = re.findall(r"<th\b[^>]*>(.*?)</th>", table, re.S)
             labels = [re.sub(r"<[^>]+>", "", value).strip().rstrip("▲").strip() for value in headers]
             assert labels == [
-                "Solicitud", "Proyecto", "Creada", "Inicio", "Prioridad", "Funnel",
+                "", "Solicitud", "Proyecto", "Creada", "Inicio", "Prioridad", "Funnel",
                 "Arquitectura", "Colaborador", "Acciones",
             ]
             body = re.findall(r"<tr>(.*?)</tr>", table.split("<tbody>", 1)[1], re.S)
@@ -586,11 +586,11 @@ def test_nine_column_table_dates_snapshot_sort_and_pagination(monkeypatch):
             assert 'data-column-key="planned">03/11/2071</td>' in body[0]
             assert 'data-column-key="planned">—</td>' in body[-1]
             assert 'data-column-key="created">—</td>' in body[-1]
-            assert 'data-layout-version="2"' in result.text
+            assert 'data-layout-version="3"' in result.text
             assert table.count('draggable="true"') == 8
             assert '<th class="center" scope="col">Acciones</th>' in table
-            assert 'data-resizable-columns-key="operaciones-solicitudes-v2"' in result.text
-            assert 'data-draggable-columns-key="operaciones-solicitudes-v2"' in result.text
+            assert 'data-resizable-columns-key="operaciones-solicitudes-v3"' in result.text
+            assert 'data-draggable-columns-key="operaciones-solicitudes-v3"' in result.text
             assert 'hx-post="/operaciones/solicitudes/data"' in result.text
         assert len(calls) == 1
         assert service.form_values(rows[0]["fields"])[service.PLANNED] == "2021-11-03"

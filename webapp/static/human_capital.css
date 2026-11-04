@@ -740,7 +740,8 @@ table.dashboard-table[data-exceptions-rows] th:is(:nth-child(2), :nth-child(3)) 
 .hc-select-col input[type="checkbox"] { width: 18px; height: 18px; margin: 0; accent-color: var(--gold); cursor: pointer; vertical-align: middle; }
 .hc-select-col input[type="checkbox"]:disabled { cursor: default; }
 #hc-candidatos-table th.hc-select-col, #hc-candidatos-table td.hc-select-col { padding-left: 10px; padding-right: 6px; }
-#hc-candidatos-table tbody tr.is-selected > td { background: rgba(231, 176, 8, .07); }
+#hc-candidatos-table tbody tr.is-selected > td,
+.solicitudes-table tbody tr.is-selected > td { background: rgba(231, 176, 8, .07); }
 .hc-selection-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 0 0 14px; padding: 10px 16px; }
 .hc-selection-bar[hidden] { display: none; }                   /* `display:flex` de la barra pisaría el atributo hidden: sin esto reservaría altura y márgenes con 0 seleccionados */
 .hc-selection-bar__count { font-size: .85rem; }

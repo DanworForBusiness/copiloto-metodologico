@@ -1,5 +1,6 @@
 """Authenticated Operations requests pages."""
 from urllib.error import HTTPError, URLError
+import hashlib
 
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse
@@ -82,6 +83,8 @@ async def solicitudes_data(request: Request, graph_token: str = Form("")):
     return templates.TemplateResponse(request=request, name="partials/solicitudes_panel.html", context={
         "rows": pager["items"], "pager": pager,
         "count": len(matches), "source_count": len(rows), "error": error, "query": query,
+        "selection_scope": hashlib.sha256((str(user.get('sub', '')) + ':operaciones:' + repository.LIST_ID).encode()).hexdigest(),
+        "universe_ids": [str(row['id']) for row in rows],
         "selected": selected, "filters": FILTERS, "options": options,
         "columns": service.SORT_COLUMNS, "sort": sort, "direction": direction,
         "display_date": service.display_date, "created": service.CREATION_DATE, "planned": service.PLANNED,

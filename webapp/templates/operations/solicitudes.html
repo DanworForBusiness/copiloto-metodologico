@@ -48,6 +48,11 @@
     {% if not item_id and not is_new %}<div id="solicitudes-list-result" role="status"></div>{% endif %}
   </main>
 </div>
+{% if not item_id and not is_new %}
+<dialog class="dw-confirm busqueda-dialog busqueda-contact-dialog hc-share-dialog" id="solicitudes-bulk-dialog" aria-labelledby="solicitudes-bulk-title"><div id="solicitudes-bulk-content"></div></dialog>
+<script src="{{ url_for('static', path='table_selection.js') }}?v={{ static_version }}" defer></script>
+<script src="{{ url_for('static', path='solicitudes_selection.js') }}?v={{ static_version }}" defer></script>
+{% endif %}
 {% if not item_id %}<script src="{{ url_for('static', path='operations_solicitudes.js') }}?v={{ static_version }}" defer></script>{% endif %}
 <script src="{{ url_for('static', path='solicitudes_write.js') }}?v={{ static_version }}" defer></script>
 {% endblock %}

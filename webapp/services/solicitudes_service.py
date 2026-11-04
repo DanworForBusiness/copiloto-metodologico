@@ -235,8 +235,8 @@ def display_date(value):
 
 
 SORT_COLUMNS = {
-    "title": ("Solicitud", 23),
-    "project": ("Proyecto", 17),
+    "title": ("Solicitud", 20),
+    "project": ("Proyecto", 15),
     "created": ("Creada", 10),
     "planned": ("Inicio", 10),
     "priority": ("Prioridad", 7),

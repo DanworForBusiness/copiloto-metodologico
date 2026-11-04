@@ -1,0 +1,7 @@
+{% macro selection_bar(kind, label, attributes={}) %}
+<div class="hc-selection-bar filter-toolbar-card" data-{{ kind }}-selection-bar role="region" aria-label="{{ label }}" hidden{% for name,value in attributes.items() %} {{ name }}="{{ value | forceescape }}"{% endfor %}>
+  <span class="hc-selection-bar__count" role="status" aria-live="polite"><strong data-{{ kind }}-selection-count>0</strong> <span data-{{ kind }}-selection-label>seleccionados</span></span>
+  <span class="field-hint hc-selection-bar__hint" data-{{ kind }}-selection-hint></span>
+  <div class="hc-selection-bar__actions">{{ caller() }}</div>
+</div>
+{% endmacro %}

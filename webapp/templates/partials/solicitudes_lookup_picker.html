@@ -6,7 +6,7 @@
                 get matches(){const term=this.query.trim().toLowerCase();return term.length >= 3 ? this.people.filter(option => option[1].toLowerCase().includes(term)) : []},
                 close(){this.open=false;this.query='';this.active=-1},
                 move(step){if(!this.open){this.open=true;return} const size=this.matches.length;if(!size)return;this.active=this.active<0 ? (step>0 ? 0 : size-1) : (this.active+step+size)%size;this.$nextTick(() => this.$refs.results.querySelectorAll('[role=option]')[this.active]?.scrollIntoView({block:'nearest'}))},
-                choose(id, name){const changed=id!==this.selected;this.selected=id;this.label=name;this.close();if(changed)this.$dispatch('change');this.$nextTick(() => this.$refs.value.focus())}}"
+                choose(id, name){const changed=id!==this.selected;this.selected=id;this.label=name;this.close();if(changed)this.$dispatch('change');this.$nextTick(() => this.$refs.value?.focus())}}"
        @focusout="if (!$el.contains($event.relatedTarget)) close()"
        @keydown.escape.stop="if (open) { close(); $refs.value.focus() }">
     <label for="{{ control_id }}">{{ field_label }}</label>

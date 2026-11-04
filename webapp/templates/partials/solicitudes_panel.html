@@ -1,3 +1,4 @@
+{% from "partials/table_selection_bar.html" import selection_bar %}
 {% from "partials/pager.html" import render_pager %}
 <form id="solicitudes-filters" class="hc-profile-filters filter-toolbar-card solicitudes-filters" hx-post="/operaciones/solicitudes/data" hx-target="#solicitudes-panel" hx-disabled-elt="find button"
       hx-indicator="#solicitudes-loading" hx-sync="this:replace" data-dw-graph-token>
@@ -17,6 +18,13 @@
     <button type="button" class="whatsnew-filter__clear" hx-post="/operaciones/solicitudes/data" hx-params="none">✕ Limpiar</button>
 </form>
 <details class="dashboard-section" open><summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Requerimientos de Arquitectura</span>{% if not error %}<span class="dashboard-section__count">{{ count }} requerimiento{{ 's' if count != 1 }}</span>{% endif %}</summary><div class="dashboard-section__body">
+{% call selection_bar('sol', 'Selección de solicitudes', {'data-sol-scope':selection_scope, 'data-sol-universe':universe_ids | tojson, 'data-sol-source-ok':'no' if error else 'yes'}) %}
+  <button type="button" class="btn-primary" data-sol-action="compartir" data-dw-graph-token hx-post="/operaciones/solicitudes/bulk/compartir" hx-target="#solicitudes-bulk-content" hx-sync="#solicitudes-bulk-content:drop">
+    <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4"/></svg>Compartir solicitudes</button>
+  <button type="button" class="btn-secondary" data-sol-action="preparar" data-dw-graph-token hx-post="/operaciones/solicitudes/bulk/preparar" hx-target="#solicitudes-bulk-content" hx-sync="#solicitudes-bulk-content:drop"><svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>Ajustar en lote</button>
+  <button type="button" class="btn-secondary" data-sol-action="consolidar" data-dw-graph-token hx-post="/operaciones/solicitudes/bulk/consolidar" hx-target="#solicitudes-bulk-content" hx-sync="#solicitudes-bulk-content:drop"><svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>Consolidar solicitudes</button>
+  <button type="button" class="whatsnew-filter__clear" data-sol-clear-selection aria-label="Limpiar selección">✕ Limpiar</button>
+{% endcall %}
 {% if error %}
 <div class="dashboard-empty" role="alert"><span class="dashboard-empty__label">No disponible</span><p>{{ error }}</p>
   <button type="button" class="whatsnew-filter__clear" data-dw-graph-token
@@ -36,15 +44,17 @@
   {% endif %}
 </div>
 {% else %}
-<div class="matrix-scroll" data-draggable-columns-key="operaciones-solicitudes-v2"
-     data-resizable-columns-key="operaciones-solicitudes-v2" data-layout-version="2">
+<div class="matrix-scroll" data-draggable-columns-key="operaciones-solicitudes-v3"
+     data-resizable-columns-key="operaciones-solicitudes-v3" data-layout-version="3">
   <table class="dashboard-table solicitudes-table">
     <colgroup>
+      <col data-column-fixed="start" style="width:2.5rem">
       {% for key, (label, width) in columns.items() %}<col data-column-key="{{ key }}" style="width:{{ width }}%">{% endfor %}
       <col style="width:5rem">
     </colgroup>
     <thead>
       <tr>
+        <th class="center hc-select-col" scope="col" data-column-fixed="start"><input type="checkbox" data-sol-select-page aria-label="Seleccionar las solicitudes de esta página"></th>
         {% for key, (label, width) in columns.items() %}
         <th class="left dashboard-table-th--sortable" scope="col" draggable="true" data-column-key="{{ key }}"
             aria-sort="{{ ('descending' if direction == 'desc' else 'ascending') if sort == key else 'none' }}">
@@ -62,7 +72,7 @@
     </thead>
     <tbody>
       {% for row in rows %}{% set f = row.fields %}
-      <tr><td class="left" data-column-key="title"><span class="solicitudes-description">{{ (f.get('Title') or '') | trim or 'Solicitud #' ~ row.id }}</span></td><td class="left" data-column-key="project">{{ project_label(row) or '—' }}</td>
+      <tr><td class="center hc-select-col" data-column-fixed="start"><input type="checkbox" data-sol-select="{{ row.id }}" aria-label="Seleccionar solicitud {{ row.id }}"></td><td class="left" data-column-key="title"><span class="solicitudes-description">{{ (f.get('Title') or '') | trim or 'Solicitud #' ~ row.id }}</span></td><td class="left" data-column-key="project">{{ project_label(row) or '—' }}</td>
       <td class="left" data-column-key="created">{{ display_date(f.get(created)) }}</td>
       <td class="left" data-column-key="planned">{{ display_date(f.get(planned)) }}</td>
       <td class="left" data-column-key="priority">{{ f.get('Prioridad') or '—' }}</td><td class="left" data-column-key="funnel">{{ f.get(funnel) or '—' }}</td><td class="left" data-column-key="architecture">{{ f.get(status) or '—' }}</td>

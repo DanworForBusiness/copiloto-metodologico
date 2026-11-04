@@ -10,7 +10,8 @@ const vm = require("vm");
 let failures = 0;
 function ok(cond, label) { if (!cond) { failures++; console.log(`FAIL: ${label}`); } }
 
-const SRC = fs.readFileSync(path.resolve(__dirname, "..", "..", "webapp", "static", "human_capital_candidates_selection.js"), "utf-8");
+const SHARED = fs.readFileSync(path.resolve(__dirname, "..", "..", "webapp", "static", "table_selection.js"), "utf-8");
+const SRC = SHARED + "\n" + fs.readFileSync(path.resolve(__dirname, "..", "..", "webapp", "static", "human_capital_candidates_selection.js"), "utf-8");
 const sandbox = { window: {}, console };
 vm.createContext(sandbox);
 vm.runInContext(SRC, sandbox, { filename: "human_capital_candidates_selection.js" });

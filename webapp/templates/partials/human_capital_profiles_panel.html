@@ -1,3 +1,4 @@
+{% from "partials/table_selection_bar.html" import selection_bar %}
 {% from "partials/star_rating.html" import star_rating %}
 {% from "partials/pager.html" import render_pager %}
 {# human_capital_profiles_panel.html — fragmento compartido por
@@ -178,10 +179,7 @@
      primero y la oculta al quitar el último, compensando el desplazamiento de la tabla para que el clic siguiente no caiga en otra fila. El estado (solo `profile_id`) vive en el cliente
      (`human_capital_candidates_selection.js`, sessionStorage) porque este panel se reemplaza entero en cada filtro/orden/página. Reusa `.filter-toolbar-card` (borde/padding del Hub),
      `.btn-primary` y el «✕ Limpiar» compartido (`.whatsnew-filter__clear`, tools.css). «Compartir perfiles» abre el diálogo de `profiles.html`; no hay exportación ni descarga de documentos. #}
-  <div class="hc-selection-bar filter-toolbar-card" data-hc-selection-bar role="region" aria-label="Selección de candidatos" hidden>
-    <span class="hc-selection-bar__count" role="status" aria-live="polite"><strong data-hc-selection-count>0</strong> <span data-hc-selection-label>seleccionados</span></span>
-    <span class="field-hint hc-selection-bar__hint" data-hc-selection-hint></span>
-    <div class="hc-selection-bar__actions">
+  {% call selection_bar("hc", "Selección de candidatos") %}
       <button type="button" class="btn-primary" data-hc-share-open>
         <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4"/></svg>
         Compartir perfiles
@@ -198,8 +196,7 @@
       </button>
       {% endif %}
       <button type="button" class="whatsnew-filter__clear" data-hc-clear-selection aria-label="Limpiar selección">✕ Limpiar</button>
-    </div>
-  </div>
+  {% endcall %}
 
   {% if can_consolidate and consolidation_pending %}
   <div class="dashboard-empty" data-consolidation-pending role="alert">

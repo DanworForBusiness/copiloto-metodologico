@@ -33,6 +33,8 @@
 
 /* Preserve readable columns in the Hub's scrollable table wrapper. */
 table.solicitudes-table { min-width: 76rem; }
+/* Comparison previews need room for their four columns; retain Hub dialog styling. */
+#solicitudes-bulk-dialog { max-width: 64rem; }
 /* Same internal horizontal scroll as the Hub tables: never crush history on mobile. */
 table.solicitudes-history-table { min-width: 48rem; }
 table.solicitudes-history-table td:last-child { white-space: normal; overflow-wrap: anywhere; }
