@@ -1,13 +1,14 @@
-<section id="solicitudes-detail-hero" class="module-hero hc-profiles-hero"{% if refresh_hero %} hx-swap-oob="outerHTML"{% endif %}>
+<section id="solicitudes-detail-hero" class="module-hero hc-profiles-hero asr-hero"{% if refresh_hero %} hx-swap-oob="outerHTML"{% endif %}>
   <div class="hc-profiles-hero-text">
     <p class="eyebrow">Operaciones</p>
     <h1>{{ detail_title or 'Solicitud #' ~ item_id }}</h1>
     {% if detail_loaded %}
-    <div class="busqueda-status-row">
+    <div class="hero-meta">
+      <span class="catalog-verdict-line">
       {% for label, value in detail_badges %}
-      <span>{{ label }}: <span class="status-badge status-badge--inactivo">{{ value or 'Sin informar' }}</span></span>
-      {% if not loop.last %}<span aria-hidden="true">·</span>{% endif %}
+      <span>{{ label }}: <span class="catalog-card__verdict catalog-card__verdict--neutra">{{ value or 'Sin informar' }}</span></span>
       {% endfor %}
+      </span>
     </div>
     {% endif %}
   </div>
