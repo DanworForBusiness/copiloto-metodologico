@@ -1,0 +1,76 @@
+{% from "partials/pager.html" import render_pager %}
+<form id="solicitudes-filters" class="hc-profile-filters filter-toolbar-card solicitudes-filters" hx-post="/operaciones/solicitudes/data" hx-target="#solicitudes-panel" hx-disabled-elt="find button"
+      hx-indicator="#solicitudes-loading" hx-sync="this:replace" data-dw-graph-token>
+    <input type="hidden" name="sort" value="{{ sort }}">
+    <input type="hidden" name="dir" value="{{ direction }}">
+    {% for key, label in filters.items() %}
+    <div class="feedback-field {{ 'feedback-field--medium' if loop.first or loop.last else 'feedback-field--compact' }}"><label for="sol-filter-{{ loop.index }}">{{ label }}</label>
+      <select id="sol-filter-{{ loop.index }}" name="{{ key }}" hx-post="/operaciones/solicitudes/data" hx-trigger="change" hx-include="closest form">
+        <option value="">Todos</option>
+        {% for option in options[key] %}
+        <option{% if selected[key] == option %} selected{% endif %}>{{ option }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% endfor %}
+    <div class="feedback-field feedback-field--wide"><label for="sol-q">Buscar</label><input id="sol-q" autocomplete="off" type="text" name="q" value="{{ query }}" placeholder="Solicitud, proyecto o descripción…" hx-post="/operaciones/solicitudes/data" hx-trigger="input changed delay:500ms" hx-include="closest form"></div>
+    <button type="button" class="whatsnew-filter__clear" hx-post="/operaciones/solicitudes/data" hx-params="none">✕ Limpiar</button>
+</form>
+<details class="dashboard-section" open><summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Requerimientos de Arquitectura</span>{% if not error %}<span class="dashboard-section__count">{{ count }} requerimiento{{ 's' if count != 1 }}</span>{% endif %}</summary><div class="dashboard-section__body">
+{% if error %}
+<div class="dashboard-empty" role="alert"><span class="dashboard-empty__label">No disponible</span><p>{{ error }}</p>
+  <button type="button" class="whatsnew-filter__clear" data-dw-graph-token
+          hx-post="/operaciones/solicitudes/data" hx-target="#solicitudes-panel"
+          hx-include="#solicitudes-filters" hx-sync="#solicitudes-filters:replace"
+          hx-indicator="#solicitudes-loading, #solicitudes-refresh" hx-disabled-elt="this"
+          hx-vals='{"refresh":"1"}'>Reintentar</button>
+</div>
+{% elif not rows %}
+<div class="dashboard-empty">
+  {% if source_count %}
+  <span class="dashboard-empty__label">Sin resultados</span>
+  <p>No se encontraron solicitudes con los filtros seleccionados.</p>
+  {% else %}
+  <span class="dashboard-empty__label">Sin solicitudes</span>
+  <p>Todavía no hay solicitudes de Arquitectura e Innovación.</p>
+  {% endif %}
+</div>
+{% else %}
+<div class="matrix-scroll" data-draggable-columns-key="operaciones-solicitudes-v1"
+     data-resizable-columns-key="operaciones-solicitudes-v1">
+  <table class="dashboard-table solicitudes-table">
+    <colgroup>
+      {% for key, (label, width) in columns.items() %}<col data-column-key="{{ key }}" style="width:{{ width }}%">{% endfor %}
+      <col style="width:7%">
+    </colgroup>
+    <thead>
+      <tr>
+        {% for key, (label, width) in columns.items() %}
+        <th class="left dashboard-table-th--sortable" scope="col" draggable="true" data-column-key="{{ key }}"
+            aria-sort="{{ ('descending' if direction == 'desc' else 'ascending') if sort == key else 'none' }}">
+          <button type="button" class="solicitudes-sort"
+                  hx-post="/operaciones/solicitudes/data" hx-target="#solicitudes-panel"
+                  hx-include="#solicitudes-filters" hx-sync="#solicitudes-filters:replace"
+                  hx-indicator="#solicitudes-loading" data-dw-graph-token
+                  hx-vals='{{ {"sort": key, "dir": "desc" if sort == key and direction == "asc" else "asc"} | tojson }}'>
+            {{ label }}{% if sort == key %} <span aria-hidden="true">{{ '▼' if direction == 'desc' else '▲' }}</span>{% endif %}
+          </button>
+        </th>
+        {% endfor %}
+        <th class="center" scope="col">Acciones</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}{% set f = row.fields %}
+      <tr><td class="left" data-column-key="title"><span class="solicitudes-description">{{ (f.get('Title') or '') | trim or 'Solicitud #' ~ row.id }}</span></td><td class="left" data-column-key="project">{{ project_label(row) or '—' }}</td>
+      <td class="left" data-column-key="priority">{{ f.get('Prioridad') or '—' }}</td><td class="left" data-column-key="funnel">{{ f.get(funnel) or '—' }}</td><td class="left" data-column-key="architecture">{{ f.get(status) or '—' }}</td>
+      <td class="left" data-column-key="collaborator">{{ values(f.get(assignees)) | join(', ') }}</td>
+<td class="center"><div class="dw-row-actions"><a class="table-action-btn chart-tooltip-anchor" href="/operaciones/solicitudes/{{ row.id }}/editar" aria-label="Abrir solicitud {{ row.id }}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Editar solicitud</p></span></a></div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{{ render_pager(pager, "#solicitudes-panel", "Páginas de solicitudes", "", show_size=false, post_url="/operaciones/solicitudes/data", form="#solicitudes-filters", indicator="#solicitudes-loading") }}
+{% endif %}
+
+</div></details>

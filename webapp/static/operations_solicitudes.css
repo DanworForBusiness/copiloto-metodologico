@@ -1,0 +1,83 @@
+/* Solicitudes: el desplegable contextual queda fuera del flujo de la grilla. */
+.solicitudes-person-control { position: relative; display: flex; align-items: center; }
+.solicitudes-person-control > input { min-width: 0; flex: 1; }
+.solicitudes-person-control > .table-action-btn { position: absolute; inset-inline-end: 4px; }
+.solicitudes-person-control > input[readonly] { padding-inline-end: 32px; }
+.solicitudes-person-results {
+  position: absolute;
+  inset: calc(100% + 4px) 0 auto;
+  z-index: 5;
+  max-height: min(12rem, 40vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 4px;
+  background: var(--content-surface);
+  box-shadow: 0 6px 18px var(--line);
+}
+.solicitudes-person-results .field-hint { margin: 0; padding: 4px 8px; }
+.solicitudes-person-results [role="option"] {
+  padding: 5px 8px;
+  border-radius: 6px;
+  color: var(--content-ink);
+  font-size: .82rem;
+  line-height: 1.35;
+  text-align: start;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.solicitudes-person-results [aria-selected="true"] { font-weight: 650; }
+.solicitudes-person-results [role="option"]:hover,
+.solicitudes-person-results [role="option"].is-active {
+  background: color-mix(in srgb, var(--gold) 15%, var(--content-surface));
+}
+
+/* Preserve readable columns in the Hub's scrollable table wrapper. */
+table.solicitudes-table { min-width: 52rem; }
+.solicitudes-table .solicitudes-description {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+/* Normalize native select and input line boxes before aligning toolbar fields. */
+.solicitudes-filters select,
+.solicitudes-filters input[type="text"],
+.solicitudes-filters > .whatsnew-filter__clear {
+  block-size: 2.25rem;
+}
+
+.solicitudes-sort {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+
+/* Keep the indicator out of the swapped panel and out of document flow. */
+.solicitudes-loading-slot { position: relative; }
+.solicitudes-loading {
+  position: absolute;
+  inset: 0 0 auto;
+  visibility: hidden;
+}
+.solicitudes-loading.htmx-request {
+  animation: solicitudes-show-loading 1ms step-end 250ms forwards;
+}
+.module-content:has(#solicitudes-refresh.htmx-request) .solicitudes-loading.htmx-request {
+  animation-delay: 0ms;
+}
+.module-content:has(#solicitudes-refresh.htmx-request) #solicitudes-panel {
+  visibility: hidden;
+}
+@keyframes solicitudes-show-loading {
+  to { visibility: visible; }
+}

@@ -60,6 +60,7 @@ from webapp.routers import assistant as assistant_router
 from webapp.routers import wizard as wizard_router
 from webapp.routers import modules as modules_router
 from webapp.routers import operations_busquedas as operations_busquedas_router
+from webapp.routers import solicitudes as solicitudes_router
 from webapp.routers import reporting as reporting_router
 from webapp.routers import staffing as staffing_router
 from webapp.routers import platform as platform_router
@@ -299,6 +300,7 @@ app.include_router(modules_router.router)
 app.include_router(staffing_router.router)
 app.include_router(reporting_router.router)
 app.include_router(operations_busquedas_router.router)
+app.include_router(solicitudes_router.router)
 app.include_router(platform_router.router)
 app.include_router(commercial_router.router)
 app.include_router(human_capital_router.router)

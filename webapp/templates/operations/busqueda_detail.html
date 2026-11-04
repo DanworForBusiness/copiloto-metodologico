@@ -25,7 +25,7 @@
     <a class="catalog-back" href="/operaciones/busquedas">← Volver a Búsquedas</a>
     <section class="module-hero hc-profiles-hero">
       <div class="hc-profiles-hero-text">
-        <p class="eyebrow">Staffing · Solicitud de perfil</p>
+        <p class="eyebrow">Staffing · Búsqueda de perfil</p>
         <h1>{{ req.nombre_puesto }}</h1>
         {% set _meta = [] %}
         {% if req.area_consultora %}{% set _ = _meta.append(req.area_consultora) %}{% endif %}
@@ -40,13 +40,13 @@
         </div>
       </div>
       <div class="hc-profiles-hero-actions">
-        {% if view.puede_editar %}<a href="/operaciones/busquedas/{{ view.busqueda_id }}/editar" class="btn-secondary">{{ 'Editar solicitud' if owner_full else 'Editar' }}</a>{% endif %}
+        {% if view.puede_editar %}<a href="/operaciones/busquedas/{{ view.busqueda_id }}/editar" class="btn-secondary">{{ 'Editar búsqueda' if owner_full else 'Editar' }}</a>{% endif %}
         {% if view.puede_corregir %}<a href="/operaciones/busquedas/{{ view.busqueda_id }}/editar" class="btn-primary">Corregir y reenviar</a>{% endif %}
-        {% if view.puede_cancelar %}<button type="button" class="btn-danger" data-dialog-open="opsb-cancel-dialog">Cancelar solicitud</button>{% endif %}
+        {% if view.puede_cancelar %}<button type="button" class="btn-danger" data-dialog-open="opsb-cancel-dialog">Cancelar búsqueda</button>{% endif %}
         {% if view.puede_eliminar %}
         <button type="button" class="btn-danger btn-danger--strong" data-dialog-open="opsb-delete-dialog">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
-          Eliminar solicitud
+          Eliminar búsqueda
         </button>
         {% endif %}
         {% if owner_full %}{# Modo total del dueño de la app: además, las acciones del proceso de Capital Humano (mismo partial que su detalle). #}
@@ -64,7 +64,7 @@
     {% if view.estado_solicitud == 'observada' and view.observacion %}
     <div class="methodology">
     <div class="callout callout--warn" data-observacion>
-      <div class="callout__head"><strong class="callout__title">Capital Humano observó esta solicitud{% if view.observacion.en %} · {{ view.observacion.en | ops_datetime }}{% endif %}</strong></div>
+      <div class="callout__head"><strong class="callout__title">Capital Humano observó esta búsqueda{% if view.observacion.en %} · {{ view.observacion.en | ops_datetime }}{% endif %}</strong></div>
       <div class="callout__body">
         <p>{{ view.observacion.motivo }}</p>
         <p>Corregí los datos y reenviala: vuelve a quedar «Enviada».</p>
@@ -74,9 +74,9 @@
     {% elif view.estado_solicitud == 'enviada' %}
     <p class="field-hint">Enviada a Capital Humano{% if view.reenviada %} (reenvío {{ view.reenvios }}){% endif %}. Podés editarla, cancelarla o eliminarla hasta que Capital Humano la tome.</p>
     {% elif view.estado_solicitud == 'cancelada' %}
-    <p class="field-hint" data-readonly>Solicitud cancelada{% if view.cancelada_en %} el {{ view.cancelada_en | ops_datetime }}{% endif %}{% if view.motivo_cancelacion %}. Motivo: {{ view.motivo_cancelacion }}{% endif %}. Es de solo lectura.</p>
+    <p class="field-hint" data-readonly>Búsqueda cancelada{% if view.cancelada_en %} el {{ view.cancelada_en | ops_datetime }}{% endif %}{% if view.motivo_cancelacion %}. Motivo: {{ view.motivo_cancelacion }}{% endif %}. Es de solo lectura.</p>
     {% elif view.estado_solicitud == 'en_gestion' and not view.vigente %}
-    <p class="field-hint" data-readonly>El proceso está cerrado. Esta solicitud es de solo lectura; el historial muestra todo lo que pasó con ella.</p>
+    <p class="field-hint" data-readonly>El proceso está cerrado. Esta búsqueda es de solo lectura; el historial muestra todo lo que pasó con ella.</p>
     {% elif view.estado_solicitud == 'en_gestion' %}
     <p class="field-hint" data-vigente-en-gestion>Capital Humano ya está gestionando esta búsqueda. Mientras siga vigente podés editar sus datos: cada cambio queda registrado en el historial con quién lo hizo.</p>
     {% endif %}
@@ -98,8 +98,8 @@
       <form method="post" action="/operaciones/busquedas/{{ view.busqueda_id }}/cancelar" data-opsb-form>
         <input type="hidden" name="expected_revision" value="{{ view.revision }}">
         <div class="dw-confirm__body">
-          <h2 class="dw-confirm__title" id="opsb-cancel-title">Cancelar solicitud</h2>
-          <p class="dw-confirm__msg">La solicitud pasa a <strong>Cancelada</strong> y deja de ser editable. Esta acción no se puede deshacer.</p>
+          <h2 class="dw-confirm__title" id="opsb-cancel-title">Cancelar búsqueda</h2>
+          <p class="dw-confirm__msg">La búsqueda pasa a <strong>Cancelada</strong> y deja de ser editable. Esta acción no se puede deshacer.</p>
         </div>
         <div class="busqueda-picker">
           <div class="feedback-field">
@@ -110,8 +110,8 @@
         <div class="dw-confirm__actions">
           <button type="submit" formmethod="dialog" class="btn-secondary" value="cancel">Volver</button>
           <button type="submit" class="btn-danger asr-generate" aria-live="polite">
-            <span class="asr-generate__busy htmx-indicator" role="status"><span class="asr-generate__spinner" aria-hidden="true"></span>Cancelando solicitud…</span>
-            <span class="asr-generate__label">Cancelar solicitud</span>
+            <span class="asr-generate__busy htmx-indicator" role="status"><span class="asr-generate__spinner" aria-hidden="true"></span>Cancelando búsqueda…</span>
+            <span class="asr-generate__label">Cancelar búsqueda</span>
           </button>
         </div>
       </form>
@@ -124,15 +124,15 @@
       <form method="post" action="/operaciones/busquedas/{{ view.busqueda_id }}/eliminar" data-opsb-form>
         <input type="hidden" name="expected_revision" value="{{ view.revision }}">
         <div class="dw-confirm__body">
-          <h2 class="dw-confirm__title" id="opsb-delete-title">Eliminar solicitud</h2>
-          <p class="dw-confirm__msg">La solicitud se <strong>elimina definitivamente</strong> y desaparece también de la bandeja de Capital Humano. Esta acción no se puede deshacer.</p>
+          <h2 class="dw-confirm__title" id="opsb-delete-title">Eliminar búsqueda</h2>
+          <p class="dw-confirm__msg">La búsqueda se <strong>elimina definitivamente</strong> y desaparece también de la bandeja de Capital Humano. Esta acción no se puede deshacer.</p>
           <p class="field-hint">Solo se puede eliminar mientras Capital Humano no la haya tomado en gestión. Si preferís conservar el registro, cancelala.</p>
         </div>
         <div class="dw-confirm__actions">
           <button type="submit" formmethod="dialog" class="btn-secondary" value="cancel">Volver</button>
           <button type="submit" class="btn-danger asr-generate" aria-live="polite">
-            <span class="asr-generate__busy htmx-indicator" role="status"><span class="asr-generate__spinner" aria-hidden="true"></span>Eliminando solicitud…</span>
-            <span class="asr-generate__label">Eliminar solicitud</span>
+            <span class="asr-generate__busy htmx-indicator" role="status"><span class="asr-generate__spinner" aria-hidden="true"></span>Eliminando búsqueda…</span>
+            <span class="asr-generate__label">Eliminar búsqueda</span>
           </button>
         </div>
       </form>

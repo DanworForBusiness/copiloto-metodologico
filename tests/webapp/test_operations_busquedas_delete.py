@@ -48,7 +48,7 @@ def test_the_deletion_confirmation_is_shown_and_the_request_is_gone_from_the_ope
     c = ops()
     assert SID in c.get(BASE).text
     page = c.get(delete(c).headers["location"]).text
-    assert "Solicitud eliminada" in page and SID not in page and SID2 in page         # solo se fue la eliminada
+    assert "Búsqueda eliminada" in page and SID not in page and SID2 in page         # solo se fue la eliminada
     assert c.get(f"{BASE}/{SID}").status_code == 404 and c.get(f"{BASE}/{SID}/editar").status_code == 404
 
 
@@ -81,7 +81,7 @@ def test_once_cchh_takes_it_operations_loses_delete_and_cancel_for_good():
     assert delete(c).status_code == 409 and repo.get(SID) == before
     assert c.post(f"{BASE}/{SID}/cancelar", data={"expected_revision": str(rev())}, headers=ORIGIN).status_code == 409 and repo.get(SID) == before
     html = c.get(f"{BASE}/{SID}").text
-    assert "opsb-delete-dialog" not in html and "Eliminar solicitud" not in html and "/eliminar" not in html and "opsb-cancel-dialog" not in html
+    assert "opsb-delete-dialog" not in html and "Eliminar búsqueda" not in html and "/eliminar" not in html and "opsb-cancel-dialog" not in html
 
 
 def test_history_wins_over_the_visible_state_a_request_taken_once_never_regains_deletion_or_cancellation():
@@ -105,14 +105,14 @@ def test_history_wins_over_the_visible_state_a_request_taken_once_never_regains_
         view = svc.get_solicitud_view(sid)
         assert not (view["puede_eliminar"] or view["puede_cancelar"] or view["puede_corregir"])     # la toma sigue cerrando eliminar y cancelar (editar quedó habilitado solo para `en_gestion`, acordado entre equipos)
         html = c.get(f"{BASE}/{sid}").text
-        assert "Eliminar solicitud" not in html and "opsb-delete-dialog" not in html
+        assert "Eliminar búsqueda" not in html and "opsb-delete-dialog" not in html
 
 
 def test_a_cancelled_request_is_kept_as_history_and_cannot_be_deleted():
     to_state("cancelada")
     before = repo.get(SID)
     assert delete(ops()).status_code == 409 and repo.get(SID) == before
-    assert "Eliminar solicitud" not in ops().get(f"{BASE}/{SID}").text
+    assert "Eliminar búsqueda" not in ops().get(f"{BASE}/{SID}").text
 
 
 @pytest.mark.parametrize("closed", [False, True])
@@ -181,7 +181,7 @@ def test_if_cchh_takes_it_between_opening_the_detail_and_confirming_the_delete_i
     assert repo.solicitud_estado(repo.get(SID)) == "en_gestion"
     r = delete(c, revision=revision)
     assert r.status_code == 409 and exists() and repo.solicitud_estado(repo.get(SID)) == "en_gestion"
-    assert "Eliminar solicitud" not in r.text                                                                      # la pantalla re-renderizada ya no ofrece la acción
+    assert "Eliminar búsqueda" not in r.text                                                                      # la pantalla re-renderizada ya no ofrece la acción
 
 
 def test_the_delete_revalidates_under_the_write_lock_even_if_the_service_check_was_stale(monkeypatch):

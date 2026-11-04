@@ -107,10 +107,10 @@ def test_operations_sees_candidate_names_and_cchh_actors_but_no_contact_data_or_
 def test_vigentes_and_cerradas_lists_and_their_empty_states_follow_the_hub_format():
     c = ops()
     html = c.get(BASE).text
-    assert "Solicitudes Vigentes" in html and "Solicitudes Cerradas" in html
-    assert re.search(r'class="dashboard-empty" data-empty-kind="no_cerradas"><span class="dashboard-empty__label">Sin solicitudes cerradas</span>', html)       # estado vacío con el formato del Hub (no un párrafo suelto)
+    assert "Búsquedas Vigentes" in html and "Búsquedas Cerradas" in html
+    assert re.search(r'class="dashboard-empty" data-empty-kind="no_cerradas"><span class="dashboard-empty__label">Sin búsquedas cerradas</span>', html)       # estado vacío con el formato del Hub (no un párrafo suelto)
     to_state("en_gestion")
     svc.close_busqueda(SID, actor=CCHH_EMAIL)
     html = c.get(BASE).text
     assert re.search(r'data-empty-kind="no_vigentes"', html) and 'id="opsb-table-closed"' in html and 'id="opsb-table"' not in html
-    assert html.index("Solicitudes Vigentes") < html.index("Solicitudes Cerradas")
+    assert html.index("Búsquedas Vigentes") < html.index("Búsquedas Cerradas")

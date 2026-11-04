@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% from "partials/platform_topbar.html" import platform_topbar %}
+{% from "partials/workspace_shell.html" import sidebar_resize_handle %}
+{% block title %}Solicitudes · Operaciones · Danwor{% endblock %}
+{% block head_styles %}<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}"><link rel="stylesheet" href="{{ url_for('static', path='operations_busquedas.css') }}?v={{ static_version }}"><link rel="stylesheet" href="{{ url_for('static', path='operations_solicitudes.css') }}?v={{ static_version }}">{% endblock %}
+{% block body %}
+<div x-data="copilotLayout('solicitudes')" x-init="init()" class="app-shell no-copilot">
+  {% set identity %}<iframe src="/brand/dancing/{{ pack }}?title={{ config.OPERATIONS_APP_TITLE | urlencode }}&subtitle={{ config.OPERATIONS_APP_SUBTITLE | urlencode }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
+  {% call platform_topbar(current_workspace, available_workspaces, current_workspace.home_url, identity, "Menú") %}{% endcall %}
+  {% include "partials/operations_nav.html" %}
+  {{ sidebar_resize_handle() }}
+  <main id="content" class="module-content">
+    {% if item_id %}
+    <a class="catalog-back" href="/operaciones/solicitudes">← Volver a Solicitudes</a>
+    {% include "partials/solicitudes_detail_hero.html" %}
+    {% else %}
+    <section class="module-hero opsb-hero">
+      <div class="catalog-actionbar">
+        <p class="eyebrow">ARQUITECTURA E INNOVACION</p>
+        <div class="support-links catalog-actionbar__actions">
+          <button id="solicitudes-refresh" type="button" class="btn-primary" data-dw-graph-token
+                  hx-post="/operaciones/solicitudes/data" hx-target="#solicitudes-panel"
+                  hx-include="#solicitudes-filters" hx-sync="#solicitudes-filters:replace"
+                  hx-indicator="#solicitudes-loading, #solicitudes-refresh" hx-disabled-elt="this"
+                  hx-vals='{"refresh":"1"}'>Actualizar</button>
+        </div>
+      </div>
+      <h1>Solicitudes</h1>
+      <p class="hero-lead full-page-subtitle">Solicitudes, requerimientos y demandas Danwor Transversal</p>
+    </section>
+    <div class="solicitudes-loading-slot">
+      <p id="solicitudes-loading" class="section-analysis-loading solicitudes-loading" role="status">
+        <span class="section-analysis-spinner" aria-hidden="true"></span>Cargando solicitudes…
+      </p>
+    </div>
+    {% endif %}
+    <div id="solicitudes-panel" class="dashboard-sections">
+      <div hx-post="/operaciones/solicitudes/{{ item_id ~ '/detalle' if item_id else 'data' }}" hx-trigger="load" hx-target="#solicitudes-panel"{% if not item_id %} hx-indicator="#solicitudes-loading"{% endif %} data-dw-graph-token>
+        {% if item_id %}<p class="section-analysis-loading"><span class="section-analysis-spinner"></span>Cargando solicitudes…</p>{% endif %}
+      </div>
+    </div>
+  </main>
+</div>
+{% if not item_id %}<script src="{{ url_for('static', path='operations_solicitudes.js') }}?v={{ static_version }}" defer></script>{% endif %}
+{% endblock %}

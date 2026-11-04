@@ -1,0 +1,38 @@
+{% macro lookup_picker(control_id, field_name, field_label, selected, options, search_hint, empty_hint, results_label, no_matches, remove_label, width, display_label=none) %}
+  <div class="feedback-field feedback-field--{{ width }}"
+       x-data="{query:'', open:false, active:-1, selected:{{ selected | tojson | forceescape }},
+                label:{{ (display_label if display_label is not none else options.get(selected, 'Referencia no disponible (' ~ selected ~ ')' if selected else '')) | tojson | forceescape }},
+                people:{{ options | dictsort(by='value') | tojson | forceescape }},
+                get matches(){const term=this.query.trim().toLowerCase();return term.length >= 3 ? this.people.filter(option => option[1].toLowerCase().includes(term)) : []},
+                close(){this.open=false;this.query='';this.active=-1},
+                move(step){if(!this.open){this.open=true;return} const size=this.matches.length;if(!size)return;this.active=this.active<0 ? (step>0 ? 0 : size-1) : (this.active+step+size)%size;this.$nextTick(() => this.$refs.results.querySelectorAll('[role=option]')[this.active]?.scrollIntoView({block:'nearest'}))},
+                choose(id, name){const changed=id!==this.selected;this.selected=id;this.label=name;this.close();if(changed)this.$dispatch('change');this.$nextTick(() => this.$refs.value.focus())}}"
+       @focusout="if (!$el.contains($event.relatedTarget)) close()"
+       @keydown.escape.stop="if (open) { close(); $refs.value.focus() }">
+    <label for="{{ control_id }}">{{ field_label }}</label>
+    <input type="hidden" name="{{ field_name }}" :value="selected" value="{{ selected }}">
+    <div class="solicitudes-person-control">
+      <input id="{{ control_id }}" type="text" autocomplete="off" x-ref="value"
+             :readonly="!open" :value="open ? query : label"
+             :placeholder="open ? {{ search_hint | tojson | forceescape }} : {{ empty_hint | tojson | forceescape }}"
+             role="combobox" aria-autocomplete="list" :aria-expanded="open" aria-controls="{{ control_id }}-list"
+             :aria-activedescendant="open && active >= 0 ? '{{ control_id }}-option-' + active : null"
+             @click="open=true"
+             @input.stop="query=$event.target.value; active=-1" @change.stop
+             @keydown.enter.prevent="if(!open) open=true; else if(active >= 0 || matches.length === 1) choose(...matches[Math.max(0, active)])"
+             @keydown.down.prevent="move(1)" @keydown.up.prevent="move(-1)">
+      <button type="button" class="table-action-btn" x-show="selected && !open" x-cloak
+              aria-label="{{ remove_label }}" title="{{ remove_label }}" @click="choose('', '')">×</button>
+      <div id="{{ control_id }}-results" class="solicitudes-person-results filter-toolbar-card" x-show="open" x-cloak>
+        <p class="field-hint" x-show="query.trim().length < 3">Escribí al menos tres caracteres para buscar.</p>
+        <p class="field-hint" role="status" x-show="query.trim().length >= 3 && !matches.length">{{ no_matches }}</p>
+        <div id="{{ control_id }}-list" role="listbox" aria-label="{{ results_label }}" x-ref="results">
+          <template x-for="([id, name], index) in matches" :key="id">
+            <div role="option" :id="'{{ control_id }}-option-' + index" :aria-selected="id === selected"
+                 :class="{'is-active': index === active}" @mousedown.prevent @click="choose(id, name)" x-text="name"></div>
+          </template>
+        </div>
+      </div>
+    </div>
+  </div>
+{% endmacro %}
