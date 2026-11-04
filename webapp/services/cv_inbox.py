@@ -64,6 +64,7 @@ PAGE_SIZE = 200
 ANALYZE_MAX_DOCS, ANALYZE_BUDGET_S = 15, 45.0
 ACCEPT_MAX_SELECTION, ACCEPT_BUDGET_S = 25, 45.0
 MAX_ATTEMPTS = 3
+INBOX_ANALYSIS_REVISION = 2                                                         # 2: encabezados de sección y archivos en CamelCase; un CV analizado con una revisión anterior (y sin decidir) se reanaliza
 AUTO_RETIRE_MAX = 3                                                                 # intentos del retiro físico que la bandeja reintenta SOLA (luego queda el botón «Reintentar el retiro»)
 RECENT_DONE = 50                                                                    # incorporados recientes que se siguen mostrando (filtro «Incorporados»)
 LIST_SELECT = "id,name,size,file,folder,eTag,cTag,lastModifiedDateTime,parentReference,webUrl"
@@ -98,6 +99,7 @@ REASON_TEXT = {
     "SAME_PERSON_IN_INBOX": "Otro CV de la bandeja parece ser de la misma persona.",
     "MATCHES": "Hay perfiles del Banco que podrían ser esta persona.",
     "NAME_UNCORROBORATED": "El nombre propuesto no está corroborado por un dato independiente (por ejemplo el email).",
+    "ANALYSIS_OUTDATED": "Analizado con una versión anterior del lector de CVs: volvé a analizarlo para tomar la detección actual.",
     "NO_EMAIL": "Sin email: solo se puede aceptar de a uno, con confirmación.",
     "NO_NAME": "No se encontró nombre y apellido con evidencia suficiente: completalos desde el CV.",
     "EXTRACTION_FAILED": "No se pudo leer el texto del documento (por ejemplo escaneado o protegido): completá los datos desde el CV.",
@@ -300,6 +302,8 @@ def _needs_analysis(entry: dict, record: dict | None, ledger: dict | None) -> bo
         return False
     if not _same_listing(record, entry):
         return True
+    if record.get("state") == "ANALYZED" and int(record.get("inbox_revision") or 1) < INBOX_ANALYSIS_REVISION:
+        return True                                                             # analizado con reglas anteriores y todavía sin decidir: vuelve a «Por analizar»
     return record.get("state") == "FAILED" and bool(record.get("retryable")) and int(record.get("attempts") or 0) < MAX_ATTEMPTS
 
 
@@ -376,7 +380,8 @@ def _analyze_one(entry: dict, previous: dict | None, token: str, actor: str, sle
     digest = hashlib.sha256(data).hexdigest()
     extraction = cv_extract.extract(entry["name"], data)
     del data
-    _save_record(entry, state="ANALYZED", failure=None, retryable=False, attempts=attempts, extraction=extraction, sha256=digest, analyzed_at=manifest.now_iso(), analyzed_by=actor)
+    _save_record(entry, state="ANALYZED", failure=None, retryable=False, attempts=attempts, extraction=extraction, sha256=digest, analyzed_at=manifest.now_iso(), analyzed_by=actor,
+                 inbox_revision=INBOX_ANALYSIS_REVISION)
     manifest.append_audit(AREA, entry["key"], "ANALYZED", code=extraction.get("failure"))
     return "ok"
 
@@ -566,6 +571,8 @@ def classify(ctx: Context, key: str) -> dict | None:
     if record.get("state") == "FAILED":
         retry = bool(record.get("retryable")) and int(record.get("attempts") or 0) < MAX_ATTEMPTS
         return _status(row, ERROR_RETRY if retry else ERROR, reasons=[record.get("failure")])
+    if int(record.get("inbox_revision") or 1) < INBOX_ANALYSIS_REVISION and not _draft_applies(record, draft):
+        return _status(row, PENDING, reasons=["ANALYSIS_OUTDATED"])                # analizado con reglas anteriores: se reanaliza con «Analizar» (una revisión ya guardada se conserva)
     if record.get("sha256") in ctx.processed:
         return _status(row, PROCESSED)
     dup = ctx.duplicate_of(key)

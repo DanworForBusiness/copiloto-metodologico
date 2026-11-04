@@ -812,3 +812,23 @@ def test_an_email_that_does_not_match_the_name_does_not_send_the_cv_to_review(wo
     row = rows()["cv-tomas.pdf"]
     assert (row["fields"]["first_name"], row["fields"]["last_name"]) == ("Tomás", "Ferreyra")
     assert row["status"] == inbox.READY and "NAME_UNCORROBORATED" not in row["reasons"] and row["batch_ok"]  # el email se admite sin exigir que reproduzca el nombre
+
+
+def test_a_cv_analyzed_with_the_previous_rules_is_analyzed_again_without_losing_a_saved_review(world):
+    store, intake = world
+    intake.add("t1", "MarianaJQuiroz.CVa.pdf", TITLED)
+    intake.add("a1", "cv1.pdf", ANA)
+    analyze_all()
+    a_key = rows()["cv1.pdf"]["key"]
+    inbox.save_review(a_key, {**rows()["cv1.pdf"]["fields"], "first_name": "Anita"}, actor=ACTOR, expected_revision=0)   # una revisión ya guardada por Capital Humano
+    for name in ("MarianaJQuiroz.CVa.pdf", "cv1.pdf"):                                                    # simula un análisis hecho con la revisión anterior de la bandeja
+        key = rows()[name]["key"]
+        record = mf.get_group(inbox.AREA, key)
+        record.pop("inbox_revision", None)
+        mf.put_group(inbox.AREA, key, record)
+    view = rows()
+    assert view["MarianaJQuiroz.CVa.pdf"]["status"] == inbox.PENDING and "ANALYSIS_OUTDATED" in view["MarianaJQuiroz.CVa.pdf"]["reasons"]
+    assert view["cv1.pdf"]["status"] != inbox.PENDING and view["cv1.pdf"]["fields"]["first_name"] == "Anita"     # la revisión guardada manda
+    assert analyze_all()["analyzed"] == 2
+    view = rows()
+    assert view["MarianaJQuiroz.CVa.pdf"]["status"] == inbox.READY and view["cv1.pdf"]["fields"]["first_name"] == "Anita"
