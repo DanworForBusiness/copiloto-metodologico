@@ -32,7 +32,7 @@
 }
 
 /* Preserve readable columns in the Hub's scrollable table wrapper. */
-table.solicitudes-table { min-width: 52rem; }
+table.solicitudes-table { min-width: 76rem; }
 .solicitudes-table .solicitudes-description {
   display: -webkit-box;
   -webkit-box-orient: vertical;

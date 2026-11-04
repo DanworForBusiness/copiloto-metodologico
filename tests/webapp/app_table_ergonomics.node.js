@@ -660,6 +660,33 @@ for (const [label, cols] of [["con key", ["a", "b", "z"]], ["sin key (casilla)",
   eq(saved.layout.signature, columnLayoutOfContainer(container).signature, "K11: lo grabado lleva la estructura vigente (registrada para futuras cargas)");
 }
 
+// Solicitudes v2: eight business columns and fixed actions survive resize,
+// drag and the replacement of the panel by HTMX.
+{
+  const key = "operaciones-solicitudes-v2";
+  const columns = ["title", "project", "created", "planned", "priority", "funnel", "architecture", "collaborator", null];
+  const { root, container, ths } = buildSyntheticTable(key, { columns, layoutVersion: 2 });
+  initDraggableColumns(root);
+  initResizableColumns(root);
+  eq(queryAll(container, ".col-resize-handle").length, 8, "Solicitudes: eight resize handles; actions remain fixed");
+  const handle = ths[2].children[0];
+  dispatchOn(container, "pointerdown", { target: handle, clientX: 0, pointerId: 1, preventDefault(){}, stopPropagation(){} });
+  dispatchOn(container, "pointermove", { clientX: 40 });
+  dispatchOn(container, "pointerup", {});
+  dispatchOn(container, "dragstart", { target: ths[3], dataTransfer: {} });
+  dispatchOn(container, "dragover", { target: ths[0], preventDefault(){} });
+  dispatchOn(container, "drop", { target: ths[0], preventDefault(){} });
+  const replacement = buildSyntheticTable(key, { columns, layoutVersion: 2 });
+  initDraggableColumns(replacement.root);
+  initResizableColumns(replacement.root);
+  eq(readStoredColumnOrder(key, columns.filter(Boolean))[0], "planned", "Solicitudes: replacement can restore date column order");
+  eq(replacement.colgroup.children[8].dataset.columnKey, undefined, "Solicitudes: actions stay last");
+  restorePersistedColumnWidths(replacement.container);
+  eq(replacement.colgroup.children.find(c => c.dataset.columnKey === "created").style.width, "160px", "Solicitudes: HTMX replacement restores date width");
+  const old = buildSyntheticTable("operaciones-solicitudes-v1", { columns: ["title", "project", "priority", "funnel", "architecture", "collaborator", null] });
+  ok(!restorePersistedColumnWidths(old.container), "Solicitudes: versioned preferences remain isolated");
+}
+
 if (failures > 0) {
   console.log(`${failures} app.js table ergonomics invariant(s) FAILED`);
   process.exit(1);

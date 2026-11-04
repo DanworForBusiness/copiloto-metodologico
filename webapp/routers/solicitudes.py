@@ -81,6 +81,7 @@ async def solicitudes_data(request: Request, graph_token: str = Form("")):
         "count": len(matches), "source_count": len(rows), "error": error, "query": query,
         "selected": selected, "filters": FILTERS, "options": options,
         "columns": service.SORT_COLUMNS, "sort": sort, "direction": direction,
+        "display_date": service.display_date, "created": service.CREATION_DATE, "planned": service.PLANNED,
         "status": service.STATUS, "funnel": service.FUNNEL,
         "assignees": service.ASSIGNEES, "values": service.values, "project_label": service.row_project_label,
     })
