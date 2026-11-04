@@ -4,6 +4,7 @@
 <div class="dashboard-empty" role="alert"><span class="dashboard-empty__label">No disponible</span><p>{{ error }}</p></div>
 <a class="btn-secondary" href="/operaciones/solicitudes">Volver a Solicitudes</a>
 {% else %}
+{% if write_enabled %}
 <form class="hc-profile-form" data-dw-graph-token
       x-data="{dirty:false,saved:false,review:false}"
       @input="dirty=true" @change="dirty=true"
@@ -13,10 +14,14 @@
       hx-post="/operaciones/solicitudes/{{ item_id }}/guardar"
       hx-target="#solicitudes-save-result" hx-indicator="#solicitudes-saving" hx-disabled-elt="find button[type=submit]">
   <input type="hidden" name="etag" value="{{ etag }}">
+{% else %}
+<div class="hc-profile-form">
+  <p class="field-hint">Solo lectura. Podés consultar esta solicitud.</p>
+{% endif %}
   <section class="hc-profile-section"><h2>Estado y asignación</h2><div class="hc-profile-section__grid hc-profile-section__grid--fluid">
   <div class="feedback-field feedback-field--medium">
     <label for="sol-status">Status Arquitectura</label>
-    {% if destinations %}
+    {% if write_enabled and destinations %}
     <select id="sol-status" name="{{ fields.STATUS }}">
       <option value="{{ current[fields.STATUS] }}">{{ current[fields.STATUS] or 'Sin estado' }}</option>
       {% for destination in destinations %}<option>{{ destination }}</option>{% endfor %}
@@ -24,22 +29,28 @@
     {% else %}<span>{{ current[fields.STATUS] or '—' }}</span>{% endif %}
   </div>
   <div class="feedback-field feedback-field--compact"><label for="sol-priority">Prioridad</label>
+    {% if write_enabled %}
     <select id="sol-priority" name="Prioridad"><option value="">Sin prioridad</option>
       {% for choice in ('Baja', 'Media', 'Alta') %}
       <option{% if values.Prioridad == choice %} selected{% endif %}>{{ choice }}</option>
       {% endfor %}
     </select>
+    {% else %}<span>{{ values.Prioridad or "—" }}</span>{% endif %}
   </div>
+  {% if write_enabled %}
   {{ lookup_picker("sol-project", fields.PROJECT, "Proyecto", values[fields.PROJECT], options[fields.PROJECT], "Buscar proyecto", "Sin proyecto", "Proyectos encontrados", "No se encontraron proyectos.", "Quitar proyecto", "medium", project_display) }}
+  {% else %}
+  <div class="feedback-field feedback-field--medium"><label>Proyecto</label><span>{{ project_display or "—" }}</span></div>
+  {% endif %}
   {% set chosen = values[fields.ASSIGNEES] %}
   {% set people = options[fields.ASSIGNEES] %}
-  {% if chosen | length > 1 %}
+  {% if not write_enabled or chosen | length > 1 %}
   <div class="feedback-field feedback-field--wide">
     <label>Colaborador asignado</label>
     <ul class="hc-field-value">
-      {% for id in chosen %}<li>{{ people.get(id, 'Referencia no disponible (' ~ id ~ ')') }}</li>{% endfor %}
+      {% for id in chosen %}<li>{{ people.get(id, 'Referencia no disponible (' ~ id ~ ')') }}</li>{% else %}<li>Sin asignación</li>{% endfor %}
     </ul>
-    <p class="field-hint">Esta solicitud ya tiene varios colaboradores. La asignación se conserva al guardar otros campos.</p>
+    {% if write_enabled %}<p class="field-hint">Esta solicitud ya tiene varios colaboradores. La asignación se conserva al guardar otros campos.</p>{% endif %}
   </div>
   {% else %}
   {{ lookup_picker("sol-person", fields.ASSIGNEES, "Colaborador asignado", chosen | first | default(""), people, "Buscar colaborador", "Sin asignación", "Colaboradores encontrados", "No se encontraron colaboradores.", "Quitar asignación", "wide") }}
@@ -49,29 +60,33 @@
   <div class="hc-profile-section__grid">
     <div class="feedback-field feedback-field--compact">
       <label for="sol-planned">Fecha de inicio planificada</label>
-      <input id="sol-planned" type="date" name="{{ fields.PLANNED }}" value="{{ values[fields.PLANNED] }}">
+      <input id="sol-planned" type="date"{% if not write_enabled %} readonly{% endif %} name="{{ fields.PLANNED }}" value="{{ values[fields.PLANNED] }}">
     </div>
     <div class="feedback-field feedback-field--compact">
       <label for="sol-actual">Fecha de inicio Real</label>
-      <input id="sol-actual" type="date" name="{{ fields.ACTUAL }}" value="{{ values[fields.ACTUAL] }}">
+      <input id="sol-actual" type="date"{% if not write_enabled %} readonly{% endif %} name="{{ fields.ACTUAL }}" value="{{ values[fields.ACTUAL] }}">
     </div>
   </div>
 </section>
 <section class="hc-profile-section"><h2>Detalle</h2><div class="hc-profile-section__grid hc-profile-section__grid--fluid">
   <div class="feedback-field feedback-field--wide">
     <label for="sol-description">Descripción de la demanda</label>
-    <textarea id="sol-description"{% if original_fields.get(fields.DESCRIPTION) %} data-narrative{% endif %} name="{{ fields.DESCRIPTION }}" rows="8">{{ values[fields.DESCRIPTION] }}</textarea>
+    <textarea id="sol-description"{% if not write_enabled %} readonly{% endif %}{% if original_fields.get(fields.DESCRIPTION) %} data-narrative{% endif %} name="{{ fields.DESCRIPTION }}" rows="8">{{ values[fields.DESCRIPTION] }}</textarea>
   </div>
   <div class="feedback-field feedback-field--wide">
     <label for="sol-comments">Comentarios de Arquitectura</label>
-    <textarea id="sol-comments"{% if original_fields.get(fields.COMMENTS) %} data-narrative{% endif %} name="{{ fields.COMMENTS }}" rows="8">{{ values[fields.COMMENTS] }}</textarea>
+    <textarea id="sol-comments"{% if not write_enabled %} readonly{% endif %}{% if original_fields.get(fields.COMMENTS) %} data-narrative{% endif %} name="{{ fields.COMMENTS }}" rows="8">{{ values[fields.COMMENTS] }}</textarea>
   </div>
   </div>
   </section>
+{% if write_enabled %}
   <div class="hc-profile-form__actions">
     <button type="submit" class="btn-primary" :disabled="saved || review"{% if not etag %} disabled{% endif %}>Guardar</button>
     <span id="solicitudes-saving" class="htmx-indicator section-analysis-loading" role="status">Guardando…</span>
   </div>
 </form>
 <div id="solicitudes-save-result" role="status"></div>
+{% else %}
+</div>
+{% endif %}
 {% endif %}

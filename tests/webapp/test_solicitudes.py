@@ -88,6 +88,7 @@ def test_save_conflict_and_protected_fields_never_patch(monkeypatch):
     from webapp.main import app
     from webapp.routers import solicitudes
 
+    monkeypatch.setenv("SOLICITUDES_WRITE_ENABLED", "1")
     monkeypatch.setattr(solicitudes, "_user", lambda request: {"sub": "test-actor"})
     monkeypatch.setattr(repository, "read_item", lambda *args: {"eTag": '"8"', "fields": {}})
     def unexpected_write(*args):
@@ -107,6 +108,7 @@ def test_save_audits_and_reconciles_timeout(monkeypatch, caplog):
     from webapp.main import app
     from webapp.routers import solicitudes
 
+    monkeypatch.setenv("SOLICITUDES_WRITE_ENABLED", "1")
     monkeypatch.setattr(solicitudes, "_user", lambda request: {"sub": "test-actor"})
     invalidated = []
     monkeypatch.setattr(solicitudes.solicitudes_snapshot, "invalidate", invalidated.append)
@@ -132,6 +134,7 @@ def test_detail_form_renders_multiple_lookup_and_escapes_html(monkeypatch):
     from webapp.main import app
     from webapp.routers import solicitudes
 
+    monkeypatch.setenv("SOLICITUDES_WRITE_ENABLED", "1")
     monkeypatch.setattr(solicitudes, "_user", lambda request: {"sub": "test-actor"})
     monkeypatch.setattr(repository, "read_item", lambda *args: {"eTag": '"7"', "fields": {
         service.ASSIGNEES + "LookupId": ["9"], service.DESCRIPTION: "<b>Test</b>",
@@ -157,6 +160,7 @@ def test_htmx_feedback_only_replaces_status_for_validation_and_412(monkeypatch):
     from webapp.main import app
     from webapp.routers import solicitudes
 
+    monkeypatch.setenv("SOLICITUDES_WRITE_ENABLED", "1")
     monkeypatch.setattr(solicitudes, "_user", lambda request: {"sub": "test-actor"})
     monkeypatch.setattr(repository, "read_item", lambda *args: {"eTag": '"7"', "fields": {}})
     monkeypatch.setattr(repository, "lookup_options", lambda *args: {})
@@ -278,6 +282,7 @@ def test_save_narrative_confirms_plain_text_after_graph_reread(monkeypatch):
     from webapp.main import app
     from webapp.routers import solicitudes
 
+    monkeypatch.setenv("SOLICITUDES_WRITE_ENABLED", "1")
     monkeypatch.setattr(solicitudes, "_user", lambda request: {"sub": "test-actor"})
     fields = {service.DESCRIPTION: "<p>Anterior</p>", service.COMMENTS: "<p><b>Conservar</b></p>"}
     item = {"eTag": '"7"', "fields": fields}
@@ -371,6 +376,7 @@ def test_project_lookup_representations_keep_id_and_label_separate():
 
 
 def test_list_and_detail_share_catalog_label_without_overwriting_graph_fields(monkeypatch):
+    monkeypatch.setenv("SOLICITUDES_WRITE_ENABLED", "1")
     from fastapi.testclient import TestClient
     from webapp.main import app
     from webapp.routers import solicitudes
@@ -502,3 +508,45 @@ def test_snapshot_isolates_and_expires_and_does_not_serve_failed_refresh(monkeyp
         snapshot.read(actors[0], "token-a")
     for actor in actors:
         snapshot.invalidate(actor)
+
+def test_read_only_detail_and_direct_save_are_protected(monkeypatch):
+    from fastapi.testclient import TestClient
+    from webapp.main import app
+    from webapp.routers import solicitudes
+
+    monkeypatch.delenv("SOLICITUDES_WRITE_ENABLED", raising=False)
+    monkeypatch.setattr(solicitudes, "_user", lambda request: {"sub": "test-actor"})
+    monkeypatch.setattr(repository, "read_item", lambda *args: {"eTag": '"7"', "fields": {
+        service.PROJECT + "LookupId": "8",
+        service.ASSIGNEES + "LookupId": ["9"],
+        service.DESCRIPTION: "<b>Descripción visible</b>",
+    }})
+    monkeypatch.setattr(repository, "lookup_options", lambda token: {
+        service.PROJECT: {"8": "Proyecto visible"}, service.ASSIGNEES: {"9": "Persona visible"},
+    })
+
+    client = TestClient(app)
+    detail = client.post("/operaciones/solicitudes/1/detalle", data={"graph_token": "fake"})
+    assert detail.status_code == 200
+    for value in ("Solo lectura", "Proyecto visible", "Persona visible", "Descripción visible"):
+        assert value in detail.text
+    assert "<form" not in detail.text
+    assert ">Guardar</button>" not in detail.text
+    assert 'id="sol-description" readonly' in detail.text
+
+    def unexpected_graph_access(*args):
+        raise AssertionError("El guardado bloqueado no debe consultar Graph")
+
+    monkeypatch.setattr(repository, "read_item", unexpected_graph_access)
+    monkeypatch.setattr(repository, "lookup_options", unexpected_graph_access)
+    monkeypatch.setattr(repository, "update_item", unexpected_graph_access)
+    for flag in (None, "0", "true"):
+        if flag is not None:
+            monkeypatch.setenv("SOLICITUDES_WRITE_ENABLED", flag)
+        response = client.post(
+            "/operaciones/solicitudes/1/guardar",
+            headers={"Origin": "http://testserver", "HX-Request": "true"},
+            data={"graph_token": "fake", "etag": '"7"', "Prioridad": "Alta"},
+        )
+        assert response.status_code == 403
+        assert "solo lectura" in response.json()["detail"]

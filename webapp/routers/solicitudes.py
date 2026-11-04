@@ -1,4 +1,5 @@
 """Authenticated Operations requests pages."""
+from os import getenv
 from urllib.error import HTTPError, URLError
 
 from fastapi import APIRouter, Form, HTTPException, Request
@@ -20,6 +21,10 @@ FILTERS = {
     service.FUNNEL: "Status funnel",
     service.ASSIGNEES: "Colaborador Asignado",
 }
+
+
+def _write_enabled():
+    return getenv("SOLICITUDES_WRITE_ENABLED") == "1"
 
 
 def _user(request):
@@ -77,6 +82,7 @@ async def solicitudes_data(request: Request, graph_token: str = Form("")):
     matches = service.sort_rows(service.select_rows(rows, query, selected), sort, direction)
     pager = pagination.paginate(matches, page=form.get("page"), sizes=(50,), default_size=50)
     return templates.TemplateResponse(request=request, name="partials/solicitudes_panel.html", context={
+        "write_enabled": _write_enabled(),
         "rows": pager["items"], "pager": pager,
         "count": len(matches), "source_count": len(rows), "error": error, "query": query,
         "selected": selected, "filters": FILTERS, "options": options,
@@ -120,6 +126,7 @@ def _detail_context(item):
 def _edit_panel(request, item_id, *, item=None, options=None, error=""):
     values = service.form_values(item["fields"]) if item else {}
     return templates.TemplateResponse(request=request, name="partials/solicitudes_edit.html", context={
+        "write_enabled": _write_enabled(),
         "item_id": item_id, "values": values, "current": values,
         "options": options or {}, "error": error,
         "project_display": service.project_label(item["fields"], (options or {}).get(service.PROJECT)) if item else "",
@@ -172,6 +179,8 @@ async def solicitudes_save(request: Request, item_id: str, graph_token: str = Fo
     user = _user(request)
     if not user:
         raise HTTPException(401)
+    if not _write_enabled():
+        raise HTTPException(403, "Solicitudes está en modo solo lectura.")
     if not same_origin_guard.is_same_origin_write(request) or not user.get("sub"):
         raise HTTPException(403)
     if not item_id.isascii() or not item_id.isdecimal():
