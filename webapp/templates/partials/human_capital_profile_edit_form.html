@@ -71,7 +71,7 @@
   </div>
 
   {% if duplicate_advisory %}
-  <div class="callout callout--punch" data-advisory-kind="possible_duplicate">
+  <div class="callout callout--punch callout--feedback" data-advisory-kind="possible_duplicate">
     <div class="callout__head">
       <span class="callout__icon">⚠️</span>
       <span class="callout__title">Posible candidato duplicado</span>
@@ -87,7 +87,7 @@
   {% endif %}
 
   {% if concurrent_modification %}
-  <div class="callout callout--warn" data-advisory-kind="concurrent_modification">
+  <div class="callout callout--warn callout--feedback" data-advisory-kind="concurrent_modification">
     <div class="callout__head">
       <span class="callout__icon">⚠️</span>
       <span class="callout__title">Este candidato cambió</span>

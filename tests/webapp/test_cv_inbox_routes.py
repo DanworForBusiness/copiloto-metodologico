@@ -139,27 +139,51 @@ def test_incorporated_rows_show_the_persisted_candidate_and_only_the_actions_tha
     assert ">Ver candidato</a>" not in view                                                                      # ya no es un enlace de texto
     assert "data-cvinbox-review-toggle" not in view and "data-cvinbox-discard" not in view                      # ni lápiz ni papelera en una vista solo de incorporados
     assert '<col style="width:76px">' in view                                                                    # dos acciones (ver candidato, eliminar original): el rótulo «Acciones» no desborda
-    assert f'hx-post="/cchh/candidatos/importar/bandeja/{done["key"]}/eliminar-original"' in view and "data-cvinbox-purge" in view and "data-dw-confirm" in view
-    assert "data-hc-write-token data-cvinbox-purge" in view and "ELIMINAR" in view                                # token de ESCRITURA y confirmación explícita (diálogo + servidor)
+    assert f'hx-post="/cchh/candidatos/importar/bandeja/{done["key"]}/eliminar"' in view and "data-cvinbox-delete" in view and "data-dw-confirm" in view
+    assert "data-hc-write-token data-cvinbox-delete" in view and "ELIMINAR" in view and "como desde Candidatos" in view      # token de ESCRITURA, confirmación explícita y qué se elimina
     mixed = hc.post("/cchh/candidatos/importar/bandeja", data={"graph_token": TOKEN, "vista": "todos"}).text
     inc = mixed.split(f'data-cvinbox-row="{done["key"]}"', 1)[1].split("</tr>", 1)[0]
     assert "aria-label=\"Ver ficha del candidato\"" in inc and "hc-inbox-slot" in inc
     assert "data-cvinbox-review-toggle" not in inc and "data-cvinbox-discard" not in inc                        # su lugar queda vacío: nada que confunda con el candidato del Banco
     pending = mixed.split('data-cvinbox-row="', 1)[1].split("</tr>", 1)[0]
-    assert "data-cvinbox-purge" not in pending or "cv1.pdf" in pending                                          # «Eliminar original» solo en filas incorporadas
+    assert "data-cvinbox-delete" not in pending or "cv1.pdf" in pending                                         # «Eliminar» solo en filas incorporadas
     assert "data-cvinbox-discard" in mixed                                                                       # las filas por resolver conservan sus acciones
 
 
-def test_the_original_of_an_incorporated_cv_is_deleted_through_the_route_with_explicit_confirmation(world):
+def test_an_incorporated_cv_is_deleted_through_the_route_like_from_candidatos(world):
     store, intake = world
     intake.add("a1", "cv1.pdf", ANA)
     hc = client_as(HC_USER)
     hc.post("/cchh/candidatos/importar/bandeja/analizar", data={"graph_token": TOKEN}, headers=ORIGIN)
     row = next(r for r in inbox.overview(TOKEN)["rows"] if r["name"] == "cv1.pdf")
     hc.post("/cchh/candidatos/importar/bandeja/aceptar", data={"graph_token": TOKEN, "sel": [f"{row['key']}|{row['fingerprint']}"]}, headers=ORIGIN)
+    pid = next(r for r in inbox.overview(TOKEN)["rows"] if r["name"] == "cv1.pdf")["profile_id"]
     intake.allow_delete = True
-    url = f"/cchh/candidatos/importar/bandeja/{row['key']}/eliminar-original"
+    url = f"/cchh/candidatos/importar/bandeja/{row['key']}/eliminar"
     assert hc.post(url, data={"graph_token": TOKEN, "confirm_delete": "ELIMINAR"}).status_code == 403                 # escritura sin mismo origen: rechazada
     assert "requiere una confirmación explícita" in hc.post(url, data={"graph_token": TOKEN}, headers=ORIGIN).text and intake.deletes == []
     out = hc.post(url, data={"graph_token": TOKEN, "confirm_delete": "ELIMINAR", "vista": "incorporados"}, headers=ORIGIN).text
-    assert "Se eliminó el CV original" in out and intake.deletes == ["a1"] and intake.in_folder("sub-incorporados") == []
+    assert "Se eliminó el candidato, sus 1 documento(s)" in out and intake.deletes == ["a1"] and (profile_repository.get(pid) or {}).get("deleted_at")
+    assert "cv1.pdf" not in out.split("data-cvinbox-rows", 1)[-1]                                                    # la vista queda sin ese CV
+
+
+def test_a_successful_incorporation_is_reported_as_success_and_the_pending_retire_is_retried_silently(world):
+    """Un alta correcta se informa como ÉXITO aunque el retiro del original haya quedado pendiente (nunca un «Atención» sobre un alta correcta); el panel agenda UN reintento automático del retiro
+    con el token de escritura, y ese reintento no muestra aviso si vuelve a fallar."""
+    import urllib.error
+    store, intake = world
+    intake.add("a1", "cv1.pdf", ANA)
+    hc = client_as(HC_USER)
+    hc.post("/cchh/candidatos/importar/bandeja/analizar", data={"graph_token": TOKEN}, headers=ORIGIN)
+    row = next(r for r in inbox.overview(TOKEN)["rows"] if r["name"] == "cv1.pdf")
+    intake.fail_patch = [urllib.error.URLError("sin respuesta")]
+    out = hc.post(f"/cchh/candidatos/importar/bandeja/{row['key']}/reintentar", data={"graph_token": TOKEN}, headers=ORIGIN).text   # sin decisión previa: no incorpora
+    out = hc.post("/cchh/candidatos/importar/bandeja/aceptar", data={"graph_token": TOKEN, "sel": [f"{row['key']}|{row['fingerprint']}"]}, headers=ORIGIN).text
+    assert 'data-kind="ok"' in out and "callout--warn" not in out.split("data-cvinbox-result", 1)[0][-200:]
+    assert f'data-cvinbox-auto-retire="{row["key"]}"' in out and 'hx-trigger="load delay:3s"' in out and "&#34;auto&#34;: &#34;1&#34;" in out or '"auto": "1"' in out
+    intake.fail_patch = [urllib.error.URLError("sin respuesta")]
+    silent = hc.post(f"/cchh/candidatos/importar/bandeja/{row['key']}/retirar", data={"graph_token": TOKEN, "auto": "1"}, headers=ORIGIN).text
+    assert "data-cvinbox-result" not in silent                                                                  # el reintento automático fallido no grita: el motivo queda en la fila
+    done = hc.post(f"/cchh/candidatos/importar/bandeja/{row['key']}/retirar", data={"graph_token": TOKEN, "auto": "1"}, headers=ORIGIN).text
+    assert "El archivo original se retiró" in done and intake.in_folder("sub-incorporados") == ["cv1.pdf"]
+    assert "data-cvinbox-auto-retire" not in done                                                               # retirado: no se agenda otro reintento

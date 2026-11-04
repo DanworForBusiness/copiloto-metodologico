@@ -32,7 +32,7 @@
     {# `#cp-catalog-panel`: wrapper con id, ancla de `.module-hero + #cp-catalog-panel { margin-top: 24px }` (commercial.css) — MISMA convención por-panel que CCHH (`.module-hero + #hc-…-panel`) y Operaciones: el respiro entre el divisor del hero y el primer bloque. #}
     <div id="cp-catalog-panel">
     {% if error_state %}
-    <aside class="callout callout--warn" role="alert"><div class="callout__body"><p>El catálogo no está disponible en este momento. Reintentá en unos minutos.</p></div></aside>
+    <aside class="callout callout--warn callout--feedback" role="alert"><div class="callout__body"><p>El catálogo no está disponible en este momento. Reintentá en unos minutos.</p></div></aside>
     {% else %}
     <div class="cp-toast" aria-live="polite" data-dw-auto-dismiss="6000" data-cp-status></div>
     {# Filtro de PÁGINA, ANTES del agrupador (misma regla de composición que CCHH → Base de CVs y Staffing): `.hc-profile-filters.filter-toolbar-card` + `.feedback-field` (tools.css). Solo «Buscar»: filtra en el

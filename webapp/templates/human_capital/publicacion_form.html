@@ -23,7 +23,7 @@
     </section>
 
     {% if concurrent_modification %}
-    <div class="callout callout--warn"><div class="callout__body"><p>Esta publicación cambió desde que abriste el formulario. Volvé a abrirla para no pisar el cambio.</p></div></div>
+    <div class="callout callout--warn callout--feedback"><div class="callout__body"><p>Esta publicación cambió desde que abriste el formulario. Volvé a abrirla para no pisar el cambio.</p></div></div>
     {% elif form_error %}
     <div class="dashboard-empty" data-error-kind="validation"><span class="dashboard-empty__label">No se guardó</span><p>{{ form_error }}</p></div>
     {% endif %}

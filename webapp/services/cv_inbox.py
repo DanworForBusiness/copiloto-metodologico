@@ -64,6 +64,7 @@ PAGE_SIZE = 200
 ANALYZE_MAX_DOCS, ANALYZE_BUDGET_S = 15, 45.0
 ACCEPT_MAX_SELECTION, ACCEPT_BUDGET_S = 25, 45.0
 MAX_ATTEMPTS = 3
+AUTO_RETIRE_MAX = 3                                                                 # intentos del retiro físico que la bandeja reintenta SOLA (luego queda el botón «Reintentar el retiro»)
 RECENT_DONE = 50                                                                    # incorporados recientes que se siguen mostrando (filtro «Incorporados»)
 LIST_SELECT = "id,name,size,file,folder,eTag,cTag,lastModifiedDateTime,parentReference,webUrl"
 FIELDS = ("first_name", "last_name", "email", "phone", "profile_skills")
@@ -487,9 +488,13 @@ def fingerprint(record: dict, matches: list[dict], peers: list[dict]) -> str:
                  "peers": [p["key"] for p in peers]})[:24]
 
 
-def _status(row: dict, status: str, *, reasons: list | None = None, op: str | None = None, profile_id: str | None = None) -> dict:
+def _status(row: dict, status: str, *, reasons: list | None = None, op: str | None = None, profile_id: str | None = None, retire: dict | None = None) -> dict:
     label, badge = STATUS_VIEW[status]
     row.update({"status": status, "label": label, "badge": badge})
+    # Retiro físico pendiente después de una decisión durable: la bandeja lo reintenta SOLA (acotado a AUTO_RETIRE_MAX intentos en total) salvo que falte permiso o el archivo haya cambiado,
+    # casos que un reintento no resuelve. Agotados los intentos, queda el botón manual y el motivo en la fila.
+    info = retire or {}
+    row["auto_retire"] = bool(row.get("can_retire")) and int(info.get("attempts") or 0) < AUTO_RETIRE_MAX and info.get("code") not in ("PERMISSION", "CHANGED")
     if reasons is not None:
         row["reasons"] = [r for r in reasons if r]
     if op and not row.get("op"):
@@ -512,7 +517,10 @@ def classify(ctx: Context, key: str) -> dict | None:
         retire_info = ledger.get("retire") or {}
         row["can_retire"] = entry is not None and retire_info.get("state") != RETIRE_DONE
         row["can_purge"] = not (retire_info.get("mode") == MODE_DELETE and retire_info.get("state") == RETIRE_DONE)
-        return _status(row, INCORPORATED, reasons=[retire_reason(ledger)] if row["can_retire"] else [], profile_id=ledger.get("profile_id"))
+        # el original ya no existe (lo eliminó el Hub o ya no estaba al retirarlo): no queda nada de esta fila en la carpeta de carga masiva
+        row["original_removed"] = retire_info.get("state") == RETIRE_DONE and (retire_info.get("mode") == MODE_DELETE or retire_info.get("code") in ("GONE", "ELSEWHERE"))
+        return _status(row, INCORPORATED, reasons=[retire_reason(ledger)] if row["can_retire"] else [], profile_id=ledger.get("profile_id"), retire=retire_info,
+                       op=(ledger.get("decision") or {}).get("op"))
     if state in ACTIVE:
         reason = ledger.get("reason") or {UPLOADING: "UPLOAD_PENDING_CONFIRMATION", PROFILE_READY: "PROFILE_CREATED_CV_PENDING"}.get(state)
         row.update({"can_retry": True, "can_reopen": not ledger.get("effects")})
@@ -521,7 +529,7 @@ def classify(ctx: Context, key: str) -> dict | None:
         retired = (ledger.get("retire") or {}).get("state") == RETIRE_DONE
         row.update({"can_retire": entry is not None and bool(ledger.get("retire")) and not retired, "can_reopen": entry is not None or not retired,
                     "retire_mode": (ledger.get("retire") or {}).get("mode")})
-        return _status(row, DISCARDED, reasons=[ledger.get("dismiss_reason"), retire_reason(ledger)])
+        return _status(row, DISCARDED, reasons=[ledger.get("dismiss_reason"), retire_reason(ledger)], retire=ledger.get("retire"))
     if entry is None:
         if record is None:
             return None
@@ -576,9 +584,14 @@ _ORDER = {s: i for i, s in enumerate((ACCEPTING, READY, REVIEW, INCOMPLETE, ERRO
 
 
 def _residual(row: dict) -> bool:
-    """Un CV incorporado cuyo original ya NO está en la carpeta y cuyo candidato ya no existe en el Banco (dado de baja o eliminado) no tiene nada que mostrar ni que hacer: es residual y sale de la vista.
-    Su libro se conserva como auditoría. Si el original sigue en la carpeta, la fila se mantiene (hay un archivo que decidir). Ante una lectura dudosa del Banco, la fila se muestra."""
-    if row["status"] != INCORPORATED or row["listed"] or not row.get("profile_id"):
+    """Un CV incorporado que ya no tiene nada en la carpeta de carga masiva sale de la vista: (a) su original fue ELIMINADO (o ya no existía al retirarlo), o (b) su original ya no está en la carpeta y su
+    candidato ya no existe en el Banco (dado de baja o eliminado). Su libro se conserva como auditoría. Si el original sigue en la carpeta, la fila se mantiene (hay un archivo que decidir). Ante una
+    lectura dudosa del Banco, la fila se muestra."""
+    if row["status"] != INCORPORATED or row["listed"]:
+        return False
+    if row.get("original_removed"):
+        return True
+    if not row.get("profile_id"):
         return False
     try:
         profile = profile_repository.get(row["profile_id"])
@@ -1014,10 +1027,13 @@ def _retire(key: str, entry: dict, source: dict, token: str) -> str:
         state, code = _physical(mode, source, token)
     except urllib.error.HTTPError as exc:
         state, code = RETIRE_PENDING, {401: "TOKEN", 403: "PERMISSION"}.get(exc.code, "GRAPH")
-        _log.warning("cchh.cv_inbox.retire_failed status=%s", exc.code)
+        detail = diag.graph_error_detail(exc)
+        _log.warning("cchh.cv_inbox.retire_failed mode=%s status=%s code=%s inner=%s", "delete" if mode == MODE_DELETE else "move", exc.code, detail.get("code"), detail.get("inner_code"))
     except (urllib.error.URLError, OSError, KeyError) as exc:
         state, code = RETIRE_PENDING, "GRAPH"
-        _log.warning("cchh.cv_inbox.retire_failed error=%s", type(exc).__name__)
+        cause = getattr(exc, "__cause__", None) or getattr(exc, "reason", None)
+        _log.warning("cchh.cv_inbox.retire_failed mode=%s error=%s cause=%s", "delete" if mode == MODE_DELETE else "move", type(exc).__name__,
+                     (diag.graph_error_detail(cause).get("status") if isinstance(cause, urllib.error.HTTPError) else type(cause).__name__ if cause else None))
     except Exception as exc:                                                        # noqa: BLE001 — la decisión ya es durable: un fallo inesperado del retiro NUNCA corta la respuesta
         state, code = RETIRE_PENDING, "GRAPH"
         _log.exception("cchh.cv_inbox.retire_unexpected error=%s", type(exc).__name__)
@@ -1061,38 +1077,19 @@ def retire(key: str, token: str) -> dict:
     return {"ok": state == RETIRE_DONE, "retire": state, **({} if state == RETIRE_DONE else {"error": REASON_TEXT[retire_reason(entry)]})}
 
 
-# ═══════════════════ eliminación del original de un CV incorporado ═══════════════════
-# Capital Humano puede eliminar de SharePoint el ORIGINAL de un CV ya incorporado (esté todavía en `carga-masiva` o ya en `carga-masiva/incorporados`), para no conservar duplicados físicos. Solo después de
-# verificar que el CV DEFINITIVO existe en `CVs`, que es íntegro (mismo tamaño y sha256 que el original analizado) y que sigue asociado al candidato (ProfileDocument ↔ perfil ↔ libro DONE). El original también se
-# verifica (mismo item, dentro de esas dos carpetas, mismo sha256) y se elimina con `If-Match`. Nunca toca `CVs` ni nada fuera de la bandeja. Requiere confirmación explícita (`confirm == "ELIMINAR"`).
-def _verify_definitive(entry: dict, sha256: str, size, token: str) -> str | None:
-    """None si el CV definitivo existe, está asociado al candidato y es íntegro; si no, el código del problema. Los errores de Graph distintos de 404 se propagan."""
-    import hashlib
-    from webapp.services import profile_document_service as docsvc
-    doc = profile_document_repository.get(entry.get("document_id") or "")
-    profile = profile_repository.get(entry.get("profile_id") or "") if doc else None
-    if not doc or doc.get("profile_id") != entry.get("profile_id") or not profile or profile.get("deleted_at") or not doc.get("item_id"):
-        return "DEFINITIVE_MISSING"
-    url = f"{docsvc._drive_items_base(doc.get('site_id'), doc.get('drive_id'))}/{urllib.parse.quote(doc['item_id'], safe='')}"
-    try:
-        item = microsoft365.graph_get_json(f"{url}?$select=id,size,file", token)
-        data = microsoft365.graph_get_bytes(f"{url}/content", token)
-    except urllib.error.HTTPError as exc:
-        if exc.code == 404:
-            return "DEFINITIVE_MISSING"
-        raise
-    if int(item.get("size") or -1) != int(size or -2) or hashlib.sha256(data).hexdigest() != sha256:
-        return "DEFINITIVE_MISMATCH"
-    return None
-
-
-def _purge_physical(source: dict, sha256: str, token: str) -> tuple[str, str | None]:
-    """Elimina el original (solo en `carga-masiva` o `carga-masiva/incorporados`), verificado por contenido y con `If-Match`. Devuelve `(estado, código)`; permiso/token se propagan."""
-    import hashlib
+# ═══════════════════ eliminar un CV incorporado (como «Eliminar» de Candidatos) ═══════════════════
+# «Eliminar» en la vista Incorporados hace lo MISMO que eliminar el candidato desde Candidatos, más el original de la bandeja:
+#   * CV que CREÓ un candidato: se eliminan sus documentos de «CVs» (`profile_document_service.delete_profile_documents`, el mismo flujo controlado de Candidatos: cada documento confirmado; si
+#     alguno no se confirma, el candidato NO se da de baja) y recién entonces la baja del candidato (`human_capital_service.soft_delete_profile`);
+#   * CV que se SUMÓ a un candidato que ya existía: se elimina SOLO ese documento (`delete_document`); la persona sigue en el Banco con el resto de sus CVs;
+#   * y el ORIGINAL de `carga-masiva` (o `carga-masiva/incorporados`), verificado ANTES de tocar nada (mismo item, dentro de esas carpetas, mismo sha256) y eliminado con `If-Match`.
+# Si el original no se puede verificar (cambió o está fuera de la bandeja) no se elimina nada. Idempotente: un reintento solo procesa lo que falta. Requiere `confirm == "ELIMINAR"`.
+def _check_original(source: dict, sha256: str, token: str) -> tuple[str, dict | None]:
+    """Verifica el original SIN eliminarlo. `("OK", item)`, `("GONE", None)` (ya no existe), `("ELSEWHERE"|"CHANGED", None)`. Permiso/token se propagan."""
     drive, item_id, inbox_id = source["drive_id"], source["item_id"], source["parent_id"]
     item = _get_item(drive, item_id, token)
     if item is None:
-        return RETIRE_DONE, "GONE"
+        return "GONE", None
     parent = (item.get("parentReference") or {}).get("id")
     if parent != inbox_id:
         try:
@@ -1102,59 +1099,97 @@ def _purge_physical(source: dict, sha256: str, token: str) -> tuple[str, str | N
                 raise
             sub = {}
         if not (isinstance(sub.get("folder"), dict) and sub.get("id") == parent):
-            return RETIRE_BLOCKED, "ELSEWHERE"
-    url = f"{_items(drive)}/{urllib.parse.quote(item_id, safe='')}"
-    if hashlib.sha256(microsoft365.graph_get_bytes(f"{url}/content", token)).hexdigest() != sha256:
-        return RETIRE_BLOCKED, "CHANGED"
+            return "ELSEWHERE", None
+    if hashlib.sha256(microsoft365.graph_get_bytes(f"{_items(drive)}/{urllib.parse.quote(item_id, safe='')}/content", token)).hexdigest() != sha256:
+        return "CHANGED", None
+    return "OK", item
+
+
+def _delete_original(source: dict, item: dict, token: str) -> str:
+    """Elimina el original ya verificado, con `If-Match`. `DONE` / `GONE` / `CHANGED`; permiso/token se propagan."""
+    url = f"{_items(source['drive_id'])}/{urllib.parse.quote(source['item_id'], safe='')}"
     try:
         microsoft365.graph_delete(url, token, extra_headers={"If-Match": item["eTag"]} if item.get("eTag") else None)
     except urllib.error.HTTPError as exc:
         if exc.code == 412:
-            return RETIRE_BLOCKED, "CHANGED"
+            return "CHANGED"
         if exc.code == 404:
-            return RETIRE_DONE, "GONE"
+            return "GONE"
         raise
-    return RETIRE_DONE, None
+    return "DONE"
 
 
-def purge_original(key: str, token: str, *, actor: str, confirm: str = "") -> dict:
-    """Elimina de SharePoint el original de un CV YA incorporado, después de verificar el definitivo (ver arriba). Idempotente: un original ya eliminado no se vuelve a tocar."""
+def _remove_from_banco(entry: dict, token: str, actor: str) -> dict:
+    """La parte de Candidatos: documentos en «CVs» y baja del candidato (alta), o solo el documento (vinculación). Lanza `InboxError` con el motivo si algo no se confirma."""
+    from webapp.services import human_capital_service as hcs, profile_document_service as docsvc
+    pid, did = entry.get("profile_id"), entry.get("document_id")
+    profile = profile_repository.get(pid) if pid else None
+    if not profile or profile.get("deleted_at"):
+        return {"candidate": "ALREADY_GONE", "documents": 0}
+    try:
+        if ((entry.get("decision") or {}).get("op") or "create") == "link":
+            try:
+                docsvc.delete_document(profile_id=pid, document_id=did, access_token=token, remove_empty_folder=False)
+                return {"candidate": "KEPT", "documents": 1}
+            except docsvc.ProfileDocumentNotFoundError:
+                return {"candidate": "KEPT", "documents": 0}
+        summary = docsvc.delete_profile_documents(profile_id=pid, access_token=token)
+        try:
+            hcs.soft_delete_profile(pid, actor)
+        except profile_repository.ProfileNotFoundError:
+            pass
+        folders = [m for m in (docsvc.folder_kept_message(st) for st in summary["folders"].values()) if m]
+        return {"candidate": "DELETED", "documents": summary["deleted"], "folder_notice": " ".join(dict.fromkeys(folders))}
+    except docsvc.ProfileDocumentsBulkDeleteIncompleteError as exc:
+        raise InboxError("DELETE_INCOMPLETE", f"{exc} Se eliminaron {exc.deleted} documento(s) y quedan {exc.remaining} sin confirmar. El candidato NO fue dado de baja: podés reintentar.") from None
+    except (docsvc.ProfileDocumentDeletePermissionDeniedError, docsvc.ProfileDocumentPermissionDeniedError):
+        raise InboxError("PERMISSION", "SharePoint no permitió eliminar el CV del candidato en «CVs». No se eliminó nada.") from None
+    except (docsvc.ProfileDocumentDeleteGraphSourceError, docsvc.ProfileDocumentDeletePhysicalOutcomeUnknownError, docsvc.ProfileDocumentMetadataDeleteOutcomeUnknownError,
+            docsvc.ProfileDocumentGraphSourceError, docsvc.ProfileDocumentConfigIncompleteError, profile_document_repository.ProfileDocumentStorageError) as exc:
+        raise InboxError("DELETE_UNCONFIRMED", f"No se pudo confirmar la eliminación del CV en «CVs» ({exc}). Reintentá: no se duplica nada.") from None
+    except (profile_repository.ProfileStorageError, profile_repository.ProfileRemoteOutcomeUnknownError, profile_repository.ProfileConcurrentModificationError) as exc:
+        raise InboxError("BAJA_UNCONFIRMED", f"Los documentos se eliminaron, pero la baja del candidato no se confirmó ({exc}). Reintentá.") from None
+
+
+def delete_incorporated(key: str, token: str, *, actor: str, confirm: str = "") -> dict:
+    """Elimina un CV incorporado como lo haría «Eliminar» de Candidatos, más su original en la bandeja (ver arriba)."""
     if confirm != DELETE_CONFIRMATION:
-        return {"ok": False, "error": "Eliminar el original requiere una confirmación explícita. No se eliminó nada."}
+        return {"ok": False, "error": "Eliminar requiere una confirmación explícita. No se eliminó nada."}
     with manifest.ledger_lock(AREA, key, timeout=0):
         entry = manifest.get_ledger(AREA, key) or {}
         if entry.get("state") != DONE:
-            return {"ok": False, "error": "Solo se elimina el original de un CV ya incorporado al Banco."}
+            return {"ok": False, "error": "Solo se elimina desde acá un CV ya incorporado al Banco."}
         info = entry.get("retire") or {}
-        if info.get("mode") == MODE_DELETE and info.get("state") == RETIRE_DONE:
-            return {"ok": True, "retire": RETIRE_DONE, "idempotent": True}
         source = _source_of(key, entry)
         sha256 = entry.get("sha256") or source.get("sha256")
-        if not source.get("item_id") or not sha256:
-            return {"ok": False, "error": REASON_TEXT["SOURCE_GONE"]}
+        original_done = info.get("mode") == MODE_DELETE and info.get("state") == RETIRE_DONE
         try:
-            problem = _verify_definitive(entry, sha256, source.get("size"), token)
-            if problem:
-                return {"ok": False, "error": REASON_TEXT[problem]}
-            state, code = _purge_physical(source, sha256, token)
+            check, item = ("GONE", None) if original_done or not source.get("item_id") or not sha256 else _check_original(source, sha256, token)
+            if check in ("ELSEWHERE", "CHANGED"):
+                return {"ok": False, "error": REASON_TEXT["ORIGINAL_ELSEWHERE" if check == "ELSEWHERE" else "ORIGINAL_CHANGED"]}
+            removed = _remove_from_banco(entry, token, actor)
+            outcome = _delete_original(source, item, token) if check == "OK" else "GONE"
+        except InboxError as exc:
+            return {"ok": False, "error": str(exc)}
         except urllib.error.HTTPError as exc:
             code = {401: "TOKEN", 403: "PERMISSION"}.get(exc.code, "GRAPH")
-            _log.warning("cchh.cv_inbox.purge_failed status=%s", exc.code)
-            return {"ok": False, "error": {"TOKEN": STOP_TEXT.get("TOKEN_EXPIRED", "La autorización de Microsoft 365 venció: volvé a intentarlo."),
-                                           "PERMISSION": REASON_TEXT["RETIRE_PERMISSION"]}.get(code, REASON_TEXT["RETIRE_GRAPH"]), "stop": {"TOKEN": "TOKEN_EXPIRED", "PERMISSION": "PERMISSION_DENIED"}.get(code)}
+            _log.warning("cchh.cv_inbox.delete_failed status=%s code=%s", exc.code, diag.graph_error_detail(exc).get("code"))
+            return {"ok": False, "error": {"TOKEN": STOP_TEXT["TOKEN_EXPIRED"], "PERMISSION": REASON_TEXT["RETIRE_PERMISSION"]}.get(code, REASON_TEXT["RETIRE_GRAPH"]),
+                    "stop": {"TOKEN": "TOKEN_EXPIRED", "PERMISSION": "PERMISSION_DENIED"}.get(code)}
         except (urllib.error.URLError, OSError) as exc:
-            _log.warning("cchh.cv_inbox.purge_failed error=%s", type(exc).__name__)
+            _log.warning("cchh.cv_inbox.delete_failed error=%s", type(exc).__name__)
             return {"ok": False, "error": REASON_TEXT["RETIRE_GRAPH"]}
-        if state == RETIRE_BLOCKED:
-            return {"ok": False, "error": REASON_TEXT["ORIGINAL_ELSEWHERE" if code == "ELSEWHERE" else "ORIGINAL_CHANGED"]}
-        entry["retire"] = {**info, "mode": MODE_DELETE, "state": RETIRE_DONE, "code": code, "at": manifest.now_iso(), "attempts": int(info.get("attempts") or 0) + 1,
-                           "requested_by": actor, "previous_mode": info.get("mode"), "definitive_verified": True}
+        if outcome == "CHANGED":
+            return {"ok": False, "error": REASON_TEXT["ORIGINAL_CHANGED"], "removed": removed}
+        entry["retire"] = {**info, "mode": MODE_DELETE, "state": RETIRE_DONE, "code": None if outcome == "DONE" else "GONE", "at": manifest.now_iso(), "attempts": int(info.get("attempts") or 0) + 1,
+                           "requested_by": actor, "previous_mode": info.get("mode")}
+        entry["removed"] = {**removed, "by": actor, "at": manifest.now_iso()}
         try:
-            _save_ledger(key, entry, "PURGE_DONE")
+            _save_ledger(key, entry, "DELETED")
         except manifest.ManifestError:
             return {"ok": False, "stop": "PERSISTENCE_ERROR", "error": STOP_TEXT["PERSISTENCE_ERROR"]}
-    _log.info("cchh.cv_inbox.purge state=DONE code=%s", code)
-    return {"ok": True, "retire": RETIRE_DONE}
+    _log.info("cchh.cv_inbox.deleted candidate=%s documents=%s original=%s", removed["candidate"], removed["documents"], outcome)
+    return {"ok": True, "removed": removed}
 
 
 # ═══════════════════ otras decisiones explícitas ═══════════════════

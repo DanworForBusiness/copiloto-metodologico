@@ -135,10 +135,11 @@
     var target = event.detail && event.detail.target;
     var panel = document.getElementById("cvinbox-panel");
     if (!panel || !((elt && panel.contains(elt)) || target === panel)) return;
+    if (elt && elt.hasAttribute && elt.hasAttribute("data-cvinbox-auto-retire")) return;      // reintento automático del retiro: silencioso, la fila conserva el motivo y el botón manual
     var toast = document.querySelector("[data-cvinbox-toast]");
     if (toast) {
       var note = document.createElement("aside");
-      note.className = "callout callout--warn";
+      note.className = "callout callout--warn callout--feedback";
       note.setAttribute("role", "status");
       note.setAttribute("data-cvinbox-result", "");
       note.setAttribute("data-kind", "unconfirmed");

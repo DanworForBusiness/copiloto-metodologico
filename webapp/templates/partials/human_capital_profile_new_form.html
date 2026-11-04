@@ -81,7 +81,7 @@
   </div>
   {% if duplicate_advisory %}
   {#- Advertencia INLINE compacta (no modal): MISMO componente `.callout--punch` del Hub; el tamaño y el grupo de acciones se ajustan con CSS acotado a este form (human_capital.css, «Advertencia de candidato duplicado»). -#}
-  <div class="callout callout--punch" data-advisory-kind="possible_duplicate" role="group" aria-labelledby="hc-duplicate-title">
+  <div class="callout callout--punch callout--feedback" data-advisory-kind="possible_duplicate" role="group" aria-labelledby="hc-duplicate-title">
     <div class="callout__head">
       <span class="callout__icon" aria-hidden="true">⚠️</span>
       <span class="callout__title" id="hc-duplicate-title">Posible candidato duplicado</span>

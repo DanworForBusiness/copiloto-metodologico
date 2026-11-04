@@ -58,7 +58,7 @@ def _advisory(client, **over):
 # ── markup, copy y accesibilidad ─────────────────────────────────────────────────────────────────────────────
 def test_the_advisory_is_inline_with_the_recommended_copy_and_accessible_markup(client):
     html = _advisory(client)
-    m = re.search(r'<div class="callout callout--punch" data-advisory-kind="possible_duplicate" role="group" aria-labelledby="hc-duplicate-title">(.*?)</form>', html, re.S)
+    m = re.search(r'<div class="callout callout--punch callout--feedback" data-advisory-kind="possible_duplicate" role="group" aria-labelledby="hc-duplicate-title">(.*?)</form>', html, re.S)
     assert m, "debe ser el `.callout--punch` del Hub, inline"
     block = m.group(1)
     assert '<span class="callout__icon" aria-hidden="true">⚠️</span>' in block and '<span class="callout__title" id="hc-duplicate-title">Posible candidato duplicado</span>' in block

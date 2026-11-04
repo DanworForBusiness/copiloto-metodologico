@@ -58,12 +58,12 @@
 
     <div id="opsb-detail">
 
-    {% if ok_message %}<div class="methodology"><div class="callout callout--success" role="status"><div class="callout__body"><p>{{ ok_message }}</p></div></div></div>{% endif %}
+    {% if ok_message %}<div class="methodology"><div class="callout callout--success callout--feedback" role="status"><div class="callout__body"><p>{{ ok_message }}</p></div></div></div>{% endif %}
     {% if error %}<div class="dashboard-empty" data-error-kind="action" role="alert"><span class="dashboard-empty__label">No se pudo completar</span><p>{{ error }}</p></div>{% endif %}
 
     {% if view.estado_solicitud == 'observada' and view.observacion %}
     <div class="methodology">
-    <div class="callout callout--warn" data-observacion>
+    <div class="callout callout--warn callout--feedback" data-observacion>
       <div class="callout__head"><strong class="callout__title">Capital Humano observó esta búsqueda{% if view.observacion.en %} · {{ view.observacion.en | ops_datetime }}{% endif %}</strong></div>
       <div class="callout__body">
         <p>{{ view.observacion.motivo }}</p>

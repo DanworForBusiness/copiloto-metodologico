@@ -2,7 +2,7 @@
 {% set pending = pre.accepted and pre.ledger_state != 'DONE' %}
 <div class="hc-exc-accept" data-accept-panel data-accept-fingerprint="{{ pre.fingerprint or '' }}">
   {% if pre.blockers %}
-    <p class="callout callout--warn" data-accept-blocked><span class="callout__body">{% for b in pre.blockers %}{{ b }} {% endfor %}</span></p>
+    <p class="callout callout--warn callout--feedback" data-accept-blocked><span class="callout__body">{% for b in pre.blockers %}{{ b }} {% endfor %}</span></p>
   {% else %}
     <p class="field-hint" data-accept-draft>Se revisa la <strong>revisión {{ pre.draft.revision }}</strong> del borrador (guardada por {{ pre.draft.updated_by }}, {{ pre.draft.updated_at[:16].replace('T', ' ') }} UTC). Si editaste el formulario sin guardar, guardalo primero y volvé a revisar.</p>
     <ul data-accept-fields>
@@ -10,10 +10,10 @@
       <li>Email: {{ pre.draft.fields.email or 'sin email' }} · Teléfono: {{ pre.draft.fields.phone or '—' }}</li>
       <li class="field-hint">Las observaciones del borrador no se copian al perfil.</li>
     </ul>
-    <p class="callout callout--warn" data-accept-irreversible><span class="callout__body"><strong>Esto no se puede deshacer desde esta pantalla.</strong> Crear agrega una persona real al Banco y sube el CV; vincular agrega el CV a un perfil existente sin modificar sus datos.</span></p>
+    <p class="callout callout--warn callout--feedback" data-accept-irreversible><span class="callout__body"><strong>Esto no se puede deshacer desde esta pantalla.</strong> Crear agrega una persona real al Banco y sube el CV; vincular agrega el CV a un perfil existente sin modificar sus datos.</span></p>
 
     {% if pending %}
-    <div class="callout callout--info" data-accept-pending><span class="callout__body">Hay una aceptación <strong>en curso</strong> ({{ 'perfil nuevo' if pre.accepted.op == 'create' else 'vincular a un perfil existente' }}, aceptada por {{ pre.accepted.by }}) que no terminó de subir el CV. Solo se puede completar esa misma decisión.</span></div>
+    <div class="callout callout--info callout--feedback" data-accept-pending><span class="callout__body">Hay una aceptación <strong>en curso</strong> ({{ 'perfil nuevo' if pre.accepted.op == 'create' else 'vincular a un perfil existente' }}, aceptada por {{ pre.accepted.by }}) que no terminó de subir el CV. Solo se puede completar esa misma decisión.</span></div>
     <form class="hc-exc-form" data-accept-resume hx-post="/cchh/diagnostico/cvs-historicos/{{ run_id }}/excepciones/{{ content_key }}/aceptar" hx-target="#exc-{{ content_key }}" hx-swap="outerHTML" hx-disabled-elt="find button" data-hc-write-token>
       <input type="hidden" name="op" value="{{ pre.accepted.op }}"><input type="hidden" name="revision" value="{{ pre.draft.revision }}"><input type="hidden" name="fingerprint" value="{{ pre.fingerprint }}">
       {% if pre.accepted.op == 'link' %}<input type="hidden" name="profile_id" value="{{ pre.accepted.profile_id }}">{% endif %}
@@ -49,7 +49,7 @@
       <button type="submit" class="btn-primary">Aceptar y crear el perfil nuevo</button>
     </form>
     {% else %}
-    <p class="callout callout--warn" data-accept-create-blocked><span class="callout__body">{% for b in pre.create.blockers %}{{ b }} {% endfor %}</span></p>
+    <p class="callout callout--warn callout--feedback" data-accept-create-blocked><span class="callout__body">{% for b in pre.create.blockers %}{{ b }} {% endfor %}</span></p>
     {% endif %}
     {% endif %}
   {% endif %}

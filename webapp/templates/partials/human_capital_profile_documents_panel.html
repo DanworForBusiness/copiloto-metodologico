@@ -115,7 +115,7 @@
       <p>{{ document_state.message }}</p>
     </div>
     {% elif document_state.kind == "REMOTE_OUTCOME_UNKNOWN" or document_state.kind == "DOCUMENT_METADATA_PERSISTENCE_ERROR" %}
-    <div class="callout callout--warn" data-document-error-kind="{{ document_state.kind }}">
+    <div class="callout callout--warn callout--feedback" data-document-error-kind="{{ document_state.kind }}">
       <div class="callout__head">
         <span class="callout__icon">⚠️</span>
         <span class="callout__title">Estado desconocido</span>
@@ -144,11 +144,11 @@
       </div>
     </div>
     {% elif document_state.kind == "FOLDER_RETAINED_POLICY" %}
-    <div class="callout callout--note" role="status" data-document-error-kind="FOLDER_RETAINED_POLICY"><div class="callout__body"><p>{{ document_state.message }}</p></div></div>
+    <div class="callout callout--note callout--feedback" role="status" data-document-error-kind="FOLDER_RETAINED_POLICY"><div class="callout__body"><p>{{ document_state.message }}</p></div></div>
     {% elif document_state.kind == "FOLDER_KEPT" %}
-    <div class="callout callout--warn" data-document-error-kind="FOLDER_KEPT"><div class="callout__body"><p>{{ document_state.message }}</p></div></div>
+    <div class="callout callout--warn callout--feedback" data-document-error-kind="FOLDER_KEPT"><div class="callout__body"><p>{{ document_state.message }}</p></div></div>
     {% elif document_state.kind == "DELETE_OUTCOME_UNKNOWN" %}
-    <div class="callout callout--warn" data-document-error-kind="{{ document_state.kind }}">
+    <div class="callout callout--warn callout--feedback" data-document-error-kind="{{ document_state.kind }}">
       <div class="callout__head">
         <span class="callout__icon">⚠️</span>
         <span class="callout__title">Estado desconocido</span>

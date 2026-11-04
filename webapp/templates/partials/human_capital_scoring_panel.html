@@ -56,7 +56,7 @@
     {% endif %}
   </nav>
 
-  {% if sc.ok %}<div class="callout callout--success" role="status"><div class="callout__body"><p>{{ sc.ok }}</p></div></div>{% endif %}
+  {% if sc.ok %}<div class="callout callout--success callout--feedback" role="status"><div class="callout__body"><p>{{ sc.ok }}</p></div></div>{% endif %}
   {% if sc.errors %}<div class="dashboard-empty" data-error-kind="validation" role="alert"><span class="dashboard-empty__label">No se guardó</span>{% for e in sc.errors %}<p>{{ e }}</p>{% endfor %}</div>{% endif %}
   {% if not sc.editable %}<p class="field-hint">El proceso está cerrado: el scoring queda en solo lectura.</p>{% endif %}
 

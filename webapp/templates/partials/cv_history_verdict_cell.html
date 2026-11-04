@@ -1,6 +1,6 @@
 {# Celda de dictamen del owner de UN documento (datos personales: solo en la vista del owner). Se responde con este bloque y, por OOB, el panel de métricas. Los errores van adentro con 200 (HTMX no pinta 4xx). #}
 <div class="hc-verdict" data-verdict-box data-content-key="{{ r.content_key }}" data-verdict="{{ r.verdict.status if r.verdict else 'PENDING' }}">
-  {% if verdict_error %}<p class="callout callout--warn" data-error-kind="verdict_invalid"><span class="callout__body">{{ verdict_error }}</span></p>{% endif %}
+  {% if verdict_error %}<p class="callout callout--warn callout--feedback" data-error-kind="verdict_invalid"><span class="callout__body">{{ verdict_error }}</span></p>{% endif %}
   {% if r.verdict %}
     {% set v = r.verdict %}
     <span class="status-badge {{ 'status-badge--activo' if v.status == 'CORRECT' else 'status-badge--tentativo' if v.status == 'CORRECTED' else 'status-badge--inactivo' }}" data-verdict-status>{{ {'CORRECT': 'Propuesta correcta', 'CORRECTED': 'Corrección manual', 'UNDETERMINED': 'Identidad no determinada'}[v.status] }}</span>

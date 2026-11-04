@@ -1,4 +1,4 @@
-<div class="callout{% if state in ('saved', 'deleted') %} callout--success{% endif %}"
+<div class="callout{% if state in ('saved', 'deleted') %} callout--success{% endif %} callout--feedback"
      {% if state in ('saved', 'deleted') %}data-solicitudes-saved{% endif %}
      {% if state in ('conflict', 'uncertain') %}data-solicitudes-review{% endif %}>
   <div class="callout__body">
