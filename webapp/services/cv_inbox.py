@@ -575,6 +575,18 @@ def classify(ctx: Context, key: str) -> dict | None:
 _ORDER = {s: i for i, s in enumerate((ACCEPTING, READY, REVIEW, INCOMPLETE, ERROR_RETRY, MODIFIED, PENDING, ERROR, PROCESSED, DUPLICATE, MISSING, DISCARDED, INCORPORATED))}
 
 
+def _residual(row: dict) -> bool:
+    """Un CV incorporado cuyo original ya NO está en la carpeta y cuyo candidato ya no existe en el Banco (dado de baja o eliminado) no tiene nada que mostrar ni que hacer: es residual y sale de la vista.
+    Su libro se conserva como auditoría. Si el original sigue en la carpeta, la fila se mantiene (hay un archivo que decidir). Ante una lectura dudosa del Banco, la fila se muestra."""
+    if row["status"] != INCORPORATED or row["listed"] or not row.get("profile_id"):
+        return False
+    try:
+        profile = profile_repository.get(row["profile_id"])
+    except Exception:  # noqa: BLE001 — sin certeza no se oculta nada
+        return False
+    return profile is None or bool(profile.get("deleted_at"))
+
+
 def overview(token: str) -> dict:
     """Vista completa de la bandeja: carpeta, filas clasificadas y conteos. Lee SharePoint (listado) y el Hub; no escribe nada."""
     inbox = resolve_inbox(token)
@@ -586,6 +598,7 @@ def overview(token: str) -> dict:
         recent |= set(sorted((k for k, e in ctx.ledgers.items() if e.get("state") == final), key=lambda k: ctx.ledgers[k].get("updated_at") or "", reverse=True)[:RECENT_DONE])
     keys |= recent
     rows = [r for r in (classify(ctx, k) for k in keys) if r and (r["status"] not in (INCORPORATED, DISCARDED) or r["key"] in recent or r["listed"])]
+    rows = [r for r in rows if not _residual(r)]
     rows.sort(key=lambda r: (_ORDER[r["status"]], r["name"].casefold(), r["key"]))
     counts = {s: 0 for s in STATUS_VIEW}
     for r in rows:

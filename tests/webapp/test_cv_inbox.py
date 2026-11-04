@@ -707,3 +707,22 @@ def test_an_unexpected_retire_failure_never_breaks_the_incorporation_response(wo
     row = rows()["cv1.pdf"]
     assert row["status"] == inbox.INCORPORATED and row["can_retire"] and "RETIRE_GRAPH" in row["reasons"]
     assert inbox.REASON_TEXT["RETIRE_GRAPH"].startswith("Falta retirar") and inbox.retire(row["key"], TOKEN)["ok"]
+
+
+def test_an_incorporated_cv_whose_candidate_and_original_are_gone_leaves_the_view_but_keeps_its_record(world):
+    """Residuo: el candidato se dio de baja en el Banco y el original ya no está en la carpeta → la fila sale de «Incorporados» (nada que mostrar ni hacer); el libro queda como auditoría.
+    Con el original todavía en la carpeta, la fila se mantiene aunque el candidato no exista: hay un archivo que decidir."""
+    store, intake = world
+    intake.add("a1", "cv1.pdf", ANA)
+    intake.add("p1", "pablo.pdf", PABLO)
+    analyze_all()
+    batch("cv1.pdf")
+    view = rows()
+    key = view["cv1.pdf"]["key"]
+    entry = mf.get_ledger(inbox.AREA, key)
+    assert intake.in_folder("sub-incorporados") == ["cv1.pdf"] and "cv1.pdf" in view                     # candidato vigente: sigue en «Incorporados»
+    profile_repository.soft_delete(entry["profile_id"], actor=ACTOR)
+    assert "cv1.pdf" not in rows() and "pablo.pdf" in rows()                                              # residual: sale de la vista; el resto no cambia
+    assert mf.get_ledger(inbox.AREA, key)["state"] == inbox.DONE                                          # el registro queda como auditoría
+    intake.files["a1"]["parent"] = "inbox"                                                                 # si el original vuelve a estar en la carpeta, hay algo que decidir
+    assert "cv1.pdf" in rows()
