@@ -78,10 +78,20 @@ async def solicitudes_data(request: Request, graph_token: str = Form("")):
     sort = str(form.get("sort", ""))
     sort = sort if sort in service.SORT_COLUMNS else ""
     direction = "desc" if form.get("dir") == "desc" else "asc"
-    matches = service.sort_rows(service.select_rows(rows, query, selected), sort, direction)
-    pager = pagination.paginate(matches, page=form.get("page"), sizes=(50,), default_size=50)
+    matches = service.select_rows(rows, query, selected)
+    classified, unknown_ids = service.classify_rows(matches)
+    groups = []
+    for key, title in (('vigentes', 'Solicitudes Vigentes'), ('cerradas', 'Solicitudes Cerradas')):
+        group_sort = str(form.get('sort_' + key, sort))
+        group_sort = group_sort if group_sort in service.SORT_COLUMNS else ''
+        group_dir = 'desc' if form.get('dir_' + key, direction) == 'desc' else 'asc'
+        ordered = service.sort_rows(classified[key], group_sort, group_dir)
+        pager = pagination.paginate(ordered, page=form.get('page_' + key, form.get('page') if key == 'vigentes' else None), sizes=(50,), default_size=50)
+        groups.append({'key': key, 'title': title, 'rows': pager['items'], 'pager': pager,
+                       'count': len(ordered), 'sort': group_sort, 'direction': group_dir})
+    pager = groups[0]['pager']
     return templates.TemplateResponse(request=request, name="partials/solicitudes_panel.html", context={
-        "rows": pager["items"], "pager": pager,
+        "rows": pager["items"], "pager": pager, "groups": groups, "unknown_ids": unknown_ids,
         "count": len(matches), "source_count": len(rows), "error": error, "query": query,
         "selection_scope": hashlib.sha256((str(user.get('sub', '')) + ':operaciones:' + repository.LIST_ID).encode()).hexdigest(),
         "universe_ids": [str(row['id']) for row in rows],
@@ -251,6 +261,31 @@ def solicitudes_detail(request: Request, item_id: str, graph_token: str = Form("
     return _edit_panel(request, item_id, item=item, options=options)
 
 
+@router.post(PATH + "/{item_id}/historial", response_class=HTMLResponse, include_in_schema=False)
+def solicitudes_history(request: Request, item_id: str, graph_token: str = Form("")):
+    if not _user(request):
+        raise HTTPException(401)
+    if not item_id.isascii() or not item_id.isdecimal():
+        raise HTTPException(404)
+    rows, notice, partial = [], '', False
+    if not graph_token:
+        notice = "No se obtuvo la autorización de Microsoft para consultar las versiones. Reintentá sin volver a guardar."
+    else:
+        try:
+            item = repository.read_item(graph_token, item_id)
+            rows = journal.history(item['fields'].get(service.COMMENTS), item_id)
+            result = repository.read_item_versions(graph_token, item_id)
+            rows, partial = journal.version_history(item['fields'].get(service.COMMENTS), item_id,
+                                                   result['versions'], partial=result['partial'],
+                                                   current_modified=item.get('lastModifiedDateTime'))
+        except (HTTPError, URLError, TimeoutError, ValueError, KeyError):
+            notice = "No se pudieron verificar los movimientos operativos en SharePoint. Las observaciones disponibles se conservan. Reintentá la consulta; no vuelvas a guardar."
+    return templates.TemplateResponse(request=request, name="partials/solicitudes_history.html", context={
+        'item_id': item_id, 'history_rows': rows, 'history_loaded': True,
+        'history_notice': notice, 'history_partial': partial,
+    })
+
+
 @router.post(PATH + "/{item_id}/guardar", response_class=HTMLResponse, include_in_schema=False)
 async def solicitudes_save(request: Request, item_id: str, graph_token: str = Form("")):
     import logging
@@ -348,6 +383,8 @@ async def solicitudes_save(request: Request, item_id: str, graph_token: str = Fo
             outcome = "uncertain"
             return _feedback(request, item_id, "uncertain", "No pudimos confirmar el guardado. Consultá los valores vigentes antes de reintentar.")
         outcome = "confirmed"
+        if payload.get(service.FUNNEL) == admission.APPROVED:
+            admission.audit_approval(user['sub'], item_id, correlation)
         return _feedback(request, item_id, "saved", "Guardado confirmado en SharePoint.",
                          history_rows=journal.history(updated["fields"].get(service.COMMENTS), item_id),
                          refresh_history=True, **_detail_context(updated))

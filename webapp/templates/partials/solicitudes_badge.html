@@ -1,0 +1,9 @@
+{% macro request_badge(kind, value) -%}
+  {% set tones = {
+    'priority': {'Alta':'red', 'Media':'amber', 'Baja':'grey'},
+    'funnel': {'Solicitado':'amber', 'Aprobado para Arquitectura':'green', 'Rechazado, Aplica Operaciones':'red'},
+    'architecture': {'Pendiente':'grey', 'Planificado':'violet', 'En curso':'blue', 'Finalizado':'green', 'Suspendido':'amber'}
+  } %}
+  {% set tone = tones.get(kind, {}).get(value, 'grey') %}
+  <span class="dashboard-status-badge solicitudes-status-badge solicitudes-status-badge--{{ tone }}" data-badge-kind="{{ kind }}" data-badge-mapped="{{ 'true' if value in tones.get(kind, {}) else 'false' }}" title="{{ value or 'Sin informar' }}">{{ value or '—' }}</span>
+{%- endmacro %}

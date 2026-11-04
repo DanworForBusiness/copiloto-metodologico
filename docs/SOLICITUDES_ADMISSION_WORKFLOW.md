@@ -18,16 +18,24 @@ delegado. No se ejecutaron POST, PATCH ni DELETE reales en SharePoint.
 
 ## Admisión
 
-Solo si Funnel vigente es Solicitado, una primera fecha planificada/real o un
-cambio efectivo a Planificado, En curso o Finalizado propone aprobación.
+Solo si Funnel vigente es Solicitado, cada guardado explícito evalúa el estado
+efectivo después de los cambios: fecha planificada/real informada o Arquitectura
+Planificado, En curso o Finalizado propone aprobación, incluso si ya existía.
 El usuario confirma mediante el diálogo compartido del Hub. Backend valida
-el evento contra el registro vigente y el catálogo editable. Campos operativos
+la reconciliación contra el registro vigente y el catálogo editable. Campos operativos
 y Funnel se envían en un único PATCH con If-Match; la relectura comprueba
 explícitamente el valor derivado de Funnel además de los campos ingresados.
 
-No se aprueba por comentarios, prioridad, referencias, Suspendido ni por cambiar
-una fecha previamente informada. No hay reparación retroactiva al consultar ni
-sincronización de estados. Decisiones previas no se revierten implícitamente.
+Comentarios, prioridad o referencias no son compromisos autónomos. Si hay un
+compromiso preexistente, guardar esos campos también propone reconciliar. Quitar
+todos los compromisos antes de guardar evita la aprobación. Sin otro delta se
+envía solo Funnel. Consultar, filtrar, abrir o actualizar el snapshot nunca escribe.
+Decisiones previas no se revierten implícitamente. La misma regla se usa en lote,
+con el efecto derivado visible en la revisión y la confirmación del lote.
+La transición confirmada queda en auditoría como Solicitado → Aprobado para
+Arquitectura. El mismo panel integra observaciones firmadas y movimientos
+reconstruidos desde versiones SharePoint; no se fabrica un comentario ni se
+escribe un segundo registro de evento para representar movimientos operativos.
 No se reintrodujo una matriz de transiciones de Arquitectura.
 
 Rechazar / Derivar a Operaciones solo aparece con Funnel Solicitado. El diálogo
@@ -106,16 +114,18 @@ durable; no se agregó una nueva variable ni dependencia en este cambio.
 
 ## Movimientos operativos y auditoría durable
 
-La tabla actual acredita observaciones y motivos de rechazo firmados. No atribuye
-creación, aprobación ni cambios operativos basándose en logs de Python o en la
-fecha de modificación del item. El log técnico conserva solo actor, item, nombres
-de campos, resultado y correlación; no almacena el contenido de comentarios.
+El Historial combina observaciones y motivos de rechazo firmados con una
+proyección de versiones SharePoint. No atribuye movimientos basándose en logs de
+Python ni en la fecha de modificación del item actual. El log técnico no es el
+almacén del historial y no almacena contenido de comentarios.
 
 Microsoft Graph ofrece versiones con fields, lastModifiedDateTime y lastModifiedBy.
-La disponibilidad y retención reales de esta lista no están comprobadas aquí.
-Propuesta para la siguiente integración:
+La disponibilidad y retención reales de esta lista siguen pendientes de prueba
+autorizada. La integración implementada usa exclusivamente GET v1.0:
 
-1. Leer todas las páginas de /items/{id}/versions y los campos necesarios.
+1. Leer /items/{id}/versions, paginado, hasta 40 páginas y 200 versiones por
+   consulta de detalle. Si la colección omite fields, usar el GET documentado
+   de la versión con `$expand=fields`. Los límites marcan cobertura parcial.
 2. Comparar únicamente versiones sucesivas verificables y completas; si faltan
    campos o hay huecos, indicar cobertura parcial sin inferir movimientos.
 3. Atribuir fecha/actor solo desde metadata efectiva. No asumir que la primera
@@ -123,6 +133,25 @@ Propuesta para la siguiente integración:
 4. No convertir cada acumulado de Comentarios en una observación nueva: el ID
    de entrada permite distinguir append de contenido repetido.
 5. Acordar retención/versionado antes de presentarlo como auditoría completa.
+
+Se proyecta una única Reclasificación de Funnel por versión cuyo anterior sea
+Solicitado y nuevo Aprobado para Arquitectura. Actor y hora proceden de esa
+versión. El motivo se clasifica por comparación operacional: compromiso anterior
+y vigente → reconciliación; anterior sin compromiso y vigente con compromiso →
+aprobación por compromiso nuevo. Si faltan campos, se declara no determinable.
+También se integran cambios verificables de Arquitectura y fechas, sin duplicar
+los acumulados de observaciones. La primera versión retenida no prueba un alta.
+Versiones duplicadas idénticas se deduplican; identidades contradictorias se
+excluyen y marcan cobertura parcial. No se cruzan huecos entre versiones.
+
+La consulta del historial se carga por separado y vuelve a ejecutarse después
+del guardado confirmado. Si falla o hay latencia en la proyección de versiones,
+se ofrece reintentar la lectura, nunca el PATCH. Un fallo visual o reinicio no
+pierde eventos: la próxima lectura reconstruye las transiciones retenidas.
+Las observaciones disponibles siguen visibles ante errores de lectura de versiones.
+El endpoint POST `/operaciones/solicitudes/{item_id}/historial` es transporte de
+consulta autenticada del Hub; solo ejecuta GET contra Microsoft Graph y utiliza
+la autoridad compartida de lectura, sin scopes ni permisos adicionales.
 
 Si las versiones son insuficientes, la alternativa es una fuente durable de eventos
 con ID de operación, item, versión y resultado, con outbox/reconciliación para

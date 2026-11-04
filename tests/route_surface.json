@@ -281,6 +281,7 @@
   "POST /operaciones/solicitudes/{item_id}/detalle",
   "POST /operaciones/solicitudes/{item_id}/eliminar",
   "POST /operaciones/solicitudes/{item_id}/guardar",
+  "POST /operaciones/solicitudes/{item_id}/historial",
   "POST /operaciones/solicitudes/{item_id}/rechazar",
   "POST /operaciones/staffing/asignaciones/ausencias",
   "POST /operaciones/staffing/asignaciones/data",

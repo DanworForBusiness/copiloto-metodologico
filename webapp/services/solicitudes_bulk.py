@@ -193,6 +193,8 @@ def _one(row, plan, token, columns, options):
     except (HTTPError, URLError, TimeoutError, ValueError, KeyError) as exc:
         result.update(status='uncertain' if attempted else 'rejected', message=str(exc) if isinstance(exc, ValueError) else 'No se pudo validar el registro con Microsoft.')
     finally:
+        if result['status'] == 'confirmed' and payload.get(service.FUNNEL) == admission.APPROVED:
+            admission.audit_approval(plan['actor'], row['id'], plan['id'])
         logging.getLogger('danwor.solicitudes.audit').info(
             'actor=%s operation=bulk correlation=%s item=%s fields=%s outcome=%s',
             plan['actor'], plan['id'], row['id'], ','.join(sorted(payload)), result['status'])

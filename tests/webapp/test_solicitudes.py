@@ -204,7 +204,7 @@ def test_list_separates_project_and_action_and_hides_single_page_pager(monkeypat
     assert result.count('aria-label="Abrir solicitud ') == 2
     assert 'class="activity-pager"' not in result
     assert "Página 1 de 1" not in result
-    assert "2 requerimientos" in result and "chart-tooltip-anchor" in result
+    assert "2 solicitudes" in result and "chart-tooltip-anchor" in result
     rows.extend({"id": str(i), "fields": {"Proyecto": "Proyecto de prueba"}} for i in range(3, 55))
     result = client.post(path, data={"graph_token": "fake", "q": "Proyecto", "page": "2"}).text
     assert 'aria-current="page">2</span>' in result
@@ -421,7 +421,7 @@ def test_sort_filters_then_paginates_and_keeps_actions_fixed(monkeypatch):
     assert 'data-resizable-columns-key="operaciones-solicitudes-v3"' in result
     assert '<th class="center" scope="col">Acciones</th>' in result
     assert 'hx-params="none"' in result
-    assert 'name="sort" value="title"' in result
+    assert 'name="sort_vigentes" value="title"' in result
 
 
 def test_snapshot_reuses_filters_sort_and_pages_and_refreshes(monkeypatch):

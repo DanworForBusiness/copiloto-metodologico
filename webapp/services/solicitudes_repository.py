@@ -73,6 +73,50 @@ def read_item(token: str, item_id: str) -> dict:
     return graph_get_json(f"{item_url(token, item_id)}?$expand=fields", token)
 
 
+def read_item_versions(token: str, item_id: str) -> dict:
+    """Read-only, bounded detail history. No event store and no extra writes.
+
+    The documented per-version GET expands fields when the collection omits them.
+    A limit or failed version read makes coverage partial, never an empty success.
+    """
+    from urllib.error import HTTPError, URLError
+    prefix = item_url(token, item_id) + '/versions'
+    url, versions, seen, partial = prefix, [], set(), False
+    for _ in range(40):
+        if url != prefix and not url.startswith(prefix + '?'):
+            raise ValueError('Invalid version continuation URL')
+        if url in seen:
+            raise ValueError('Repeated version continuation URL')
+        seen.add(url)
+        page = graph_get_json(url, token)
+        versions.extend(page['value'])
+        url = page.get('@odata.nextLink')
+        if len(versions) >= 200:
+            partial = bool(url) or len(versions) > 200
+            versions = versions[:200]
+            break
+        if not url:
+            break
+    else:
+        partial = True
+    result = []
+    for version in versions:
+        version = dict(version)
+        if not isinstance(version.get('fields'), dict):
+            try:
+                identity = version['id']
+                if not isinstance(identity, str) or not identity or not all(p.isascii() and p.isdecimal() for p in identity.split('.')):
+                    raise ValueError('Invalid version identity')
+                detail = graph_get_json(prefix + '/' + quote(identity, safe='') + '?$expand=fields', token)
+                if detail.get('id') != identity:
+                    raise ValueError('Mismatched version identity')
+                version = detail
+            except (HTTPError, URLError, TimeoutError, ValueError, KeyError):
+                partial = True
+        result.append(version)
+    return {'versions': result, 'partial': partial}
+
+
 def update_item(token: str, item_id: str, payload: dict, etag: str) -> dict:
     from core.microsoft365 import graph_patch_json
 

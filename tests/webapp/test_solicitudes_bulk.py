@@ -93,13 +93,14 @@ def test_one_field_partial_patch_reuses_admission_and_preserves_other_fields(lab
     assert lab['invalidated'] == ['actor']
 
 
-def test_existing_date_or_previous_admission_not_changed_implicitly(lab):
+def test_existing_date_reconciles_but_rejected_decision_is_preserved(lab):
     lab['rows']['1']['fields'][service.PLANNED] = '2026-11-01T00:00:00Z'
     lab['rows']['2']['fields'][service.FUNNEL] = admission.REJECTED
     p=plan(lab,service.PLANNED,'2026-11-04')
-    assert not any(r['derived'] for r in p['rows'])
+    assert [r['derived'] for r in p['rows']] == [True, False]
     bulk.execute('actor',p['id'],'fake',confirmed=True)
-    assert all(service.FUNNEL not in payload for _,payload,_ in lab['writes'])
+    assert lab['writes'][0][1][service.FUNNEL] == admission.APPROVED
+    assert service.FUNNEL not in lab['writes'][1][1]
 
 
 def test_multi_assignee_preserved_while_other_records_can_update(lab):
@@ -287,7 +288,10 @@ def test_shared_display_has_no_write_controls_and_preserves_edit_mode(lab):
     assert response.status_code == 200
     soup = BeautifulSoup(response.text, 'html.parser')
     assert soup.select_one('[data-solicitudes-display]')
-    assert not soup.select('form, [data-solicitudes-write-token], button[type=submit], [hx-post]')
+    assert not soup.select('form, [data-solicitudes-write-token], button[type=submit]')
+    # The only POST is an authenticated read of the history, never a write.
+    assert [elt['hx-post'] for elt in soup.select('[hx-post]')] == ['/operaciones/solicitudes/1/historial']
+    assert all(elt.has_attr('data-dw-graph-token') for elt in soup.select('[hx-post]'))
     assert 'Solo lectura' in response.text
     editable = lab['client'].post('/operaciones/solicitudes/1/detalle', data={'graph_token': 'fake'})
     assert BeautifulSoup(editable.text, 'html.parser').select_one('form[data-solicitudes-write-token]')
@@ -297,6 +301,15 @@ def test_shared_display_has_no_write_controls_and_preserves_edit_mode(lab):
 def project_catalog(lab):
     lab['columns'].append({'name': service.PROJECT, 'lookup': {'allowMultipleValues': False}})
     lab['options'][service.PROJECT] = {'4': 'Proyecto actual', '8': 'Otro proyecto'}
+
+
+def test_bulk_entry_requires_two_distinct_requests_but_sharing_accepts_one(lab):
+    for ids in ('["1"]', '["1","1"]'):
+        assert 'al menos dos solicitudes' in send(lab, 'preparar', selected_ids=ids).text
+    assert not bulk._plans
+    assert 'Revisar cambios' in send(lab, 'preparar', selected_ids='["1","2"]').text
+    assert 'data-sol-share-link' in send(lab, 'compartir', selected_ids='["1"]').text
+    assert not lab['writes']
 
 
 def test_multiple_fields_single_patch_and_reviewed_retry(lab):

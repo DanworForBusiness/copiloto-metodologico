@@ -14,23 +14,26 @@
     }
     const available = bar.dataset.solSourceOk === 'yes';
     if (available) store.reconcile(JSON.parse(bar.dataset.solUniverse));
-    const rows = window.dwTableSelection.syncRows(document, store, {
-      row: '[data-sol-select]', page: '[data-sol-select-page]', attribute: 'data-sol-select',
+    let visibleSelected = 0;
+    document.querySelectorAll('.solicitudes-table').forEach(table => {
+      visibleSelected += window.dwTableSelection.syncRows(table, store, {
+        row: '[data-sol-select]', page: '[data-sol-select-page]', attribute: 'data-sol-select',
+      }).visibleSelected;
     });
     bar.hidden = store.size() === 0;
     bar.querySelector('[data-sol-selection-count]').textContent = store.size();
     bar.querySelector('[data-sol-selection-label]').textContent = store.size() === 1 ? 'solicitud seleccionada' : 'solicitudes seleccionadas';
-    const outside = store.size() - rows.visibleSelected;
+    const outside = store.size() - visibleSelected;
     bar.querySelector('[data-sol-selection-hint]').textContent = !available ? 'Actualizá la consulta para validar la selección.' : outside > 0 ? outside + ' fuera de esta página o filtro' : '';
     bar.querySelectorAll('[data-sol-action]').forEach(button => {
-      button.disabled = !available || !store.size() || (button.dataset.solAction === 'consolidar' && store.size() < 2);
+      button.disabled = !available || !store.size() || (['consolidar', 'preparar'].includes(button.dataset.solAction) && store.size() < 2);
     });
   }
   document.addEventListener('change', event => {
     if (!store) return;
     const box = event.target;
     if (box.matches('[data-sol-select], [data-sol-select-page]')) {
-      const ids = box.matches('[data-sol-select]') ? [box.dataset.solSelect] : Array.from(document.querySelectorAll('[data-sol-select]'), b => b.dataset.solSelect);
+      const ids = box.matches('[data-sol-select]') ? [box.dataset.solSelect] : Array.from(box.closest('table').querySelectorAll('[data-sol-select]'), b => b.dataset.solSelect);
       window.dwTableSelection.keepInPlace(document, box.closest('tr'), () => {
         if (box.checked) store.add(ids); else store.remove(ids);
         sync();

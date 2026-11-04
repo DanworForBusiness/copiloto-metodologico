@@ -122,6 +122,106 @@ def history(html, item_id):
     return rows
 
 
+def version_history(html, item_id, versions, *, partial=False, current_modified=None):
+    """One history projection: signed observations plus verified adjacent versions.
+
+    Never infer a transition from the current item or the oldest retained version.
+    Stable version identities prevent duplicates across reads or UI failures.
+    """
+    from webapp.services import solicitudes_admission as admission
+    rows = history(html, item_id)
+    indexed, ambiguous = {}, set()
+    for version in versions:
+        try:
+            identity = version['id']
+            parts = identity.split('.')
+            if len(parts) != 2 or not all(p.isascii() and p.isdecimal() for p in parts):
+                raise ValueError('Unknown version numbering')
+            key = tuple(map(int, parts))
+            if key in ambiguous:
+                continue
+            if key in indexed and indexed[key] != version:
+                ambiguous.add(key)
+                del indexed[key]
+                raise ValueError('Conflicting version identity')
+            indexed[key] = version
+        except (ValueError, KeyError, TypeError, AttributeError):
+            partial = True
+    ordered = sorted(indexed.items())
+    # Retention before the first observed version is not evidence of creation.
+    partial = partial or len(ordered) < 2 or (bool(ordered) and ordered[0][0] != (1, 0))
+    if current_modified is not None:
+        try:
+            latest = datetime.fromisoformat(ordered[-1][1]['lastModifiedDateTime'].replace('Z', '+00:00'))
+            current = datetime.fromisoformat(current_modified.replace('Z', '+00:00'))
+            partial = partial or latest.utcoffset() is None or current.utcoffset() is None or latest != current
+        except (IndexError, KeyError, ValueError, TypeError, AttributeError):
+            partial = True
+
+    def commitment(fields):
+        keys = (service.STATUS, service.PLANNED, service.ACTUAL)
+        status = fields.get(service.STATUS)
+        if (isinstance(status, str) and status in admission.COMMITMENT_STATES) or any(service.date_key(fields.get(k)) for k in keys[1:]):
+            return True
+        if (status is not None and not isinstance(status, str)) or any(fields.get(k) and not service.date_key(fields.get(k)) for k in keys[1:]):
+            return None
+        return False if all(k in fields for k in keys) else None
+
+    for (old_key, old), (new_key, new) in zip(ordered, ordered[1:]):
+        contiguous = (new_key == (old_key[0], old_key[1] + 1)
+                      or (old_key[1] == 0 and new_key == (old_key[0] + 1, 0)))
+        before, after = old.get('fields'), new.get('fields')
+        if not contiguous or not isinstance(before, dict) or not isinstance(after, dict):
+            partial = True
+            continue
+        try:
+            stamp = datetime.fromisoformat(new['lastModifiedDateTime'].replace('Z', '+00:00'))
+            previous_stamp = datetime.fromisoformat(old['lastModifiedDateTime'].replace('Z', '+00:00'))
+            if stamp.utcoffset() is None or previous_stamp.utcoffset() is None or stamp < previous_stamp:
+                raise ValueError('Unverified version time')
+        except (ValueError, KeyError, TypeError, AttributeError):
+            partial = True
+            continue
+        modified_by = new.get('lastModifiedBy')
+        identity = modified_by.get('user') if isinstance(modified_by, dict) else None
+        identity = identity if isinstance(identity, dict) else {}
+        actor = identity.get('displayName') or identity.get('email') or identity.get('id')
+        if not isinstance(actor, str) or not actor.strip():
+            actor, partial = 'No identificado en SharePoint', True
+        common = {'date': stamp.astimezone(ZONE).strftime('%d/%m/%Y %H:%M'), 'at': stamp.isoformat(),
+                  'actor': actor, 'version': new['id'], 'source': 'SharePoint'}
+        if service.FUNNEL not in before or service.FUNNEL not in after:
+            partial = True
+        elif before[service.FUNNEL] == admission.REQUESTED and after[service.FUNNEL] == admission.APPROVED:
+            prior, effective = commitment(before), commitment(after)
+            reason = ('Reconciliación de compromiso existente' if prior is True and effective is True else
+                      'Aprobación por compromiso nuevo' if prior is False and effective is True else
+                      'Motivo no determinable a partir de las versiones disponibles')
+            rows.append({**common, 'id': f'version:{item_id}:{new["id"]}:funnel',
+                         'movement': 'Reclasificación de Funnel', 'before': admission.REQUESTED,
+                         'after': admission.APPROVED, 'badge_kind': 'funnel', 'text': reason})
+        for key, label in ((service.STATUS, 'Cambio de Arquitectura'), (service.PLANNED, 'Cambio de fecha planificada'), (service.ACTUAL, 'Cambio de fecha real')):
+            if key not in before or key not in after:
+                partial = True
+                continue
+            a, b = before[key], after[key]
+            if key != service.STATUS:
+                if any(value and not service.date_key(value) for value in (a, b)):
+                    partial = True
+                    continue
+                a, b = service.date_key(a), service.date_key(b)
+            elif any(value is not None and not isinstance(value, str) for value in (a, b)):
+                partial = True
+                continue
+            if a != b:
+                rows.append({**common, 'id': f'version:{item_id}:{new["id"]}:{key}', 'movement': label,
+                             'before': a if key == service.STATUS else service.display_date(a),
+                             'after': b if key == service.STATUS else service.display_date(b),
+                             'badge_kind': 'architecture' if key == service.STATUS else '', 'text': ''})
+    rows.sort(key=lambda r: datetime.fromisoformat(r['at']) if r.get('at') else datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+    return rows, partial
+
+
 def _legacy(html, parsed):
     parts, cursor = [], 0
     for start, end in parsed.ranges:

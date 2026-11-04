@@ -1,3 +1,4 @@
+{% from "partials/solicitudes_badge.html" import request_badge %}
 <section id="solicitudes-detail-hero" class="module-hero hc-profiles-hero asr-hero"{% if refresh_hero %} hx-swap-oob="outerHTML"{% endif %}>
   <div class="hc-profiles-hero-text">
     <p class="eyebrow">ARQUITECTURA E INNOVACION</p>
@@ -6,7 +7,7 @@
     <div class="hero-meta">
       <span class="catalog-verdict-line">
       {% for label, value in detail_badges %}
-      <span>{{ label }}: <span class="catalog-card__verdict catalog-card__verdict--neutra">{{ value or 'Sin informar' }}</span></span>
+      <span>{{ label }}: {{ request_badge({'Status funnel':'funnel', 'Status Arquitectura':'architecture', 'Prioridad':'priority'}.get(label, ''), value) }}</span>
       {% endfor %}
       </span>
     </div>

@@ -1,8 +1,8 @@
 (function () {
   function wire() {
     const panel = document.getElementById("solicitudes-panel");
-    const container = panel?.querySelector("[data-draggable-columns-key]");
-    if (!container || container.dataset.solicitudesLayoutWired) return;
+    for (const container of panel?.querySelectorAll("[data-draggable-columns-key]") || []) {
+    if (container.dataset.solicitudesLayoutWired) continue;
     container.dataset.solicitudesLayoutWired = "1";
     const key = container.dataset.draggableColumnsKey;
     const keys = Array.from(container.querySelectorAll("th[data-column-key]"), th => th.dataset.columnKey);
@@ -26,12 +26,17 @@
     let dragged = false;
     container.addEventListener("pointerdown", () => { dragged = false; });
     container.addEventListener("dragstart", () => { dragged = true; });
+    // Column drags belong to the table, not the enclosing dashboard sections.
+    for (const type of ["dragstart", "dragenter", "dragover", "drop", "dragend"]) {
+      container.addEventListener(type, event => event.stopPropagation());
+    }
     container.addEventListener("click", event => {
       if (dragged && event.detail && event.target.closest(".solicitudes-sort")) {
         event.preventDefault();
         event.stopImmediatePropagation();
       }
     }, true);
+    }
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", wire);

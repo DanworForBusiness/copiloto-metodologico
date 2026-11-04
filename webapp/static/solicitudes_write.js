@@ -59,16 +59,15 @@
     const form = elt.closest('form[data-solicitudes-admission]');
     let admissionConfirmed = false;
     if (elt === form && form.dataset.solicitudesAdmission === 'Solicitado') {
-      const newDate = ['sol-planned', 'sol-actual'].some(id => {
+      const hasDate = ['sol-planned', 'sol-actual'].some(id => {
         const field = form.querySelector('#' + id);
-        return field && !field.defaultValue && !!field.value;
+        return field && !!field.value;
       });
       const status = form.querySelector('#sol-status');
-      const original = status?.querySelector('option[selected]')?.value || '';
-      const committed = status && status.value !== original && ['Planificado', 'En curso', 'Finalizado'].includes(status.value);
-      if (newDate || committed) {
+      const committed = status && ['Planificado', 'En curso', 'Finalizado'].includes(status.value);
+      if (hasDate || committed) {
         admissionConfirmed = await dwConfirm({title: 'Aprobar solicitud',
-          message: 'Al confirmar estos cambios, la solicitud pasará a Aprobado para Arquitectura. ¿Continuar?',
+          message: 'Esta solicitud tiene actividad comprometida por Arquitectura, pero su Funnel continúa en Solicitado. Al guardar, se actualizará a Aprobado para Arquitectura. ¿Continuar?',
           confirmLabel: 'Confirmar y guardar', cancelLabel: 'Cancelar'});
         if (!admissionConfirmed) return;
       }
