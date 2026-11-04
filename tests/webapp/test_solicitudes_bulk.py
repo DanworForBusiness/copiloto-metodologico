@@ -185,7 +185,7 @@ def test_share_resolves_authorized_titles_and_internal_links_without_writes(lab)
     lab['rows']['1']['fields']['Title']='<script>never execute</script>'
     response=send(lab,'compartir',selected_ids='["1","2"]')
     soup=BeautifulSoup(response.text,'html.parser')
-    assert [a['href'] for a in soup.select('[data-sol-share-link]')]==['/operaciones/solicitudes/1/editar','/operaciones/solicitudes/2/editar']
+    assert [a['href'] for a in soup.select('[data-sol-share-link]')]==['http://testserver/operaciones/solicitudes/1/editar?mode=display','http://testserver/operaciones/solicitudes/2/editar?mode=display']
     assert '<script>never execute</script>' not in response.text and 'fake' not in response.text
     assert not lab['writes']
     assert 'ya no están disponibles' in send(lab,'compartir',selected_ids='["999"]').text
@@ -279,3 +279,16 @@ def test_expired_token_pauses_pending_without_replaying_confirmed_records(lab):
     assert '5 confirmadas' in recovered.text
     final=bulk.execute('actor',p['id'],'fake',confirmed=True)
     assert all(r['status']=='confirmed' for r in final['rows']) and len(lab['writes'])==6
+
+
+def test_shared_display_has_no_write_controls_and_preserves_edit_mode(lab):
+    lab['options'][service.PROJECT] = {'4': 'Proyecto simulado'}
+    response = lab['client'].post('/operaciones/solicitudes/1/detalle?mode=display', data={'graph_token': 'fake'})
+    assert response.status_code == 200
+    soup = BeautifulSoup(response.text, 'html.parser')
+    assert soup.select_one('[data-solicitudes-display]')
+    assert not soup.select('form, [data-solicitudes-write-token], button[type=submit], [hx-post]')
+    assert 'Solo lectura' in response.text
+    editable = lab['client'].post('/operaciones/solicitudes/1/detalle', data={'graph_token': 'fake'})
+    assert BeautifulSoup(editable.text, 'html.parser').select_one('form[data-solicitudes-write-token]')
+    assert not lab['writes']

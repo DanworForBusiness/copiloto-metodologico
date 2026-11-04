@@ -8,7 +8,7 @@
   {% if authorize %}{% include "partials/solicitudes_write_authorize.html" %}{% endif %}
 {% elif mode == 'share' %}
   <p class="field-hint">Los enlaces requieren acceso a Operaciones y permisos de lectura en SharePoint.</p>
-  <ul class="hc-share-list" data-sol-share-list>{% for item in items %}<li><a data-sol-share-link href="/operaciones/solicitudes/{{ item.id }}/editar">{{ item.fields.get('Title') or 'Solicitud #' ~ item.id }}</a></li>{% endfor %}</ul>
+  <ul class="hc-share-list" data-sol-share-list>{% for item in items %}<li><a data-sol-share-link href="{{ request.url_for('solicitudes_edit', item_id=item.id) }}?mode=display">{{ item.fields.get('Title') or 'Solicitud #' ~ item.id }}</a></li>{% endfor %}</ul>
   <div class="feedback-field"><label for="sol-share-message">Mensaje</label><textarea id="sol-share-message" rows="3">Te comparto estas solicitudes para su revisión:</textarea></div>
   <p class="field-hint" data-sol-copy-status role="status"></p>
 {% elif mode == 'edit' %}

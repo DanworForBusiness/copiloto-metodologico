@@ -177,6 +177,7 @@ def solicitudes_edit(request: Request, item_id: str):
     response = solicitudes_page(request)
     if hasattr(response, "context"):
         response.context["item_id"] = item_id
+        response.context["display_only"] = request.query_params.get("mode") == "display"
         return templates.TemplateResponse(request=request, name="operations/solicitudes.html", context=response.context)
     return response
 
@@ -200,7 +201,8 @@ def _detail_context(item):
 def _edit_panel(request, item_id, *, item=None, options=None, error=""):
     values = service.form_values(item["fields"]) if item else {}
     user = _user(request) or {}
-    return templates.TemplateResponse(request=request, name="partials/solicitudes_edit.html", context={
+    template = "partials/solicitudes_display.html" if request.query_params.get("mode") == "display" else "partials/solicitudes_edit.html"
+    return templates.TemplateResponse(request=request, name=template, context={
         "item_id": item_id, "values": values, "current": values,
         "options": options or {}, "error": error,
         "project_display": service.project_label(item["fields"], (options or {}).get(service.PROJECT)) if item else "",
