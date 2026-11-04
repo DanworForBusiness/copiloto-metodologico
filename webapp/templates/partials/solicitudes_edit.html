@@ -9,6 +9,7 @@
       @input="dirty=true" @change="dirty=true"
       @submit.capture="if (Array.from($el.querySelectorAll('[data-narrative]')).some(field => field.value !== field.defaultValue) && !window.confirm('Los textos modificados se guardarán sin el formato original. ¿Continuar?')) { $event.preventDefault(); $event.stopImmediatePropagation() }"
       @beforeunload.window="if (dirty) { $event.preventDefault(); $event.returnValue = true }"
+      @solicitudes-deleted.window="dirty=false;saved=true;window.location.assign($event.detail.url)"
       {% if is_new %}@solicitudes-created.window="dirty=false;saved=true;window.location.assign($event.detail.url)"{% endif %}
       @htmx:after-swap.window="if ($event.detail.target.id === 'solicitudes-save-result') { if ($event.detail.target.querySelector('[data-solicitudes-saved]')) { dirty=false; saved=true } if ($event.detail.target.querySelector('[data-solicitudes-review]')) review=true }"
       hx-post="/operaciones/solicitudes/{{ 'nueva' if is_new else item_id ~ '/guardar' }}"
@@ -78,7 +79,21 @@
   </section>
   <div class="hc-profile-form__actions">
     <button type="submit" class="btn-primary" :disabled="saved || review"{% if not is_new and not etag %} disabled{% endif %}>{{ 'Crear solicitud' if is_new else 'Guardar' }}</button>
+    {% if not is_new %}
+    <button type="button" class="table-action-btn table-action-btn--danger chart-tooltip-anchor"
+            aria-label="Eliminar solicitud" :disabled="saved || review"{% if not etag %} disabled{% endif %}
+            hx-post="/operaciones/solicitudes/{{ item_id }}/eliminar" hx-trigger="confirmed"
+            hx-include="closest form" hx-params="etag,confirm_delete" hx-vals='{"confirm_delete":"yes"}'
+            hx-sync="closest form:drop" hx-disabled-elt="this"
+            hx-indicator="#solicitudes-deleting"
+            data-dw-confirm data-dw-confirm-title="Eliminar solicitud" data-dw-confirm-ok="Eliminar"
+            data-dw-confirm-message="Se eliminará la solicitud de la lista SharePoint y se descartarán los cambios sin guardar de este formulario. ¿Querés continuar?">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+      <span class="chart-tooltip" aria-hidden="true"><p>Eliminar solicitud</p></span>
+    </button>
+    {% endif %}
     <span id="solicitudes-saving" class="htmx-indicator section-analysis-loading" role="status">Guardando…</span>
+    {% if not is_new %}<span id="solicitudes-deleting" class="htmx-indicator section-analysis-loading" role="status">Eliminando…</span>{% endif %}
   </div>
 </form>
 <div id="solicitudes-save-result" role="status"></div>

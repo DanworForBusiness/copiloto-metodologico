@@ -278,6 +278,7 @@
   "POST /operaciones/solicitudes/nueva",
   "POST /operaciones/solicitudes/nueva/datos",
   "POST /operaciones/solicitudes/{item_id}/detalle",
+  "POST /operaciones/solicitudes/{item_id}/eliminar",
   "POST /operaciones/solicitudes/{item_id}/guardar",
   "POST /operaciones/staffing/asignaciones/ausencias",
   "POST /operaciones/staffing/asignaciones/data",

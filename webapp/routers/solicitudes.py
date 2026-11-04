@@ -322,3 +322,65 @@ async def solicitudes_save(request: Request, item_id: str, graph_token: str = Fo
             "actor=%s item=%s fields=%s outcome=%s correlation=%s",
             user["sub"], item_id, ",".join(sorted(payload)), outcome, correlation,
         )
+
+
+@router.post(PATH + "/{item_id}/eliminar", response_class=HTMLResponse, include_in_schema=False)
+async def solicitudes_delete(request: Request, item_id: str, graph_token: str = Form("")):
+    import json
+    import logging
+    from uuid import uuid4
+    from webapp import same_origin_guard
+
+    user = _user(request)
+    if not user:
+        raise HTTPException(401)
+    if not user.get("sub") or not same_origin_guard.is_same_origin_write(request):
+        raise HTTPException(403)
+    if not item_id.isascii() or not item_id.isdecimal():
+        raise HTTPException(404)
+    form = await request.form()
+    if (set(form) - {"graph_token", "token_diagnostic", "etag", "confirm_delete"}
+            or any(len(form.getlist(key)) != 1 for key in form)
+            or form.get("confirm_delete") != "yes"):
+        return _feedback(request, item_id, "invalid", "Confirmá explícitamente la eliminación de la solicitud.")
+    if not graph_token:
+        return _feedback(request, item_id, "auth", "Autorizá la escritura con Microsoft antes de eliminar. Tu borrador se conserva.")
+    outcome = "read_error"
+    correlation = uuid4().hex
+    try:
+        item = await run_in_threadpool(repository.read_item, graph_token, item_id)
+        etag = _etag(item)
+        if not etag or etag == "*" or etag != form.get("etag"):
+            outcome = "conflict"
+            return _feedback(request, item_id, "conflict", "La solicitud cambió. Consultá los valores vigentes antes de eliminar.")
+        outcome = "uncertain"
+        try:
+            await run_in_threadpool(repository.delete_item, graph_token, item_id, etag)
+        except HTTPError as exc:
+            if exc.code == 412:
+                outcome = "conflict"
+                return _feedback(request, item_id, "conflict", "Otro usuario modificó la solicitud. La eliminación fue rechazada.")
+            if exc.code < 500 and exc.code != 404:
+                outcome = f"http_{exc.code}"
+                return _feedback(request, item_id, "auth" if exc.code == 401 else "error", _edit_error(exc))
+        except (URLError, TimeoutError, ValueError):
+            pass
+        await run_in_threadpool(solicitudes_snapshot.invalidate, user["sub"])
+        try:
+            await run_in_threadpool(repository.read_item, graph_token, item_id)
+        except HTTPError as exc:
+            if exc.code == 404:
+                outcome = "confirmed_absent"
+                response = _feedback(request, item_id, "deleted", "La solicitud ya no está en la lista de SharePoint.")
+                response.headers["HX-Trigger-After-Swap"] = json.dumps({"solicitudes-deleted": {"url": PATH}})
+                return response
+        except (URLError, TimeoutError, ValueError, KeyError):
+            pass
+        return _feedback(request, item_id, "uncertain", "No pudimos confirmar la eliminación. Revisá el listado antes de intentar nuevamente.")
+    except (HTTPError, URLError, TimeoutError, ValueError, KeyError) as exc:
+        return _feedback(request, item_id, "auth" if getattr(exc, "code", None) == 401 else "error", _edit_error(exc))
+    finally:
+        logging.getLogger("danwor.solicitudes.audit").info(
+            "actor=%s item=%s operation=delete outcome=%s correlation=%s",
+            user["sub"], item_id, outcome, correlation,
+        )

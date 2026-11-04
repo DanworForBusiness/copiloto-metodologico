@@ -78,6 +78,14 @@ def update_item(token: str, item_id: str, payload: dict, etag: str) -> dict:
     return graph_patch_json(f"{item_url(token, item_id)}/fields", token, payload, etag=etag)
 
 
+def delete_item(token: str, item_id: str, etag: str) -> None:
+    from core.microsoft365 import graph_delete
+
+    if not etag or etag == "*":
+        raise ValueError("A current item ETag is required")
+    graph_delete(item_url(token, item_id), token, extra_headers={"If-Match": etag})
+
+
 def lookup_options(token: str, fields=(service.PROJECT, service.ASSIGNEES), *, base=None) -> dict:
     base = base or list_url(token)
     columns = graph_get_json(f"{base}/columns", token)["value"]

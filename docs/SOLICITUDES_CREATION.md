@@ -2,7 +2,7 @@
 
 ## Acceso y autorización Microsoft
 
-Consulta, alta y edición usan la política existente de Operaciones. No hay
+Consulta, alta, edición y eliminación usan la política existente de Operaciones. No hay
 feature flag de escritura ni rol adicional. La lista y los catálogos se leen
 con `dwGraphToken`. Crear y Guardar usan `dwSolicitudesWriteToken`, definido en
 la autoridad institucional `hub_auth.js`, con consentimiento incremental para
@@ -14,6 +14,24 @@ el formulario conserva el borrador y ofrece Autorizar escritura con Microsoft.
 Ese gesto usa exclusivamente `dwGraphReauthenticate`. Graph aplica los permisos
 efectivos del usuario sobre la lista. El Hub comunica 401, 403 y 429 y no guarda
 tokens en archivos, almacenamiento del navegador o logs.
+
+## Eliminación
+
+El formulario de una solicitud existente incorpora el SVG y el diálogo
+`data-dw-confirm` compartidos con CCHH. Cancelar conserva el borrador y no envía
+la operación. Confirmar llama `POST /{item_id}/eliminar` con confirmación explícita,
+token delegado de escritura y ETag. El servidor verifica acceso, mismo origen,
+allowlist de parámetros y coincidencia de la versión vigente.
+
+El adaptador usa `graph_delete` sobre el listItem, sin cuerpo, con `If-Match`.
+Un 412 rechaza la eliminación y conserva el borrador. Un timeout o 5xx no se
+reintenta automáticamente. Se relee el elemento y solo un 404 confirma su
+ausencia. El resultado confirmado invalida el snapshot y vuelve al listado.
+La auditoría registra actor, ID, resultado y correlación, sin contenido.
+Los permisos efectivos de SharePoint siguen siendo exigidos por Graph.
+
+Esta operación solo se probó con transportes dobles y un registro en memoria.
+Su aceptación real requiere un registro expresamente autorizado para eliminar.
 
 ## Contrato del alta
 
@@ -72,3 +90,4 @@ Referencias oficiales
 
 - [Crear un listItem](https://learn.microsoft.com/en-us/graph/api/listitem-create?view=graph-rest-1.0)
 - [columnDefinition](https://learn.microsoft.com/en-us/graph/api/resources/columndefinition?view=graph-rest-1.0)
+- [Eliminar un listItem con If-Match](https://learn.microsoft.com/en-us/graph/api/listitem-delete?view=graph-rest-1.0)
