@@ -74,6 +74,19 @@
         {% if r.can_dismiss %}<span class="chart-tooltip" aria-hidden="true"><p>Descartar</p></span>{% endif %}
       </button>
       {% endif %}
+      {% if row_actions.purge %}
+      {% if r.can_purge %}
+      {# Eliminar el ORIGINAL de un CV ya incorporado: diálogo compartido del Hub (`data-dw-confirm`); el servidor verifica antes el CV definitivo en «CVs» y su asociación con el candidato. #}
+      <button type="button" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" hx-post="{{ _act }}/eliminar-original" hx-trigger="confirmed" hx-target="#cvinbox-panel" hx-swap="outerHTML"
+              hx-vals='{{ dict(panel_state, confirm_delete="ELIMINAR") | tojson }}' data-hc-write-token data-cvinbox-purge
+              data-dw-confirm data-dw-confirm-title="Eliminar CV original" data-dw-confirm-ok="Eliminar original"
+              data-dw-confirm-message="Se elimina de SharePoint el archivo original «{{ r.name }}» de la carpeta de carga masiva. Antes se verifica que el CV definitivo esté en «CVs» y asociado al candidato. El candidato y su CV en el Banco no cambian."
+              aria-label="Eliminar el CV original de la carpeta de carga masiva">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+        <span class="chart-tooltip" aria-hidden="true"><p>Eliminar CV original</p></span>
+      </button>
+      {% else %}<span class="table-action-btn hc-inbox-slot" aria-hidden="true"></span>{% endif %}
+      {% endif %}
     </div>
   </td>{% endif %}
 </tr>

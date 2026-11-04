@@ -961,7 +961,7 @@ _INBOX_TILES = {
     "revisar": ("Para revisar", lambda r: r["status"] in (cv_inbox.REVIEW, cv_inbox.INCOMPLETE)),
     "problemas": ("Con problemas", lambda r: r["status"] in (cv_inbox.ERROR, cv_inbox.ACCEPTING) or bool(r.get("can_retire"))),
 }
-_INBOX_ACTIONS = ("guardar", "resolver", "aceptar", "reintentar", "descartar", "reabrir", "retirar")
+_INBOX_ACTIONS = ("guardar", "resolver", "aceptar", "reintentar", "descartar", "reabrir", "retirar", "eliminar-original")
 
 
 def _inbox_actor(request: Request) -> str:
@@ -1044,7 +1044,8 @@ def _inbox_panel(request: Request, graph_token: str, *, vista: str = "abiertos",
             # Acciones por fila: cada ícono aparece en TODAS las filas (deshabilitado donde no aplica) si aplica al menos a una; si no aplica a ninguna, no se dibuja. En una fila INCORPORADA
             # las acciones de bandeja que no le corresponden (revisar, descartar…) dejan su lugar vacío: nunca un lápiz o una papelera que parezcan editar o borrar el candidato del Banco.
             actions = {"candidate": any(r.get("candidate") for r in rows), "original": any(r.get("web_url") for r in rows), "review": any(r["can_accept"] for r in rows),
-                       "retry": any(r["can_retry"] or r["can_retire"] for r in rows), "reopen": any(r["can_reopen"] for r in rows), "discard": any(r["can_dismiss"] for r in rows)}
+                       "retry": any(r["can_retry"] or r["can_retire"] for r in rows), "reopen": any(r["can_reopen"] for r in rows), "discard": any(r["can_dismiss"] for r in rows),
+                       "purge": any(r.get("can_purge") for r in rows)}
             actions["count"] = sum(1 for v in actions.values() if v is True)
             context["panel_state"].update({"page": pager["page"], "page_size": pager["page_size"]})
             context.update({"overview": overview, "rows": rows, "row_actions": actions, "pager": pager, "total_rows": total_rows})
@@ -1189,6 +1190,8 @@ def human_capital_cv_inbox_row_action(
             res = cv_inbox.dismiss(key, graph_token, actor=actor, reason=reason, delete_original=delete_original == "true", confirm_delete=confirm_delete)
         elif accion == "reabrir":
             res = cv_inbox.reopen(key, actor=actor, token=graph_token)
+        elif accion == "eliminar-original":
+            res = cv_inbox.purge_original(key, graph_token, actor=actor, confirm=confirm_delete)
         else:
             res = cv_inbox.retire(key, graph_token)
     except cv_history_manifest.ManifestBusyError:
@@ -1204,7 +1207,8 @@ def human_capital_cv_inbox_row_action(
     discarded = ("CV descartado. Se eliminó el archivo original de SharePoint." if res.get("mode") == cv_inbox.MODE_DELETE else
                  f"CV descartado. El archivo se movió a «{cv_inbox.FOLDER_NAME}/{cv_inbox.DISCARDED_FOLDER}», desde donde se puede recuperar.")
     message = res.get("error") or {"guardar": "Revisión guardada.", "resolver": "Revisión guardada: el CV quedó listo para incorporarse.", "descartar": discarded,
-                                   "reabrir": "El CV volvió a quedar por resolver.", "retirar": "Listo: el archivo se retiró de la carpeta de carga masiva."}.get(accion, "CV incorporado al Banco.")
+                                   "reabrir": "El CV volvió a quedar por resolver.", "retirar": "Listo: el archivo se retiró de la carpeta de carga masiva.",
+                                   "eliminar-original": "Se eliminó el CV original de la carpeta de carga masiva. El candidato y su CV en «CVs» no cambian."}.get(accion, "CV incorporado al Banco.")
     kind = "ok" if res.get("ok") else "error"
     if res.get("ok") and accion == "descartar" and res.get("warning"):
         message, kind = "CV descartado. " + res["warning"], "partial"

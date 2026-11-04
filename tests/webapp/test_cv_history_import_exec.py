@@ -66,6 +66,8 @@ class CVStore:
         fid = rest.split("?", 1)[0]
         if fid in self.folders:
             return {"id": fid, "name": self.folders[fid], "folder": {}, "parentReference": {"id": "root-1"}}
+        if fid in self.files:                                      # archivo por id (como Graph real): lo usa la verificación del CV definitivo antes de eliminar un original
+            return {**self._item(fid), "parentReference": {"id": self.files[fid]["folder"]}}
         raise http_error(404)
 
     def _item(self, fid):
