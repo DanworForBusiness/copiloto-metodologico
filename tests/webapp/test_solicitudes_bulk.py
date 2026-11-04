@@ -288,7 +288,10 @@ def test_shared_display_has_no_write_controls_and_preserves_edit_mode(lab):
     assert response.status_code == 200
     soup = BeautifulSoup(response.text, 'html.parser')
     assert soup.select_one('[data-solicitudes-display]')
-    assert not soup.select('form, [data-solicitudes-write-token], button[type=submit], [hx-post]')
+    assert not soup.select('form, [data-solicitudes-write-token], button[type=submit]')
+    # The only POST is an authenticated read of the history, never a write.
+    assert [elt['hx-post'] for elt in soup.select('[hx-post]')] == ['/operaciones/solicitudes/1/historial']
+    assert all(elt.has_attr('data-dw-graph-token') for elt in soup.select('[hx-post]'))
     assert 'Solo lectura' in response.text
     editable = lab['client'].post('/operaciones/solicitudes/1/detalle', data={'graph_token': 'fake'})
     assert BeautifulSoup(editable.text, 'html.parser').select_one('form[data-solicitudes-write-token]')

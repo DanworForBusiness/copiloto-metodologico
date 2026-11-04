@@ -1,14 +1,19 @@
+{% from "partials/solicitudes_badge.html" import request_badge %}
 <details class="dashboard-section" id="solicitudes-history" data-section-id="historial" data-persist-collapse open{% if refresh_history %} hx-swap-oob="outerHTML"{% endif %}>
   <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Historial</span>
     <span class="dashboard-section__count">{{ history_rows | length }} movimiento{{ '' if history_rows | length == 1 else 's' }}</span>
   </summary>
   <div class="dashboard-section__body">
-    <p class="field-hint">Observaciones de Arquitectura · Horario de Buenos Aires. Los cambios operativos no están incluidos en este historial.</p>
+    <p class="field-hint">Observaciones y movimientos verificables de SharePoint · Horario de Buenos Aires. La cobertura depende de las versiones conservadas.</p>
+    {% if not history_loaded %}<div class="field-hint" data-history-loading hx-post="/operaciones/solicitudes/{{ item_id }}/historial" hx-trigger="load" hx-target="#solicitudes-history" hx-swap="outerHTML" data-dw-graph-token>Consultando movimientos de SharePoint…</div>{% endif %}
+    {% if history_notice or history_partial %}
+    <div class="callout callout--punch"><div class="callout__body field-hint"><p>{{ history_notice or 'Cobertura parcial: faltan versiones o metadatos verificables. No se infieren movimientos a través de huecos del historial.' }} <button type="button" class="whatsnew-filter__clear" hx-post="/operaciones/solicitudes/{{ item_id }}/historial" hx-target="#solicitudes-history" hx-swap="outerHTML" data-dw-graph-token>Reintentar consulta</button></p></div></div>
+    {% endif %}
     {% if history_rows %}
     <div class="matrix-scroll"><table class="dashboard-table solicitudes-history-table">
       <colgroup><col style="width:23%"><col style="width:17%"><col style="width:20%"><col style="width:40%"></colgroup>
       <thead><tr><th class="left">Movimiento</th><th class="left">Fecha</th><th class="left">Realizado por</th><th class="left">Detalle</th></tr></thead>
-      <tbody>{% for entry in history_rows %}<tr>
+      <tbody>{% for entry in history_rows %}<tr{% if entry.version %} data-history-version="{{ entry.version }}" title="Fuente: versión {{ entry.version }} de SharePoint"{% endif %}>
         <td class="left">{{ entry.movement }}</td><td class="left">{{ entry.date }}</td><td class="left">{{ entry.actor }}</td>
         <td class="left">
           <div class="solicitudes-history-detail"
@@ -16,7 +21,7 @@
                         measure(){if(!this.expanded)this.overflowing=this.$refs.text.textContent.includes('\n') || this.$refs.text.scrollWidth>this.$refs.text.clientWidth},
                         init(){this.$nextTick(()=>{this.measure();this.observer=new ResizeObserver(()=>this.measure());this.observer.observe(this.$el)})},
                         destroy(){this.observer?.disconnect()}}">
-            <span id="sol-history-detail-{{ loop.index }}" class="solicitudes-history-preview" x-ref="text" :class="{'is-expanded':expanded}">{{ entry.text }}</span>
+            <span id="sol-history-detail-{{ loop.index }}" class="solicitudes-history-preview" x-ref="text" :class="{'is-expanded':expanded}">{% if entry.before is defined %}{% if entry.badge_kind %}{{ request_badge(entry.badge_kind, entry.before) }} → {{ request_badge(entry.badge_kind, entry.after) }}{% else %}{{ entry.before or '—' }} → {{ entry.after or '—' }}{% endif %}{% if entry.text %} · {% endif %}{% endif %}{{ entry.text }}</span>
             <button type="button" class="whatsnew-filter__clear solicitudes-history-toggle" x-cloak
                     x-show="overflowing || expanded" :aria-expanded="expanded" aria-controls="sol-history-detail-{{ loop.index }}"
                     @click="expanded=!expanded;$nextTick(()=>measure())" x-text="expanded ? '+ver menos' : '+ver más'">+ver más</button>
@@ -24,6 +29,6 @@
         </td>
       </tr>{% endfor %}</tbody>
     </table></div>
-    {% else %}<div class="dashboard-empty"><span class="dashboard-empty__label">Sin observaciones</span><p>Todavía no hay observaciones registradas.</p></div>{% endif %}
+    {% elif history_loaded and not history_notice %}<div class="dashboard-empty"><span class="dashboard-empty__label">Sin movimientos verificables</span><p>No hay observaciones ni transiciones verificables en las versiones disponibles.</p></div>{% endif %}
   </div>
 </details>

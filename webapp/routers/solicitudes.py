@@ -261,6 +261,31 @@ def solicitudes_detail(request: Request, item_id: str, graph_token: str = Form("
     return _edit_panel(request, item_id, item=item, options=options)
 
 
+@router.post(PATH + "/{item_id}/historial", response_class=HTMLResponse, include_in_schema=False)
+def solicitudes_history(request: Request, item_id: str, graph_token: str = Form("")):
+    if not _user(request):
+        raise HTTPException(401)
+    if not item_id.isascii() or not item_id.isdecimal():
+        raise HTTPException(404)
+    rows, notice, partial = [], '', False
+    if not graph_token:
+        notice = "No se obtuvo la autorización de Microsoft para consultar las versiones. Reintentá sin volver a guardar."
+    else:
+        try:
+            item = repository.read_item(graph_token, item_id)
+            rows = journal.history(item['fields'].get(service.COMMENTS), item_id)
+            result = repository.read_item_versions(graph_token, item_id)
+            rows, partial = journal.version_history(item['fields'].get(service.COMMENTS), item_id,
+                                                   result['versions'], partial=result['partial'],
+                                                   current_modified=item.get('lastModifiedDateTime'))
+        except (HTTPError, URLError, TimeoutError, ValueError, KeyError):
+            notice = "No se pudieron verificar los movimientos operativos en SharePoint. Las observaciones disponibles se conservan. Reintentá la consulta; no vuelvas a guardar."
+    return templates.TemplateResponse(request=request, name="partials/solicitudes_history.html", context={
+        'item_id': item_id, 'history_rows': rows, 'history_loaded': True,
+        'history_notice': notice, 'history_partial': partial,
+    })
+
+
 @router.post(PATH + "/{item_id}/guardar", response_class=HTMLResponse, include_in_schema=False)
 async def solicitudes_save(request: Request, item_id: str, graph_token: str = Form("")):
     import logging
