@@ -389,7 +389,7 @@
     }
   }
 
-  window.dwHumanCapitalDocumentWriteToken = function (opts) {
+  window.dwHumanCapitalDocumentWriteToken = async function (opts) {
     return delegatedWriteToken(() => cachedConfig && cachedConfig.hc_document_write_scope, opts);
   };
 
