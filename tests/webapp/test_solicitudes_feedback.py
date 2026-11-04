@@ -16,6 +16,7 @@ def test_saved_feedback_is_one_paragraph_with_inline_reload():
     soup = BeautifulSoup(response.body, "html.parser")
     notice = soup.select_one('[data-solicitudes-saved]')
     assert notice['role'] == 'status'
+    assert 'field-hint' in notice.select_one('.callout__body')['class']
     assert len(notice.select('p')) == 1
     assert notice.select_one('p a')['href'] == '/operaciones/solicitudes/7/editar'
     assert '✓' in notice.get_text()
