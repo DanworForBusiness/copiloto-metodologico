@@ -12,7 +12,7 @@
   <div class="feedback-field"><label for="sol-share-message">Mensaje</label><textarea id="sol-share-message" rows="3">Te comparto estas solicitudes para su revisión:</textarea></div>
   <p class="field-hint" data-sol-copy-status role="status"></p>
 {% elif mode == 'edit' %}
-  <p class="field-hint">{{ plan.ids | length }} {{ 'solicitud' if plan.ids | length == 1 else 'solicitudes' }}. Marcá los campos que querés modificar. Los demás se conservan.{% if retry %} Solo se revisan los fallidos; los confirmados no se repetirán.{% endif %}</p>
+  <p class="field-hint busqueda-contact__context">{{ plan.ids | length }} {{ 'solicitud' if plan.ids | length == 1 else 'solicitudes' }}. Marcá los campos que querés modificar. Los demás se conservan.{% if retry %} Solo se revisan los fallidos; los confirmados no se repetirán.{% endif %}</p>
   {% set changes = plan.get('changes', {}) %}
   <form class="hc-profile-form hc-profile-form--plain" hx-post="/operaciones/solicitudes/bulk/revisar" hx-target="#solicitudes-bulk-content" hx-sync="#solicitudes-bulk-content:drop" hx-disabled-elt="find button[type=submit]" data-dw-graph-token>
     <input type="hidden" name="plan_id" value="{{ plan.id }}">
