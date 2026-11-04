@@ -36,6 +36,10 @@ table.solicitudes-table { min-width: 76rem; }
 /* Same internal horizontal scroll as the Hub tables: never crush history on mobile. */
 table.solicitudes-history-table { min-width: 48rem; }
 table.solicitudes-history-table td:last-child { white-space: normal; overflow-wrap: anywhere; }
+.solicitudes-history-detail { display: flex; align-items: baseline; gap: 6px; }
+.solicitudes-history-preview { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.solicitudes-history-preview.is-expanded { white-space: pre-wrap; overflow-wrap: anywhere; }
+.solicitudes-history-toggle { flex: none; align-self: baseline; padding: 0; white-space: nowrap; }
 .solicitudes-table .solicitudes-description {
   display: -webkit-box;
   -webkit-box-orient: vertical;
