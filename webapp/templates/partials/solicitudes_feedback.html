@@ -6,7 +6,8 @@
     <p>{% if state in ('saved', 'deleted') %}<span aria-hidden="true">✓</span> {% endif %}{{ message }}{% if state == 'saved' %} · <a href="/operaciones/solicitudes/{{ item_id }}/editar">Recargar solicitud</a>{% endif %}</p>
     {% if state in ('conflict', 'uncertain') %}
       <a href="/operaciones/solicitudes/{{ item_id }}/editar" target="_blank" rel="noopener">Consultar valores vigentes en otra pestaña</a>
-      <p>Tu borrador sigue en este formulario. Si necesitás volver a guardar, trasladá tus cambios a la versión vigente.</p>
+      {% if is_list %}<p>El listado conserva sus datos. Consultá la versión vigente antes de reintentar.</p>
+      {% else %}<p>Tu borrador sigue en este formulario. Si necesitás volver a guardar, trasladá tus cambios a la versión vigente.</p>{% endif %}
     {% elif state == 'auth' %}
       {% include "partials/solicitudes_write_authorize.html" %}
     {% endif %}

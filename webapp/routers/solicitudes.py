@@ -213,7 +213,8 @@ def _feedback(request, item_id, state, message, **context):
     # HTMX swaps only the status region. Validation and remote failures must
     # leave the form controls, dirty state and original ETag intact.
     return templates.TemplateResponse(request=request, name="partials/solicitudes_feedback.html", context={
-        "item_id": item_id, "state": state, "message": message, **context,
+        "item_id": item_id, "state": state, "message": message,
+        "is_list": request.headers.get("HX-Target") == "solicitudes-list-result", **context,
     })
 
 

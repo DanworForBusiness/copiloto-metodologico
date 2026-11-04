@@ -45,8 +45,9 @@
         {% if item_id or is_new %}<p class="section-analysis-loading"><span class="section-analysis-spinner"></span>Cargando solicitudes…</p>{% endif %}
       </div>
     </div>
+    {% if not item_id and not is_new %}<div id="solicitudes-list-result" role="status"></div>{% endif %}
   </main>
 </div>
 {% if not item_id %}<script src="{{ url_for('static', path='operations_solicitudes.js') }}?v={{ static_version }}" defer></script>{% endif %}
-{% if item_id or is_new %}<script src="{{ url_for('static', path='solicitudes_write.js') }}?v={{ static_version }}" defer></script>{% endif %}
+<script src="{{ url_for('static', path='solicitudes_write.js') }}?v={{ static_version }}" defer></script>
 {% endblock %}

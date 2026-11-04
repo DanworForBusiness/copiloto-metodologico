@@ -458,6 +458,11 @@ def test_snapshot_reuses_filters_sort_and_pages_and_refreshes(monkeypatch):
     assert client.get("/operaciones/solicitudes/1/editar").status_code == 200
     listing = client.get("/operaciones/solicitudes").text
     assert listing.count("Cargando solicitudes…") == 1
+    from bs4 import BeautifulSoup
+    document = BeautifulSoup(listing, 'html.parser')
+    # Preserve the shared hero / loading-slot / panel spacing contract.
+    assert document.select_one('.solicitudes-loading-slot').find_next_sibling()['id'] == 'solicitudes-panel'
+    assert document.select_one('#solicitudes-panel').find_next_sibling()['id'] == 'solicitudes-list-result'
     assert 'hx-trigger="load" hx-target="#solicitudes-panel" hx-indicator="#solicitudes-loading"' in listing
     post()
     assert calls == [token]

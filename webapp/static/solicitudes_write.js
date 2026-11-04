@@ -1,5 +1,10 @@
 /* Tokens stay in the request context; MSAL interaction belongs to hub_auth.js. */
 (function () {
+  document.addEventListener('solicitudes-deleted', event => {
+    if (document.getElementById('solicitudes-list-result') && event.detail?.url === '/operaciones/solicitudes') {
+      window.location.assign('/operaciones/solicitudes');
+    }
+  });
   // Keep the submitted observation stable while Graph is in flight; errors
   // unlock the same controls without replacing their draft.
   const lockedDrafts = new WeakMap();
@@ -29,8 +34,8 @@
   });
   document.addEventListener('htmx:afterSettle', event => {
     const target = event.detail?.target;
-    if (!target || target.id !== 'solicitudes-save-result') return;
-    const feedback = target.querySelector('[data-solicitudes-saved]');
+    if (!target || !['solicitudes-save-result', 'solicitudes-list-result'].includes(target.id)) return;
+    const feedback = target.querySelector(target.id === 'solicitudes-list-result' ? '.callout' : '[data-solicitudes-saved]');
     if (!feedback) return;
     const rect = feedback.getBoundingClientRect();
     const topbar = document.querySelector('.topbar');
