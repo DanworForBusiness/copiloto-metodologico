@@ -42,6 +42,7 @@ from core import remote_store
 SCHEMA = "cv-history-manifest/v1"
 STAGING_RETENTION_DAYS = 14          # vigencia del área temporal con datos personales; NO hay borrado automático: la eliminación es una acción explícita del owner (`discard_staging`)
 _DIR_NAME, _SUB = "human-capital", "import-history"
+INBOX = "cv-inbox"                   # área de la BANDEJA OPERATIVA de Carga masiva (`cv_inbox`): hermana de `import-history`, mismas primitivas (registros, libro, borradores, auditoría, candados) y NUNCA un lote
 RUN_ID_RE = re.compile(r"^ch-\d{8}T\d{6}Z(?:-[a-z0-9]{4})?$")
 KEY_RE = re.compile(r"^[0-9a-f]{16}$")
 _lock = threading.Lock()
@@ -82,6 +83,8 @@ def _root() -> Path:
 
 
 def _run_dir(run_id: str) -> Path:
+    if run_id == INBOX:
+        return Path(config.BASE_DIR) / _DIR_NAME / INBOX                        # fuera de `_root()`: `list_runs` y el resto de Históricos no la ven
     if not RUN_ID_RE.match(str(run_id or "")):
         raise ManifestInvalidIdError("run_id inválido")
     return _root() / run_id

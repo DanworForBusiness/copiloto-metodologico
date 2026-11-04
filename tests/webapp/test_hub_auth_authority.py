@@ -279,6 +279,12 @@ def test_the_marker_is_declarative_and_carries_no_credential():
         human_capital/profiles.html; ahora un único partial incluido desde
         el slot `caller()` de CUALQUIER página CCHH, MISMO hook, sin poseer
         la credencial).
+      - Carga masiva · bandeja de SharePoint (token base de LECTURA `Sites.Read.All` que inyecta el MISMO hook en el cuerpo del POST; nunca en la URL ni en el markup, nada se guarda):
+        human_capital/profile_import.html -> carga inicial del panel (1);
+        partials/cv_inbox_panel.html -> analizar (1) y continuar el análisis tras autorizar (1), reintentar la lectura tras un error (1), filtro por tile (1) y su cierre (1),
+          cambio de vista (1), orden por encabezado (1), paginador compartido declarado en su contenedor (1) = 8;
+        partials/cv_inbox_row.html -> volver a revisar (1) y guardar revisión (1) = 2.
+        Las escrituras (incorporar, descartar, reintentar) usan el marcador de ESCRITURA de CCHH (`data-hc-write-token`), no este.
     """
     approved = {
         "human_capital/cv_history_pilot.html": 2,
@@ -293,6 +299,9 @@ def test_the_marker_is_declarative_and_carries_no_credential():
         "partials/admin_apis_sync.html": 2,
         "partials/admin_panel.html": 4,
         "partials/human_capital_catalog_refresh_topbar.html": 1,
+        "human_capital/profile_import.html": 1,
+        "partials/cv_inbox_panel.html": 8,
+        "partials/cv_inbox_row.html": 2,
     }
     found = {}
     for path in sorted(_TEMPLATES.glob("**/*.html")):
