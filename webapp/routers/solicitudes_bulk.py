@@ -69,7 +69,10 @@ async def solicitudes_bulk_action(request: Request, action: str):
             items, comparisons, candidates = await run_in_threadpool(bulk.consolidation, actor, token, bulk.parse_ids(form.get('selected_ids')))
             return render(request, 'consolidate', items=items, comparisons=comparisons, candidates=candidates)
         if action == 'preparar':
-            plan = await run_in_threadpool(bulk.prepare, actor, token, bulk.parse_ids(form.get('selected_ids')))
+            ids = bulk.parse_ids(form.get('selected_ids'))
+            if len(ids) < 2:
+                raise ValueError('Seleccioná al menos dos solicitudes para ajustar en lote.')
+            plan = await run_in_threadpool(bulk.prepare, actor, token, ids)
             return render(request, 'edit', plan=plan)
         plan_id = str(form.get('plan_id', ''))
         if action == 'revisar':

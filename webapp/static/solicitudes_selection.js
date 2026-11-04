@@ -26,7 +26,7 @@
     const outside = store.size() - visibleSelected;
     bar.querySelector('[data-sol-selection-hint]').textContent = !available ? 'Actualizá la consulta para validar la selección.' : outside > 0 ? outside + ' fuera de esta página o filtro' : '';
     bar.querySelectorAll('[data-sol-action]').forEach(button => {
-      button.disabled = !available || !store.size() || (button.dataset.solAction === 'consolidar' && store.size() < 2);
+      button.disabled = !available || !store.size() || (['consolidar', 'preparar'].includes(button.dataset.solAction) && store.size() < 2);
     });
   }
   document.addEventListener('change', event => {

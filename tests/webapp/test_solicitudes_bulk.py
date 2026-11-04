@@ -299,6 +299,15 @@ def project_catalog(lab):
     lab['options'][service.PROJECT] = {'4': 'Proyecto actual', '8': 'Otro proyecto'}
 
 
+def test_bulk_entry_requires_two_distinct_requests_but_sharing_accepts_one(lab):
+    for ids in ('["1"]', '["1","1"]'):
+        assert 'al menos dos solicitudes' in send(lab, 'preparar', selected_ids=ids).text
+    assert not bulk._plans
+    assert 'Revisar cambios' in send(lab, 'preparar', selected_ids='["1","2"]').text
+    assert 'data-sol-share-link' in send(lab, 'compartir', selected_ids='["1"]').text
+    assert not lab['writes']
+
+
 def test_multiple_fields_single_patch_and_reviewed_retry(lab):
     project_catalog(lab)
     p = bulk.prepare('actor', 'fake', ['1','2'])
