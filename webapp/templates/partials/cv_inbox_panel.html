@@ -1,5 +1,5 @@
 {% from "partials/pager.html" import render_pager %}
-{# Bandeja de Carga masiva (fragmento HTMX; datos personales: solo Capital Humano autorizado). Toda acción re-renderiza este panel (`#cvinbox-panel`). Token: `data-dw-graph-token` (lectura) o
+{# Bandeja de Carga masiva (fragmento HTMX; datos personales: solo Capital Humano autorizado). Toda acción re-renderiza este panel (`#cvinbox-panel`). Token: el marcador declarativo de lectura del Hub (hub_auth.js) o
    `data-hc-write-token` (escritura). SOLO primitivos del Hub: `.callout` (avisos), `.activity-kpi-grid`/`.activity-kpi` (conteos), `.filter-toolbar-card` + `.dashboard-view-switch` (vista y acción
    principal), `.asr-generate` (botón con carga integrada), `.dashboard-section` + `.dashboard-table` (tabla), `.hc-selection-bar` (selección, como Candidatos), `.dashboard-empty` (vacío). #}
 {% set _post = "/cchh/candidatos/importar/bandeja" %}
@@ -107,7 +107,7 @@
             </tr></thead>
             {% for r in rows %}{% include "partials/cv_inbox_row.html" %}{% endfor %}
           </table></div>
-          {# Paginador COMPARTIDO de CCHH (`partials/pager.html`, 50/100/200/300). Con POST: el token de Graph va en el cuerpo (`data-dw-graph-token`), nunca en la URL. #}
+          {# Paginador COMPARTIDO de CCHH (`partials/pager.html`, 50/100/200/300). Con POST: el token de Graph lo inyecta en el cuerpo el marcador declarativo de lectura (en el contenedor), nunca en la URL. #}
           <div data-dw-graph-token>{{ render_pager(pager, "#cvinbox-panel", "Paginación de CVs", "CVs por página", "post") }}</div>
           {% else %}
           <div class="dashboard-empty" data-cvinbox-empty>

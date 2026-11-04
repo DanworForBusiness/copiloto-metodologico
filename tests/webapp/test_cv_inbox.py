@@ -146,7 +146,10 @@ class Intake:
 
 @pytest.fixture()
 def world(home, monkeypatch):
-    for name, value in (("HC_SHAREPOINT_SITE_ID", "site-1"), ("HC_SHAREPOINT_DRIVE_ID", "drive-1"), ("HC_CV_ROOT_ITEM_ID", "root-1"), ("HC_CV_INBOX_FOLDER_URL", INBOX_URL)):
+    # Configuración COMPLETA y autocontenida (la misma que el fixture de Históricos): sin `HC_DOCUMENT_WRITE_SCOPE`, `profile_document_service.require_graph_config` corta con
+    # CONFIG_INCOMPLETE antes de llegar a Graph. Localmente lo completaba el `.env`; en CI no existe.
+    for name, value in (("HC_SHAREPOINT_SITE_ID", "site-1"), ("HC_SHAREPOINT_DRIVE_ID", "drive-1"), ("HC_CV_ROOT_ITEM_ID", "root-1"), ("HC_CV_INBOX_FOLDER_URL", INBOX_URL),
+                        ("HC_DOCUMENT_WRITE_SCOPE", "https://danwor.sharepoint.com/Sites.Selected")):
         monkeypatch.setattr(config, name, value)
     store, intake = CVStore(), Intake()
 
