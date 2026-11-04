@@ -213,15 +213,25 @@ def graph_put_bytes(
 
 def graph_patch_json(
     url: str, access_token: str, body: dict, *, timeout: int = DEFAULT_TIMEOUT, extra_headers: dict[str, str] | None = None,
+    etag: str | None = None,
 ) -> dict:
-    """PATCH JSON a Graph, devuelve el `driveItem` actualizado. MISMO idioma que `graph_post_json` (urllib crudo, sin retry/backoff, `HTTPError`/`URLError` se propagan tal cual). Agregado para la bandeja de Carga
-    masiva de Capital Humano: la ÚNICA operación que lo usa es MOVER un CV dentro de la MISMA biblioteca hacia la carpeta del candidato (`parentReference` + `name`, ver
-    `webapp/services/profile_document_service.py::move_document_into_profile_folder`). `extra_headers`: p. ej. `If-Match: <eTag>` (412 si el archivo cambió)."""
+    """Shared PATCH JSON for CCHH driveItems and Solicitudes listItem fields.
+
+    Supports existing extra_headers/timeout callers and explicit etag callers.
+    One request only; urllib errors propagate without blind retries. A supplied
+    etag must be specific and cannot conflict with the If-Match header.
+    """
+    if etag is not None and (not etag or etag == '*'):
+        raise ValueError("A specific ETag is required")
+    if etag is not None and any(k.lower() == 'if-match' and v != etag for k,v in (extra_headers or {}).items()):
+        raise ValueError("Conflicting ETag headers")
     payload = json.dumps(body).encode("utf-8")
     headers = graph_headers(access_token)
     headers["Content-Type"] = "application/json"
     if extra_headers:
         headers.update(extra_headers)
+    if etag is not None:
+        headers['If-Match'] = etag
     request = urllib.request.Request(url, data=payload, headers=headers, method="PATCH")
     with urllib.request.urlopen(request, timeout=timeout) as response:
         return json.loads(response.read().decode("utf-8"))
@@ -271,15 +281,3 @@ def graph_get_paged_values(
             on_page(len(page_items))
         next_url = payload.get("@odata.nextLink") or ""
     return items
-
-
-def graph_patch_json(url: str, access_token: str, body: dict, *, etag: str) -> dict:
-    """Patch JSON conditionally with the version read by the caller."""
-    if not etag or etag == "*":
-        raise ValueError("A specific ETag is required")
-    headers = graph_headers(access_token)
-    headers.update({"Content-Type": "application/json", "If-Match": etag})
-    payload = json.dumps(body).encode("utf-8")
-    request = urllib.request.Request(url, data=payload, headers=headers, method="PATCH")
-    with urllib.request.urlopen(request, timeout=DEFAULT_TIMEOUT) as response:
-        return json.loads(response.read().decode("utf-8"))

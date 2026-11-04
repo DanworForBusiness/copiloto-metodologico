@@ -122,6 +122,7 @@ REASON_TEXT = {
     "RETIRE_PENDING": "Falta retirar el archivo de la carpeta de carga masiva. La decisión ya quedó registrada: reintentá el retiro.",
     "RETIRE_TOKEN": "Falta retirar el archivo de la carpeta de carga masiva: la autorización de Microsoft 365 venció antes de terminar. La decisión ya quedó registrada: reintentá el retiro.",
     "RETIRE_GRAPH": "Falta retirar el archivo de la carpeta de carga masiva: SharePoint no confirmó la operación a tiempo. La decisión ya quedó registrada: reintentá el retiro.",
+    "RETIRE_LOCAL": "El Hub no pudo preparar el retiro del archivo. La incorporación ya quedó registrada. Si persiste al reintentar, contactá a soporte; no vuelvas a incorporar el CV.",
     "RETIRE_INTERRUPTED": "Falta retirar el archivo de la carpeta de carga masiva: el retiro quedó interrumpido. La decisión ya quedó registrada: reintentá el retiro o eliminá el original.",
     "DEFINITIVE_MISSING": "No se eliminó el original: no se encontró el CV definitivo en el repositorio «CVs» o su asociación con el candidato.",
     "DEFINITIVE_MISMATCH": "No se eliminó el original: el CV definitivo en «CVs» no coincide con el original (tamaño o contenido). Revisalo antes de eliminar.",
@@ -1035,7 +1036,7 @@ def _retire(key: str, entry: dict, source: dict, token: str) -> str:
         _log.warning("cchh.cv_inbox.retire_failed mode=%s error=%s cause=%s", "delete" if mode == MODE_DELETE else "move", type(exc).__name__,
                      (diag.graph_error_detail(cause).get("status") if isinstance(cause, urllib.error.HTTPError) else type(cause).__name__ if cause else None))
     except Exception as exc:                                                        # noqa: BLE001 — la decisión ya es durable: un fallo inesperado del retiro NUNCA corta la respuesta
-        state, code = RETIRE_PENDING, "GRAPH"
+        state, code = RETIRE_PENDING, "LOCAL" if isinstance(exc, TypeError) else "GRAPH"
         _log.exception("cchh.cv_inbox.retire_unexpected error=%s", type(exc).__name__)
     entry["retire"] = {**info, "mode": mode, "state": state, "code": code, "at": manifest.now_iso(), "attempts": int(info.get("attempts") or 0) + 1}
     try:
@@ -1055,7 +1056,7 @@ def retire_reason(entry: dict) -> str | None:
         if info.get("code") in ("GONE", "ELSEWHERE"):
             return "SOURCE_GONE"
         return {MODE_DELETE: "DELETED_ORIGINAL", MODE_DISCARDED: "MOVED_TO_DISCARDED"}.get(info.get("mode"))
-    return {"PERMISSION": "RETIRE_PERMISSION", "CHANGED": "RETIRE_CHANGED", "TOKEN": "RETIRE_TOKEN", "GRAPH": "RETIRE_GRAPH", None: "RETIRE_INTERRUPTED"}.get(info.get("code"), "RETIRE_PENDING")
+    return {"PERMISSION": "RETIRE_PERMISSION", "CHANGED": "RETIRE_CHANGED", "TOKEN": "RETIRE_TOKEN", "GRAPH": "RETIRE_GRAPH", "LOCAL": "RETIRE_LOCAL", None: "RETIRE_INTERRUPTED"}.get(info.get("code"), "RETIRE_PENDING")
 
 
 def _source_of(key: str, entry: dict) -> dict:

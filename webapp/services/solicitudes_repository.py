@@ -120,6 +120,8 @@ def read_item_versions(token: str, item_id: str) -> dict:
 def update_item(token: str, item_id: str, payload: dict, etag: str) -> dict:
     from core.microsoft365 import graph_patch_json
 
+    if not etag or etag == "*":
+        raise ValueError("A current item ETag is required")
     return graph_patch_json(f"{item_url(token, item_id)}/fields", token, payload, etag=etag)
 
 

@@ -726,6 +726,18 @@ def test_an_unexpected_retire_failure_never_breaks_the_incorporation_response(wo
     assert inbox.REASON_TEXT["RETIRE_GRAPH"].startswith("Falta retirar") and inbox.retire(row["key"], TOKEN)["ok"]
 
 
+def test_a_local_transport_contract_error_is_not_reported_as_sharepoint_timeout(world):
+    _,intake=world
+    intake.add('local-error','cv1.pdf',ANA)
+    analyze_all()
+    intake.fail_patch=[TypeError('synthetic signature mismatch')]
+    out=batch('cv1.pdf')
+    assert out['counts']['done']==1
+    row=rows()['cv1.pdf']
+    assert 'RETIRE_LOCAL' in row['reasons'] and 'RETIRE_GRAPH' not in row['reasons']
+    assert 'SharePoint' not in inbox.REASON_TEXT['RETIRE_LOCAL']
+
+
 def test_an_incorporated_cv_whose_candidate_and_original_are_gone_leaves_the_view_but_keeps_its_record(world):
     """Residuo: el candidato se dio de baja en el Banco y el original ya no está en la carpeta → la fila sale de «Incorporados» (nada que mostrar ni hacer); el libro queda como auditoría.
     Con el original todavía en la carpeta, la fila se mantiene aunque el candidato no exista: hay un archivo que decidir."""

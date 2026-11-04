@@ -1049,12 +1049,12 @@ def _inbox_panel(request: Request, graph_token: str, *, vista: str = "abiertos",
             total_rows, rows = pager["total"], pager["items"]
             # Fila incorporada (o en curso): muestra el candidato YA PERSISTIDO en el Banco (lectura local del repositorio, sin Graph) en lugar de datos propuestos vacíos.
             rows = [{**r, "candidate": _inbox_candidate(r)} if r.get("profile_id") and r["status"] in (cv_inbox.INCORPORATED, cv_inbox.ACCEPTING) else r for r in rows]
-            # Acciones por fila: cada ícono aparece en TODAS las filas (deshabilitado donde no aplica) si aplica al menos a una; si no aplica a ninguna, no se dibuja. En una fila INCORPORADA
-            # las acciones de bandeja que no le corresponden (revisar, descartar…) dejan su lugar vacío: nunca un lápiz o una papelera que parezcan editar o borrar el candidato del Banco.
-            actions = {"candidate": any(r.get("candidate") for r in rows), "original": any(r.get("web_url") for r in rows), "review": any(r["can_accept"] for r in rows),
+            # The visible page defines one shared set of action slots. Inapplicable
+            # actions are disabled; discard/delete share the same trash position.
+            actions = {"candidate": any((r.get("candidate") or {}).get("available") for r in rows), "original": any(r.get("web_url") for r in rows), "review": any(r["can_accept"] for r in rows),
                        "retry": any(r["can_retry"] or r["can_retire"] for r in rows), "reopen": any(r["can_reopen"] for r in rows), "discard": any(r["can_dismiss"] for r in rows),
                        "purge": any(r.get("can_purge") for r in rows)}
-            actions["count"] = sum(1 for v in actions.values() if v is True)
+            actions["count"] = sum(1 for v in actions.values() if v is True) - int(actions["discard"] and actions["purge"])
             context["panel_state"].update({"page": pager["page"], "page_size": pager["page_size"]})
             context.update({"overview": overview, "rows": rows, "row_actions": actions, "pager": pager, "total_rows": total_rows})
     return templates.TemplateResponse(request=request, name="partials/cv_inbox_panel.html", context=context, headers=_NO_STORE)
