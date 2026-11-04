@@ -1,5 +1,19 @@
 /* Tokens stay in the request context; MSAL interaction belongs to hub_auth.js. */
 (function () {
+  document.addEventListener('htmx:afterSettle', event => {
+    const target = event.detail?.target;
+    if (!target || target.id !== 'solicitudes-save-result') return;
+    const feedback = target.querySelector('[data-solicitudes-saved]');
+    if (!feedback) return;
+    const rect = feedback.getBoundingClientRect();
+    const topbar = document.querySelector('.topbar');
+    const top = Math.max(0, topbar?.getBoundingClientRect().bottom || 0);
+    if (rect.top >= top && rect.bottom <= window.innerHeight) return;
+    feedback.scrollIntoView({
+      block: 'center',
+      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth',
+    });
+  });
   const resolved = new WeakMap();
   const needsWrite = elt => !!elt?.closest('[data-solicitudes-write-token]');
   document.addEventListener('htmx:confirm', event => {
