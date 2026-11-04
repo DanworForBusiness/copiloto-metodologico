@@ -10,23 +10,29 @@
   {% include "partials/operations_nav.html" %}
   {{ sidebar_resize_handle() }}
   <main id="content" class="module-content">
-    {% if item_id %}
+    {% if is_new %}
+    <a class="catalog-back" href="/operaciones/solicitudes">← Volver a Solicitudes</a>
+    <section class="module-hero hc-profiles-hero">
+      <div class="hc-profiles-hero-text"><p class="eyebrow">OPERACIONES</p><h1>Nueva Solicitud</h1></div>
+    </section>
+    {% elif item_id %}
     <a class="catalog-back" href="/operaciones/solicitudes">← Volver a Solicitudes</a>
     {% include "partials/solicitudes_detail_hero.html" %}
     {% else %}
-    <section class="module-hero opsb-hero">
-      <div class="catalog-actionbar">
+    <section class="module-hero hc-profiles-hero">
+      <div class="hc-profiles-hero-text">
         <p class="eyebrow">ARQUITECTURA E INNOVACION</p>
-        <div class="support-links catalog-actionbar__actions">
-          <button id="solicitudes-refresh" type="button" class="btn-primary" data-dw-graph-token
+        <h1>Solicitudes</h1>
+        <p class="hero-lead full-page-subtitle">Solicitudes, requerimientos y demandas Danwor Transversal</p>
+      </div>
+      <div class="hc-profiles-hero-actions">
+          <button id="solicitudes-refresh" type="button" class="btn-secondary" data-dw-graph-token
                   hx-post="/operaciones/solicitudes/data" hx-target="#solicitudes-panel"
                   hx-include="#solicitudes-filters" hx-sync="#solicitudes-filters:replace"
                   hx-indicator="#solicitudes-loading, #solicitudes-refresh" hx-disabled-elt="this"
                   hx-vals='{"refresh":"1"}'>Actualizar</button>
-        </div>
+          <a href="/operaciones/solicitudes/nueva" class="btn-primary">+ Nueva Solicitud</a>
       </div>
-      <h1>Solicitudes</h1>
-      <p class="hero-lead full-page-subtitle">Solicitudes, requerimientos y demandas Danwor Transversal</p>
     </section>
     <div class="solicitudes-loading-slot">
       <p id="solicitudes-loading" class="section-analysis-loading solicitudes-loading" role="status">
@@ -35,11 +41,12 @@
     </div>
     {% endif %}
     <div id="solicitudes-panel" class="dashboard-sections">
-      <div hx-post="/operaciones/solicitudes/{{ item_id ~ '/detalle' if item_id else 'data' }}" hx-trigger="load" hx-target="#solicitudes-panel"{% if not item_id %} hx-indicator="#solicitudes-loading"{% endif %} data-dw-graph-token>
-        {% if item_id %}<p class="section-analysis-loading"><span class="section-analysis-spinner"></span>Cargando solicitudes…</p>{% endif %}
+      <div hx-post="/operaciones/solicitudes/{{ 'nueva/datos' if is_new else item_id ~ '/detalle' if item_id else 'data' }}" hx-trigger="load" hx-target="#solicitudes-panel"{% if not item_id and not is_new %} hx-indicator="#solicitudes-loading"{% endif %} data-dw-graph-token>
+        {% if item_id or is_new %}<p class="section-analysis-loading"><span class="section-analysis-spinner"></span>Cargando solicitudes…</p>{% endif %}
       </div>
     </div>
   </main>
 </div>
 {% if not item_id %}<script src="{{ url_for('static', path='operations_solicitudes.js') }}?v={{ static_version }}" defer></script>{% endif %}
+{% if item_id or is_new %}<script src="{{ url_for('static', path='solicitudes_write.js') }}?v={{ static_version }}" defer></script>{% endif %}
 {% endblock %}

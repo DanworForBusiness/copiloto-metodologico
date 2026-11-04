@@ -42,6 +42,28 @@ def read_columns(token: str) -> dict:
     return graph_get_json(f"{list_url(token)}/columns", token)
 
 
+def read_creation_columns(token: str) -> list[dict]:
+    base = list_url(token)
+    prefix = f"{base}/columns"
+    url = prefix + "?$select=name,displayName,required,readOnly,hidden,defaultValue,text,choice,dateTime,lookup,calculated,validation"
+    columns = []
+    for _ in range(40):
+        if not url.startswith(prefix + "?"):
+            raise ValueError("Invalid columns continuation URL")
+        page = graph_get_json(url, token)
+        columns.extend(page["value"])
+        url = page.get("@odata.nextLink")
+        if not url:
+            return columns
+    raise ValueError("Columns page limit exceeded")
+
+
+def create_item(token: str, payload: dict) -> dict:
+    from core.microsoft365 import graph_post_json
+
+    return graph_post_json(f"{list_url(token)}/items", token, payload)
+
+
 def item_url(token: str, item_id: str) -> str:
     return f"{list_url(token)}/items/{quote(item_id, safe='')}"
 

@@ -7,9 +7,7 @@
       <a class="btn-secondary" href="/operaciones/solicitudes/{{ item_id }}/editar" target="_blank" rel="noopener">Consultar valores vigentes en otra pestaña</a>
       <p>Tu borrador sigue en este formulario. Si necesitás volver a guardar, trasladá tus cambios a la versión vigente.</p>
     {% elif state == 'auth' %}
-      <button type="button" class="btn-secondary" x-data="{busy:false, message:''}" :disabled="busy"
-              @click="busy=true; try { message=await window.dwGraphReauthenticate() ? 'Autorización recuperada. Podés volver a guardar.' : 'No se pudo recuperar la autorización. Conservá tu borrador.' } finally { busy=false }"
-              x-text="message || 'Reautenticar Microsoft'">Reautenticar Microsoft</button>
+      {% include "partials/solicitudes_write_authorize.html" %}
     {% elif state == 'saved' %}
       <a href="/operaciones/solicitudes/{{ item_id }}/editar">Volver a cargar la solicitud</a>
     {% endif %}
