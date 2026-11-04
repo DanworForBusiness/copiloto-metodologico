@@ -33,7 +33,7 @@ def schema():
 
 @pytest.fixture
 def catalogs():
-    return {service.PROJECT: {"4": "Proyecto simulado"}, service.ASSIGNEES: {"9": "Colaborador simulado"}}
+    return {service.PROJECT: {"4": "Proyecto simulado"}, service.ASSIGNEES: {"9": "Colaborador simulado"}, service.STATUS: ["Pendiente", "Planificado"]}
 
 
 @pytest.fixture
@@ -45,7 +45,7 @@ def submitted():
 def client(monkeypatch, schema, catalogs):
     monkeypatch.setattr(route, "_user", lambda request: {"sub": "create-test"})
     monkeypatch.setattr(repository, "read_creation_columns", lambda token: schema)
-    monkeypatch.setattr(repository, "lookup_options", lambda token: catalogs)
+    monkeypatch.setattr(repository, "lookup_options", lambda token, **kwargs: catalogs)
     return TestClient(app)
 
 
@@ -54,7 +54,7 @@ def test_initial_form_reuses_edit_controls(client):
     assert 'id="sol-title" type="text" name="Title" value="" required maxlength="255"' in html
     assert '>Crear solicitud</button>' in html
     assert 'value="Pendiente" selected' in html
-    assert '<option>Planificado</option>' not in html
+    assert '<option value="Planificado">Planificado</option>' in html
     assert 'name="submission_id"' in html and 'name="etag"' not in html
     assert html.count('role="combobox"') == 2
     assert 'data-solicitudes-write-token' in html
@@ -78,7 +78,7 @@ def test_payload_uses_lookup_ids_dates_safe_text_and_omits_managed_defaults(sche
 
 
 @pytest.mark.parametrize("changes", [
-    {"Title": " "}, {"Title": "x" * 256}, {service.STATUS: "Planificado"},
+    {"Title": " "}, {"Title": "x" * 256}, {service.STATUS: "Inexistente"},
     {service.STATUS: ""}, {"Prioridad": "Urgente"}, {service.PROJECT: "Proyecto simulado"},
     {service.ASSIGNEES: ["9", "10"]}, {service.PLANNED: "2026-02-30"},
     {"id": "1"}, {"Created": "2026-01-01"}, {service.FUNNEL: "Solicitado"},

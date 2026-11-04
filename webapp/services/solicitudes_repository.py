@@ -16,7 +16,8 @@ def list_url(token: str) -> str:
 def read_requests(token: str) -> list[dict]:
     """Read every authorized page before applying global search and filters."""
     fields = ",".join(("Title", service.PROJECT, service.PROJECT + "LookupId", service.DESCRIPTION, "Prioridad", service.FUNNEL,
-                       service.STATUS, service.ASSIGNEES, service.CREATION_DATE, service.PLANNED))
+                       service.STATUS, service.ASSIGNEES, service.CREATION_DATE, service.PLANNED,
+                       service.ASSIGNEES + "LookupId", service.ACTUAL))
     base = list_url(token)
     url = f"{base}/items?$expand=fields($select={fields})"
     rows = []
@@ -86,13 +87,28 @@ def delete_item(token: str, item_id: str, etag: str) -> None:
     graph_delete(item_url(token, item_id), token, extra_headers={"If-Match": etag})
 
 
-def lookup_options(token: str, fields=(service.PROJECT, service.ASSIGNEES), *, base=None) -> dict:
+def lookup_options(token: str, fields=(service.PROJECT, service.ASSIGNEES, service.STATUS), *, base=None, columns=None) -> dict:
     base = base or list_url(token)
-    columns = graph_get_json(f"{base}/columns", token)["value"]
+    if columns is None:
+        columns = []
+        prefix = f"{base}/columns"
+        url = prefix
+        for _ in range(40):
+            if url != prefix and not url.startswith(prefix + "?"):
+                raise ValueError("Invalid columns continuation URL")
+            page = graph_get_json(url, token)
+            columns.extend(page["value"])
+            url = page.get("@odata.nextLink")
+            if not url:
+                break
+        else:
+            raise ValueError("Columns page limit exceeded")
     definitions = {column["name"]: column for column in columns}
     site = base.rsplit("/lists/", 1)[0]
-    result = {}
+    result = {service.STATUS: service.status_choices(columns)} if service.STATUS in fields else {}
     for field in fields:
+        if field == service.STATUS:
+            continue
         lookup = definitions[field]["lookup"]
         label = quote(lookup["columnName"], safe="")
         target = quote(lookup["listId"].strip("{}"), safe="")

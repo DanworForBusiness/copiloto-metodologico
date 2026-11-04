@@ -110,3 +110,32 @@ def test_transport_deletes_item_with_exact_if_match(monkeypatch):
     with pytest.raises(ValueError):
         repository.delete_item("fake", "1", "*")
     assert len(calls) == 1
+
+
+def test_list_delete_uses_existing_endpoint_and_exact_snapshot_etag(client, monkeypatch):
+    from bs4 import BeautifulSoup
+    from webapp.services import solicitudes_snapshot
+    monkeypatch.setattr(solicitudes_snapshot, 'read', lambda *args, **kwargs: [
+        {'id': '1', 'eTag': '"7"', 'fields': {'Title': 'Ejemplo'}},
+        {'id': '2', 'fields': {'Title': 'Sin versión'}},
+    ])
+    response = client.post('/operaciones/solicitudes/data', data={'graph_token': 'fixture'})
+    soup = BeautifulSoup(response.text, 'html.parser')
+    button = soup.select_one('button[aria-label="Eliminar solicitud 1"]')
+    assert button['hx-post'] == '/operaciones/solicitudes/1/eliminar'
+    assert button['hx-trigger'] == 'confirmed'
+    assert button['hx-target'] == '#solicitudes-list-result'
+    assert json.loads(button['hx-vals']) == {'etag': '"7"', 'confirm_delete': 'yes'}
+    assert button.has_attr('data-solicitudes-write-token') and button.has_attr('data-dw-confirm')
+    assert not button.has_attr('disabled')
+    assert soup.select_one('button[aria-label="Eliminar solicitud 2"]').has_attr('disabled')
+
+
+def test_list_conflict_retains_rows_and_does_not_claim_a_draft(client, monkeypatch):
+    monkeypatch.setattr(repository, 'read_item', lambda *args: {'eTag': '"8"'})
+    response = client.post('/operaciones/solicitudes/1/eliminar',
+        headers={'Origin': 'http://testserver', 'HX-Target': 'solicitudes-list-result'},
+        data={'graph_token': 'fixture', 'etag': '"7"', 'confirm_delete': 'yes'})
+    assert 'El listado conserva sus datos' in response.text
+    assert 'Tu borrador' not in response.text
+    assert 'HX-Trigger-After-Swap' not in response.headers

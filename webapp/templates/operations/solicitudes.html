@@ -41,12 +41,18 @@
     </div>
     {% endif %}
     <div id="solicitudes-panel" class="dashboard-sections">
-      <div hx-post="/operaciones/solicitudes/{{ 'nueva/datos' if is_new else item_id ~ '/detalle' if item_id else 'data' }}" hx-trigger="load" hx-target="#solicitudes-panel"{% if not item_id and not is_new %} hx-indicator="#solicitudes-loading"{% endif %} data-dw-graph-token>
+      <div hx-post="/operaciones/solicitudes/{{ 'nueva/datos' if is_new else item_id ~ '/detalle' if item_id else 'data' }}{% if display_only %}?mode=display{% endif %}" hx-trigger="load" hx-target="#solicitudes-panel"{% if not item_id and not is_new %} hx-indicator="#solicitudes-loading"{% endif %} data-dw-graph-token>
         {% if item_id or is_new %}<p class="section-analysis-loading"><span class="section-analysis-spinner"></span>Cargando solicitudes…</p>{% endif %}
       </div>
     </div>
+    {% if not item_id and not is_new %}<div id="solicitudes-list-result" role="status"></div>{% endif %}
   </main>
 </div>
+{% if not item_id and not is_new %}
+<dialog class="dw-confirm busqueda-dialog busqueda-contact-dialog hc-share-dialog" id="solicitudes-bulk-dialog" aria-labelledby="solicitudes-bulk-title"><div id="solicitudes-bulk-content"></div></dialog>
+<script src="{{ url_for('static', path='table_selection.js') }}?v={{ static_version }}" defer></script>
+<script src="{{ url_for('static', path='solicitudes_selection.js') }}?v={{ static_version }}" defer></script>
+{% endif %}
 {% if not item_id %}<script src="{{ url_for('static', path='operations_solicitudes.js') }}?v={{ static_version }}" defer></script>{% endif %}
-{% if item_id or is_new %}<script src="{{ url_for('static', path='solicitudes_write.js') }}?v={{ static_version }}" defer></script>{% endif %}
+<script src="{{ url_for('static', path='solicitudes_write.js') }}?v={{ static_version }}" defer></script>
 {% endblock %}

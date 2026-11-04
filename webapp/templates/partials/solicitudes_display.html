@@ -1,0 +1,25 @@
+{% if refresh_hero %}{% include "partials/solicitudes_detail_hero.html" %}{% endif %}
+{% if error %}
+<div class="dashboard-empty" role="alert"><span class="dashboard-empty__label">No disponible</span><p>{{ error }}</p></div>
+{% else %}
+<div class="hc-profile-form" data-solicitudes-display>
+  <p class="field-hint">Visualización de la solicitud · Solo lectura</p>
+  <section class="hc-profile-section"><h2>Estado y asignación</h2>
+    <div class="hc-profile-section__grid hc-profile-section__grid--fluid">
+      {% for label, value in [('Status Arquitectura', values[fields.STATUS]), ('Prioridad', values.Prioridad), ('Proyecto', project_display)] %}
+      <div class="feedback-field feedback-field--medium"><label>{{ label }}</label><input type="text" value="{{ value or '—' }}" disabled></div>
+      {% endfor %}
+      <div class="feedback-field feedback-field--wide"><label>Colaborador asignado</label><input type="text" value="{% for id in values[fields.ASSIGNEES] %}{{ ', ' if not loop.first else '' }}{{ options[fields.ASSIGNEES].get(id, 'Referencia no disponible') }}{% else %}Sin asignación{% endfor %}" disabled></div>
+    </div>
+  </section>
+  <section class="hc-profile-section"><h2>Fechas</h2><div class="hc-profile-section__grid">
+    {% for label, key in [('Fecha de inicio planificada', fields.PLANNED), ('Fecha de inicio Real', fields.ACTUAL)] %}
+    <div class="feedback-field feedback-field--compact"><label>{{ label }}</label><input type="date" value="{{ values[key] }}" disabled></div>
+    {% endfor %}
+  </div></section>
+  <section class="hc-profile-section"><h2>Detalle</h2><div class="hc-profile-section__grid hc-profile-section__grid--fluid">
+    <div class="feedback-field feedback-field--wide"><label for="sol-description">Descripción de la demanda</label><textarea id="sol-description" rows="8" readonly>{{ values[fields.DESCRIPTION] }}</textarea></div>
+  </div></section>
+</div>
+{% include "partials/solicitudes_history.html" %}
+{% endif %}

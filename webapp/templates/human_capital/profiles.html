@@ -38,6 +38,7 @@
 <dialog class="dw-confirm busqueda-dialog busqueda-contact-dialog hc-share-dialog" id="hc-share-dialog" aria-labelledby="hc-share-title">
   <div id="hc-share-content"></div>
 </dialog>
+<script src="{{ url_for('static', path='table_selection.js') }}?v={{ static_version }}" defer></script>
 <script src="{{ url_for('static', path='human_capital_candidates_selection.js') }}?v={{ static_version }}" defer></script>
 {# Diálogo ÚNICO de «Descargar CVs» (resumen, confirmación, progreso y resultado; ver `human_capital_candidates_download.js`). Mismo contenedor `<dialog>` que «Compartir perfiles». #}
 <dialog class="dw-confirm busqueda-dialog busqueda-contact-dialog hc-share-dialog hc-download-dialog" id="hc-download-dialog" aria-labelledby="hc-download-title">

@@ -3,14 +3,6 @@ from html import escape
 from html.parser import HTMLParser
 from datetime import date
 
-TRANSITIONS = {
-    "": ("Pendiente",),
-    "Pendiente": ("Planificado", "Suspendido"),
-    "Planificado": ("Pendiente", "En curso", "Suspendido"),
-    "En curso": ("Planificado", "Suspendido", "Finalizado"),
-    "Suspendido": ("Pendiente", "Planificado", "En curso"),
-    "Finalizado": (),
-}
 CREATION_DATE = "Fecha_x0020_de_x0020_creaci_x00f"
 DESCRIPTION = "Descripci_x00f3_n_x0020_de_x0020"
 STATUS = "Status_x0020_Arquitectura"
@@ -18,8 +10,19 @@ FUNNEL = "Status_x0020_funnel"
 ASSIGNEES = "Colaborador_x0020_Asignado"
 
 
-def allowed_destinations(current: str | None) -> tuple[str, ...]:
-    return TRANSITIONS.get(current or "", ())
+class StatusCatalogError(ValueError):
+    pass
+
+
+def status_choices(columns):
+    column = next((column for column in columns if column.get("name") == STATUS), {})
+    choice = column.get("choice")
+    choices = choice.get("choices") if isinstance(choice, dict) else None
+    if (not isinstance(choices, list) or not choices
+            or any(not isinstance(value, str) or not value.strip() for value in choices)
+            or len(set(choices)) != len(choices) or column.get("readOnly")):
+        raise StatusCatalogError("No se pudo obtener el catálogo de Status Arquitectura desde SharePoint. Reintentá la consulta antes de guardar.")
+    return list(choices)
 
 
 class _PlainText(HTMLParser):
@@ -181,6 +184,13 @@ def changes(current, submitted, options):
     for key, value in submitted.items():
         if key in NARRATIVE_FIELDS:
             value = normalize_narrative(value)
+        # Preserve untouched nulls; every explicit state must be in SharePoint's catalog.
+        if key == STATUS and (value or value != current[key]):
+            catalog = options.get(STATUS)
+            if not isinstance(catalog, list) or not catalog:
+                raise StatusCatalogError("No se pudo validar el catálogo de Status Arquitectura desde SharePoint. Tu borrador se conserva.")
+            if value not in catalog:
+                raise ValueError("Seleccioná un Status Arquitectura válido del catálogo de SharePoint.")
         if key == ASSIGNEES:
             if value == current[key]:
                 continue
@@ -193,8 +203,6 @@ def changes(current, submitted, options):
             continue
         if value == current[key]:
             continue
-        if key == STATUS and value not in allowed_destinations(current[key]):
-            raise ValueError("La transición de estado no está permitida.")
         if key == "Prioridad" and value not in ("", "Baja", "Media", "Alta"):
             raise ValueError("Seleccioná una prioridad válida.")
         if key == PROJECT:
@@ -227,8 +235,8 @@ def display_date(value):
 
 
 SORT_COLUMNS = {
-    "title": ("Solicitud", 23),
-    "project": ("Proyecto", 17),
+    "title": ("Solicitud", 20),
+    "project": ("Proyecto", 15),
     "created": ("Creada", 10),
     "planned": ("Inicio", 10),
     "priority": ("Prioridad", 7),

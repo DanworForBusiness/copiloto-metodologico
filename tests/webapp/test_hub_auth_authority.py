@@ -294,7 +294,10 @@ def test_the_marker_is_declarative_and_carries_no_credential():
         "operations/staffing.html": 1,
         "operations/solicitudes.html": 2,
         "partials/pager.html": 1,
-        "partials/solicitudes_panel.html": 3,
+        # Three existing list consumers plus share, bulk preflight and consolidation preview.
+        "partials/solicitudes_panel.html": 6,
+        # Read-only review and retry preparation; execution uses the write authority.
+        "partials/solicitudes_bulk.html": 2,
         "partials/admin_apis_sync.html": 2,
         "partials/admin_panel.html": 4,
         "partials/human_capital_catalog_refresh_topbar.html": 1,

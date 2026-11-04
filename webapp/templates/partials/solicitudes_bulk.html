@@ -1,0 +1,78 @@
+{% from "partials/solicitudes_lookup_picker.html" import lookup_picker %}
+<div class="dw-confirm__body busqueda-contact">
+<h2 class="dw-confirm__title" id="solicitudes-bulk-title">{{ {'share':'Compartir solicitudes','edit':'Ajustar en lote','review':'Revisar ajuste en lote','results':'Resultados del ajuste','consolidate':'Consolidar solicitudes · Previsualización'}.get(mode, 'Solicitudes') }}</h2>
+{% if message and mode != 'error' %}<div class="callout callout--punch"><div class="callout__body field-hint"><p>{{ message }}</p></div></div>{% endif %}
+{% if authorize and mode != 'error' %}{% include "partials/solicitudes_write_authorize.html" %}{% endif %}
+{% if mode == 'error' %}
+  <div class="callout callout--punch"><div class="callout__body field-hint"><p>{{ message }}</p></div></div>
+  {% if authorize %}{% include "partials/solicitudes_write_authorize.html" %}{% endif %}
+{% elif mode == 'share' %}
+  <p class="field-hint">Los enlaces requieren acceso a Operaciones y permisos de lectura en SharePoint.</p>
+  <ul class="hc-share-list" data-sol-share-list>{% for item in items %}<li><a data-sol-share-link href="{{ request.url_for('solicitudes_edit', item_id=item.id) }}?mode=display">{{ item.fields.get('Title') or 'Solicitud #' ~ item.id }}</a></li>{% endfor %}</ul>
+  <div class="feedback-field"><label for="sol-share-message">Mensaje</label><textarea id="sol-share-message" rows="3">Te comparto estas solicitudes para su revisión:</textarea></div>
+  <p class="field-hint" data-sol-copy-status role="status"></p>
+{% elif mode == 'edit' %}
+  <p class="field-hint busqueda-contact__context">{{ plan.ids | length }} {{ 'solicitud' if plan.ids | length == 1 else 'solicitudes' }}. Marcá los campos que querés modificar. Los demás se conservan.{% if retry %} Solo se revisan los fallidos; los confirmados no se repetirán.{% endif %}</p>
+  {% set changes = plan.get('changes', {}) %}
+  <form class="hc-profile-form hc-profile-form--plain" hx-post="/operaciones/solicitudes/bulk/revisar" hx-target="#solicitudes-bulk-content" hx-sync="#solicitudes-bulk-content:drop" hx-disabled-elt="find button[type=submit]" data-dw-graph-token>
+    <input type="hidden" name="plan_id" value="{{ plan.id }}">
+    <section class="hc-profile-section"><div class="busqueda-grid">
+    {% for key,label in bulk_fields.items() %}
+      <div x-data="{enabled:{{ (key in changes) | tojson }}}">
+        <label class="dashboard-checkbox-option"><input type="checkbox" name="apply_{{ key }}" value="yes" x-model="enabled"{% if key in changes %} checked{% endif %}> {{ label }}</label>
+        <div class="feedback-field" x-show="enabled"{% if key not in changes %} x-cloak{% endif %}>
+        {% if key in (fields.PROJECT, fields.ASSIGNEES) %}
+          {{ lookup_picker('sol-bulk-' ~ loop.index, 'value_' ~ key, label, changes.get(key,''), plan.options.get(key,{}), 'Buscar ' ~ label | lower, 'Sin asociación', 'Coincidencias', 'No se encontraron coincidencias.', 'Quitar asociación', 'wide') }}
+          <p class="field-hint">Vacío quita la asociación.{% if key == fields.ASSIGNEES %} Las asignaciones múltiples heredadas están protegidas.{% endif %}</p>
+        {% elif key in (fields.PLANNED, fields.ACTUAL) %}
+          <input aria-label="{{ label }}" type="date" name="value_{{ key }}" value="{{ changes.get(key,'') }}"><p class="field-hint">Vacío quita la fecha.</p>
+        {% else %}
+          <select aria-label="{{ label }}" name="value_{{ key }}"><option value="">{{ 'Seleccionar…' if key == fields.STATUS else 'Sin prioridad' }}</option>{% for choice in (plan.options[fields.STATUS] if key == fields.STATUS else ['Baja','Media','Alta']) %}<option{% if changes.get(key) == choice %} selected{% endif %}>{{ choice }}</option>{% endfor %}</select>
+        {% endif %}
+        </div>
+      </div>
+    {% endfor %}
+    </div></section>
+    <div class="hc-profile-form__actions"><button type="submit" class="btn-primary">Revisar cambios</button></div>
+  </form>
+{% elif mode in ('review','results') %}
+  <p><strong>{% for key in plan.get('changes', {plan.field:plan.value}) %}{{ ', ' if not loop.first else '' }}{{ bulk_fields[key] }}{% endfor %}</strong> · {{ plan.rows | length }} solicitudes</p>
+  {% if mode == 'review' %}
+  <p class="field-hint">Revisá los valores. La operación no es transaccional: cada registro tiene su propio resultado.</p>
+  {% if plan.rows | selectattr('derived') | list %}<div class="callout callout--punch"><div class="callout__body field-hint"><p>Los registros señalados como «Aprobación de admisión» pasarán de Solicitado a Aprobado para Arquitectura en el mismo PATCH. La confirmación incluye ese cambio derivado.</p></div></div>{% endif %}
+  {% else %}
+  <p role="status">{{ counts.get('confirmed',0) }} confirmadas · {{ counts.get('unchanged',0) }} sin cambios · {{ counts.get('conflict',0)+counts.get('rejected',0)+counts.get('uncertain',0) }} fallidas{% if plan.state != 'complete' %} · Procesando…{% endif %}</p>
+  {% endif %}
+  <div class="matrix-scroll"><table class="dashboard-table solicitudes-history-table"><thead><tr><th class="left">Solicitud</th><th class="left">Antes</th><th class="left">Después</th><th class="left">Resultado / revisión</th></tr></thead><tbody>
+    {% for row in plan.rows %}<tr><td class="left">#{{ row.id }} · {{ row.title }}</td><td class="left">{{ row.before }}</td><td class="left">{{ row.after }}</td><td class="left">{{ status_labels[row.status] }}{% if row.derived %} · Aprobación de admisión{% endif %}{% if row.message %}<br>{{ row.message }}{% endif %}</td></tr>{% endfor %}
+  </tbody></table></div>
+  {% if mode == 'review' and counts.get('pending',0) %}
+  <form hx-post="/operaciones/solicitudes/bulk/ejecutar" hx-target="#solicitudes-bulk-content" hx-sync="#solicitudes-bulk-content:drop" hx-disabled-elt="find button[type=submit]" data-solicitudes-write-token>
+    <input type="hidden" name="plan_id" value="{{ plan.id }}">
+    <label class="dashboard-checkbox-option"><input type="checkbox" name="confirm" value="yes" required> Confirmo los valores y los cambios derivados indicados.</label>
+    <div class="hc-profile-form__actions"><button type="submit" class="btn-primary">Confirmar y aplicar</button></div>
+  </form>
+  {% elif mode == 'results' and plan.state != 'complete' %}
+  {% if plan.busy %}<button type="button" class="btn-secondary" hx-post="/operaciones/solicitudes/bulk/estado" hx-target="#solicitudes-bulk-content" hx-vals='{{ {"plan_id":plan.id} | tojson }}'>Consultar resultados</button>
+  {% else %}<form hx-post="/operaciones/solicitudes/bulk/ejecutar"{% if not paused %} hx-trigger="load"{% endif %} hx-target="#solicitudes-bulk-content" hx-sync="#solicitudes-bulk-content:drop" hx-disabled-elt="find button[type=submit]" data-solicitudes-write-token><input type="hidden" name="plan_id" value="{{ plan.id }}"><input type="hidden" name="confirm" value="yes">{% if paused %}<button type="submit" class="btn-primary">Continuar solicitudes pendientes</button>{% else %}<p class="section-analysis-loading">Procesando las solicitudes pendientes…</p>{% endif %}</form>{% endif %}
+  {% endif %}
+  {% if mode == 'results' and plan.state == 'complete' %}
+  <div class="hc-profile-form__actions">
+    <button type="button" class="btn-primary" data-sol-refresh-results>Actualizar listado</button>
+    {% if counts.get('conflict',0)+counts.get('rejected',0)+counts.get('uncertain',0) %}<button type="button" class="btn-secondary" hx-post="/operaciones/solicitudes/bulk/reintentar" hx-target="#solicitudes-bulk-content" hx-vals='{{ {"plan_id":plan.id} | tojson }}' data-dw-graph-token>Revisar únicamente fallidos</button>{% endif %}
+  </div>
+  {% endif %}
+{% elif mode == 'consolidate' %}
+  <div class="callout callout--punch"><div class="callout__body field-hint"><p>Solo previsualización. No se fusionan, crean, eliminan ni modifican solicitudes. La consolidación efectiva requiere aprobar cómo se conservarán las relaciones de origen.</p></div></div>
+  <p class="field-hint">Propuesta de solicitud principal (selección orientativa; no se guarda):</p>
+  <div class="busqueda-grid busqueda-contact__context" role="radiogroup" aria-label="Solicitud principal propuesta">
+  {% for item in items %}<label class="dashboard-checkbox-option"><input type="radio" name="preview_principal" value="{{ item.id }}"{% if loop.first %} checked{% endif %}> #{{ item.id }} · {{ item.fields.get('Title') or 'Sin título' }}</label>{% endfor %}
+  </div>
+  <div class="matrix-scroll"><table class="dashboard-table solicitudes-history-table"><thead><tr><th class="left">Campo</th><th class="left">Comparación</th>{% for item in items %}<th class="left">#{{ item.id }}</th>{% endfor %}</tr></thead><tbody>{% for comparison in comparisons %}<tr><td class="left">{{ comparison.label }}</td><td class="left">{{ comparison.kind }}</td>{% for value in comparison['values'] %}<td class="left">{{ value }}</td>{% endfor %}</tr>{% endfor %}</tbody></table></div>
+  <p class="field-hint">{% if candidates %}Referencias a esta lista detectadas: {{ candidates | join(', ') }}. Su uso requiere validar el contrato de trazabilidad.{% else %}No se detectaron columnas lookup hacia esta misma lista en los metadatos consultados. La propuesta de relaciones se documentará antes de habilitar una consolidación efectiva.{% endif %}</p>
+{% endif %}
+</div>
+<div class="dw-confirm__actions busqueda-contact__actions">
+  {% if mode == 'share' %}<button type="button" class="btn-primary" data-sol-copy="message">Copiar mensaje y enlaces</button><button type="button" class="btn-secondary" data-sol-copy="links">Copiar enlaces</button>{% endif %}
+  <button type="button" class="btn-secondary" data-sol-dialog-close>{{ 'Cerrar' if mode in ('results','error','share','consolidate') else 'Cancelar' }}</button>
+</div>
