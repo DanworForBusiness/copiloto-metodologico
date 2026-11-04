@@ -2,11 +2,11 @@
   <div class="hc-profiles-hero-text">
     <p class="eyebrow">Operaciones</p>
     <h1>{{ detail_title or 'Solicitud #' ~ item_id }}</h1>
-    {% if detail_title %}<div class="hero-meta"><span>Solicitud #{{ item_id }}</span></div>{% endif %}
     {% if detail_loaded %}
     <div class="busqueda-status-row">
       {% for label, value in detail_badges %}
-      <span class="status-badge status-badge--inactivo">{{ label }}: {{ value or 'Sin informar' }}</span>
+      <span>{{ label }}: <span class="status-badge status-badge--inactivo">{{ value or 'Sin informar' }}</span></span>
+      {% if not loop.last %}<span aria-hidden="true">·</span>{% endif %}
       {% endfor %}
     </div>
     {% endif %}
