@@ -67,7 +67,6 @@ table.solicitudes-table { min-width: 52rem; }
 .solicitudes-loading {
   position: absolute;
   inset: 0 0 auto;
-  margin: 0;
   visibility: hidden;
 }
 .solicitudes-loading.htmx-request {
@@ -75,6 +74,9 @@ table.solicitudes-table { min-width: 52rem; }
 }
 .module-content:has(#solicitudes-refresh.htmx-request) .solicitudes-loading.htmx-request {
   animation-delay: 0ms;
+}
+.module-content:has(#solicitudes-refresh.htmx-request) #solicitudes-panel {
+  visibility: hidden;
 }
 @keyframes solicitudes-show-loading {
   to { visibility: visible; }
