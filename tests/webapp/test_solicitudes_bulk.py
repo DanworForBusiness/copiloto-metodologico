@@ -292,3 +292,60 @@ def test_shared_display_has_no_write_controls_and_preserves_edit_mode(lab):
     editable = lab['client'].post('/operaciones/solicitudes/1/detalle', data={'graph_token': 'fake'})
     assert BeautifulSoup(editable.text, 'html.parser').select_one('form[data-solicitudes-write-token]')
     assert not lab['writes']
+
+
+def project_catalog(lab):
+    lab['columns'].append({'name': service.PROJECT, 'lookup': {'allowMultipleValues': False}})
+    lab['options'][service.PROJECT] = {'4': 'Proyecto actual', '8': 'Otro proyecto'}
+
+
+def test_multiple_fields_single_patch_and_reviewed_retry(lab):
+    project_catalog(lab)
+    p = bulk.prepare('actor', 'fake', ['1','2'])
+    changes = {'Prioridad': 'Alta', service.PROJECT: '8', service.ASSIGNEES: '7'}
+    reviewed = bulk.review('actor', p['id'], 'fake', '__multiple__', changes)
+    assert 'Otro proyecto' in reviewed['rows'][0]['after']
+    lab['modes']['2'] = 403
+    result = bulk.execute('actor', p['id'], 'fake', confirmed=True)
+    payload = lab['writes'][0][1]
+    assert payload['ProyectoLookupId'] == '8'
+    assert payload[service.ASSIGNEES+'LookupId'] == ['7']
+    assert payload['Prioridad'] == 'Alta'
+    assert not set(payload) & {service.DESCRIPTION, service.COMMENTS, service.PLANNED, service.ACTUAL, service.STATUS}
+    retry = bulk.retry('actor', result['id'], 'fake')
+    assert retry['ids'] == ['2'] and retry['changes'] == changes
+
+
+def test_unchecked_values_are_ignored_and_no_selection_is_rejected(lab):
+    project_catalog(lab)
+    p = bulk.prepare('actor', 'fake', ['1'])
+    response = send(lab, 'revisar', plan_id=p['id'], apply_Prioridad='yes', value_Prioridad='Alta', **{'value_Proyecto':'999'})
+    assert 'Confirmar y aplicar' in response.text
+    bulk.execute('actor', p['id'], 'fake', confirmed=True)
+    assert lab['writes'][0][1] == {'Prioridad':'Alta'}
+    p = bulk.prepare('actor', 'fake', ['2'])
+    with pytest.raises(ValueError): bulk.review('actor', p['id'], 'fake', '__multiple__', {})
+
+
+def test_explicit_project_clear_and_legacy_assignment_are_safe(lab):
+    project_catalog(lab)
+    p = bulk.prepare('actor', 'fake', ['1'])
+    bulk.review('actor', p['id'], 'fake', '__multiple__', {service.PROJECT:''})
+    bulk.execute('actor', p['id'], 'fake', confirmed=True)
+    assert lab['writes'][0][1] == {'ProyectoLookupId':None}
+    lab['rows']['2']['fields'][service.ASSIGNEES+'LookupId'] = ['7','9']
+    p = bulk.prepare('actor', 'fake', ['2'])
+    bulk.review('actor', p['id'], 'fake', '__multiple__', {'Prioridad':'Alta'})
+    bulk.execute('actor', p['id'], 'fake', confirmed=True)
+    assert lab['writes'][-1][1] == {'Prioridad':'Alta'}
+    p = bulk.prepare('actor', 'fake', ['2'])
+    result = bulk.review('actor', p['id'], 'fake', '__multiple__', {'Prioridad':'Media',service.ASSIGNEES:'7'})
+    assert result['rows'][0]['status'] == 'rejected'
+
+
+def test_multi_field_invalid_id_or_protected_field_cannot_write(lab):
+    project_catalog(lab)
+    for changes in ({service.PROJECT:'999'}, {'Title':'No'}, {service.PROJECT:'8', 'Prioridad':'Invalid'}):
+        p = bulk.prepare('actor', 'fake', ['1'])
+        with pytest.raises(ValueError): bulk.review('actor', p['id'], 'fake', '__multiple__', changes)
+    assert not lab['writes']

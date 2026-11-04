@@ -18,10 +18,10 @@ atributos y permite proponer un principal; no existe operación de consolidació
 
 ## Contrato de actualización
 
-Un plan permite un campo común: Status Arquitectura, Prioridad, Colaborador asignado,
+Un plan permite combinar únicamente los campos marcados: Status Arquitectura, Prioridad, Proyecto, Colaborador asignado,
 Fecha de inicio planificada o Fecha de inicio real. Se validan catálogos y esquema;
 la asignación individual conserva la colección Graph y protege los múltiples históricos.
-Title, Proyecto y narrativas quedan fuera del contrato masivo.
+Title y narrativas quedan fuera del contrato masivo. Los campos no marcados se ignoran aunque tengan valores en el formulario. Quitar una asociación requiere marcar su campo y confirmar el valor vacío. Todos los cambios seleccionados se validan antes de un único PATCH parcial por registro.
 
 Preparar y revisar no escriben. La revisión obtiene valores y ETags vigentes y
 explica los efectos de admisión reutilizados de la lógica central de Funnel.
@@ -53,7 +53,7 @@ implementarlo. Ninguna lista, columna ni relación fue creada por este desarroll
 
 ## Evidencia y límites
 
-- Regresión local relevante: 932 pruebas aprobadas (Operaciones, Solicitudes,
+- Regresión local relevante: 937 pruebas aprobadas (Operaciones, Solicitudes,
   Búsquedas, autenticación, selección CCHH, tablas y navegación).
 - Navegador real automatizado con 60 fixtures explícitamente simulados:
   escritorio/móvil, claro/oscuro, selección, persistencia HTMX, compartir,

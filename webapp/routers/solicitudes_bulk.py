@@ -15,7 +15,7 @@ from webapp.templating import templates
 router = APIRouter()
 PARAMETERS = {
     'compartir': {'selected_ids'}, 'preparar': {'selected_ids'}, 'consolidar': {'selected_ids'},
-    'revisar': {'plan_id', 'field', 'value', 'assignee_value'},
+    'revisar': {'plan_id', 'field', 'value', 'assignee_value'} | {prefix + key for key in bulk.FIELDS for prefix in ('apply_', 'value_')},
     'ejecutar': {'plan_id', 'confirm'}, 'reintentar': {'plan_id'},
     'estado': {'plan_id'},
 }
@@ -75,6 +75,9 @@ async def solicitudes_bulk_action(request: Request, action: str):
         if action == 'revisar':
             field = str(form.get('field', ''))
             value = str(form.get('assignee_value' if field == service.ASSIGNEES else 'value', ''))
+            if 'field' not in form:
+                field = '__multiple__'
+                value = {key: str(form.get('value_' + key, '')) for key in bulk.FIELDS if form.get('apply_' + key) == 'yes'}
             plan = await run_in_threadpool(bulk.review, actor, plan_id, token, field, value)
             return render(request, 'review', plan=plan)
         if action == 'reintentar':
@@ -91,6 +94,8 @@ async def solicitudes_bulk_action(request: Request, action: str):
                     field = str(form.get('field', ''))
                     if field in bulk.FIELDS:
                         plan.update(field=field, value=str(form.get('assignee_value' if field == service.ASSIGNEES else 'value', '')))
+                    if 'field' not in form:
+                        plan['changes'] = {key: str(form.get('value_' + key, '')) for key in bulk.FIELDS if form.get('apply_' + key) == 'yes'}
                     return render(request, 'edit', plan=plan, message=message)
                 return render(request, _view(plan), plan=plan, paused=True, message=message)
             except ValueError:

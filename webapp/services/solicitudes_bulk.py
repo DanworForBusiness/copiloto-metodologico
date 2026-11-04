@@ -16,7 +16,7 @@ from webapp.services import solicitudes_repository as repository
 from webapp.services import solicitudes_service as service
 from webapp.services import solicitudes_snapshot as snapshot
 
-FIELDS = {service.STATUS: "Status Arquitectura", "Prioridad": "Prioridad",
+FIELDS = {service.STATUS: "Status Arquitectura", "Prioridad": "Prioridad", service.PROJECT: "Proyecto",
           service.ASSIGNEES: "Colaborador asignado", service.PLANNED: "Fecha de inicio planificada",
           service.ACTUAL: "Fecha de inicio real"}
 FAILURES = frozenset(("conflict", "rejected", "uncertain"))
@@ -61,7 +61,7 @@ def get(actor, plan_id):
 
 def catalogs(token):
     columns = repository.read_creation_columns(token)
-    options = repository.lookup_options(token, (service.STATUS, service.ASSIGNEES), columns=columns)
+    options = repository.lookup_options(token, (service.STATUS, service.ASSIGNEES, service.PROJECT), columns=columns)
     return columns, options
 
 
@@ -87,35 +87,45 @@ def display(fields, key, options, row=None):
     if key in (service.PLANNED, service.ACTUAL):
         return service.display_date(value)
     if key == service.PROJECT:
-        return service.row_project_label(row or {'fields': fields}) or '—'
+        return service.project_label(fields, options.get(key, {})) or '—'
     return value or '—'
 
 
 def _patch(fields, field, value, options, columns):
     definition = next((c for c in columns if c.get('name') == field), {})
-    kind = 'lookup' if field == service.ASSIGNEES else 'dateTime' if field in (service.PLANNED, service.ACTUAL) else 'choice'
+    kind = 'lookup' if field in (service.ASSIGNEES, service.PROJECT) else 'dateTime' if field in (service.PLANNED, service.ACTUAL) else 'choice'
     if (kind not in definition or definition.get('readOnly') or definition.get('calculated') is not None
-            or (field == service.ASSIGNEES and definition['lookup'].get('allowMultipleValues') is not True)):
+            or (field == service.ASSIGNEES and definition['lookup'].get('allowMultipleValues') is not True)
+            or (field == service.PROJECT and definition['lookup'].get('allowMultipleValues') is True)):
         raise ValueError("El esquema vigente de SharePoint no permite este ajuste.")
     payload = service.changes(service.form_values(fields), {field: value}, options)
     return admission.approval_patch(fields, {field: value}, payload, columns, confirmed=True)
 
 
+def _patch_many(fields, targets, options, columns):
+    for key, value in targets.items():
+        _patch(fields, key, value, options, columns)
+    payload = service.changes(service.form_values(fields), targets, options)
+    return admission.approval_patch(fields, targets, payload, columns, confirmed=True)
+
+
 def review(actor, plan_id, token, field, value):
-    if field not in FIELDS:
-        raise ValueError("El ajuste solo permite uno de los cinco campos autorizados.")
+    raw = value if field == '__multiple__' else {field: value}
+    if not isinstance(raw, dict) or not raw or set(raw) - FIELDS.keys():
+        raise ValueError("Seleccioná únicamente campos autorizados para el ajuste.")
+    if any(not isinstance(v, str) for v in raw.values()):
+        raise ValueError("Ingresá un único valor por campo.")
+    field, value = next(iter(raw.items()))
     old = get(actor, plan_id)
     if old['state'] not in ('editing', 'reviewed'):
         raise ValueError("Este ajuste ya comenzó. Revisá sus resultados antes de preparar otro.")
     if not isinstance(value, str):
         raise ValueError("Ingresá un único valor para el campo elegido.")
-    target = [value] if field == service.ASSIGNEES and value else [] if field == service.ASSIGNEES else value
+    targets = {k: ([v] if v else []) if k == service.ASSIGNEES else v for k, v in raw.items()}
+    target = targets[field]
     columns, options = catalogs(token)
-    definition = next((c for c in columns if c.get('name') == field), {})
-    if not definition or definition.get('readOnly') or definition.get('calculated') is not None:
-        raise ValueError("SharePoint no permite actualizar el campo seleccionado.")
-    # Validate the shared value even when every current record already matches.
-    service.changes(service.form_values({}), {field: target}, options)
+    for key, selected in targets.items():
+        _patch({}, key, selected, options, columns)
     fresh = snapshot.read(actor, token, refresh=True)
     by_id = {str(row['id']): row for row in fresh}
     rows = []
@@ -129,10 +139,10 @@ def review(actor, plan_id, token, field, value):
             etag = item.get('eTag') or item.get('@odata.etag')
             if not etag or etag == '*':
                 raise ValueError("No se pudo verificar su versión.")
-            payload = _patch(item['fields'], field, target, options, columns)
+            payload = _patch_many(item['fields'], targets, options, columns)
             row.update(etag=etag, derived=service.FUNNEL in payload,
-                       before=display(item['fields'], field, options),
-                       after=display({**item['fields'], **{field + 'LookupId' if field == service.ASSIGNEES else field: target}}, field, options))
+                       before=' · '.join(FIELDS[k] + ': ' + display(item['fields'], k, options) for k in targets),
+                       after=' · '.join(FIELDS[k] + ': ' + display({**item['fields'], **{k + 'LookupId' if k in (service.ASSIGNEES, service.PROJECT) else k: v}}, k, options) for k,v in targets.items()))
             if not payload:
                 row['status'] = 'unchanged'
         except ValueError as exc:
@@ -142,7 +152,7 @@ def review(actor, plan_id, token, field, value):
         plan = _record(actor, plan_id)
         if plan['state'] not in ('editing', 'reviewed'):
             raise ValueError("El ajuste ya comenzó; no se modificó su revisión.")
-        plan.update(rows=rows, field=field, value=value, target=target, options=options, state='reviewed')
+        plan.update(rows=rows, field=field, value=value, target=target, targets=targets, changes=raw, options=options, state='reviewed')
     return get(actor, plan_id)
 
 
@@ -155,7 +165,7 @@ def _one(row, plan, token, columns, options):
         if not etag or etag == '*' or etag != row['etag']:
             result.update(status='conflict', message='La versión cambió desde la revisión; no se sobrescribió.')
             return result, attempted
-        payload = _patch(item['fields'], plan['field'], plan['target'], options, columns)
+        payload = _patch_many(item['fields'], plan['targets'], options, columns)
         if not payload:
             result.update(status='unchanged', message='El valor vigente ya coincide.')
             return result, attempted
@@ -172,7 +182,7 @@ def _one(row, plan, token, columns, options):
             pass
         try:
             updated = repository.read_item(token, row['id'])
-            matches = not service.changes(service.form_values(updated['fields']), {plan['field']: plan['target']}, options)
+            matches = not service.changes(service.form_values(updated['fields']), plan['targets'], options)
             if service.FUNNEL in payload:
                 matches = matches and updated['fields'].get(service.FUNNEL) == payload[service.FUNNEL]
             matches = matches and bool(updated.get('eTag') or updated.get('@odata.etag'))
@@ -237,7 +247,7 @@ def retry(actor, plan_id, token):
         raise ValueError("No hay resultados fallidos que revisar.")
     plan = prepare(actor, token, ids, retry=True)
     with _lock:
-        _plans[plan['id']].update(field=old['field'], value=old['value'])
+        _plans[plan['id']].update(field=old['field'], value=old['value'], changes=old.get('changes', {}))
     return get(actor, plan['id'])
 
 
