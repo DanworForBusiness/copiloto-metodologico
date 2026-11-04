@@ -65,7 +65,9 @@
 {% elif mode == 'consolidate' %}
   <div class="callout callout--punch"><div class="callout__body field-hint"><p>Solo previsualización. No se fusionan, crean, eliminan ni modifican solicitudes. La consolidación efectiva requiere aprobar cómo se conservarán las relaciones de origen.</p></div></div>
   <p class="field-hint">Propuesta de solicitud principal (selección orientativa; no se guarda):</p>
+  <div class="busqueda-grid busqueda-contact__context" role="radiogroup" aria-label="Solicitud principal propuesta">
   {% for item in items %}<label class="dashboard-checkbox-option"><input type="radio" name="preview_principal" value="{{ item.id }}"{% if loop.first %} checked{% endif %}> #{{ item.id }} · {{ item.fields.get('Title') or 'Sin título' }}</label>{% endfor %}
+  </div>
   <div class="matrix-scroll"><table class="dashboard-table solicitudes-history-table"><thead><tr><th class="left">Campo</th><th class="left">Comparación</th>{% for item in items %}<th class="left">#{{ item.id }}</th>{% endfor %}</tr></thead><tbody>{% for comparison in comparisons %}<tr><td class="left">{{ comparison.label }}</td><td class="left">{{ comparison.kind }}</td>{% for value in comparison['values'] %}<td class="left">{{ value }}</td>{% endfor %}</tr>{% endfor %}</tbody></table></div>
   <p class="field-hint">{% if candidates %}Referencias a esta lista detectadas: {{ candidates | join(', ') }}. Su uso requiere validar el contrato de trazabilidad.{% else %}No se detectaron columnas lookup hacia esta misma lista en los metadatos consultados. La propuesta de relaciones se documentará antes de habilitar una consolidación efectiva.{% endif %}</p>
 {% endif %}
