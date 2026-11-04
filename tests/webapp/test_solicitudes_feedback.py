@@ -27,3 +27,14 @@ def test_success_only_scrolls_when_outside_visible_area():
     node = shutil.which('node')
     assert node, 'Node is required for the interaction regression'
     subprocess.run([node, str(Path(__file__).with_name('solicitudes_feedback.node.js'))], check=True)
+
+
+def test_uncertain_notice_reuses_themed_compact_warning():
+    request = Request({"type": "http", "method": "POST", "path": "/", "headers": []})
+    response = templates.TemplateResponse(request=request, name="partials/solicitudes_feedback.html", context={
+        "state": "uncertain", "message": "Revisá el resultado.", "item_id": "7",
+    })
+    soup = BeautifulSoup(response.body, "html.parser")
+    assert soup.select_one('.callout--punch .callout__body.field-hint')
+    assert not soup.select_one('a.btn-secondary')
+    assert soup.select_one('a')['target'] == '_blank'

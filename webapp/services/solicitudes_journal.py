@@ -4,6 +4,7 @@ The original HTML is never serialized again. New entries are escaped HTML;
 only verified entries are given an actor/date in the read-only projection.
 """
 from datetime import datetime, timedelta, timezone
+from collections import Counter
 from html import escape
 from html.parser import HTMLParser
 from uuid import uuid4
@@ -119,6 +120,67 @@ def history(html, item_id):
     if legacy.strip():
         rows.append({"movement": "Observación heredada", "date": "—", "actor": "—", "text": legacy, "at": ""})
     return rows
+
+
+def _legacy(html, parsed):
+    parts, cursor = [], 0
+    for start, end in parsed.ranges:
+        parts.append(html[cursor:start])
+        cursor = end
+    return ''.join(parts) + html[cursor:]
+
+
+class _LegacyContract(HTMLParser):
+    """Compare preserved content, not SharePoint's serialization wrappers.
+
+    This is not a sanitizer. Rendering remains escaped plain text. Formatting
+    attributes already present must remain; added provider wrappers may vary.
+    """
+    def __init__(self, html):
+        super().__init__(convert_charrefs=True)
+        self.structure, self.attributes = [], Counter()
+        self.feed(html)
+        self.close()
+
+    def handle_starttag(self, tag, attrs):
+        if tag not in {'div', 'span', 'p', 'br', 'tbody'}:
+            self.structure.append(('start', tag))
+        for key, value in attrs:
+            if key in {'href', 'src', 'alt', 'title', 'colspan', 'rowspan', 'style', 'class'} and value:
+                if key == 'class':
+                    value = ' '.join(sorted(value.split()))
+                elif key == 'style':
+                    value = ';'.join(sorted(':'.join(part.strip() for part in rule.split(':', 1))
+                                            for rule in value.split(';') if rule.strip()))
+                self.attributes[(tag, key, value)] += 1
+
+    def handle_startendtag(self, tag, attrs):
+        self.handle_starttag(tag, attrs)
+
+    def handle_endtag(self, tag):
+        if tag not in {'div', 'span', 'p', 'br', 'tbody', 'img', 'hr', 'input', 'meta', 'link'}:
+            self.structure.append(('end', tag))
+
+
+def confirms_append(expected, observed, item_id, entry_id):
+    """Confirm the signed entry and the preserved history after Graph normalization.
+
+    No missing, changed or duplicate signed entries, or lost legacy content,
+    links, tables, images or existing formatting attributes are accepted.
+    """
+    if not isinstance(expected, str) or not isinstance(observed, str):
+        return False
+    before, after = entries(expected, item_id), entries(observed, item_id)
+    before_ids = [e['id'] for e in before.entries]
+    after_ids = [e['id'] for e in after.entries]
+    if (entry_id not in before_ids or before_ids != after_ids
+            or len(set(after_ids)) != len(after_ids) or before.entries != after.entries):
+        return False
+    a, b = _legacy(expected, before), _legacy(observed, after)
+    if service.narrative_text(a) != service.narrative_text(b):
+        return False
+    old, new = _LegacyContract(a), _LegacyContract(b)
+    return old.structure == new.structure and not (old.attributes - new.attributes)
 
 
 def append(original, text, ticket, item_id, user, columns, *, movement="Observación de Arquitectura", now=None):

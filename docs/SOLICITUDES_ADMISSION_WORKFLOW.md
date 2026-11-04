@@ -91,8 +91,11 @@ el HTML original continúa intacto en SharePoint y en el payload de append.
 ## Límites de integración real
 
 La prueba autorizada de un registro deberá verificar que SharePoint conserva
-`data-dw-observation` y el acumulado original. Si elimina la metadata o normaliza
-el contenido de modo que no coincide con el payload, el Hub informa resultado
+`data-dw-observation` y el acumulado original. La confirmación compara las entradas firmadas y el contenido anterior, no la
+serialización literal del HTML. Admite envoltorios neutros del proveedor,
+entidades equivalentes y tbody implícito. Exige conservar entradas y su orden,
+texto heredado, estructura significativa, enlaces, imágenes y atributos de
+formato preexistentes. Si pierde metadata o contenido, informa resultado
 incierto, conserva el borrador y no repite el PATCH. No se declara compatibilidad
 productiva completa basándose en fixtures.
 
@@ -133,7 +136,7 @@ Referencias Microsoft:
 
 ## Verificación de esta entrega
 
-- 887 pruebas de regresión relevantes aprobadas en Operaciones, Búsquedas,
+- 891 pruebas de regresión relevantes aprobadas en Operaciones, Búsquedas,
   Solicitudes, autenticación y selección/tablas compartidas de CCHH.
 - Navegador real de pruebas con transportes Graph en memoria: claro/oscuro,
   escritorio 1440 px y móvil 390 px; historial, confirmación, cancelación,
@@ -143,3 +146,12 @@ Referencias Microsoft:
 - El barrido general de toda la web fue interrumpido para acotar la regresión
   a las superficies afectadas. No se declara aprobado el CI completo.
 - CI de GitHub se dispara en PR o push a main, no en el push de esta rama.
+
+## Corrección de confirmación tras normalización
+
+El PO observó una entrada persistida y visible tras recargar pese al aviso
+de resultado incierto. Se reprodujo en laboratorio la comparación literal de
+HTML con envoltorios y entidades normalizadas. Guardar y Rechazar utilizan
+ahora la misma confirmación semántica conservadora. No se realizaron nuevas
+escrituras reales para probar esta corrección; queda pendiente su aceptación real.
+El aviso usa callout--punch y field-hint compartidos en claro y oscuro, sin CSS nuevo.

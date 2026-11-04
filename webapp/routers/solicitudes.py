@@ -334,8 +334,8 @@ async def solicitudes_save(request: Request, item_id: str, graph_token: str = Fo
             if service.FUNNEL in payload:
                 matches = matches and updated["fields"].get(service.FUNNEL) == payload[service.FUNNEL]
             if observation_id:
-                matches = (matches and updated["fields"].get(service.COMMENTS) == payload[service.COMMENTS]
-                           and any(e["id"] == observation_id for e in journal.entries(updated["fields"].get(service.COMMENTS), item_id).entries))
+                matches = matches and journal.confirms_append(
+                    payload[service.COMMENTS], updated["fields"].get(service.COMMENTS), item_id, observation_id)
         except (HTTPError, URLError, TimeoutError, ValueError, KeyError):
             matches = False
         if not matches or not _etag(updated):
@@ -415,8 +415,7 @@ async def solicitudes_reject(request: Request, item_id: str, graph_token: str = 
         try:
             updated = await run_in_threadpool(repository.read_item, graph_token, item_id)
             matches = (bool(_etag(updated)) and updated["fields"].get(service.FUNNEL) == admission.REJECTED
-                       and updated["fields"].get(service.COMMENTS) == comments
-                       and any(e["id"] == entry_id for e in journal.entries(comments, item_id).entries))
+                       and journal.confirms_append(comments, updated["fields"].get(service.COMMENTS), item_id, entry_id))
         except (HTTPError, URLError, TimeoutError, ValueError, KeyError):
             matches = False
         if not matches:

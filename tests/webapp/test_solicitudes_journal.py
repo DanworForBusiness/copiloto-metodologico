@@ -249,3 +249,38 @@ def test_graph_strips_metadata_not_reported_as_success(setup, monkeypatch):
     result = send(setup, new_observation='No confirmar pérdida de metadata')
     assert 'data-solicitudes-review' in result.text and 'data-solicitudes-saved' not in result.text
     assert len(calls) == 1
+
+
+@pytest.mark.parametrize('path', ['guardar', 'rechazar'])
+def test_sharepoint_html_normalization_is_confirmed_without_retry(setup, monkeypatch, path):
+    _, current, calls, _ = setup
+    def normalize(token, item_id, payload, etag):
+        calls.append(payload)
+        current['fields'].update(payload)
+        # SharePoint can wrap the entire field and serialize entities differently.
+        current['fields'][service.COMMENTS] = '<div class="ExternalClassProvider">\r\n' + payload[service.COMMENTS].replace(' — ', ' &#8212; ') + '\r\n</div>'
+        current['eTag'] = '"8"'
+    monkeypatch.setattr(repository, 'update_item', normalize)
+    data = {'new_observation': 'Una observación'} if path == 'guardar' else {'reason': 'Un motivo', 'confirm_rejection': 'yes'}
+    response = send(setup, path=path, **data)
+    assert 'data-solicitudes-saved' in response.text
+    assert 'data-solicitudes-review' not in response.text
+    assert len(calls) == 1
+
+
+def test_normalized_confirmation_still_requires_entry_and_legacy_integrity(columns):
+    legacy = '<div class="original" style="color:red"><p>Anterior</p><a href="https://example.invalid/a">Enlace</a><table><tr><td>Celda</td></tr></table><img src="https://example.invalid/img" alt="Imagen"></div>'
+    expected, entry_id = append(legacy, 'Nueva', columns)
+    normalized = '<div class="provider">' + expected.replace('<table>', '<table><tbody>').replace('</table>', '</tbody></table>') + '</div>'
+    assert journal.confirms_append(expected, normalized, '1', entry_id)
+    for altered in (
+        normalized.replace('>Anterior<', '>Distinto<'),
+        normalized.replace('https://example.invalid/a', 'https://example.invalid/other'),
+        normalized.replace('src="https://example.invalid/img"', 'src="https://example.invalid/removed"'),
+        normalized.replace('color:red', 'color:blue'),
+        normalized.replace('<table><tbody><tr><td>Celda</td></tr></tbody></table>', ''),
+        normalized.replace('data-dw-observation=', 'data-removed='),
+        normalized.replace('>Nueva<', '>Cambiada<'),
+        normalized + expected[len(legacy):],
+    ):
+        assert not journal.confirms_append(expected, altered, '1', entry_id)
