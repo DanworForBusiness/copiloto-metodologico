@@ -194,7 +194,9 @@ _STOP = set(fold("""curriculum curriculo vitae cv resume resumen perfil profile 
 buenos aires argentina caba cordoba rosario mendoza experiencia laboral educacion formacion estudios habilidades skills objetivo sobre acerca about me senior junior semi ssr sr jr consultor consultora analista arquitecto
 arquitecta ingeniero ingeniera desarrollador desarrolladora developer engineer architect consultant specialist especialista lider lead manager gerente sap datasphere databricks data bw hana abap fiori power bi azure aws gcp
 cloud python sql java scrum master agile project product owner functional funcional tecnico technical analytics ia inteligencia artificial machine learning engineering ingenieria informatica sistemas licenciado licenciada
-actualizado vigente nacionalidad nacimiento fecha edad estado civil casado soltero idiomas ingles espanol portugues certificaciones cursos referencias proyectos conocimientos tecnologias herramientas""").split())
+actualizado vigente nacionalidad nacimiento fecha edad estado civil casado soltero idiomas ingles espanol portugues certificaciones cursos referencias proyectos conocimientos tecnologias herramientas
+proyecto academico academica academicos academicas profesional profesionales laboral laborales trayectoria logros aptitudes competencias intereses voluntariado publicaciones premios reconocimientos
+certificacion curso idioma referencia conocimiento tecnologia herramienta habilidad estudio capacitacion capacitaciones complementaria complementarios adicional adicionales informacion""").split())
 _NAME_LABEL = re.compile(r"^(?:nombre(?:s)?(?: y apellido(?:s)?)?|apellido(?:s)? y nombre(?:s)?|full name|name)\s*[:\-]\s*(.+)$", re.I)
 _SEPARATORS = re.compile(r"\s*[|•·–—/]\s*|\s+-\s+")
 
@@ -335,10 +337,24 @@ def _text_candidates(text: str) -> list[dict]:
 _FILE_NOISE = set(fold("cv curriculum curriculo vitae resume resumen actualizado actual final nuevo copia copy docx pdf perfil profile danwor formato").split())
 
 
+def _camel_words(word: str) -> str:
+    """«MarianaJQuiroz» → «Mariana J Quiroz», «JuanPerez» → «Juan Perez»: un nombre de archivo con palabras pegadas en CamelCase se separa. Las marcas de CV («CVa», «CV2024») se dejan
+    enteras para que el filtro de ruido las descarte."""
+    if fold(word) in _FILE_NOISE or re.match(r"(?i)^cv[a-z0-9]{0,4}$", word):
+        return word if fold(word) in _FILE_NOISE else "cv"
+    split = re.sub(r"(?<=[a-záéíóúüñ])(?=[A-ZÁÉÍÓÚÜÑ])", " ", word)
+    split = re.sub(r"(?<=[A-ZÁÉÍÓÚÜÑ])(?=[A-ZÁÉÍÓÚÜÑ][a-záéíóúüñ])", " ", split)
+    if split == word:
+        return word
+    # una mayúscula suelta que sale de separar CamelCase es una INICIAL («J» de «MarianaJQuiroz»; también «E», que sin esto sería el conector «e»)
+    return " ".join(f"{w}." if len(w) == 1 and w.isupper() else w for w in split.split())
+
+
 def _filename_name(filename: str) -> dict | None:
     """Candidato del nombre de archivo. La mayúscula inicial NO se exige (los archivos suelen estar en minúscula), pero sí el resto de los controles de plausibilidad."""
     base = filename.rsplit(".", 1)[0] if "." in filename else filename
     base = re.sub(r"[_.]+", " ", base)
+    base = " ".join(_camel_words(w) for w in base.split())
     base = re.sub(r"\(\d+\)", " ", base)
     if "," in base and base.count(",") == 1:
         cand = _name_from_segment(re.sub(r"\d+", " ", " ".join(w for w in base.split() if fold(w.strip(",")) not in _FILE_NOISE)), caps=False)

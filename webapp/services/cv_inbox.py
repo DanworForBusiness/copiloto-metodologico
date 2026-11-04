@@ -387,12 +387,32 @@ def _draft_applies(record: dict, draft: dict | None) -> bool:
     return bool(draft and draft.get("fields") and draft.get("sha256") and draft["sha256"] == record.get("sha256"))
 
 
+def _inbox_proposal(ext: dict | None) -> dict | None:
+    """Propuesta de identidad para la BANDEJA. Parte de la del extractor (la misma de Históricos); si el extractor no propuso porque la identidad no está corroborada, la bandeja igual propone
+    (Capital Humano revisa cada alta y puede corregirla): (a) la ÚNICA identidad en la que coinciden el texto y el nombre de archivo, aunque haya otras líneas que parezcan nombres; o (b) la única
+    identidad encontrada. Nunca con una falla de lectura ni con dos identidades igual de fuertes."""
+    ext = ext or {}
+    proposal = pilot._proposal(ext)
+    if proposal or ext.get("failure"):
+        return proposal
+    decision = ext.get("name_decision") or {}
+    alternatives = [a for a in decision.get("alternatives") or [] if a.get("tokens")]
+    agree = [a for a in alternatives if "filename" in (a.get("sources") or []) and "text" in (a.get("sources") or [])]
+    pick = agree[0] if len(agree) == 1 else alternatives[0] if len(alternatives) == 1 else None
+    if not pick:
+        return None
+    first, last, _uncertain = cv_extract._split(str(pick["tokens"]).split())
+    if not (first and last):
+        return None
+    return {"first_name": first, "last_name": last, "rule": "INBOX_AGREEMENT" if pick in agree else "INBOX_SINGLE", "state": pick.get("state")}
+
+
 def _effective_fields(record: dict, draft: dict | None) -> tuple[dict, str]:
     if _draft_applies(record, draft):
         return {f: draft["fields"].get(f, "") for f in FIELDS}, "review"
     ext = record.get("extraction") or {}
     pre = review._prefill(ext) if ext else {}
-    proposal = pilot._proposal(ext) or {}
+    proposal = _inbox_proposal(ext) or {}
     return {"first_name": proposal.get("first_name") or "", "last_name": proposal.get("last_name") or "", "email": pre.get("email", ""), "phone": pre.get("phone", ""), "profile_skills": ""}, "extraction"
 
 
@@ -403,10 +423,12 @@ def _evidence(record: dict) -> dict:
     state = decision.get("state") or ext.get("name_state")
     if ext.get("failure"):
         label, level = "No se pudo leer el documento", "none"
-    elif not pilot._proposal(ext):
+    elif not _inbox_proposal(ext):
         label, level = "Sin nombre con evidencia suficiente", "none"
     elif pre.get("first_name"):
         label, level = "Corroborado por un dato independiente", "strong"
+    elif (_inbox_proposal(ext) or {}).get("rule") == "INBOX_AGREEMENT":
+        label, level = "Coincide con el nombre del archivo", "weak"
     elif state == "DECLARED":
         label, level = "Declarado en el CV, sin corroborar", "weak"
     else:
@@ -570,8 +592,6 @@ def classify(ctx: Context, key: str) -> dict | None:
     if peers:
         return _status(row, REVIEW, reasons=row["reasons"] + ["SAME_PERSON_IN_INBOX"])
     if not matches:
-        if not evidence["safe"] and source == "extraction":
-            return _status(row, REVIEW, reasons=row["reasons"] + ["NAME_UNCORROBORATED"], op="create")
         row.update({"op": "create", "batch_ok": bool(fields["email"]) and not row["reasons"]})
         return _status(row, READY, reasons=row["reasons"] + ([] if fields["email"] else ["NO_EMAIL"]))
     only = matches[0]

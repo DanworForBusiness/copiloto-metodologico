@@ -778,3 +778,37 @@ def test_a_pending_retire_is_retried_automatically_a_bounded_number_of_times(wor
     batch("lucia2.pdf")
     lucia = rows()["lucia2.pdf"]
     assert lucia["can_retire"] and not lucia["auto_retire"] and "RETIRE_PERMISSION" in lucia["reasons"]   # sin permiso: no se reintenta solo
+
+
+# ═══════════════════ identidad: nombre en el título, archivo en CamelCase, email que no coincide ═══════════════════
+# Datos 100 % ficticios (dominio de prueba): misma ESTRUCTURA que un caso real, sin datos de ninguna persona.
+TITLED = make_pdf(["MARIANA JOSEFINA QUIROZ", "Localidad Ficticia, Provincia de Prueba, Argentina", "+54 9 11 0000-0001", "mjq2001@prueba.danwor.com",
+                   "PERFIL PROFESIONAL", "Estudiante de la Tecnicatura Superior en Análisis de Sistemas.", "PROYECTO ACADÉMICO"])
+UNMATCHED_EMAIL = make_pdf(["Tomás Ferreyra", "tf1987@prueba.danwor.com", "Cel 11 0000 0002", BODY])
+
+
+def test_section_headings_are_never_names_and_camelcase_filenames_are_split():
+    from webapp.services import cv_extract as x
+    assert x._name_from_segment("PROYECTO ACADÉMICO") is None and x._name_from_segment("Experiencia Laboral") is None
+    assert x._filename_name("MarianaJQuiroz.CVa.pdf")["tokens"] == ["Mariana", "J.", "Quiroz"]                # la mayúscula suelta del CamelCase es una inicial, «CVa» es ruido
+    assert x._filename_name("JuanPerez_CV.pdf")["tokens"] == ["Juan", "Perez"]
+    assert x._filename_name("Martin Sosa 2024.pdf")["tokens"] == ["Martin", "Sosa"]                          # un nombre ya separado no cambia
+
+
+def test_the_name_in_the_cv_title_is_proposed_when_it_agrees_with_the_filename(world):
+    store, intake = world
+    intake.add("t1", "MarianaJQuiroz.CVa.pdf", TITLED)
+    analyze_all()
+    row = rows()["MarianaJQuiroz.CVa.pdf"]
+    assert row["fields"]["first_name"].startswith("Mariana") and row["fields"]["last_name"].endswith("Quiroz")
+    assert row["status"] == inbox.READY and row["evidence"]["label"] == "Coincide con el nombre del archivo"
+    assert row["fields"]["email"] == "mjq2001@prueba.danwor.com"
+
+
+def test_an_email_that_does_not_match_the_name_does_not_send_the_cv_to_review(world):
+    store, intake = world
+    intake.add("u1", "cv-tomas.pdf", UNMATCHED_EMAIL)
+    analyze_all()
+    row = rows()["cv-tomas.pdf"]
+    assert (row["fields"]["first_name"], row["fields"]["last_name"]) == ("Tomás", "Ferreyra")
+    assert row["status"] == inbox.READY and "NAME_UNCORROBORATED" not in row["reasons"] and row["batch_ok"]  # el email se admite sin exigir que reproduzca el nombre
