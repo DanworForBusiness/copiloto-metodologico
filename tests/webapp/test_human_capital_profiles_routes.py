@@ -10,6 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from bs4 import BeautifulSoup
 from fastapi.testclient import TestClient
 
 import config
@@ -379,7 +380,14 @@ def test_profiles_templates_add_no_own_js():
     # propio SIGUE sin hacer falta (cero interactividad nueva) — eso cambió SOLO con la selección múltiple de Candidatos (Fase 1B): la PÁGINA completa carga UN script propio
     # (`human_capital_candidates_selection.js`, con el mismo mecanismo de `human_capital_import.js`) y el fragmento HTMX-swapped sigue SIN `<script src=` (se reemplaza en cada filtro).
     assert "<script src=" not in _PANEL_HTML
-    assert _PROFILES_HTML.count("<script src=") == 2 and "human_capital_candidates_selection.js" in _PROFILES_HTML and "human_capital_candidates_download.js" in _PROFILES_HTML
+    # El motor extraído se comparte con Solicitudes; se carga una sola vez,
+    # antes del adaptador de CCHH. Los fragmentos HTMX siguen sin scripts.
+    scripts = BeautifulSoup(_PROFILES_HTML, "html.parser").select("script[src]")
+    assert [script["src"] for script in scripts] == [
+        "{{ url_for('static', path='table_selection.js') }}?v={{ static_version }}",
+        "{{ url_for('static', path='human_capital_candidates_selection.js') }}?v={{ static_version }}",
+        "{{ url_for('static', path='human_capital_candidates_download.js') }}?v={{ static_version }}",
+    ]
 
 
 def test_profiles_page_links_its_own_stylesheet_same_pattern_as_commercial():

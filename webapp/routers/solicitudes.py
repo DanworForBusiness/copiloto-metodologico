@@ -1,5 +1,6 @@
 """Authenticated Operations requests pages."""
 from urllib.error import HTTPError, URLError
+import hashlib
 
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse
@@ -9,6 +10,8 @@ from core.content_registry import DEFAULT_PACK
 from webapp import hub_metrics_access, operations_access, workspaces
 from webapp.services import auth_service, pagination, solicitudes_snapshot
 from webapp.services import solicitudes_creation as creation
+from webapp.services import solicitudes_admission as admission
+from webapp.services import solicitudes_journal as journal
 from webapp.services import solicitudes_repository as repository
 from webapp.services import solicitudes_service as service
 from webapp.templating import templates
@@ -80,6 +83,8 @@ async def solicitudes_data(request: Request, graph_token: str = Form("")):
     return templates.TemplateResponse(request=request, name="partials/solicitudes_panel.html", context={
         "rows": pager["items"], "pager": pager,
         "count": len(matches), "source_count": len(rows), "error": error, "query": query,
+        "selection_scope": hashlib.sha256((str(user.get('sub', '')) + ':operaciones:' + repository.LIST_ID).encode()).hexdigest(),
+        "universe_ids": [str(row['id']) for row in rows],
         "selected": selected, "filters": FILTERS, "options": options,
         "columns": service.SORT_COLUMNS, "sort": sort, "direction": direction,
         "display_date": service.display_date, "created": service.CREATION_DATE, "planned": service.PLANNED,
@@ -110,16 +115,16 @@ def solicitudes_new_data(request: Request, graph_token: str = Form("")):
         return _edit_panel(request, "", error="No pudimos obtener tu token de Microsoft.")
     try:
         columns = repository.read_creation_columns(graph_token)
-        options = repository.lookup_options(graph_token)
+        options = repository.lookup_options(graph_token, columns=columns)
         ticket = creation.issue(user["sub"])
     except (HTTPError, URLError, TimeoutError, ValueError, KeyError) as exc:
         return _edit_panel(request, "", error=_edit_error(exc))
-    values = service.form_values({service.STATUS: "Pendiente"})
+    values = service.form_values({service.STATUS: "Pendiente" if "Pendiente" in options[service.STATUS] else ""})
     title_column = next((column for column in columns if column["name"] == "Title"), {})
     return templates.TemplateResponse(request=request, name="partials/solicitudes_edit.html", context={
         "is_new": True, "submission_id": ticket, "values": values, "current": values,
         "fields": service, "original_fields": {}, "options": options,
-        "destinations": (), "project_display": "", "title_max_length": title_column.get("text", {}).get("maxLength"),
+        "status_choices": options[service.STATUS], "project_display": "", "title_max_length": title_column.get("text", {}).get("maxLength"),
     })
 
 
@@ -172,6 +177,7 @@ def solicitudes_edit(request: Request, item_id: str):
     response = solicitudes_page(request)
     if hasattr(response, "context"):
         response.context["item_id"] = item_id
+        response.context["display_only"] = request.query_params.get("mode") == "display"
         return templates.TemplateResponse(request=request, name="operations/solicitudes.html", context=response.context)
     return response
 
@@ -194,12 +200,16 @@ def _detail_context(item):
 
 def _edit_panel(request, item_id, *, item=None, options=None, error=""):
     values = service.form_values(item["fields"]) if item else {}
-    return templates.TemplateResponse(request=request, name="partials/solicitudes_edit.html", context={
+    user = _user(request) or {}
+    template = "partials/solicitudes_display.html" if request.query_params.get("mode") == "display" else "partials/solicitudes_edit.html"
+    return templates.TemplateResponse(request=request, name=template, context={
         "item_id": item_id, "values": values, "current": values,
         "options": options or {}, "error": error,
         "project_display": service.project_label(item["fields"], (options or {}).get(service.PROJECT)) if item else "",
         "etag": _etag(item) if item else "", "funnel": item["fields"].get(service.FUNNEL) if item else "",
-        "destinations": service.allowed_destinations(values.get(service.STATUS)),
+        "status_choices": (options or {}).get(service.STATUS, []),
+        "observation_ticket": journal.issue(item_id, user.get("sub")) if item else "",
+        "history_rows": journal.history(item["fields"].get(service.COMMENTS), item_id) if item else [],
         "fields": service, "original_fields": item["fields"] if item else {}, **_detail_context(item),
     })
 
@@ -208,11 +218,14 @@ def _feedback(request, item_id, state, message, **context):
     # HTMX swaps only the status region. Validation and remote failures must
     # leave the form controls, dirty state and original ETag intact.
     return templates.TemplateResponse(request=request, name="partials/solicitudes_feedback.html", context={
-        "item_id": item_id, "state": state, "message": message, **context,
+        "item_id": item_id, "state": state, "message": message,
+        "is_list": request.headers.get("HX-Target") == "solicitudes-list-result", **context,
     })
 
 
 def _edit_error(exc):
+    if isinstance(exc, service.StatusCatalogError):
+        return str(exc)
     return {
         400: "SharePoint rechazó los valores enviados. Revisá los campos; tu borrador se conserva.",
         401: "La autorización de Microsoft venció. Volvé a iniciar sesión.",
@@ -253,7 +266,7 @@ async def solicitudes_save(request: Request, item_id: str, graph_token: str = Fo
     if not item_id.isascii() or not item_id.isdecimal():
         raise HTTPException(404)
     form = await request.form()
-    allowed = set(service.EDITABLE) | {"graph_token", "token_diagnostic", "etag"}
+    allowed = (set(service.EDITABLE) - {service.COMMENTS}) | {"graph_token", "token_diagnostic", "etag", "confirm_admission", "new_observation", "observation_ticket"}
     if set(form) - allowed or any(len(form.getlist(key)) != 1 for key in form if key != service.ASSIGNEES):
         if request.headers.get("HX-Request") == "true":
             return _feedback(request, item_id, "invalid", "El formulario contiene campos inválidos. Revisá el borrador antes de volver a intentar.")
@@ -269,6 +282,7 @@ async def solicitudes_save(request: Request, item_id: str, graph_token: str = Fo
     correlation = uuid4().hex
     outcome = "read_error"
     payload = {}
+    observation_id = ""
     try:
         item = await run_in_threadpool(repository.read_item, graph_token, item_id)
         etag = _etag(item)
@@ -279,6 +293,21 @@ async def solicitudes_save(request: Request, item_id: str, graph_token: str = Fo
         current = service.form_values(item["fields"])
         try:
             payload = service.changes(current, submitted, options)
+            new_observation = str(form.get("new_observation", "")).strip()
+            columns = None
+            if new_observation:
+                columns = await run_in_threadpool(repository.read_creation_columns, graph_token)
+                payload[service.COMMENTS], observation_id = journal.append(
+                    item["fields"].get(service.COMMENTS), new_observation,
+                    str(form.get("observation_ticket", "")), item_id, user, columns,
+                )
+            if admission.proposes_approval(item["fields"], submitted, payload):
+                if columns is None:
+                    columns = await run_in_threadpool(repository.read_creation_columns, graph_token)
+                payload = admission.approval_patch(
+                    item["fields"], submitted, payload, columns,
+                    confirmed=form.get("confirm_admission") == "yes",
+                )
         except ValueError as exc:
             outcome = "invalid_fields"
             return _feedback(request, item_id, "invalid", str(exc))
@@ -308,18 +337,106 @@ async def solicitudes_save(request: Request, item_id: str, graph_token: str = Fo
                 for key, value in submitted.items()
                 if key in payload or key + "LookupId" in payload
             )
+            if service.FUNNEL in payload:
+                matches = matches and updated["fields"].get(service.FUNNEL) == payload[service.FUNNEL]
+            if observation_id:
+                matches = matches and journal.confirms_append(
+                    payload[service.COMMENTS], updated["fields"].get(service.COMMENTS), item_id, observation_id)
         except (HTTPError, URLError, TimeoutError, ValueError, KeyError):
             matches = False
         if not matches or not _etag(updated):
             outcome = "uncertain"
             return _feedback(request, item_id, "uncertain", "No pudimos confirmar el guardado. Consultá los valores vigentes antes de reintentar.")
         outcome = "confirmed"
-        return _feedback(request, item_id, "saved", "Guardado confirmado en SharePoint.", **_detail_context(updated))
+        return _feedback(request, item_id, "saved", "Guardado confirmado en SharePoint.",
+                         history_rows=journal.history(updated["fields"].get(service.COMMENTS), item_id),
+                         refresh_history=True, **_detail_context(updated))
     except (HTTPError, URLError, TimeoutError, ValueError, KeyError) as exc:
         return _feedback(request, item_id, "auth" if getattr(exc, "code", None) == 401 else "error", _edit_error(exc))
     finally:
         logging.getLogger("danwor.solicitudes.audit").info(
             "actor=%s item=%s fields=%s outcome=%s correlation=%s",
+            user["sub"], item_id, ",".join(sorted(payload)), outcome, correlation,
+        )
+
+
+@router.post(PATH + "/{item_id}/rechazar", response_class=HTMLResponse, include_in_schema=False)
+async def solicitudes_reject(request: Request, item_id: str, graph_token: str = Form("")):
+    import logging
+    from uuid import uuid4
+    from webapp import same_origin_guard
+
+    user = _user(request)
+    if not user:
+        raise HTTPException(401)
+    if not user.get("sub") or not same_origin_guard.is_same_origin_write(request):
+        raise HTTPException(403)
+    if not item_id.isascii() or not item_id.isdecimal():
+        raise HTTPException(404)
+
+    def feedback(state, message, **context):
+        return _feedback(request, item_id, state, message, rejection=True, **context)
+
+    form = await request.form()
+    allowed = {"graph_token", "token_diagnostic", "etag", "reason", "confirm_rejection", "observation_ticket"}
+    if set(form) - allowed or any(len(form.getlist(key)) != 1 for key in form):
+        return feedback("invalid", "El rechazo contiene campos no permitidos. No se guardaron cambios.")
+    if not graph_token:
+        return feedback("auth", "Autorizá la escritura con Microsoft; tu justificación se conserva.")
+    reason = str(form.get("reason", "")).strip()
+    if not reason or form.get("confirm_rejection") != "yes":
+        return feedback("invalid", "Ingresá una justificación y confirmá expresamente el rechazo.")
+    outcome, payload, correlation = "read_error", {}, uuid4().hex
+    try:
+        item = await run_in_threadpool(repository.read_item, graph_token, item_id)
+        etag = _etag(item)
+        if not etag or etag == "*" or etag != form.get("etag"):
+            outcome = "conflict"
+            return feedback("conflict", "La solicitud cambió. Conservá la justificación y consultá los valores vigentes antes de rechazar.")
+        columns = await run_in_threadpool(repository.read_creation_columns, graph_token)
+        admission.validate_column(columns)
+        if item["fields"].get(service.FUNNEL) != admission.REQUESTED:
+            outcome = "existing_decision"
+            return feedback("conflict", "La solicitud ya tiene una decisión de admisión; no se modificó.")
+        reason = admission.rejection_reason(item["fields"], reason, columns, confirmed=True)
+        comments, entry_id = journal.append(
+            item["fields"].get(service.COMMENTS), reason,
+            str(form.get("observation_ticket", "")), item_id, user, columns,
+            movement="Rechazo / Derivación a Operaciones",
+        )
+        payload = {service.FUNNEL: admission.REJECTED, service.COMMENTS: comments}
+        try:
+            await run_in_threadpool(repository.update_item, graph_token, item_id, payload, etag)
+        except HTTPError as exc:
+            if exc.code == 412:
+                outcome = "conflict"
+                return feedback("conflict", "Otro usuario modificó la solicitud. No se sobrescribió su decisión.")
+            if exc.code < 500:
+                outcome = f"http_{exc.code}"
+                return feedback("auth" if exc.code == 401 else "error", _edit_error(exc))
+            outcome = "uncertain"
+        except (URLError, TimeoutError, ValueError):
+            outcome = "uncertain"
+        await run_in_threadpool(solicitudes_snapshot.invalidate, user["sub"])
+        try:
+            updated = await run_in_threadpool(repository.read_item, graph_token, item_id)
+            matches = (bool(_etag(updated)) and updated["fields"].get(service.FUNNEL) == admission.REJECTED
+                       and journal.confirms_append(comments, updated["fields"].get(service.COMMENTS), item_id, entry_id))
+        except (HTTPError, URLError, TimeoutError, ValueError, KeyError):
+            matches = False
+        if not matches:
+            outcome = "uncertain"
+            return feedback("uncertain", "No pudimos confirmar el rechazo. Revisá los valores vigentes antes de reintentar; la justificación se conserva.")
+        outcome = "confirmed"
+        return feedback("saved", "Rechazo confirmado en SharePoint.",
+                        history_rows=journal.history(updated["fields"].get(service.COMMENTS), item_id),
+                        refresh_history=True, **_detail_context(updated))
+    except (HTTPError, URLError, TimeoutError, ValueError, KeyError) as exc:
+        outcome = "invalid" if isinstance(exc, ValueError) else "read_error"
+        return feedback("invalid" if isinstance(exc, ValueError) else "error", str(exc) if isinstance(exc, ValueError) else _edit_error(exc))
+    finally:
+        logging.getLogger("danwor.solicitudes.audit").info(
+            "actor=%s item=%s fields=%s operation=reject outcome=%s correlation=%s",
             user["sub"], item_id, ",".join(sorted(payload)), outcome, correlation,
         )
 

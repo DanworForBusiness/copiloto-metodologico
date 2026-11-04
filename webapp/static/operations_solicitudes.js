@@ -12,8 +12,9 @@
       if (!order) return;
       container.querySelectorAll("colgroup, tr").forEach(row => {
         const cells = Array.from(row.children);
+        for (const cell of cells) if (cell.dataset.columnFixed === 'start') row.appendChild(cell);
         for (const column of order) row.appendChild(cells.find(cell => cell.dataset.columnKey === column));
-        for (const cell of cells) if (!cell.dataset.columnKey) row.appendChild(cell);
+        for (const cell of cells) if (!cell.dataset.columnKey && cell.dataset.columnFixed !== 'start') row.appendChild(cell);
       });
     }
 

@@ -2,15 +2,16 @@ from webapp.services import solicitudes_repository as repository
 from webapp.services import solicitudes_service as service
 
 
-def test_transition_matrix():
-    assert service.allowed_destinations(None) == ("Pendiente",)
-    assert service.allowed_destinations("") == ("Pendiente",)
-    assert service.allowed_destinations("Pendiente") == ("Planificado", "Suspendido")
-    assert service.allowed_destinations("Planificado") == ("Pendiente", "En curso", "Suspendido")
-    assert service.allowed_destinations("En curso") == ("Planificado", "Suspendido", "Finalizado")
-    assert service.allowed_destinations("Suspendido") == ("Pendiente", "Planificado", "En curso")
-    assert service.allowed_destinations("Finalizado") == ()
-    assert service.allowed_destinations("Desconocido") == ()
+STATUS_CHOICES = ["Pendiente", "Planificado", "En curso", "Finalizado", "Suspendido"]
+
+
+def test_every_catalog_state_can_replace_any_current_state():
+    catalog = STATUS_CHOICES + ["Estado agregado en SharePoint"]
+    for current in ["", *catalog]:
+        for target in catalog:
+            changes = service.changes(service.form_values({service.STATUS: current}),
+                                      {service.STATUS: target}, {service.STATUS: catalog})
+            assert changes == ({} if current == target else {service.STATUS: target})
 
 
 def test_read_follows_graph_pages(monkeypatch):
@@ -19,7 +20,7 @@ def test_read_follows_graph_pages(monkeypatch):
     next_link = f"{list_url}/items?$skiptoken=next"
     responses = {
         f"{base}/sites/danwor.sharepoint.com:/sites/Gestion": {"id": "example,site,web"},
-        f"{list_url}/items?$expand=fields($select=Title,Proyecto,ProyectoLookupId,{service.DESCRIPTION},Prioridad,{service.FUNNEL},{service.STATUS},{service.ASSIGNEES},{service.CREATION_DATE},{service.PLANNED})": {"value": [{"id": "1"}], "@odata.nextLink": next_link},
+        f"{list_url}/items?$expand=fields($select=Title,Proyecto,ProyectoLookupId,{service.DESCRIPTION},Prioridad,{service.FUNNEL},{service.STATUS},{service.ASSIGNEES},{service.CREATION_DATE},{service.PLANNED},{service.ASSIGNEES}LookupId,{service.ACTUAL})": {"value": [{"id": "1"}], "@odata.nextLink": next_link},
         next_link: {"value": [{"id": "2"}]},
     }
     monkeypatch.setattr(repository, "graph_get_json", lambda url, token: responses[url])
@@ -48,20 +49,20 @@ def test_partial_changes_preserve_untouched_html_and_dates():
     }
     current = service.form_values(fields)
     submitted = dict(current, **{service.STATUS: "Pendiente", service.PLANNED: "", service.ASSIGNEES: ["12"]})
-    assert service.changes(current, submitted, {service.ASSIGNEES: {"9": "A", "12": "B"}}) == {
+    assert service.changes(current, submitted, {service.STATUS: STATUS_CHOICES, service.ASSIGNEES: {"9": "A", "12": "B"}}) == {
         service.STATUS: "Pendiente", service.PLANNED: None,
         service.ASSIGNEES + "LookupId@odata.type": "Collection(Edm.String)",
         service.ASSIGNEES + "LookupId": ["12"],
     }
 
 
-def test_invalid_transitions_and_manipulated_inputs():
+def test_invalid_catalog_state_and_manipulated_inputs():
     import pytest
 
     current = service.form_values({})
-    options = {service.PROJECT: {}, service.ASSIGNEES: {}}
+    options = {service.PROJECT: {}, service.ASSIGNEES: {}, service.STATUS: STATUS_CHOICES}
     for submitted in (
-        {service.STATUS: "Finalizado"}, {service.FUNNEL: "Solicitado"}, {"Title": "Protegido"},
+        {service.STATUS: "Inexistente"}, {service.FUNNEL: "Solicitado"}, {"Title": "Protegido"},
         {service.PROJECT: "99"}, {service.ASSIGNEES: ["99"]},
         {service.PLANNED: "2026-02-30"},
     ):
@@ -136,14 +137,14 @@ def test_detail_form_renders_multiple_lookup_and_escapes_html(monkeypatch):
     monkeypatch.setattr(repository, "read_item", lambda *args: {"eTag": '"7"', "fields": {
         service.ASSIGNEES + "LookupId": ["9"], service.DESCRIPTION: "<b>Test</b>",
     }})
-    monkeypatch.setattr(repository, "lookup_options", lambda token: {service.PROJECT: {}, service.ASSIGNEES: {"9": "Test"}})
+    monkeypatch.setattr(repository, "lookup_options", lambda token: {service.PROJECT: {}, service.ASSIGNEES: {"9": "Test"}, service.STATUS: STATUS_CHOICES})
     result = TestClient(app).post("/operaciones/solicitudes/1/detalle", data={"graph_token": "fake"})
     assert result.status_code == 200
     assert f'type="hidden" name="{service.ASSIGNEES}" :value="selected" value="9"' in result.text
     assert ">Test</textarea>" in result.text
     assert ">Cancelar</a>" not in result.text
     assert 'id="solicitudes-save-result" role="status"' in result.text
-    assert "<option>Pendiente</option>" in result.text
+    assert '<option value="Pendiente">Pendiente</option>' in result.text
     assert result.text.count('id="sol-person"') == 1
     assert 'aria-label="Quitar asignación"' in result.text
     assert 'aria-controls="sol-person-list"' in result.text
@@ -159,7 +160,7 @@ def test_htmx_feedback_only_replaces_status_for_validation_and_412(monkeypatch):
 
     monkeypatch.setattr(solicitudes, "_user", lambda request: {"sub": "test-actor"})
     monkeypatch.setattr(repository, "read_item", lambda *args: {"eTag": '"7"', "fields": {}})
-    monkeypatch.setattr(repository, "lookup_options", lambda *args: {})
+    monkeypatch.setattr(repository, "lookup_options", lambda *args: {service.STATUS: STATUS_CHOICES})
     def conflict(*args):
         raise HTTPError("https://graph.microsoft.com", 412, "Conflict", {}, None)
     monkeypatch.setattr(repository, "update_item", conflict)
@@ -167,9 +168,9 @@ def test_htmx_feedback_only_replaces_status_for_validation_and_412(monkeypatch):
     headers = {"Origin": "http://testserver", "HX-Request": "true", "HX-Target": "solicitudes-save-result"}
     path = "/operaciones/solicitudes/1/guardar"
     data = {"graph_token": "fake", "etag": '"7"'}
-    invalid = client.post(path, data=dict(data, **{service.STATUS: "Finalizado"}), headers=headers)
+    invalid = client.post(path, data=dict(data, **{service.STATUS: "Inexistente"}), headers=headers)
     assert invalid.status_code == 200
-    assert "transición de estado no está permitida" in invalid.text
+    assert "Status Arquitectura válido" in invalid.text
     assert "<form" not in invalid.text and "data-solicitudes-review" not in invalid.text
     remote = client.post(path, data=dict(data, Prioridad="Alta"), headers=headers)
     assert remote.status_code == 200
@@ -294,7 +295,7 @@ def test_save_narrative_confirms_plain_text_after_graph_reread(monkeypatch):
     result = TestClient(app).post("/operaciones/solicitudes/1/guardar",
         headers={"Origin": "http://testserver", "HX-Request": "true"},
         data={"graph_token": "fake", "etag": '"7"', service.DESCRIPTION: "A & <B>\r\nOtra",
-              service.COMMENTS: "Conservar"})
+              "new_observation": ""})
     assert "data-solicitudes-saved" in result.text
     assert fields[service.COMMENTS] == "<p><b>Conservar</b></p>"
 
@@ -315,7 +316,7 @@ def test_list_prioritizes_description_without_truncating_search(monkeypatch):
     positions = [result.index(label, result.index("<thead>")) for label in headers]
     assert positions == sorted(positions)
     assert "Solicitud #1" in result and description not in result
-    assert 'style="width:23%"' in result
+    assert 'style="width:20%"' in result
     assert 'href="/operaciones/solicitudes/1/editar"' in result
 
 
@@ -416,8 +417,8 @@ def test_sort_filters_then_paginates_and_keeps_actions_fixed(monkeypatch):
     assert 'href="/operaciones/solicitudes/51/editar"' in result
     assert 'href="/operaciones/solicitudes/50/editar"' not in result
     assert 'aria-sort="ascending"' in result
-    assert 'data-draggable-columns-key="operaciones-solicitudes-v2"' in result
-    assert 'data-resizable-columns-key="operaciones-solicitudes-v2"' in result
+    assert 'data-draggable-columns-key="operaciones-solicitudes-v3"' in result
+    assert 'data-resizable-columns-key="operaciones-solicitudes-v3"' in result
     assert '<th class="center" scope="col">Acciones</th>' in result
     assert 'hx-params="none"' in result
     assert 'name="sort" value="title"' in result
@@ -457,6 +458,11 @@ def test_snapshot_reuses_filters_sort_and_pages_and_refreshes(monkeypatch):
     assert client.get("/operaciones/solicitudes/1/editar").status_code == 200
     listing = client.get("/operaciones/solicitudes").text
     assert listing.count("Cargando solicitudes…") == 1
+    from bs4 import BeautifulSoup
+    document = BeautifulSoup(listing, 'html.parser')
+    # Preserve the shared hero / loading-slot / panel spacing contract.
+    assert document.select_one('.solicitudes-loading-slot').find_next_sibling()['id'] == 'solicitudes-panel'
+    assert document.select_one('#solicitudes-panel').find_next_sibling()['id'] == 'solicitudes-list-result'
     assert 'hx-trigger="load" hx-target="#solicitudes-panel" hx-indicator="#solicitudes-loading"' in listing
     post()
     assert calls == [token]
@@ -569,7 +575,7 @@ def test_nine_column_table_dates_snapshot_sort_and_pagination(monkeypatch):
             headers = re.findall(r"<th\b[^>]*>(.*?)</th>", table, re.S)
             labels = [re.sub(r"<[^>]+>", "", value).strip().rstrip("▲").strip() for value in headers]
             assert labels == [
-                "Solicitud", "Proyecto", "Creada", "Inicio", "Prioridad", "Funnel",
+                "", "Solicitud", "Proyecto", "Creada", "Inicio", "Prioridad", "Funnel",
                 "Arquitectura", "Colaborador", "Acciones",
             ]
             body = re.findall(r"<tr>(.*?)</tr>", table.split("<tbody>", 1)[1], re.S)
@@ -580,11 +586,11 @@ def test_nine_column_table_dates_snapshot_sort_and_pagination(monkeypatch):
             assert 'data-column-key="planned">03/11/2071</td>' in body[0]
             assert 'data-column-key="planned">—</td>' in body[-1]
             assert 'data-column-key="created">—</td>' in body[-1]
-            assert 'data-layout-version="2"' in result.text
+            assert 'data-layout-version="3"' in result.text
             assert table.count('draggable="true"') == 8
             assert '<th class="center" scope="col">Acciones</th>' in table
-            assert 'data-resizable-columns-key="operaciones-solicitudes-v2"' in result.text
-            assert 'data-draggable-columns-key="operaciones-solicitudes-v2"' in result.text
+            assert 'data-resizable-columns-key="operaciones-solicitudes-v3"' in result.text
+            assert 'data-draggable-columns-key="operaciones-solicitudes-v3"' in result.text
             assert 'hx-post="/operaciones/solicitudes/data"' in result.text
         assert len(calls) == 1
         assert service.form_values(rows[0]["fields"])[service.PLANNED] == "2021-11-03"

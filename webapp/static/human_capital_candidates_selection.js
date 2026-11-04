@@ -27,49 +27,7 @@
 
   // ───────────────────────── almacén de la selección (solo ids) ─────────────────────────
   function createStore(storage) {
-    var ids = [];
-    var known = Object.create(null);
-
-    function persist() {
-      if (!storage) return;
-      try { storage.setItem(STORAGE_KEY, JSON.stringify({ v: STORAGE_VERSION, ids: ids })); } catch (e) { /* modo privado/cuota: sigue en memoria, no rompe */ }
-    }
-
-    (function load() {
-      if (!storage) return;
-      try {
-        var raw = storage.getItem(STORAGE_KEY);
-        if (!raw) return;
-        var parsed = JSON.parse(raw);
-        if (!parsed || parsed.v !== STORAGE_VERSION || !Array.isArray(parsed.ids)) return;     // forma desconocida: se descarta entera (fail-closed)
-        parsed.ids.forEach(function (id) {
-          if (typeof id === "string" && ID_RE.test(id) && !known[id] && ids.length < MAX_STORED) { known[id] = true; ids.push(id); }
-        });
-      } catch (e) { ids = []; known = Object.create(null); }
-    })();
-
-    return {
-      ids: function () { return ids.slice(); },
-      has: function (id) { return !!known[id]; },
-      size: function () { return ids.length; },
-      add: function (list) {
-        var changed = false;
-        [].concat(list).forEach(function (id) {
-          if (typeof id === "string" && ID_RE.test(id) && !known[id] && ids.length < MAX_STORED) { known[id] = true; ids.push(id); changed = true; }
-        });
-        if (changed) persist();
-        return changed;
-      },
-      remove: function (list) {
-        var drop = Object.create(null);
-        [].concat(list).forEach(function (id) { drop[id] = true; });
-        var before = ids.length;
-        ids = ids.filter(function (id) { if (drop[id]) { delete known[id]; return false; } return true; });
-        if (ids.length !== before) persist();
-        return ids.length !== before;
-      },
-      clear: function () { ids = []; known = Object.create(null); persist(); }
-    };
+    return window.dwTableSelection.createStore(storage, {key: STORAGE_KEY, idPattern: ID_RE, max: MAX_STORED});
   }
 
   // ───────────────────────── mensaje (HTML + texto plano) y mailto ─────────────────────────
@@ -143,40 +101,11 @@
   // ───────────────────────── sincronización de la interfaz ─────────────────────────
   // Al aparecer/desaparecer la barra, todo lo que está debajo (la tabla) se corre su alto: el próximo clic caería en otra fila. `keepInPlace` mide dónde estaba el control accionado, aplica el
   // cambio y reubica el desplazamiento del contenedor para que ese control quede exactamente donde estaba (si no hay nada que compensar, no hace nada).
-  function scroller(doc, el) {
-    var win = doc.defaultView;
-    for (var node = el && el.parentElement; node && win && win.getComputedStyle; node = node.parentElement) {
-      var oy = win.getComputedStyle(node).overflowY;
-      if ((oy === "auto" || oy === "scroll") && node.scrollHeight > node.clientHeight) return node;
-    }
-    return doc.scrollingElement || doc.documentElement || null;
-  }
-
-  function keepInPlace(doc, anchor, change) {
-    var canMeasure = anchor && anchor.getBoundingClientRect;
-    var before = canMeasure ? anchor.getBoundingClientRect().top : 0;
-    change();
-    if (!canMeasure || !anchor.isConnected) return;
-    var delta = anchor.getBoundingClientRect().top - before;
-    var box = delta ? scroller(doc, anchor) : null;
-    if (box) box.scrollTop += delta;
-  }
+  function keepInPlace(doc, anchor, change) { return window.dwTableSelection.keepInPlace(doc, anchor, change); }
 
   function syncUI(doc, store) {
-    var boxes = [].slice.call(doc.querySelectorAll("[data-hc-select]"));
-    var visibleSelected = 0;
-    boxes.forEach(function (box) {
-      var on = store.has(box.getAttribute("data-hc-select"));
-      box.checked = on;
-      if (on) visibleSelected++;
-      var row = box.closest ? box.closest("tr") : null;
-      if (row && row.classList) { if (on) row.classList.add("is-selected"); else row.classList.remove("is-selected"); }
-    });
-    [].slice.call(doc.querySelectorAll("[data-hc-select-page]")).forEach(function (head) {
-      head.disabled = boxes.length === 0;
-      head.checked = boxes.length > 0 && visibleSelected === boxes.length;
-      head.indeterminate = visibleSelected > 0 && visibleSelected < boxes.length;
-    });
+    var selectedRows = window.dwTableSelection.syncRows(doc, store);
+    var boxes = selectedRows.boxes, visibleSelected = selectedRows.visibleSelected;
     var total = store.size();
     [].slice.call(doc.querySelectorAll("[data-hc-selection-bar]")).forEach(function (bar) {
       bar.hidden = total === 0;                                                             // sin selección no ocupa lugar; el desplazamiento al aparecer/desaparecer lo compensa `keepInPlace`

@@ -12,7 +12,8 @@ let failures = 0;
 function ok(cond, label) { if (!cond) { failures++; console.log(`FAIL: ${label}`); } }
 function eq(a, b, label) { ok(JSON.stringify(a) === JSON.stringify(b), `${label} (esperado ${JSON.stringify(b)}, real ${JSON.stringify(a)})`); }
 
-const SRC = fs.readFileSync(path.resolve(__dirname, "..", "..", "webapp", "static", "human_capital_candidates_selection.js"), "utf-8");
+const SHARED = fs.readFileSync(path.resolve(__dirname, "..", "..", "webapp", "static", "table_selection.js"), "utf-8");
+const SRC = SHARED + "\n" + fs.readFileSync(path.resolve(__dirname, "..", "..", "webapp", "static", "human_capital_candidates_selection.js"), "utf-8");
 
 function load(extra) {
   const sandbox = Object.assign({ window: {}, console }, extra || {});
