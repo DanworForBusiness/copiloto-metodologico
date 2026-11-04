@@ -128,6 +128,36 @@
     if (typeof restorePersistedColumnWidths === "function") restorePersistedColumnWidths(container);
     if (typeof initResizableColumns === "function") initResizableColumns(document);
   }
+  // Una acción de la bandeja cuya respuesta NO llega (error del servidor, corte de red o un proxy que cierra un request largo): la operación pudo haberse completado igual en el servidor (la decisión es
+  // durable). Nunca dejar al usuario sin saber qué pasó: aviso en el toast de la página y recarga del panel con el estado REAL (el mismo cargador de la página, con el token de LECTURA del hook compartido).
+  function inboxRequestFailed(event) {
+    var elt = event.detail && event.detail.elt;
+    var target = event.detail && event.detail.target;
+    var panel = document.getElementById("cvinbox-panel");
+    if (!panel || !((elt && panel.contains(elt)) || target === panel)) return;
+    var toast = document.querySelector("[data-cvinbox-toast]");
+    if (toast) {
+      var note = document.createElement("aside");
+      note.className = "callout callout--warn";
+      note.setAttribute("role", "status");
+      note.setAttribute("data-cvinbox-result", "");
+      note.setAttribute("data-kind", "unconfirmed");
+      note.textContent = "No recibimos la confirmación a tiempo. La operación puede haberse completado: actualizamos la bandeja con su estado real.";
+      toast.classList.remove("is-dismissing");
+      toast.replaceChildren(note);
+    }
+    var loader = document.createElement("div");
+    loader.setAttribute("hx-post", "/cchh/candidatos/importar/bandeja");
+    loader.setAttribute("hx-trigger", "load");
+    loader.setAttribute("hx-target", "this");
+    loader.setAttribute("hx-swap", "outerHTML");
+    loader.setAttribute("data-dw-graph-token", "");
+    loader.setAttribute("data-cvinbox-loader", "");
+    loader.innerHTML = '<p class="section-analysis-loading"><span class="section-analysis-spinner"></span><span class="section-analysis-loading-copy">Actualizando la bandeja…</span></p>';
+    panel.replaceWith(loader);
+    if (window.htmx && window.htmx.process) window.htmx.process(loader);
+  }
+  ["htmx:responseError", "htmx:sendError", "htmx:timeout"].forEach(function (name) { document.addEventListener(name, inboxRequestFailed); });
   document.addEventListener("htmx:afterSettle", function () { wireInboxColumns(); });
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", wireInboxColumns); else wireInboxColumns();
 })();

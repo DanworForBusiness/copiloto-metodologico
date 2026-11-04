@@ -129,7 +129,7 @@ class Intake:
     def delete(self, url, token, extra_headers=None):
         fid = urllib.parse.unquote(url.split(ITEMS, 1)[1]).split("?", 1)[0]
         assert self.allow_delete, "eliminación física no habilitada en este escenario"
-        assert self.files.get(fid, {}).get("parent") == "inbox", "solo se elimina dentro de carga-masiva"
+        assert self.files.get(fid, {}).get("parent") in ("inbox", "sub-incorporados"), "solo se elimina dentro de carga-masiva (o su subcarpeta incorporados)"
         self.deletes.append(fid)
         if self.deny_delete:
             raise http_error(403)
@@ -630,3 +630,80 @@ def test_batch_discard_equals_discarding_each_one_and_deletion_still_needs_the_d
     assert intake.in_folder("sub-descartados") == ["notas.txt", "pablo.pdf"] and intake.in_inbox() == ["cv1.pdf"] and intake.deletes == []
     again = inbox.dismiss_many(keys, TOKEN, actor=ACTOR, reason="NOT_A_CV")
     assert again["counts"]["errors"] == 2                                                                              # no se repite el descarte
+
+
+# ═══════════════════ eliminación del original de un CV ya incorporado ═══════════════════
+def test_the_original_of_an_incorporated_cv_is_deleted_only_after_verifying_the_definitive_one(world):
+    store, intake = world
+    intake.add("a1", "cv1.pdf", ANA)
+    analyze_all()
+    assert batch("cv1.pdf")["counts"]["done"] == 1 and intake.in_folder("sub-incorporados") == ["cv1.pdf"]
+    row = rows()["cv1.pdf"]
+    assert row["can_purge"] and not row["can_retire"]
+    intake.allow_delete = True
+    refused = inbox.purge_original(row["key"], TOKEN, actor=ACTOR)                                    # sin la confirmación explícita no se toca nada
+    assert not refused["ok"] and intake.deletes == [] and intake.in_folder("sub-incorporados") == ["cv1.pdf"]
+    done = inbox.purge_original(row["key"], TOKEN, actor=ACTOR, confirm="ELIMINAR")
+    assert done["ok"] and intake.deletes == ["a1"] and intake.in_folder("sub-incorporados") == []         # se eliminó el original desde «incorporados»
+    entry = mf.get_ledger(inbox.AREA, row["key"])
+    assert entry["state"] == inbox.DONE and entry["retire"]["mode"] == inbox.MODE_DELETE and entry["retire"]["definitive_verified"] and entry["retire"]["previous_mode"] == "incorporados"
+    assert len(docs_of(entry["profile_id"])) == 1 and entry["profile_id"] in banco()                     # el candidato y su CV definitivo no cambian
+    assert inbox.purge_original(row["key"], TOKEN, actor=ACTOR, confirm="ELIMINAR") == {"ok": True, "retire": inbox.RETIRE_DONE, "idempotent": True}
+    assert intake.deletes == ["a1"]
+
+
+def test_an_original_left_in_the_intake_by_a_failed_retire_can_be_deleted_too(world):
+    store, intake = world
+    intake.add("a1", "cv1.pdf", ANA)
+    analyze_all()
+    intake.deny_patch = True
+    batch("cv1.pdf")
+    row = rows()["cv1.pdf"]
+    assert row["can_retire"] and row["can_purge"] and intake.in_inbox() == ["cv1.pdf"]
+    intake.allow_delete = True
+    assert inbox.purge_original(row["key"], TOKEN, actor=ACTOR, confirm="ELIMINAR")["ok"] and intake.in_inbox() == []
+    after = rows().get("cv1.pdf")
+    assert after is None or not after["can_retire"]                                                      # deja de figurar «con problemas»
+
+
+def test_the_original_is_kept_when_the_definitive_cv_or_the_original_cannot_be_verified(world):
+    store, intake = world
+    intake.add("a1", "cv1.pdf", ANA)
+    analyze_all()
+    batch("cv1.pdf")
+    key = rows()["cv1.pdf"]["key"]
+    entry = mf.get_ledger(inbox.AREA, key)
+    intake.allow_delete = True
+    intake.modify("a1", ANA + b"cambio")                                                                 # el original ya no es el incorporado
+    assert "no coincide con el CV incorporado" in inbox.purge_original(key, TOKEN, actor=ACTOR, confirm="ELIMINAR")["error"] and intake.deletes == []
+    intake.modify("a1", ANA)
+    intake.files["a1"]["parent"] = "historico"                                                           # fuera de carga-masiva: nunca se toca
+    assert "fuera de esas carpetas" in inbox.purge_original(key, TOKEN, actor=ACTOR, confirm="ELIMINAR")["error"] and intake.deletes == []
+    intake.files["a1"]["parent"] = "sub-incorporados"
+    profile_document_repository.delete(entry["document_id"])                                             # sin el CV definitivo asociado, el original se conserva
+    assert "no se encontró el CV definitivo" in inbox.purge_original(key, TOKEN, actor=ACTOR, confirm="ELIMINAR")["error"] and intake.deletes == []
+    assert intake.in_folder("sub-incorporados") == ["cv1.pdf"]
+
+
+def test_a_permission_error_on_delete_is_reported_and_nothing_changes(world):
+    store, intake = world
+    intake.add("a1", "cv1.pdf", ANA)
+    analyze_all()
+    batch("cv1.pdf")
+    key = rows()["cv1.pdf"]["key"]
+    intake.allow_delete, intake.deny_delete = True, True
+    out = inbox.purge_original(key, TOKEN, actor=ACTOR, confirm="ELIMINAR")
+    assert not out["ok"] and out["stop"] == "PERMISSION_DENIED" and "no tiene permiso" in out["error"] and intake.in_folder("sub-incorporados") == ["cv1.pdf"]
+    assert mf.get_ledger(inbox.AREA, key)["retire"]["mode"] == "incorporados"                          # el libro no cambia
+
+
+def test_an_unexpected_retire_failure_never_breaks_the_incorporation_response(world):
+    store, intake = world
+    intake.add("a1", "cv1.pdf", ANA)
+    analyze_all()
+    intake.fail_patch = [ValueError("respuesta inesperada de Graph")]                                    # un fallo fuera de la tabla común, DESPUÉS de la decisión durable
+    out = batch("cv1.pdf")
+    assert out["counts"]["done"] == 1
+    row = rows()["cv1.pdf"]
+    assert row["status"] == inbox.INCORPORATED and row["can_retire"] and "RETIRE_GRAPH" in row["reasons"]
+    assert inbox.REASON_TEXT["RETIRE_GRAPH"].startswith("Falta retirar") and inbox.retire(row["key"], TOKEN)["ok"]

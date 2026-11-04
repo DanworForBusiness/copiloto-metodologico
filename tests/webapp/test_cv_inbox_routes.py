@@ -138,9 +138,28 @@ def test_incorporated_rows_show_the_persisted_candidate_and_only_the_actions_tha
     assert f'href="/cchh/candidatos/{done["profile_id"]}" class="table-action-btn chart-tooltip-anchor" aria-label="Ver ficha del candidato"' in view
     assert ">Ver candidato</a>" not in view                                                                      # ya no es un enlace de texto
     assert "data-cvinbox-review-toggle" not in view and "data-cvinbox-discard" not in view                      # ni lápiz ni papelera en una vista solo de incorporados
-    assert '<col style="width:72px">' in view                                                                    # una sola acción: el rótulo «Acciones» no desborda
+    assert '<col style="width:76px">' in view                                                                    # dos acciones (ver candidato, eliminar original): el rótulo «Acciones» no desborda
+    assert f'hx-post="/cchh/candidatos/importar/bandeja/{done["key"]}/eliminar-original"' in view and "data-cvinbox-purge" in view and "data-dw-confirm" in view
+    assert "data-hc-write-token data-cvinbox-purge" in view and "ELIMINAR" in view                                # token de ESCRITURA y confirmación explícita (diálogo + servidor)
     mixed = hc.post("/cchh/candidatos/importar/bandeja", data={"graph_token": TOKEN, "vista": "todos"}).text
     inc = mixed.split(f'data-cvinbox-row="{done["key"]}"', 1)[1].split("</tr>", 1)[0]
     assert "aria-label=\"Ver ficha del candidato\"" in inc and "hc-inbox-slot" in inc
     assert "data-cvinbox-review-toggle" not in inc and "data-cvinbox-discard" not in inc                        # su lugar queda vacío: nada que confunda con el candidato del Banco
+    pending = mixed.split('data-cvinbox-row="', 1)[1].split("</tr>", 1)[0]
+    assert "data-cvinbox-purge" not in pending or "cv1.pdf" in pending                                          # «Eliminar original» solo en filas incorporadas
     assert "data-cvinbox-discard" in mixed                                                                       # las filas por resolver conservan sus acciones
+
+
+def test_the_original_of_an_incorporated_cv_is_deleted_through_the_route_with_explicit_confirmation(world):
+    store, intake = world
+    intake.add("a1", "cv1.pdf", ANA)
+    hc = client_as(HC_USER)
+    hc.post("/cchh/candidatos/importar/bandeja/analizar", data={"graph_token": TOKEN}, headers=ORIGIN)
+    row = next(r for r in inbox.overview(TOKEN)["rows"] if r["name"] == "cv1.pdf")
+    hc.post("/cchh/candidatos/importar/bandeja/aceptar", data={"graph_token": TOKEN, "sel": [f"{row['key']}|{row['fingerprint']}"]}, headers=ORIGIN)
+    intake.allow_delete = True
+    url = f"/cchh/candidatos/importar/bandeja/{row['key']}/eliminar-original"
+    assert hc.post(url, data={"graph_token": TOKEN, "confirm_delete": "ELIMINAR"}).status_code == 403                 # escritura sin mismo origen: rechazada
+    assert "requiere una confirmación explícita" in hc.post(url, data={"graph_token": TOKEN}, headers=ORIGIN).text and intake.deletes == []
+    out = hc.post(url, data={"graph_token": TOKEN, "confirm_delete": "ELIMINAR", "vista": "incorporados"}, headers=ORIGIN).text
+    assert "Se eliminó el CV original" in out and intake.deletes == ["a1"] and intake.in_folder("sub-incorporados") == []
