@@ -1,4 +1,5 @@
 <div class="callout{% if state in ('saved', 'deleted') %} callout--success{% endif %}"
+     {% if rejection %}data-solicitudes-rejection{% endif %}
      {% if state in ('saved', 'deleted') %}data-solicitudes-saved role="status" aria-live="polite"{% endif %}
      {% if state in ('conflict', 'uncertain') %}data-solicitudes-review{% endif %}>
   <div class="callout__body{% if state in ('saved', 'deleted') %} field-hint{% endif %}">
@@ -12,3 +13,4 @@
   </div>
 </div>
 {% if refresh_hero %}{% include "partials/solicitudes_detail_hero.html" %}{% endif %}
+{% if refresh_history %}{% include "partials/solicitudes_history.html" %}{% endif %}

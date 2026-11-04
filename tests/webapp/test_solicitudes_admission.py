@@ -67,32 +67,25 @@ def test_existing_decision_or_unknown_value_is_not_overwritten(columns, funnel):
     operational = patch(original, submitted)
     assert admission.approval_patch(original, submitted, operational, columns, confirmed=True) == operational
     with pytest.raises(ValueError, match='decisión'):
-        admission.rejection_patch(original, 'Motivo', columns, confirmed=True)
+        admission.rejection_reason(original, 'Motivo', columns, confirmed=True)
 
 
-def test_rejection_only_changes_admission_and_appends_escaped_reason(columns):
-    previous = '<div class="ExternalClass"><b>Comentario anterior &amp; enlace</b></div>'
-    original = fields(**{service.COMMENTS: previous, service.ACTUAL: '2026-11-04T00:00:00Z'})
+def test_rejection_validates_reason_without_constructing_a_second_comments_format(columns):
+    original = fields(**{service.COMMENTS: '<b>Anterior</b>'})
     before = deepcopy(original)
-    result = admission.rejection_patch(original, '<script>alert(1)</script>\nA & B', columns, confirmed=True)
-    assert set(result) == {service.FUNNEL, service.COMMENTS}
-    assert result[service.FUNNEL] == admission.REJECTED
-    assert result[service.COMMENTS].startswith(previous)
-    assert '&lt;script&gt;' in result[service.COMMENTS]
-    assert '<script>' not in result[service.COMMENTS]
-    assert '<br>A &amp; B' in result[service.COMMENTS]
+    assert admission.rejection_reason(original, '  Motivo\r\nOtra línea  ', columns, confirmed=True) == 'Motivo\nOtra línea'
     assert original == before
 
 
 @pytest.mark.parametrize('reason', ['', '  \n ', None])
 def test_rejection_requires_reason(columns, reason):
     with pytest.raises(ValueError, match='justificación'):
-        admission.rejection_patch(fields(), reason, columns, confirmed=True)
+        admission.rejection_reason(fields(), reason, columns, confirmed=True)
 
 
 def test_rejection_requires_explicit_confirmation(columns):
     with pytest.raises(ValueError, match='Confirmá'):
-        admission.rejection_patch(fields(), 'Motivo', columns, confirmed=False)
+        admission.rejection_reason(fields(), 'Motivo', columns, confirmed=False)
 
 
 @pytest.mark.parametrize('change', [

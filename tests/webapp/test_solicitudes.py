@@ -295,7 +295,7 @@ def test_save_narrative_confirms_plain_text_after_graph_reread(monkeypatch):
     result = TestClient(app).post("/operaciones/solicitudes/1/guardar",
         headers={"Origin": "http://testserver", "HX-Request": "true"},
         data={"graph_token": "fake", "etag": '"7"', service.DESCRIPTION: "A & <B>\r\nOtra",
-              service.COMMENTS: "Conservar"})
+              "new_observation": ""})
     assert "data-solicitudes-saved" in result.text
     assert fields[service.COMMENTS] == "<p><b>Conservar</b></p>"
 

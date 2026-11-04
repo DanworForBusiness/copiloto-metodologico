@@ -1,0 +1,18 @@
+<details class="dashboard-section" id="solicitudes-history" data-section-id="historial" data-persist-collapse open{% if refresh_history %} hx-swap-oob="outerHTML"{% endif %}>
+  <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Historial</span>
+    <span class="dashboard-section__count">{{ history_rows | length }} movimiento{{ '' if history_rows | length == 1 else 's' }}</span>
+  </summary>
+  <div class="dashboard-section__body">
+    <p class="field-hint">Observaciones de Arquitectura · Horario de Buenos Aires. Los cambios operativos no están incluidos en este historial.</p>
+    {% if history_rows %}
+    <div class="matrix-scroll"><table class="dashboard-table solicitudes-history-table">
+      <colgroup><col style="width:23%"><col style="width:17%"><col style="width:20%"><col style="width:40%"></colgroup>
+      <thead><tr><th class="left">Movimiento</th><th class="left">Fecha</th><th class="left">Realizado por</th><th class="left">Detalle</th></tr></thead>
+      <tbody>{% for entry in history_rows %}<tr>
+        <td class="left">{{ entry.movement }}</td><td class="left">{{ entry.date }}</td><td class="left">{{ entry.actor }}</td>
+        <td class="left">{% for line in entry.text.split('\n') %}{{ line }}{% if not loop.last %}<br>{% endif %}{% endfor %}</td>
+      </tr>{% endfor %}</tbody>
+    </table></div>
+    {% else %}<div class="dashboard-empty"><span class="dashboard-empty__label">Sin observaciones</span><p>Todavía no hay observaciones registradas.</p></div>{% endif %}
+  </div>
+</details>

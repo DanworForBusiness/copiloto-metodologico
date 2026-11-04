@@ -1,9 +1,4 @@
-"""Pure admission rules; no transport or automatic writes.
-
-Wiring to mutation endpoints requires verification of the real SharePoint
-column contract. Admission is deliberately separate from operational status.
-"""
-from html import escape
+"""Admission validation, separate from transport and operational status."""
 
 from webapp.services import solicitudes_service as service
 
@@ -74,8 +69,8 @@ def approval_patch(fields, submitted, operational_patch, columns, *, confirmed):
     return result
 
 
-def rejection_patch(fields, reason, columns, *, confirmed):
-    """Preserve original comments byte-for-byte; append only escaped new text."""
+def rejection_reason(fields, reason, columns, *, confirmed):
+    """Validate admission; journal persistence supplies timestamp and identity."""
     validate_column(columns)
     if fields.get(service.FUNNEL) != REQUESTED:
         raise ValueError("La solicitud ya tiene una decisión de admisión. No se puede rechazar.")
@@ -83,7 +78,4 @@ def rejection_patch(fields, reason, columns, *, confirmed):
         raise ValueError("Ingresá una justificación para derivar la demanda a Operaciones.")
     if confirmed is not True:
         raise ValueError("Confirmá expresamente el rechazo de la demanda.")
-    reason = service.normalize_narrative(reason.strip())
-    previous = fields.get(service.COMMENTS) or ""
-    addition = escape("Rechazo / Derivación a Operaciones: " + reason, quote=False).replace("\n", "<br>")
-    return {service.FUNNEL: REJECTED, service.COMMENTS: previous + "<div>" + addition + "</div>"}
+    return service.normalize_narrative(reason.strip())

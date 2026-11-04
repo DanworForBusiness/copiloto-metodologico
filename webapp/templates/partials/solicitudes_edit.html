@@ -5,6 +5,7 @@
 <a class="btn-secondary" href="/operaciones/solicitudes">Volver a Solicitudes</a>
 {% else %}
 <form class="hc-profile-form" data-solicitudes-write-token hx-sync="this:drop"
+      {% if not is_new %}data-solicitudes-admission="{{ funnel or '' }}"{% endif %}
       x-data="{dirty:false,saved:false,review:false}"
       @input="dirty=true" @change="dirty=true"
       @submit.capture="if (Array.from($el.querySelectorAll('[data-narrative]')).some(field => field.value !== field.defaultValue) && !window.confirm('Los textos modificados se guardarán sin el formato original. ¿Continuar?')) { $event.preventDefault(); $event.stopImmediatePropagation() }"
@@ -20,7 +21,7 @@
     <label for="sol-title">Título de la solicitud</label>
     <input id="sol-title" type="text" name="Title" value="" required{% if title_max_length %} maxlength="{{ title_max_length }}"{% endif %}>
   </div></section>
-  {% else %}<input type="hidden" name="etag" value="{{ etag }}">{% endif %}
+  {% else %}<input type="hidden" name="etag" value="{{ etag }}"><input type="hidden" name="observation_ticket" value="{{ observation_ticket }}">{% endif %}
   <section class="hc-profile-section"><h2>Estado y asignación</h2><div class="hc-profile-section__grid hc-profile-section__grid--fluid">
   <div class="feedback-field feedback-field--medium">
     <label for="sol-status">Status Arquitectura</label>
@@ -71,14 +72,22 @@
     <textarea id="sol-description"{% if original_fields.get(fields.DESCRIPTION) %} data-narrative{% endif %} name="{{ fields.DESCRIPTION }}" rows="8">{{ values[fields.DESCRIPTION] }}</textarea>
   </div>
   <div class="feedback-field feedback-field--wide">
+    {% if is_new %}
     <label for="sol-comments">Comentarios de Arquitectura</label>
     <textarea id="sol-comments"{% if original_fields.get(fields.COMMENTS) %} data-narrative{% endif %} name="{{ fields.COMMENTS }}" rows="8">{{ values[fields.COMMENTS] }}</textarea>
+    {% else %}
+    <label for="sol-observation">Nueva observación de Arquitectura</label>
+    <textarea id="sol-observation" name="new_observation" data-new-observation rows="8" placeholder="Escribí una nueva observación…"></textarea>
+    {% endif %}
   </div>
   </div>
   </section>
   <div class="hc-profile-form__actions">
     <button type="submit" class="btn-primary" :disabled="saved || review"{% if not is_new and not etag %} disabled{% endif %}>{{ 'Crear solicitud' if is_new else 'Guardar' }}</button>
     {% if not is_new %}
+    {% if funnel == 'Solicitado' %}
+    <button type="button" class="btn-secondary" data-solicitudes-reject-open :disabled="saved || review"{% if not etag %} disabled{% endif %}>Rechazar / Derivar a Operaciones</button>
+    {% endif %}
     <button type="button" class="table-action-btn table-action-btn--danger chart-tooltip-anchor"
             aria-label="Eliminar solicitud" :disabled="saved || review"{% if not etag %} disabled{% endif %}
             hx-post="/operaciones/solicitudes/{{ item_id }}/eliminar" hx-trigger="confirmed"
@@ -96,4 +105,27 @@
   </div>
 </form>
 <div id="solicitudes-save-result" role="status"></div>
+{% if not is_new %}
+{% include "partials/solicitudes_history.html" %}
+{% if funnel == 'Solicitado' %}
+<dialog class="dw-confirm busqueda-dialog busqueda-contact-dialog" id="solicitudes-reject-dialog" aria-labelledby="solicitudes-reject-title">
+  <form class="hc-profile-form" data-solicitudes-write-token hx-post="/operaciones/solicitudes/{{ item_id }}/rechazar"
+        hx-target="#solicitudes-save-result" hx-sync="this:drop" hx-disabled-elt="find button[type=submit]">
+    <h2 id="solicitudes-reject-title">Rechazar / Derivar a Operaciones</h2>
+    <p class="field-hint">La demanda pasará a Rechazado, Aplica Operaciones. No se modificarán sus fechas, asignaciones ni estado de Arquitectura.</p>
+    <input type="hidden" name="etag" value="{{ etag }}">
+    <input type="hidden" name="observation_ticket" value="{{ observation_ticket }}">
+    <input type="hidden" name="confirm_rejection" value="yes">
+    <div class="feedback-field"><label for="sol-rejection-reason">Justificación</label>
+      <textarea id="sol-rejection-reason" name="reason" rows="4" required></textarea>
+    </div>
+    <div data-rejection-feedback role="status"></div>
+    <div class="hc-profile-form__actions">
+      <button type="button" class="btn-secondary" data-solicitudes-reject-cancel>Cancelar</button>
+      <button type="submit" class="btn-primary">Confirmar rechazo</button>
+    </div>
+  </form>
+</dialog>
+{% endif %}
+{% endif %}
 {% endif %}
