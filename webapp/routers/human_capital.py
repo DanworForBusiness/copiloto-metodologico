@@ -125,6 +125,7 @@ from webapp.services import (
     profile_document_validation, profile_import_service, sharepoint_graph_diagnostics,
 )
 from webapp.services import cv_history_acceptance, cv_history_drafts, cv_history_import, cv_history_import_exec, cv_history_inventory, cv_history_manifest, cv_history_pilot, cv_history_review
+from webapp.services import cv_inbox
 from webapp.services import human_capital_contact, human_capital_export, human_capital_share, profile_consolidation_service
 from webapp.services import scoring_engine, scoring_evaluation_repository, scoring_grid_repository, scoring_service
 from webapp.services.activity_catalog import (
@@ -715,7 +716,7 @@ def human_capital_profile_delete(
     # re-aplican al re-render para que el borrado NO pierda la búsqueda activa.
     q: str = Form(""), seniority: str = Form(""), source: str = Form(""),
     location: str = Form(""), potential_mark: str = Form(""),
-    page: str = Form(""), page_size: str = Form(""),
+    page: str = Form(""), page_size: str = Form(""), filtro: str = Form(""),
     # Solo con documentos activos: el diálogo contextual ofrece (desmarcado) «Eliminar también los documentos de SharePoint». Sin la casilla, el contrato de la baja NO cambia.
     delete_documents: str = Form(""), graph_token: str = Form(""),
 ):
@@ -821,12 +822,13 @@ def _import_page_context(**kwargs) -> dict:
         "max_upload_mb": profile_import_service.MAX_UPLOAD_BYTES // (1024 * 1024),
         "max_import_rows": profile_import_service.MAX_IMPORT_ROWS,
         "bulk_import_template_url": config.HC_BULK_IMPORT_TEMPLATE_URL,
+        "inbox_folder_name": cv_inbox.FOLDER_NAME,
         **kwargs,
     }
 
 
 @router.get("/cchh/candidatos/importar", response_class=HTMLResponse, include_in_schema=False)
-def human_capital_profiles_import_page(request: Request):
+def human_capital_profiles_import_page(request: Request, modo: str = Query("sharepoint")):
     redirect = _require_human_capital_session(request)
     if redirect is not None:
         return redirect
@@ -839,7 +841,7 @@ def human_capital_profiles_import_page(request: Request):
             "pack": DEFAULT_PACK,
             "user": user,
             "active_page": "importar",
-            **_import_page_context(),
+            **_import_page_context(modo="excel" if modo == "excel" else "sharepoint"),
         },
     )
 
@@ -935,6 +937,282 @@ def human_capital_profiles_import_confirm(
             "summary": summary,
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# Carga masiva · bandeja de SharePoint (`Perfiles/carga-masiva` → Banco + `CVs`)
+# ---------------------------------------------------------------------------
+# Segunda modalidad de Carga masiva (la de Excel queda intacta). Toda la lógica vive en
+# `webapp/services/cv_inbox.py`; acá solo: sesión de Capital Humano, mismo origen en las
+# escrituras, traducción de errores a un mensaje y el fragmento HTMX del panel. El token
+# DELEGADO viaja en el cuerpo: `data-dw-graph-token` (lectura: listar, analizar, revisar)
+# o `data-hc-write-token` (escritura en CVs: aceptar, reintentar, retirar). Datos
+# personales ⇒ `no-store`. Sin token ⇒ el panel lo pide (nunca un error crudo).
+_INBOX_VIEWS = {
+    "abiertos": lambda r: r["status"] not in (cv_inbox.INCORPORATED, cv_inbox.DISCARDED) or r.get("can_retire"),
+    "incorporados": lambda r: r["status"] == cv_inbox.INCORPORATED,
+    "descartados": lambda r: r["status"] == cv_inbox.DISCARDED,
+    "todos": lambda r: True,
+}
+# Filtro por tile (como los KPI clickeables del CRM): cada tile filtra la tabla por su criterio; la «×» del encabezado vuelve al estado inicial.
+_INBOX_TILES = {
+    "pendientes": ("Por analizar", lambda r: r["status"] in (cv_inbox.PENDING, cv_inbox.MODIFIED, cv_inbox.ERROR_RETRY)),
+    "listos": ("Listos para incorporar", lambda r: r["status"] == cv_inbox.READY),
+    "revisar": ("Para revisar", lambda r: r["status"] in (cv_inbox.REVIEW, cv_inbox.INCOMPLETE)),
+    "problemas": ("Con problemas", lambda r: r["status"] in (cv_inbox.ERROR, cv_inbox.ACCEPTING) or bool(r.get("can_retire"))),
+}
+_INBOX_ACTIONS = ("guardar", "resolver", "aceptar", "reintentar", "descartar", "reabrir", "retirar")
+
+
+def _inbox_actor(request: Request) -> str:
+    return str((auth_service.session_user(request) or {}).get("sub") or "").strip().lower()
+
+
+# Orden por cabecera: MISMO contrato que el Banco (`_profile_sort_state`): la misma columna invierte la dirección, otra vuelve a ascendente; sin columna, el orden por estado
+# (lo que hay que resolver primero). Se aplica en el servidor sobre las filas de la vista.
+_INBOX_SORT_KEYS = {
+    "cv": lambda r: r["name"].casefold(),
+    "datos": lambda r: " ".join(((r.get("fields") or {}).get(k) or "") for k in ("last_name", "first_name")).casefold().strip(),
+    "coincidencias": lambda r: len(r.get("matches") or []) + len(r.get("peers") or []),
+    "estado": lambda r: (cv_inbox._ORDER[r["status"]], r["name"].casefold()),
+}
+
+
+def _inbox_sort_state(orden: str, direction: str) -> dict:
+    key = orden if orden in _INBOX_SORT_KEYS else ""
+    direction = "desc" if (key and direction == "desc") else "asc"
+    return {"key": key, "dir": direction, "next": {c: ("desc" if (c == key and direction == "asc") else "asc") for c in _INBOX_SORT_KEYS},
+            "arrow": {c: (("▲" if direction == "asc" else "▼") if c == key else "") for c in _INBOX_SORT_KEYS}}
+
+
+def _inbox_sorted(rows: list[dict], state: dict) -> list[dict]:
+    if not state["key"]:
+        return rows
+    key = _INBOX_SORT_KEYS[state["key"]]
+    filled = [r for r in rows if key(r) not in ("", None)]
+    empty = [r for r in rows if key(r) in ("", None)]
+    return sorted(filled, key=key, reverse=state["dir"] == "desc") + empty
+
+
+def _inbox_candidate(row: dict) -> dict:
+    """Candidato del Banco asociado a una fila incorporada (o en curso): nombre, email y teléfono persistidos. `available` False si el perfil ya no existe o fue dado de baja."""
+    from webapp.services import profile_repository
+    try:
+        profile = profile_repository.get(row["profile_id"])
+    except Exception:  # noqa: BLE001 — la vista nunca falla por esto: la fila se muestra sin los datos del candidato
+        profile = None
+    if not profile or profile.get("deleted_at"):
+        return {"profile_id": row["profile_id"], "available": False}
+    return {"profile_id": row["profile_id"], "available": True, "name": " ".join(p for p in (profile.get("first_name"), profile.get("last_name")) if p).strip(),
+            "email": profile.get("email") or "", "phone": profile.get("phone") or ""}
+
+
+def _inbox_panel(request: Request, graph_token: str, *, vista: str = "abiertos", sort: tuple[str, str] = ("", ""), paging: tuple[str, str] = ("", ""), filtro: str = "",
+                 result: dict | None = None, open_key: str | None = None):
+    # El paginador compartido (`partials/pager.html`, method='post') lleva página/tamaño y el estado de la vista en la URL; el token viaja en el cuerpo. El cuerpo manda si trae valor.
+    q = request.query_params
+    vista = vista or q.get("vista") or "abiertos"
+    vista = vista if vista in _INBOX_VIEWS else "abiertos"
+    sort = (sort[0] or q.get("orden") or "", sort[1] or q.get("dir") or "")
+    page, page_size = paging[0] or q.get("page") or "1", paging[1] or q.get("page_size") or ""
+    filtro = filtro or q.get("filtro") or ""
+    filtro = filtro if filtro in _INBOX_TILES else ""
+    if filtro:
+        vista = "abiertos"                                                          # los tiles cuentan lo que está por resolver
+    sort_state = _inbox_sort_state(*sort)
+    context = {"request": request, "vista": vista, "sort_state": sort_state, "result": result, "open_key": open_key, "error": None, "overview": None, "rows": [],
+               "panel_state": {"vista": vista, "orden": sort_state["key"], "dir": sort_state["dir"], "page": page, "page_size": page_size, "filtro": filtro},
+               "filtro": filtro, "tiles": {code: label for code, (label, _f) in _INBOX_TILES.items()},
+               "limits": {"file_mb": cv_inbox.MAX_FILE_BYTES // (1024 * 1024), "analyze": cv_inbox.ANALYZE_MAX_DOCS, "accept": cv_inbox.ACCEPT_MAX_SELECTION, "listed": cv_inbox.MAX_LISTED},
+               "folder_name": cv_inbox.FOLDER_NAME, "dismiss_options": [{"value": code, "label": label} for code, label in cv_inbox.DISMISS_REASONS.items()]}
+    if not graph_token:
+        context["error"] = {"code": "NO_TOKEN", "message": "Conectá tu cuenta de Microsoft 365 para ver la bandeja de SharePoint."}
+    else:
+        try:
+            overview = cv_inbox.overview(graph_token)
+        except cv_inbox.InboxError as exc:
+            context["error"] = {"code": exc.code, "message": str(exc)}
+        except (cv_history_manifest.ManifestError, ProfileStorageError, profile_document_repository.ProfileDocumentStorageError):
+            context["error"] = {"code": "STORAGE", "message": "No se pudo leer el estado de la bandeja en el Hub. Reintentá en un momento."}
+        else:
+            rows = _inbox_sorted([r for r in overview["rows"] if _INBOX_VIEWS[vista](r) and (not filtro or _INBOX_TILES[filtro][1](r))], sort_state)
+            pager = pagination.paginate(rows, page=page, page_size=page_size, base_url="/cchh/candidatos/importar/bandeja",
+                                        params={"vista": vista, "orden": sort_state["key"], "dir": sort_state["dir"], "filtro": filtro})
+            total_rows, rows = pager["total"], pager["items"]
+            # Fila incorporada (o en curso): muestra el candidato YA PERSISTIDO en el Banco (lectura local del repositorio, sin Graph) en lugar de datos propuestos vacíos.
+            rows = [{**r, "candidate": _inbox_candidate(r)} if r.get("profile_id") and r["status"] in (cv_inbox.INCORPORATED, cv_inbox.ACCEPTING) else r for r in rows]
+            # Acciones por fila: cada ícono aparece en TODAS las filas (deshabilitado donde no aplica) si aplica al menos a una; si no aplica a ninguna, no se dibuja. En una fila INCORPORADA
+            # las acciones de bandeja que no le corresponden (revisar, descartar…) dejan su lugar vacío: nunca un lápiz o una papelera que parezcan editar o borrar el candidato del Banco.
+            actions = {"candidate": any(r.get("candidate") for r in rows), "original": any(r.get("web_url") for r in rows), "review": any(r["can_accept"] for r in rows),
+                       "retry": any(r["can_retry"] or r["can_retire"] for r in rows), "reopen": any(r["can_reopen"] for r in rows), "discard": any(r["can_dismiss"] for r in rows)}
+            actions["count"] = sum(1 for v in actions.values() if v is True)
+            context["panel_state"].update({"page": pager["page"], "page_size": pager["page_size"]})
+            context.update({"overview": overview, "rows": rows, "row_actions": actions, "pager": pager, "total_rows": total_rows})
+    return templates.TemplateResponse(request=request, name="partials/cv_inbox_panel.html", context=context, headers=_NO_STORE)
+
+
+def _require_inbox_write(request: Request):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    if not same_origin_guard.is_same_origin_write(request):
+        raise HTTPException(403, "Origen no permitido")
+    return None
+
+
+@router.post("/cchh/candidatos/importar/bandeja", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_cv_inbox_panel(request: Request, graph_token: str = Form(""), vista: str = Form(""),
+        orden: str = Form(""), direction: str = Form("", alias="dir"), page: str = Form(""), page_size: str = Form(""), filtro: str = Form("")):
+    """Panel de la bandeja (SOLO LECTURA: lista la carpeta y deriva los estados; no escribe nada). POST para que el token viaje en el cuerpo."""
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    return _inbox_panel(request, graph_token, vista=vista, sort=(orden, direction), paging=(page, page_size), filtro=filtro)
+
+
+@router.post("/cchh/candidatos/importar/bandeja/analizar", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_cv_inbox_analyze(request: Request, graph_token: str = Form(""), vista: str = Form("abiertos"),
+        orden: str = Form(""), direction: str = Form("", alias="dir"), page: str = Form(""), page_size: str = Form(""), filtro: str = Form("")):
+    """Una tanda de análisis (descarga y extracción, sin crear candidatos ni escribir en SharePoint). Si quedan pendientes, el panel continúa solo con la tanda siguiente."""
+    redirect = _require_inbox_write(request)
+    if redirect is not None:
+        return redirect
+    if not graph_token:
+        return _inbox_panel(request, graph_token, vista=vista, sort=(orden, direction), paging=(page, page_size), filtro=filtro)
+    try:
+        out = cv_inbox.analyze(graph_token, actor=_inbox_actor(request))
+    except cv_inbox.InboxError as exc:
+        return _inbox_panel(request, graph_token, vista=vista, sort=(orden, direction), paging=(page, page_size), filtro=filtro, result={"kind": "error", "message": str(exc)})
+    stop = out["stopped_reason"]
+    message = {"BUSY": "Otra persona está analizando la bandeja en este momento: reintentá en unos segundos.", "TOKEN_EXPIRED": cv_inbox.STOP_TEXT["TOKEN_EXPIRED"],
+               "PERSISTENCE_ERROR": cv_inbox.STOP_TEXT["PERSISTENCE_ERROR"], "PERMISSION_DENIED": "Sin permiso para leer archivos de la carpeta de carga masiva."}.get(stop)
+    summary = f"Se analizaron {out['analyzed']} CV{'' if out['analyzed'] == 1 else 's'}" + (f"; {out['failed']} no se {'pudo' if out['failed'] == 1 else 'pudieron'} leer" if out["failed"] else "") + "."
+    if out["remaining"]:
+        summary += f" Quedan {out['remaining']} por analizar: seguimos automáticamente."
+    result = {"kind": "error" if message else "ok", "analysis": out, "message": message or summary,
+              "continue": stop in ("BATCH_LIMIT", "TIME_BUDGET") and bool(out["remaining"])}
+    return _inbox_panel(request, graph_token, vista=vista, sort=(orden, direction), paging=(page, page_size), filtro=filtro, result=result)
+
+
+@router.post("/cchh/candidatos/importar/bandeja/aceptar", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_cv_inbox_accept_batch(request: Request, graph_token: str = Form(""), sel: list[str] = Form([]), vista: str = Form("abiertos"),
+        orden: str = Form(""), direction: str = Form("", alias="dir"), page: str = Form(""), page_size: str = Form(""), filtro: str = Form("")):
+    """Aceptación por lote de las filas seleccionadas (`<item_key>|<huella>`): solo las seguras o resueltas por una persona; cada una se revalida antes de escribir."""
+    redirect = _require_inbox_write(request)
+    if redirect is not None:
+        return redirect
+    selection = []
+    for raw in sel[: cv_inbox.ACCEPT_MAX_SELECTION]:
+        key, _sep, fp = str(raw).partition("|")
+        if cv_history_manifest.KEY_RE.match(key) and fp:
+            selection.append((key, fp))
+    if not graph_token:
+        return _inbox_panel(request, graph_token, vista=vista, sort=(orden, direction), paging=(page, page_size), filtro=filtro, result={"kind": "error", "need_write": True, "message": "No se pudo confirmar tu acceso a SharePoint. Autorizá la escritura y volvé a intentarlo."})
+    if not selection:
+        return _inbox_panel(request, graph_token, vista=vista, sort=(orden, direction), paging=(page, page_size), filtro=filtro, result={"kind": "error", "message": "Seleccioná al menos un CV listo para aceptar."})
+    try:
+        out = cv_inbox.accept_batch(selection, graph_token, actor=_inbox_actor(request))
+    except cv_inbox.InboxError as exc:
+        return _inbox_panel(request, graph_token, vista=vista, sort=(orden, direction), paging=(page, page_size), filtro=filtro, result={"kind": "error", "message": str(exc)})
+    c = out["counts"]
+    parts = [f"Se incorporaron {c['done']} CV{'' if c['done'] == 1 else 's'} al Banco."]
+    if c["pending"]:
+        parts.append(f"{c['pending']} {'quedó' if c['pending'] == 1 else 'quedaron'} sin procesar: volvé a seleccionarl{'o' if c['pending'] == 1 else 'os'}.")
+    if c["errors"]:
+        parts.append(f"{c['errors']} {'necesita' if c['errors'] == 1 else 'necesitan'} revisión.")
+    return _inbox_panel(request, graph_token, vista=vista, sort=(orden, direction), paging=(page, page_size), filtro=filtro, result={"kind": "ok" if not c["errors"] and not c["pending"] else "partial", "batch": out, "message": " ".join(parts),
+                                                                    "need_write": out.get("stopped_reason") in ("PERMISSION_DENIED", "TOKEN_EXPIRED")})
+
+
+@router.post("/cchh/candidatos/importar/bandeja/descartar", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_cv_inbox_dismiss_batch(request: Request, graph_token: str = Form(""), sel: list[str] = Form([]), vista: str = Form("abiertos"),
+                                         orden: str = Form(""), direction: str = Form("", alias="dir"), page: str = Form(""), page_size: str = Form(""), filtro: str = Form(""), reason: str = Form(""), delete_original: str = Form(""), confirm_delete: str = Form("")):
+    """Descarte por lote de las filas seleccionadas: equivale a descartar cada una (mismo diálogo, misma doble confirmación para eliminar)."""
+    redirect = _require_inbox_write(request)
+    if redirect is not None:
+        return redirect
+    keys = [k for k in (str(raw).partition("|")[0] for raw in sel[: cv_inbox.ACCEPT_MAX_SELECTION]) if cv_history_manifest.KEY_RE.match(k)]
+    if not graph_token:
+        return _inbox_panel(request, graph_token, vista=vista, sort=(orden, direction), paging=(page, page_size), filtro=filtro, result={"kind": "error", "need_write": True,
+                                                                                               "message": "No se pudo confirmar tu acceso a SharePoint. Autorizá la escritura y volvé a intentarlo."})
+    if not keys:
+        return _inbox_panel(request, graph_token, vista=vista, sort=(orden, direction), paging=(page, page_size), filtro=filtro, result={"kind": "error", "message": "Seleccioná al menos un CV para descartar."})
+    try:
+        out = cv_inbox.dismiss_many(keys, graph_token, actor=_inbox_actor(request), reason=reason, delete_original=delete_original == "true", confirm_delete=confirm_delete)
+    except cv_inbox.InboxError as exc:
+        return _inbox_panel(request, graph_token, vista=vista, sort=(orden, direction), paging=(page, page_size), filtro=filtro, result={"kind": "error", "message": str(exc)})
+    if not out.get("ok"):
+        return _inbox_panel(request, graph_token, vista=vista, sort=(orden, direction), paging=(page, page_size), filtro=filtro, result={"kind": "error", "message": out["error"]})
+    c = out["counts"]
+    where = "Se eliminaron sus archivos originales de SharePoint." if out["mode"] == cv_inbox.MODE_DELETE else f"Sus archivos pasaron a «{cv_inbox.FOLDER_NAME}/{cv_inbox.DISCARDED_FOLDER}»."
+    parts = [f"Se descartaron {c['done']} CV{'' if c['done'] == 1 else 's'}." + (f" {where}" if c["done"] - c["partial"] else "")]
+    if c["partial"]:
+        parts.append(f"En {c['partial']} el archivo quedó pendiente de retirar de la carpeta.")
+    if c["pending"]:
+        parts.append(f"{c['pending']} {'quedó' if c['pending'] == 1 else 'quedaron'} sin procesar.")
+    if c["errors"]:
+        parts.append(f"{c['errors']} no se {'pudo' if c['errors'] == 1 else 'pudieron'} descartar.")
+    batch = {"results": [{**x, "outcome": "DISCARDED" if x["outcome"] in ("DONE", "PARTIAL") else x["outcome"]} for x in out["results"]]}
+    return _inbox_panel(request, graph_token, vista=vista, sort=(orden, direction), paging=(page, page_size), filtro=filtro, result={"kind": "ok" if not (c["partial"] or c["pending"] or c["errors"]) else "partial", "batch": batch,
+                                                                                           "message": " ".join(parts)})
+
+
+@router.post("/cchh/candidatos/importar/bandeja/{key}/{accion}", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_cv_inbox_row_action(
+    request: Request, key: str, accion: str, graph_token: str = Form(""), vista: str = Form("abiertos"), orden: str = Form(""), direction: str = Form("", alias="dir"), page: str = Form(""), page_size: str = Form(""), filtro: str = Form(""),
+    first_name: str = Form(""), last_name: str = Form(""), email: str = Form(""), phone: str = Form(""), profile_skills: str = Form(""),
+    decision: str = Form(""), fingerprint: str = Form(""), revision: str = Form("0"), acks: list[str] = Form([]), reason: str = Form(""),
+    delete_original: str = Form(""), confirm_delete: str = Form(""),
+):
+    """Acciones explícitas sobre UN CV de la bandeja: guardar la revisión, guardar la decisión, aceptar (crear o vincular), reintentar, descartar, reabrir o retirar el original."""
+    redirect = _require_inbox_write(request)
+    if redirect is not None:
+        return redirect
+    if accion not in _INBOX_ACTIONS or not cv_history_manifest.KEY_RE.match(key or ""):
+        raise HTTPException(404, "Acción inexistente")
+    actor = _inbox_actor(request)
+    raw = {"first_name": first_name, "last_name": last_name, "email": email, "phone": phone, "profile_skills": profile_skills}
+    op, _sep, target = decision.partition(":")
+    if not graph_token:
+        return _inbox_panel(request, graph_token, vista=vista, sort=(orden, direction), paging=(page, page_size), filtro=filtro, open_key=key, result={"kind": "error", "key": key, "need_write": True,
+                                                                                    "message": "No se pudo confirmar tu acceso a SharePoint. Autorizá la escritura y volvé a intentarlo."})
+    try:
+        if accion == "guardar":
+            res = cv_inbox.save_draft(key, graph_token, actor=actor, raw=raw, expected_revision=revision)
+        elif accion == "resolver":
+            res = cv_inbox.save_decision(key, graph_token, actor=actor, raw=raw, op=op, target_profile_id=target, fingerprint_seen=fingerprint, expected_revision=revision, acks=acks)
+        elif accion == "aceptar":
+            res = cv_inbox.accept_one(key, graph_token, actor=actor, raw=raw, op=op, target_profile_id=target, fingerprint_seen=fingerprint, expected_revision=revision, acks=acks)
+        elif accion == "reintentar":
+            res = cv_inbox.accept_one(key, graph_token, actor=actor)
+        elif accion == "descartar":
+            res = cv_inbox.dismiss(key, graph_token, actor=actor, reason=reason, delete_original=delete_original == "true", confirm_delete=confirm_delete)
+        elif accion == "reabrir":
+            res = cv_inbox.reopen(key, actor=actor, token=graph_token)
+        else:
+            res = cv_inbox.retire(key, graph_token)
+    except cv_history_manifest.ManifestBusyError:
+        res = {"ok": False, "error": "Otra persona está procesando este CV en este momento. Reintentá en unos segundos."}
+    except cv_history_drafts.DraftConflict:
+        res = {"ok": False, "error": "Alguien guardó cambios en esta revisión mientras la editabas: se muestra lo vigente."}
+    except cv_history_drafts.DraftError as exc:
+        res = {"ok": False, "error": str(exc)}
+    except cv_inbox.InboxError as exc:
+        res = {"ok": False, "error": str(exc)}
+    except cv_history_manifest.ManifestError:
+        res = {"ok": False, "error": cv_inbox.STOP_TEXT["PERSISTENCE_ERROR"]}
+    discarded = ("CV descartado. Se eliminó el archivo original de SharePoint." if res.get("mode") == cv_inbox.MODE_DELETE else
+                 f"CV descartado. El archivo se movió a «{cv_inbox.FOLDER_NAME}/{cv_inbox.DISCARDED_FOLDER}», desde donde se puede recuperar.")
+    message = res.get("error") or {"guardar": "Revisión guardada.", "resolver": "Revisión guardada: el CV quedó listo para incorporarse.", "descartar": discarded,
+                                   "reabrir": "El CV volvió a quedar por resolver.", "retirar": "Listo: el archivo se retiró de la carpeta de carga masiva."}.get(accion, "CV incorporado al Banco.")
+    kind = "ok" if res.get("ok") else "error"
+    if res.get("ok") and accion == "descartar" and res.get("warning"):
+        message, kind = "CV descartado. " + res["warning"], "partial"
+    if res.get("ok") and accion in ("aceptar", "reintentar") and res.get("retire") not in (None, cv_inbox.RETIRE_DONE):
+        message, kind = message + " " + cv_inbox.REASON_TEXT["RETIRE_PENDING"], "partial"
+    keep_open = not res.get("ok") and accion in ("guardar", "resolver", "aceptar")
+    return _inbox_panel(request, graph_token, vista=vista, sort=(orden, direction), paging=(page, page_size), filtro=filtro, open_key=key if keep_open else None,
+                        result={"kind": kind, "key": key, "message": message, "profile_id": res.get("profile_id"), "need_write": res.get("stop") in ("PERMISSION_DENIED", "TOKEN_EXPIRED")})
 
 
 # ---------------------------------------------------------------------------

@@ -1553,7 +1553,16 @@ function initAutoDismissFeedback(scope) {
     if (el.dataset.dwAutoDismissWired) return;
     el.dataset.dwAutoDismissWired = "1";
     let hideTimer = null;
-    function hide() { clearTimeout(hideTimer); hideTimer = null; el.innerHTML = ""; }
+    // `data-dw-auto-dismiss-fade` (opt-in): desvanece antes de vaciar (`.is-dismissing`, tools.css); sin el atributo, idéntico a siempre.
+    function hide() {
+      clearTimeout(hideTimer); hideTimer = null;
+      if (el.hasAttribute("data-dw-auto-dismiss-fade") && el.textContent.trim()) {
+        el.classList.add("is-dismissing");
+        setTimeout(function () { el.innerHTML = ""; el.classList.remove("is-dismissing"); }, 300);
+        return;
+      }
+      el.innerHTML = "";
+    }
     function scheduleIfDismissable() {
       clearTimeout(hideTimer);
       if (!el.textContent.trim() || el.querySelector(".dashboard-empty")) return; // vacío, o error con acción -> sin timeout

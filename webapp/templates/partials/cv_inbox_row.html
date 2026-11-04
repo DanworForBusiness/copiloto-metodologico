@@ -1,0 +1,116 @@
+{# Un CV de la bandeja (`r` = `cv_inbox.classify`). Un `<tbody>` por CV: la fila de datos y, debajo, la revisión a todo el ancho (plegable). Acciones por fila con el primitivo de iconos de
+   Candidatos (`.dw-row-actions` + `.table-action-btn` + `.chart-tooltip`); el formulario de revisión usa los campos del alta de candidatos (`.hc-profile-section__grid` + `.feedback-field`). #}
+{% set f = r.fields or {} %}
+{% set _act = "/cchh/candidatos/importar/bandeja/" ~ r.key %}
+<tbody x-data="{ open: {{ 'true' if open_key == r.key else 'false' }} }" data-cvinbox-item="{{ r.key }}">
+<tr data-cvinbox-row="{{ r.key }}" data-status="{{ r.status }}">
+  <td class="center hc-select-col">{% if r.batch_ok or r.can_dismiss %}<input type="checkbox" name="sel" value="{{ r.key }}|{{ r.fingerprint or '-' }}" form="cvinbox-batch" aria-label="Seleccionar {{ r.name }}" data-cvinbox-select{% if r.batch_ok %} data-ready{% endif %}>{% endif %}</td>
+  <td class="left" data-label="CV"><div class="dw-idcell"><span class="dw-idcell__name">{{ r.name }}</span></div><span class="field-hint">{{ r.size_kb }} KB</span></td>
+  {% set c = r.candidate %}
+  <td class="left" data-label="{{ 'Candidato' if c else 'Datos propuestos' }}">{% if c %}
+      {% if c.available %}<strong>{{ c.name or 'Sin nombre' }}</strong>{% if c.email %}<br>{{ c.email }}{% endif %}{% if c.phone %}<br>{{ c.phone }}{% endif %}
+      <br><span class="field-hint" data-cvinbox-candidate>{{ 'Candidato en el Banco' if r.status == 'INCORPORATED' else 'Incorporación en curso' }}</span>
+      {% else %}<span class="field-hint" data-cvinbox-candidate>El candidato ya no está disponible en el Banco</span>{% endif %}
+    {% elif r.fields %}
+      <strong>{{ (f.first_name ~ ' ' ~ f.last_name) | trim or 'Sin nombre' }}</strong>
+      {% if f.email %}<br>{{ f.email }}{% endif %}{% if f.phone %}<br>{{ f.phone }}{% endif %}{% if f.profile_skills %}<br><span class="field-hint">{{ f.profile_skills }}</span>{% endif %}
+      <br><span class="field-hint" data-cvinbox-evidence>{{ 'Revisado por Capital Humano' if r.field_source == 'review' else r.evidence.label }}</span>
+    {% else %}<span class="field-hint">—</span>{% endif %}</td>
+  <td class="left" data-label="Coincidencias en el Banco">{% for m in r.matches %}<div><a href="/cchh/candidatos/{{ m.profile_id }}" target="_blank" rel="noopener">{{ m.name or 'Perfil' }}</a>
+      <span class="status-badge {{ 'status-badge--tentativo' if m.strength == 'STRONG' else 'status-badge--otro' }}">{{ 'Muy probable' if m.strength == 'STRONG' else 'Posible' }}</span>{% if m.email or m.phone %}<br><span class="field-hint">{{ m.email or m.phone }}</span>{% endif %}</div>{% endfor %}
+    {% for p in r.peers %}<div class="field-hint">Misma persona que «{{ p.file }}» (en esta carpeta)</div>{% endfor %}
+    {% if not r.matches and not r.peers %}<span class="field-hint">{{ 'Ninguna' if r.fields else '—' }}</span>{% endif %}</td>
+  <td class="left" data-label="Estado"><span class="status-badge {{ r.badge }}" data-cvinbox-status>{{ r.label }}</span>
+    {% for t in r.reason_text %}<div class="field-hint">{{ t }}</div>{% endfor %}</td>
+  {% if row_actions.count %}<td class="center hc-inbox-actions" data-label="Acciones">
+    {# Íconos en orden fijo (`.table-action-btn`, como Candidatos): cada acción que aplica al menos a una fila de la vista aparece en TODAS (deshabilitada donde no aplica, `:disabled` del primitivo); la que no aplica a ninguna no se dibuja (`row_actions`, router). #}
+    {# Iconografía del Hub: ojo = ver la ficha del candidato (como Candidatos); enlace externo = abrir el archivo en SharePoint (como los documentos de la ficha).
+       En una fila incorporada, las acciones de bandeja que no le corresponden dejan su lugar vacío (`.hc-inbox-slot`): nunca parecen editar o borrar al candidato. #}
+    {% set _closed = r.status == 'INCORPORATED' %}
+    <div class="dw-row-actions">
+      {% if row_actions.candidate %}
+      {% if c and c.available %}
+      <a href="/cchh/candidatos/{{ c.profile_id }}" class="table-action-btn chart-tooltip-anchor" aria-label="Ver ficha del candidato" data-cvinbox-candidate-link>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+        <span class="chart-tooltip" aria-hidden="true"><p>Ver candidato</p></span>
+      </a>
+      {% else %}<span class="table-action-btn hc-inbox-slot" aria-hidden="true"></span>{% endif %}
+      {% endif %}
+      {% if row_actions.original %}
+      {% if r.web_url %}
+      <a href="{{ r.web_url }}" target="_blank" rel="noopener noreferrer" class="table-action-btn chart-tooltip-anchor" aria-label="Abrir el CV original en SharePoint" data-cvinbox-original>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
+        <span class="chart-tooltip" aria-hidden="true"><p>Abrir CV original</p></span>
+      </a>
+      {% else %}<span class="table-action-btn hc-inbox-slot" aria-hidden="true"></span>{% endif %}
+      {% endif %}
+      {% if row_actions.review and _closed %}<span class="table-action-btn hc-inbox-slot" aria-hidden="true"></span>{% elif row_actions.review %}
+      <button type="button" class="table-action-btn chart-tooltip-anchor" {% if r.can_accept %}@click="open = !open" :aria-expanded="open"{% else %}disabled{% endif %} aria-label="Revisar e incorporar" data-cvinbox-review-toggle>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+        {% if r.can_accept %}<span class="chart-tooltip" aria-hidden="true"><p>Revisar e incorporar</p></span>{% endif %}
+      </button>
+      {% endif %}
+      {% if row_actions.retry and _closed and not r.can_retire %}<span class="table-action-btn hc-inbox-slot" aria-hidden="true"></span>{% elif row_actions.retry %}
+      {% set _retry = 'reintentar' if r.can_retry else ('retirar' if r.can_retire else '') %}
+      <button type="button" class="table-action-btn chart-tooltip-anchor" {% if _retry %}hx-post="{{ _act }}/{{ _retry }}" hx-target="#cvinbox-panel" hx-swap="outerHTML" hx-vals='{{ panel_state | tojson }}' hx-disabled-elt="this" data-hc-write-token data-cvinbox-{{ 'retry' if r.can_retry else 'retire' }}{% else %}disabled{% endif %}
+              aria-label="{{ 'Reintentar la incorporación' if r.can_retry else ('Reintentar el retiro del archivo' if r.can_retire else 'Reintentar') }}">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg>
+        {% if _retry %}<span class="chart-tooltip" aria-hidden="true"><p>{{ 'Reintentar la incorporación' if r.can_retry else 'Reintentar el retiro del archivo' }}</p></span>{% endif %}
+      </button>
+      {% endif %}
+      {% if row_actions.reopen and _closed %}<span class="table-action-btn hc-inbox-slot" aria-hidden="true"></span>{% elif row_actions.reopen %}
+      <button type="button" class="table-action-btn chart-tooltip-anchor" {% if r.can_reopen %}hx-post="{{ _act }}/reabrir" hx-target="#cvinbox-panel" hx-swap="outerHTML" hx-vals='{{ panel_state | tojson }}' data-dw-graph-token data-cvinbox-reopen{% else %}disabled{% endif %}
+              aria-label="{{ 'Cancelar la incorporación' if r.status == 'ACCEPTING' else 'Volver a revisar' }}">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 2.6-6.4"/><path d="M3 3v6h6"/></svg>
+        {% if r.can_reopen %}<span class="chart-tooltip" aria-hidden="true"><p>{{ 'Cancelar la incorporación' if r.status == 'ACCEPTING' else 'Volver a revisar' }}</p></span>{% endif %}
+      </button>
+      {% endif %}
+      {% if row_actions.discard and _closed %}<span class="table-action-btn hc-inbox-slot" aria-hidden="true"></span>{% elif row_actions.discard %}
+      {# Descarte: diálogo COMPARTIDO del Hub (`dwConfirmChoice`, base.html) con el motivo y la casilla desmarcada «Eliminar también el archivo original»; marcada, pide una SEGUNDA confirmación
+         (human_capital_import.js). Sin casilla el archivo se mueve a «descartados» (recuperable). #}
+      <button type="button" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" {% if r.can_dismiss %}hx-post="{{ _act }}/descartar" hx-trigger="confirmed" hx-target="#cvinbox-panel" hx-swap="outerHTML"
+              hx-vals='{{ panel_state | tojson }}' data-hc-write-token data-cvinbox-discard data-name="{{ r.name }}" data-reasons='{{ dismiss_options | tojson }}'{% else %}disabled{% endif %} aria-label="Descartar CV">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+        {% if r.can_dismiss %}<span class="chart-tooltip" aria-hidden="true"><p>Descartar</p></span>{% endif %}
+      </button>
+      {% endif %}
+    </div>
+  </td>{% endif %}
+</tr>
+{% if r.can_accept %}
+<tr class="hc-inbox-review-row" x-show="open" {{ 'x-cloak' if open_key != r.key }} data-cvinbox-review>
+  <td class="left" colspan="{{ 6 if row_actions.count else 5 }}">
+    {# La confirmación es el CONTROL de seguridad: con coincidencias, «Guardar revisión» e «Incorporar al Banco» quedan deshabilitados hasta marcarla, y su texto acompaña la decisión elegida.
+       Sin email, crear pide además su propia confirmación. El servidor exige lo mismo (`cv_inbox._decision_problem`). #}
+    <form class="hc-profile-form hc-profile-form--plain hc-inbox-review" onsubmit="return false" data-cvinbox-form
+          x-data="{ op: '{{ ('link:' ~ r.target) if (r.op == 'link' and r.target) else (r.op or '') }}', ack: false, noemail: false, email: {{ (f.email or '') | tojson | forceescape }}, needAck: {{ 'true' if (r.matches or r.peers) else 'false' }},
+                    get ready() { return !!this.op && (!this.needAck || this.ack) && !(this.op === 'create' && !this.email.trim() && !this.noemail); } }">
+      <input type="hidden" name="fingerprint" value="{{ r.fingerprint }}"><input type="hidden" name="revision" value="{{ r.draft_revision }}"><input type="hidden" name="vista" value="{{ vista }}"><input type="hidden" name="orden" value="{{ sort_state.key }}"><input type="hidden" name="dir" value="{{ sort_state.dir }}"><input type="hidden" name="page" value="{{ panel_state.page }}"><input type="hidden" name="page_size" value="{{ panel_state.page_size }}"><input type="hidden" name="filtro" value="{{ filtro }}">
+      <div class="hc-profile-section__grid hc-profile-section__grid--fluid">
+        <div class="feedback-field"><label for="cvi-{{ r.key }}-fn">Nombre</label><input id="cvi-{{ r.key }}-fn" name="first_name" type="text" value="{{ f.first_name }}" autocomplete="off" maxlength="60"></div>
+        <div class="feedback-field"><label for="cvi-{{ r.key }}-ln">Apellido</label><input id="cvi-{{ r.key }}-ln" name="last_name" type="text" value="{{ f.last_name }}" autocomplete="off" maxlength="60"></div>
+        <div class="feedback-field"><label for="cvi-{{ r.key }}-em">Email</label><input id="cvi-{{ r.key }}-em" name="email" type="email" value="{{ f.email }}" x-model="email" autocomplete="off" maxlength="254"></div>
+        <div class="feedback-field"><label for="cvi-{{ r.key }}-ph">Teléfono</label><input id="cvi-{{ r.key }}-ph" name="phone" type="text" value="{{ f.phone }}" autocomplete="off" maxlength="40"></div>
+        <div class="feedback-field feedback-field--wide"><label for="cvi-{{ r.key }}-sk">Perfil / Skills <span>opcional</span></label><input id="cvi-{{ r.key }}-sk" name="profile_skills" type="text" value="{{ f.profile_skills }}" autocomplete="off" maxlength="500"></div>
+      </div>
+      {% if r.evidence and r.evidence.identities | length > 1 %}<p class="field-hint">El CV también menciona: {% for i in r.evidence.identities if not i.proposed %}{{ i.name }}{{ ', ' if not loop.last }}{% endfor %}.</p>{% endif %}
+      <fieldset class="hc-inbox-decision"><legend>¿Qué hacemos con este CV?</legend>
+        <label><input type="radio" name="decision" value="create" x-model="op" @change="ack = false"> Crear un candidato nuevo</label>
+        {% for m in r.matches %}<label><input type="radio" name="decision" value="link:{{ m.profile_id }}" x-model="op" @change="ack = false"> Sumarlo a {{ m.name or 'este candidato' }}{% if m.email or m.phone %} ({{ m.email or m.phone }}){% endif %} — sus datos no cambian</label>{% endfor %}
+      </fieldset>
+      {% if r.matches or r.peers %}<label class="hc-inbox-ack" x-show="op"><input type="checkbox" name="acks" value="matches" x-model="ack"> <span x-text="op.startsWith('link') ? 'Revisé las coincidencias y quiero sumarlo a su perfil existente' : 'Revisé las coincidencias y quiero crear un candidato nuevo'">Revisé las coincidencias</span></label>{% endif %}
+      <label class="hc-inbox-ack" x-show="op === 'create' && !email.trim()"><input type="checkbox" name="acks" value="no_email" x-model="noemail"> Crear el candidato sin email (la detección de duplicados queda por nombre y teléfono)</label>
+      <div class="hc-inbox-buttons">
+        <button type="button" class="btn-secondary" @click="open = false">Cancelar</button>
+        <button type="button" class="btn-secondary" hx-post="{{ _act }}/resolver" hx-target="#cvinbox-panel" hx-swap="outerHTML" hx-disabled-elt="this" :disabled="!ready" data-dw-graph-token>Guardar revisión</button>
+        <button type="button" class="btn-primary asr-generate" hx-post="{{ _act }}/aceptar" hx-target="#cvinbox-panel" hx-swap="outerHTML" hx-disabled-elt="this" :disabled="!ready" data-hc-write-token data-cvinbox-accept>
+          <span class="asr-generate__busy htmx-indicator" role="status"><span class="asr-generate__spinner" aria-hidden="true"></span>Incorporando…</span>
+          <span class="asr-generate__label">Incorporar al Banco</span>
+        </button>
+      </div>
+      <p class="field-hint">«Guardar revisión» conserva tus cambios y tu decisión sin incorporar nada; con una decisión guardada, el CV queda listo para incorporarse con otros.</p>
+    </form>
+  </td>
+</tr>
+{% endif %}
+</tbody>

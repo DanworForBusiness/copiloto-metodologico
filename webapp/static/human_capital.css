@@ -786,3 +786,46 @@ table.dashboard-table[data-exceptions-rows] th:is(:nth-child(2), :nth-child(3)) 
 .content-theme-dark .hc-readonly-value { color: #e4e4ec; }
 .hc-readonly-value--empty { color: #7a7a82; }
 .hc-readonly-value a { text-decoration: underline; text-underline-offset: 2px; }
+
+/* Carga masiva · bandeja de SharePoint. Todo lo visible son primitivos del Hub (`.dashboard-view-switch`, `.activity-kpi`, `.filter-toolbar-card`, `.asr-generate`, `.dashboard-section`/`.dashboard-table`,
+   `.hc-selection-bar`, `.dw-row-actions`/`.table-action-btn`, `.feedback-field`, `.callout`, `.dashboard-empty`, `dw-confirm`); acá solo su ubicación. La tabla comparte con Históricos las reglas de celdas que envuelven
+   y la vista apilada en móvil (`[data-cvinbox-rows]` junto a `[data-exceptions-rows]`, más arriba). Medidas tomadas de esos mismos primitivos: gap 12px (`.activity-kpi-grid`), radio 8px y borde de 1px gris (`.hc-dl-stats`). */
+.hc-inbox-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 0 0 12px; }
+.hc-inbox-origin { margin: 0; flex: 1 1 200px; min-width: 0; }
+.hc-inbox-toolbar .asr-generate { margin-left: auto; }                             /* acción principal a la derecha, como la barra de selección */
+.hc-inbox-toolbar .dashboard-view-switch { max-width: 100%; overflow-x: auto; }
+table.dashboard-table[data-cvinbox-rows] { width: 100%; }                                   /* layout FIJO del Hub: anchos por <colgroup> y redimensionado compartido; sin mínimo fijo (no fuerza desplazamiento) */
+table.dashboard-table[data-cvinbox-rows] :is(th, td).left { white-space: normal; overflow: visible; text-overflow: clip; vertical-align: top; overflow-wrap: anywhere; max-width: none; }
+table.dashboard-table[data-cvinbox-rows] :is(th, td).hc-inbox-actions { padding-right: 0; text-align: right; }   /* última columna sin margen derecho: aprovecha todo el ancho */
+/* El asa de redimensionado compartido sobresale 4px a la derecha de su <th> (`right:-4px`, tools.css): en la ÚLTIMA columna ese era el único desborde y dibujaba una barra horizontal sin necesidad. */
+.hc-inbox-scroll th:last-child > .col-resize-handle { right: 0; }
+/* Lugar de una acción que no corresponde a la fila (p. ej. revisar o descartar un CV ya incorporado): conserva la alineación de los íconos sin dibujar un control que confunda. */
+.dw-row-actions > .hc-inbox-slot { visibility: hidden; pointer-events: none; }
+/* Contenedor angosto (laptop chica, panel lateral, móvil): en vez de desplazar en horizontal, cada CV se apila como ficha (rótulo + valor), el MISMO patrón que Históricos en móvil. */
+@container (max-width: 720px) {
+  table.dashboard-table[data-cvinbox-rows] colgroup, table.dashboard-table[data-cvinbox-rows] thead { display: none; }
+  table.dashboard-table[data-cvinbox-rows] :is(tbody, tr, td) { display: block; width: auto; }
+  table.dashboard-table[data-cvinbox-rows] tr { padding: 10px 0; border-bottom: 1px solid rgba(128, 128, 128, .35); }
+  table.dashboard-table[data-cvinbox-rows] td { border-bottom: 0; padding: 6px 0; text-align: left; }
+  table.dashboard-table[data-cvinbox-rows] td[data-label]::before { content: attr(data-label); display: block; margin-bottom: 2px; font: 500 .64rem var(--mono); letter-spacing: .08em; text-transform: uppercase; opacity: .65; }
+  table.dashboard-table[data-cvinbox-rows] tr.hc-inbox-review-row > td { padding-top: 0; }
+}
+table.dashboard-table[data-cvinbox-rows] tr.hc-inbox-review-row > td { border-top: 0; }
+.hc-inbox-review { margin: 0 0 12px; padding: 14px 16px; border: 1px solid rgba(128, 128, 128, .28); border-radius: 8px; }
+.hc-inbox-scroll { container-type: inline-size; }                              /* la revisión ocupa el ancho VISIBLE aunque la tabla se desplace en horizontal (laptops angostas) */
+.hc-inbox-review { position: sticky; left: 0; box-sizing: border-box; max-width: calc(100cqw - 20px); }
+.hc-inbox-review > * { grid-column: 1 / -1; }                                   /* usa los campos de `.hc-profile-form` (alta de candidatos) en una sola columna de bloques */
+.hc-inbox-review .hc-profile-section__grid--fluid { margin-top: 0; }
+.hc-inbox-decision { display: grid; gap: 6px; margin: 4px 0 10px; padding: 0; border: 0; font-size: .82rem; }
+.hc-inbox-decision legend { margin-bottom: 4px; font-size: .78rem; font-weight: 650; }
+.hc-inbox-decision input, .hc-inbox-ack input { width: auto; margin: 0 6px 0 0; accent-color: var(--gold); }
+.hc-inbox-ack { display: block; margin: 0 0 8px; font-size: .8rem; }
+.hc-inbox-buttons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+@media (max-width: 640px) {
+  .hc-inbox-buttons { justify-content: stretch; }
+  .hc-inbox-buttons > * { flex: 1 1 100%; }
+}
+/* Toast de la bandeja: el MISMO aviso transitorio de CCHH, pero su ancho acompaña al texto (una línea) y solo envuelve si la pantalla es más angosta que el mensaje. */
+[data-cvinbox-toast].hc-catalog-refresh-feedback--topbar:not(:empty) { width: max-content; max-width: calc(100vw - 32px); }
+/* `.asr-generate:disabled` (tools.css) fuerza opacidad plena para que se vea el spinner durante la carga; deshabilitado SIN carga (falta la confirmación) recupera el aspecto deshabilitado del Hub. */
+.hc-inbox-buttons .asr-generate:disabled:not(.htmx-request), .hc-selection-bar .asr-generate:disabled:not(.htmx-request) { opacity: .45; cursor: not-allowed; }

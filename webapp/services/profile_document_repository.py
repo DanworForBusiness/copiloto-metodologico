@@ -294,6 +294,31 @@ def count_by_profile() -> dict[str, int]:
     return counts
 
 
+def content_sha256_index() -> set[str]:
+    """sha256 de CONTENIDO de los documentos activos que lo registran en su procedencia (`import_origin.sha256`: importación histórica y bandeja de Carga masiva). Una pasada, solo lectura, mismo criterio
+    fail-soft que `count_by_profile`. Los documentos subidos a mano no registran el hash: no figuran acá."""
+    _ensure_restored()
+    directory = _documents_dir()
+    out: set[str] = set()
+    if not directory.exists():
+        return out
+    try:
+        entries = sorted(directory.iterdir())
+    except OSError as exc:
+        raise ProfileDocumentStorageError(f"No se pudo listar los documentos: {exc}") from exc
+    for entry in entries:
+        if not entry.is_file() or entry.suffix != ".json":
+            continue
+        try:
+            payload = json.loads(entry.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        sha = ((payload.get("import_origin") or {}).get("sha256") if isinstance(payload, dict) else None)
+        if sha:
+            out.add(str(sha))
+    return out
+
+
 def find_by_folder_item_id(folder_item_id: str) -> list[dict]:
     """Documentos (de CUALQUIER candidato) que referencian esta carpeta de SharePoint por `folder_item_id`. Lo usa el uploader para no reutilizar una carpeta que ya pertenece a OTRO candidato.
     Mismo criterio fail-soft que `list_for_profile`: un archivo corrupto se saltea."""
