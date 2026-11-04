@@ -1,9 +1,18 @@
 from copy import deepcopy
 
 import pytest
+import shutil
+import subprocess
+from pathlib import Path
 
 from webapp.services import solicitudes_admission as admission
 from webapp.services import solicitudes_service as service
+
+
+def test_browser_confirmation_uses_existing_commitments_and_preserves_cancel():
+    node = shutil.which('node')
+    assert node
+    subprocess.run([node, str(Path(__file__).with_name('solicitudes_admission_confirm.node.js'))],check=True)
 
 
 @pytest.fixture
@@ -50,14 +59,34 @@ def test_other_changes_do_not_approve(columns, submitted):
 
 
 @pytest.mark.parametrize('key', [service.PLANNED, service.ACTUAL])
-def test_existing_date_changed_or_removed_is_not_first_commitment(columns, key):
+def test_existing_commitment_reconciles_even_if_date_is_unchanged_or_removed(columns, key):
     original = fields(**{key: '2026-11-01T00:00:00Z', service.STATUS: 'En curso'})
     for value in ('2026-11-02', '', '2026-11-01'):
         submitted = {key: value, service.STATUS: 'En curso'}
         operational = patch(original, submitted)
-        assert not admission.proposes_approval(original, submitted, operational)
+        assert admission.proposes_approval(original, submitted, operational)
     submitted = {key: '2026-11-02', service.STATUS: 'Finalizado'}
     assert admission.proposes_approval(original, submitted, patch(original, submitted))
+
+
+@pytest.mark.parametrize('existing', [
+    *[{service.STATUS: state} for state in ('Planificado','En curso','Finalizado')],
+    {service.PLANNED:'2026-11-01T00:00:00Z'}, {service.ACTUAL:'2026-11-01T00:00:00Z'},
+])
+def test_existing_commitments_reconcile_without_any_operational_delta(columns, existing):
+    original=fields(**existing)
+    assert admission.approval_patch(original, {}, {}, columns, confirmed=True)=={service.FUNNEL:admission.APPROVED}
+    with pytest.raises(ValueError,match='¿Continuar?'):
+        admission.approval_patch(original, {}, {}, columns, confirmed=False)
+
+
+def test_effective_removal_of_all_commitments_does_not_approve(columns):
+    original=fields(**{service.STATUS:'En curso', service.PLANNED:'2026-11-01T00:00:00Z'})
+    submitted={service.STATUS:'Pendiente',service.PLANNED:''}
+    operational=patch(original,submitted)
+    assert not admission.proposes_approval(original,submitted,operational)
+    assert admission.approval_patch(original,submitted,operational,columns,confirmed=False)==operational
+    assert not admission.proposes_approval(fields(), {service.STATUS:'En curso'}, {})
 
 
 @pytest.mark.parametrize('funnel', [admission.APPROVED, admission.REJECTED, '', None, 'Otro valor'])

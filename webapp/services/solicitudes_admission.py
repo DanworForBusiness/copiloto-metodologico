@@ -1,11 +1,20 @@
 """Admission validation, separate from transport and operational status."""
 
 from webapp.services import solicitudes_service as service
+import logging
 
 REQUESTED = "Solicitado"
 APPROVED = "Aprobado para Arquitectura"
 REJECTED = "Rechazado, Aplica Operaciones"
 COMMITMENT_STATES = frozenset(("Planificado", "En curso", "Finalizado"))
+
+
+def audit_approval(actor, item_id, correlation):
+    """Only called after reread confirms the admission PATCH; no narrative data."""
+    logging.getLogger('danwor.solicitudes.audit').info(
+        'actor=%s item=%s operation=funnel_reconciliation transition="%s -> %s" correlation=%s',
+        actor, item_id, REQUESTED, APPROVED, correlation,
+    )
 
 
 class AdmissionContractError(ValueError):
@@ -34,24 +43,16 @@ def validate_column(columns):
 
 
 def proposes_approval(fields, submitted, payload):
-    """Detect an actual first date or changed commitment state, after validation.
+    """Reconcile only on explicit save, using the validated effective state.
 
-    `payload` must be the result of service.changes, not untrusted form data.
-    No repair/backfill occurs for commitments that were already present.
+    Payload is service.changes output. Submitted values alone cannot approve.
+    Existing dates/states count, but removals/reversions in this save also count.
     """
     if fields.get(service.FUNNEL) != REQUESTED:
         return False
-    current = service.form_values(fields)
-    first_date = any(
-        not current[key] and bool(submitted.get(key)) and key in payload
-        for key in (service.PLANNED, service.ACTUAL)
-    )
-    changed_status = (
-        service.STATUS in payload
-        and submitted.get(service.STATUS) in COMMITMENT_STATES
-        and submitted[service.STATUS] != current[service.STATUS]
-    )
-    return first_date or changed_status
+    effective = service.form_values({**fields, **payload})
+    return (effective[service.STATUS] in COMMITMENT_STATES
+            or bool(effective[service.PLANNED]) or bool(effective[service.ACTUAL]))
 
 
 def approval_patch(fields, submitted, operational_patch, columns, *, confirmed):
@@ -63,7 +64,8 @@ def approval_patch(fields, submitted, operational_patch, columns, *, confirmed):
         validate_column(columns)
         if confirmed is not True:
             raise ValueError(
-                "Al confirmar estos cambios, la solicitud pasará a Aprobado para Arquitectura. ¿Continuar?"
+                "Esta solicitud tiene actividad comprometida por Arquitectura, pero su Funnel continúa en Solicitado. "
+                "Al guardar, se actualizará a Aprobado para Arquitectura. ¿Continuar?"
             )
         result[service.FUNNEL] = APPROVED
     return result

@@ -93,13 +93,14 @@ def test_one_field_partial_patch_reuses_admission_and_preserves_other_fields(lab
     assert lab['invalidated'] == ['actor']
 
 
-def test_existing_date_or_previous_admission_not_changed_implicitly(lab):
+def test_existing_date_reconciles_but_rejected_decision_is_preserved(lab):
     lab['rows']['1']['fields'][service.PLANNED] = '2026-11-01T00:00:00Z'
     lab['rows']['2']['fields'][service.FUNNEL] = admission.REJECTED
     p=plan(lab,service.PLANNED,'2026-11-04')
-    assert not any(r['derived'] for r in p['rows'])
+    assert [r['derived'] for r in p['rows']] == [True, False]
     bulk.execute('actor',p['id'],'fake',confirmed=True)
-    assert all(service.FUNNEL not in payload for _,payload,_ in lab['writes'])
+    assert lab['writes'][0][1][service.FUNNEL] == admission.APPROVED
+    assert service.FUNNEL not in lab['writes'][1][1]
 
 
 def test_multi_assignee_preserved_while_other_records_can_update(lab):

@@ -55,6 +55,26 @@ def test_missing_confirmation_does_not_write_or_replace_form(setup):
     assert not calls
 
 
+@pytest.mark.parametrize('existing', [
+    *[{service.STATUS: state} for state in ('Planificado','En curso','Finalizado')],
+    {service.PLANNED:'2026-11-01T00:00:00Z'}, {service.ACTUAL:'2026-11-01T00:00:00Z'},
+])
+def test_no_delta_save_reconciles_only_funnel_after_confirmation(setup,existing,caplog):
+    client,current,calls,invalidated,_=setup
+    current['fields'].update(existing)
+    data={'etag':'"7"','graph_token':'fixture-token'}
+    result=client.post('/operaciones/solicitudes/1/guardar',data=data,headers={'Origin':'http://testserver','HX-Request':'true'})
+    assert '¿Continuar?' in result.text and not calls and '<form' not in result.text
+    with caplog.at_level('INFO',logger='danwor.solicitudes.audit'):
+        result=client.post('/operaciones/solicitudes/1/guardar',data={**data,'confirm_admission':'yes'},headers={'Origin':'http://testserver','HX-Request':'true'})
+    assert 'data-solicitudes-saved' in result.text
+    assert calls==[({service.FUNNEL:admission.APPROVED},'"7"')]
+    assert invalidated==['admission-fixture']
+    assert 'operation=funnel_reconciliation' in caplog.text
+    assert 'Solicitado -> Aprobado para Arquitectura' in caplog.text
+    assert service.COMMENTS not in calls[0][0]
+
+
 def test_invalid_metadata_prevents_operational_write_too(setup):
     client, _, calls, _, columns = setup
     columns[0]['readOnly'] = True

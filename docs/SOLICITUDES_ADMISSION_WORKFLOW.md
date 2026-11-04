@@ -18,16 +18,23 @@ delegado. No se ejecutaron POST, PATCH ni DELETE reales en SharePoint.
 
 ## Admisión
 
-Solo si Funnel vigente es Solicitado, una primera fecha planificada/real o un
-cambio efectivo a Planificado, En curso o Finalizado propone aprobación.
+Solo si Funnel vigente es Solicitado, cada guardado explícito evalúa el estado
+efectivo después de los cambios: fecha planificada/real informada o Arquitectura
+Planificado, En curso o Finalizado propone aprobación, incluso si ya existía.
 El usuario confirma mediante el diálogo compartido del Hub. Backend valida
-el evento contra el registro vigente y el catálogo editable. Campos operativos
+la reconciliación contra el registro vigente y el catálogo editable. Campos operativos
 y Funnel se envían en un único PATCH con If-Match; la relectura comprueba
 explícitamente el valor derivado de Funnel además de los campos ingresados.
 
-No se aprueba por comentarios, prioridad, referencias, Suspendido ni por cambiar
-una fecha previamente informada. No hay reparación retroactiva al consultar ni
-sincronización de estados. Decisiones previas no se revierten implícitamente.
+Comentarios, prioridad o referencias no son compromisos autónomos. Si hay un
+compromiso preexistente, guardar esos campos también propone reconciliar. Quitar
+todos los compromisos antes de guardar evita la aprobación. Sin otro delta se
+envía solo Funnel. Consultar, filtrar, abrir o actualizar el snapshot nunca escribe.
+Decisiones previas no se revierten implícitamente. La misma regla se usa en lote,
+con el efecto derivado visible en la revisión y la confirmación del lote.
+La transición confirmada queda en auditoría como Solicitado → Aprobado para
+Arquitectura. La bitácora sigue siendo de observaciones: no se fabrica un comentario
+para representar movimientos operativos ni se alteran las versiones SharePoint.
 No se reintrodujo una matriz de transiciones de Arquitectura.
 
 Rechazar / Derivar a Operaciones solo aparece con Funnel Solicitado. El diálogo

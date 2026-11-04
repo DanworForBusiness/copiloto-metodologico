@@ -358,6 +358,8 @@ async def solicitudes_save(request: Request, item_id: str, graph_token: str = Fo
             outcome = "uncertain"
             return _feedback(request, item_id, "uncertain", "No pudimos confirmar el guardado. Consultá los valores vigentes antes de reintentar.")
         outcome = "confirmed"
+        if payload.get(service.FUNNEL) == admission.APPROVED:
+            admission.audit_approval(user['sub'], item_id, correlation)
         return _feedback(request, item_id, "saved", "Guardado confirmado en SharePoint.",
                          history_rows=journal.history(updated["fields"].get(service.COMMENTS), item_id),
                          refresh_history=True, **_detail_context(updated))
