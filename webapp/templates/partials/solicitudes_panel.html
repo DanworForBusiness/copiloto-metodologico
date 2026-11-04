@@ -1,3 +1,4 @@
+{% from "partials/solicitudes_badge.html" import request_badge %}
 {% from "partials/table_selection_bar.html" import selection_bar %}
 {% from "partials/pager.html" import render_pager %}
 <form id="solicitudes-filters" class="hc-profile-filters filter-toolbar-card solicitudes-filters" hx-post="/operaciones/solicitudes/data" hx-target="#solicitudes-panel" hx-disabled-elt="find button"
@@ -75,7 +76,7 @@
       <tr><td class="center hc-select-col" data-column-fixed="start"><input type="checkbox" data-sol-select="{{ row.id }}" aria-label="Seleccionar solicitud {{ row.id }}"></td><td class="left" data-column-key="title"><span class="solicitudes-description">{{ (f.get('Title') or '') | trim or 'Solicitud #' ~ row.id }}</span></td><td class="left" data-column-key="project">{{ project_label(row) or '—' }}</td>
       <td class="left" data-column-key="created">{{ display_date(f.get(created)) }}</td>
       <td class="left" data-column-key="planned">{{ display_date(f.get(planned)) }}</td>
-      <td class="left" data-column-key="priority">{{ f.get('Prioridad') or '—' }}</td><td class="left" data-column-key="funnel">{{ f.get(funnel) or '—' }}</td><td class="left" data-column-key="architecture">{{ f.get(status) or '—' }}</td>
+      <td class="left" data-column-key="priority">{{ request_badge('priority', f.get('Prioridad')) }}</td><td class="left" data-column-key="funnel">{{ request_badge('funnel', f.get(funnel)) }}</td><td class="left" data-column-key="architecture">{{ request_badge('architecture', f.get(status)) }}</td>
       <td class="left" data-column-key="collaborator">{{ values(f.get(assignees)) | join(', ') }}</td>
 <td class="center"><div class="dw-row-actions"><a class="table-action-btn chart-tooltip-anchor" href="/operaciones/solicitudes/{{ row.id }}/editar" aria-label="Abrir solicitud {{ row.id }}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Editar solicitud</p></span></a>
   {% set row_etag = row.get('eTag') or row.get('@odata.etag') or '' %}

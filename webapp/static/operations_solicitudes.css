@@ -91,3 +91,17 @@ table.solicitudes-history-table td:last-child { white-space: normal; overflow-wr
 @keyframes solicitudes-show-loading {
   to { visibility: visible; }
 }
+/* Shared Hub pill geometry; scoped tones keep contrast in both content themes. */
+.solicitudes-status-badge { max-width: 100%; box-sizing: border-box; vertical-align: middle; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.solicitudes-status-badge--red { color: #a3341f; background: rgba(192,57,43,.12); }
+.solicitudes-status-badge--amber { color: #8a6300; background: rgba(200,145,0,.14); }
+.solicitudes-status-badge--grey { color: #55555c; background: rgba(122,122,130,.14); }
+.solicitudes-status-badge--green { color: #16784a; background: rgba(46,158,91,.12); }
+.solicitudes-status-badge--blue { color: #245c96; background: rgba(50,120,200,.12); }
+.solicitudes-status-badge--violet { color: #70449a; background: rgba(128,80,180,.12); }
+.content-theme-dark .solicitudes-status-badge--red { color: #e88b72; }
+.content-theme-dark .solicitudes-status-badge--amber { color: #e7b008; }
+.content-theme-dark .solicitudes-status-badge--grey { color: #b2b2bc; }
+.content-theme-dark .solicitudes-status-badge--green { color: #70d394; }
+.content-theme-dark .solicitudes-status-badge--blue { color: #8bbff3; }
+.content-theme-dark .solicitudes-status-badge--violet { color: #c8a5ed; }
