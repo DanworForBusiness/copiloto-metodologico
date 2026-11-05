@@ -3,7 +3,7 @@ test_staffing_absence_repository.py — Contrato de StaffingRepository para
 Ausencias Aprobadas (Staffing Approved Absence Overlay — generalización del
 Vacation Timeline Overlay original, ver HANDOFF).
 
-MISMA fuente autoritativa de siempre: `Solicitudes (2).xlsx` en la
+Fuente autoritativa: `Solicitudes.xlsx` en la
 biblioteca de documentos del sitio Operaciones. La diferencia con el
 overlay original: elegibilidad ya NO exige `Motivo == "Vacaciones"` — SOLO
 `Estado == "Aprobada"` — y cada fila elegible se CLASIFICA server-side en
@@ -118,7 +118,7 @@ def test_download_targets_operaciones_site_then_drive_path(monkeypatch):
     StaffingRepository().get_absences("tok")
     assert cap["site_url"].endswith("/sites/danwor.sharepoint.com:/sites/Operaciones")
     assert cap["content_url"].endswith(
-        "/sites/site-123/drive/root:/General/Template%20Dashboard/Solicitudes%20%282%29.xlsx:/content"
+        "/sites/site-123/drive/root:/General/Template%20Dashboard/Solicitudes.xlsx:/content"
     )
     assert cap["content_url"].startswith(GRAPH_BASE)
 
