@@ -572,6 +572,30 @@ def _absence_workbook_version(item: dict) -> str:
     return f"lm:{lm}:{size}"
 
 
+def _header_names(worksheet) -> set[str]:
+    for row in worksheet.iter_rows(min_row=1, max_row=1, values_only=True):
+        return {str(cell).strip() for cell in (row or ()) if cell is not None}
+    return set()
+
+
+def _select_absence_worksheet(workbook) -> str:
+    """Hoja de la que se leen las ausencias. `Solicitudes` si existe (contrato
+    original). Si no — el proceso que regenera el archivo puede cambiarle el nombre
+    a la hoja —, la ÚNICA hoja cuyo encabezado trae todas las columnas requeridas.
+    Ninguna → `stage="worksheet"` (falta `Solicitudes`); más de una →
+    `stage="worksheet"` ambiguo: nunca se elige una al azar. Los encabezados se
+    vuelven a validar después, igual que siempre."""
+    if ABSENCE_WORKSHEET_NAME in workbook.sheetnames:
+        return ABSENCE_WORKSHEET_NAME
+    required = set(_ABSENCE_REQUIRED_HEADERS)
+    candidates = [name for name in workbook.sheetnames if required <= _header_names(workbook[name])]
+    if len(candidates) == 1:
+        return candidates[0]
+    if candidates:
+        raise AbsenceSchemaError(stage="worksheet", missing_fields=[], ambiguous_fields=[ABSENCE_WORKSHEET_NAME])
+    raise AbsenceSchemaError(stage="worksheet", missing_fields=[ABSENCE_WORKSHEET_NAME], ambiguous_fields=[])
+
+
 def _parse_absence_workbook(data: bytes) -> tuple[list, dict]:
     """Parsea el workbook EN MEMORIA (openpyxl read-only/data-only) → períodos
     elegibles + funnel de conteos. Worksheet plano (header row + data rows), sin
@@ -589,9 +613,7 @@ def _parse_absence_workbook(data: bytes) -> tuple[list, dict]:
     except Exception:  # noqa: BLE001 — workbook inválido/corrupto
         raise AbsenceSchemaError(stage="workbook", missing_fields=["workbook"], ambiguous_fields=[]) from None
     try:
-        if ABSENCE_WORKSHEET_NAME not in workbook.sheetnames:
-            raise AbsenceSchemaError(stage="worksheet", missing_fields=[ABSENCE_WORKSHEET_NAME], ambiguous_fields=[])
-        worksheet = workbook[ABSENCE_WORKSHEET_NAME]
+        worksheet = workbook[_select_absence_worksheet(workbook)]
         funnel["worksheet_found"] = 1
         row_iter = worksheet.iter_rows(values_only=True)
         try:
