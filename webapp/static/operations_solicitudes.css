@@ -105,3 +105,6 @@ table.solicitudes-history-table td:last-child { white-space: normal; overflow-wr
 .content-theme-dark .solicitudes-status-badge--green { color: #70d394; }
 .content-theme-dark .solicitudes-status-badge--blue { color: #8bbff3; }
 .content-theme-dark .solicitudes-status-badge--violet { color: #c8a5ed; }
+
+/* KPIs operativos (primitivo `.activity-kpi-grid`): la misma separación de 12px de la grilla respecto del panel de filtros, que no trae margen inferior. */
+.solicitudes-kpis { margin-top: 12px; }
