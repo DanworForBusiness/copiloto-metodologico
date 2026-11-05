@@ -3,6 +3,7 @@
 {% from "partials/pager.html" import render_pager %}
 <form id="solicitudes-filters" class="hc-profile-filters filter-toolbar-card solicitudes-filters" hx-post="/operaciones/solicitudes/data" hx-target="#solicitudes-panel" hx-disabled-elt="find button"
       hx-indicator="#solicitudes-loading" hx-sync="this:replace" data-dw-graph-token>
+    <input type="hidden" name="kpi" value="{{ kpi }}">
     {% for group in groups %}
     <input type="hidden" name="sort_{{ group.key }}" value="{{ group.sort }}">
     <input type="hidden" name="dir_{{ group.key }}" value="{{ group.direction }}">
@@ -32,7 +33,23 @@
 {% for group in groups %}
 {% set rows = group.rows %}{% set pager = group.pager %}{% set sort = group.sort %}{% set direction = group.direction %}
 <details class="dashboard-section" id="solicitudes-{{ group.key }}" data-section-id="solicitudes-{{ group.key }}" data-persist-collapse{% if group.key == 'vigentes' or not groups[0].count %} open{% endif %}>
-<summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">{{ group.title }}</span>{% if not error %}<span class="dashboard-section__count">{{ group.count }} solicitud{{ 'es' if group.count != 1 }}</span>{% endif %}</summary><div class="dashboard-section__body">
+{% set _kpi_here = kpi and not error and group.key == 'vigentes' %}
+<summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">{{ group.title }}</span>{% if not error %}<span class="dashboard-section__count">{{ group.count }} solicitud{{ 'es' if group.count != 1 }}{% if _kpi_here %} <span class="dashboard-subhead__filter">· {{ kpi_label }}</span>{% endif %}</span>{% endif %}{% if _kpi_here %}<button type="button" class="panel-close" hx-post="/operaciones/solicitudes/data" hx-target="#solicitudes-panel" hx-include="#solicitudes-filters" hx-vals='{"kpi": "", "page_vigentes": 1}' hx-sync="#solicitudes-filters:replace" data-dw-graph-token aria-label="Quitar el filtro" title="Quitar el filtro y volver a todas las vigentes" @click.prevent data-sol-clear-kpi>&times;</button>{% endif %}</summary><div class="dashboard-section__body">
+{% if group.key == 'vigentes' %}{# Indicadores operativos de las solicitudes VIGENTES, dentro de su contenedor: el MISMO primitivo `.activity-kpi-grid`/`.activity-kpi` de Carga masiva (CCHH). Se calculan
+   sobre las vigentes con filtros y búsqueda, antes de paginar (`solicitudes_service.kpi_counts`). Sin una lectura confirmada de SharePoint muestran «—», nunca un cero. #}
+<div class="activity-kpi-grid solicitudes-kpis" data-solicitudes-kpis{% if not kpis %} data-kpis-unavailable{% endif %}>
+  {% for key, label, tone in kpi_defs %}
+  {% if kpis %}
+  {# Clic: la tabla muestra el alcance del KPI (mismo patrón que el CRM y Carga masiva); el tile activo o la «×» del contenedor vuelven al estado normal. #}
+  <div class="activity-kpi activity-kpi--clickable {{ tone }}{{ ' is-active' if kpi == key }}" data-kpi="{{ key }}" role="button" tabindex="0" aria-pressed="{{ 'true' if kpi == key else 'false' }}"
+       title="{{ 'Quitar el filtro' if kpi == key else 'Ver solo: ' ~ label }}" hx-post="/operaciones/solicitudes/data" hx-trigger="click, keyup[key=='Enter']" hx-target="#solicitudes-panel"
+       hx-include="#solicitudes-filters" hx-vals='{{ {"kpi": "" if kpi == key else key, "page_vigentes": 1} | tojson }}' hx-sync="#solicitudes-filters:replace" data-dw-graph-token>
+    <span class="activity-kpi__value">{{ kpis[key] }}</span><span class="activity-kpi__label">{{ label }}</span></div>
+  {% else %}
+  <div class="activity-kpi {{ tone }}" data-kpi="{{ key }}"><span class="activity-kpi__value">—</span><span class="activity-kpi__label">{{ label }}</span></div>
+  {% endif %}
+  {% endfor %}
+</div>{% endif %}
 {% if group.key == 'vigentes' and unknown_ids and not error %}<p class="field-hint busqueda-contact__context" data-unknown-state-count="{{ unknown_ids | length }}">{{ unknown_ids | length }} solicitud{{ 'es' if unknown_ids | length != 1 }} con estado de Arquitectura sin informar o no reconocido. Se mantienen visibles en Vigentes para su revisión.</p>{% endif %}
 {% if error %}
 <div class="dashboard-empty" role="alert"><span class="dashboard-empty__label">No disponible</span><p>{{ error }}</p>

@@ -275,6 +275,31 @@ def sort_rows(rows, column, direction):
     return [row for _, row in populated + empty]
 
 
+KPIS = (
+    # (clave, rótulo, modificador de color del primitivo `.activity-kpi`)
+    ("aprobadas", "Aprobadas", "activity-kpi--positive"),
+    ("en_curso", "En curso", "activity-kpi--info"),
+    ("pendientes", "Pendientes", "activity-kpi--attention"),
+    ("sin_movimiento", "Sin movimiento", "activity-kpi--alert"),
+)
+
+
+def kpi_match(row, key):
+    """¿La solicitud entra en el alcance del KPI `key`? Mismos criterios literales que `kpi_counts`."""
+    fields = row.get("fields", {})
+    funnel, status = values(fields.get(FUNNEL)), values(fields.get(STATUS))
+    return {"aprobadas": "Aprobado para Arquitectura" in funnel, "en_curso": "En curso" in status, "pendientes": "Pendiente" in status,
+            "sin_movimiento": "Solicitado" in funnel and "Pendiente" in status}.get(key, False)
+
+
+def kpi_counts(rows):
+    """Indicadores operativos sobre el conjunto YA filtrado y buscado, antes de paginar y sin importar Vigentes/Cerradas.
+    Criterios literales y NO excluyentes (una solicitud puede sumar en Pendientes y en Sin movimiento):
+      Aprobadas = Funnel «Aprobado para Arquitectura»; En curso = Arquitectura «En curso»; Pendientes = Arquitectura «Pendiente»;
+      Sin movimiento = Funnel «Solicitado» Y Arquitectura «Pendiente»."""
+    return {key: sum(1 for row in rows if kpi_match(row, key)) for key, _label, _tone in KPIS}
+
+
 def classify_rows(rows):
     """Presentation only: rejected Funnel wins; unknown states stay visible."""
     groups = {'vigentes': [], 'cerradas': []}

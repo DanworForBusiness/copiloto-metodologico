@@ -295,7 +295,7 @@ def test_the_marker_is_declarative_and_carries_no_credential():
         "operations/solicitudes.html": 2,
         "partials/pager.html": 1,
         # Three existing list consumers plus share, bulk preflight and consolidation preview.
-        "partials/solicitudes_panel.html": 6,
+        "partials/solicitudes_panel.html": 8,   # +2: tiles de KPI que filtran la tabla y la «×» que quita ese filtro (mismo POST de lectura de la landing, token en el cuerpo)
         # Read-only review and retry preparation; execution uses the write authority.
         "partials/solicitudes_bulk.html": 2,
         # Read-only history load/retry uses the same delegated read authority.

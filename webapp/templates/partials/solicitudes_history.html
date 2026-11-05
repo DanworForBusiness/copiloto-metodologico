@@ -6,8 +6,16 @@
   <div class="dashboard-section__body">
     <p class="field-hint">Observaciones y movimientos verificables de SharePoint · Horario de Buenos Aires. La cobertura depende de las versiones conservadas.</p>
     {% if not history_loaded %}<div class="field-hint" data-history-loading hx-post="/operaciones/solicitudes/{{ item_id }}/historial" hx-trigger="load" hx-target="#solicitudes-history" hx-swap="outerHTML" data-dw-graph-token>Consultando movimientos de SharePoint…</div>{% endif %}
-    {% if history_notice or history_partial %}
-    <div class="callout callout--punch"><div class="callout__body field-hint"><p>{{ history_notice or 'Cobertura parcial: faltan versiones o metadatos verificables. No se infieren movimientos a través de huecos del historial.' }} <button type="button" class="whatsnew-filter__clear" hx-post="/operaciones/solicitudes/{{ item_id }}/historial" hx-target="#solicitudes-history" hx-swap="outerHTML" data-dw-graph-token>Reintentar consulta</button></p></div></div>
+    {# Cobertura del historial (`solicitudes_journal.COVERAGE`): un error de lectura o de permisos (callout de advertencia); huecos que impiden verificar algún movimiento
+       (callout ámbar); el alcance que SharePoint conserva (retención, una sola versión: nota discreta, no es un error). «Reintentar» solo cuando repetir la lectura puede mejorar. #}
+    {% set _cov = history_coverage or {} %}
+    {% set _retry %}<button type="button" class="whatsnew-filter__clear" hx-post="/operaciones/solicitudes/{{ item_id }}/historial" hx-target="#solicitudes-history" hx-swap="outerHTML" data-dw-graph-token>Reintentar consulta</button>{% endset %}
+    {% if history_failure %}
+    <div class="callout callout--warn callout--feedback" data-history-failure="{{ history_failure.kind }}"><div class="callout__body field-hint"><p>{{ history_failure.message }}{% if history_failure.retryable %} {{ _retry }}{% endif %}</p></div></div>
+    {% elif _cov.level == 'warning' %}
+    <div class="callout callout--punch callout--feedback" data-history-coverage="{{ _cov.codes | join(' ') }}"><div class="callout__body field-hint"><p>{{ _cov.messages | join(' ') }} No se infieren movimientos a través de versiones faltantes.{% if _cov.retryable %} {{ _retry }}{% endif %}</p></div></div>
+    {% elif _cov.level == 'info' %}
+    <p class="field-hint" data-history-coverage="{{ _cov.codes | join(' ') }}">{{ _cov.messages | join(' ') }}</p>
     {% endif %}
     {% if history_rows %}
     <div class="matrix-scroll"><table class="dashboard-table solicitudes-history-table">
@@ -18,10 +26,11 @@
         <td class="left">
           <div class="solicitudes-history-detail"
                x-data="{expanded:false, overflowing:false, observer:null,
-                        measure(){if(!this.expanded)this.overflowing=this.$refs.text.textContent.includes('\n') || this.$refs.text.scrollWidth>this.$refs.text.clientWidth},
+                        measure(){if(!this.expanded)this.overflowing=this.$refs.text.dataset.multiline==='true' || this.$refs.text.scrollWidth>this.$refs.text.clientWidth},
                         init(){this.$nextTick(()=>{this.measure();this.observer=new ResizeObserver(()=>this.measure());this.observer.observe(this.$el)})},
                         destroy(){this.observer?.disconnect()}}">
-            <span id="sol-history-detail-{{ loop.index }}" class="solicitudes-history-preview" x-ref="text" :class="{'is-expanded':expanded}">{% if entry.before is defined %}{% if entry.badge_kind %}{{ request_badge(entry.badge_kind, entry.before) }} → {{ request_badge(entry.badge_kind, entry.after) }}{% else %}{{ entry.before or '—' }} → {{ entry.after or '—' }}{% endif %}{% if entry.text %} · {% endif %}{% endif %}{{ entry.text }}</span>
+            {# «+ver más» solo si el detalle se CORTA en una línea o si el texto de la observación tiene saltos de línea propios (nunca por el espaciado del HTML de los badges). #}
+            <span id="sol-history-detail-{{ loop.index }}" class="solicitudes-history-preview" x-ref="text" data-multiline="{{ 'true' if '\n' in (entry.text or '') else 'false' }}" :class="{'is-expanded':expanded}">{% if entry.before is defined %}{% if entry.badge_kind %}{{ request_badge(entry.badge_kind, entry.before) }} → {{ request_badge(entry.badge_kind, entry.after) }}{% else %}{{ entry.before or '—' }} → {{ entry.after or '—' }}{% endif %}{% if entry.text %} · {% endif %}{% endif %}{{ entry.text }}</span>
             <button type="button" class="whatsnew-filter__clear solicitudes-history-toggle" x-cloak
                     x-show="overflowing || expanded" :aria-expanded="expanded" aria-controls="sol-history-detail-{{ loop.index }}"
                     @click="expanded=!expanded;$nextTick(()=>measure())" x-text="expanded ? '+ver menos' : '+ver más'">+ver más</button>
@@ -29,6 +38,6 @@
         </td>
       </tr>{% endfor %}</tbody>
     </table></div>
-    {% elif history_loaded and not history_notice %}<div class="dashboard-empty"><span class="dashboard-empty__label">Sin movimientos verificables</span><p>No hay observaciones ni transiciones verificables en las versiones disponibles.</p></div>{% endif %}
+    {% elif history_loaded and not history_failure %}<div class="dashboard-empty"><span class="dashboard-empty__label">Sin movimientos verificables</span><p>No hay observaciones ni transiciones verificables en las versiones disponibles.</p></div>{% endif %}
   </div>
 </details>

@@ -836,6 +836,10 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
    defecto, ver el primitivo). */
 .activity-kpi.activity-kpi--positive { --kpi-accent: #2e9e5b; }
 .activity-kpi.activity-kpi--negative { --kpi-accent: #c0392b; }
+/* Tonos semánticos por SIGNIFICADO (no por posición), con los mismos colores de la paleta de arriba: azul (en curso), ámbar (pendiente), naranja (sin movimiento). */
+.activity-kpi.activity-kpi--info { --kpi-accent: #2f6fbd; }
+.activity-kpi.activity-kpi--attention { --kpi-accent: #c89100; }
+.activity-kpi.activity-kpi--alert { --kpi-accent: #d06f1f; }
 /* KPI tile clickeable (KPI → Contextual Drilldown, ver HANDOFF): MISMO
    lenguaje visual que `.activity-bar-row--clickable` de abajo (hover sutil,
    acento dorado en foco/activo) — un tile con esta clase es trigger de
