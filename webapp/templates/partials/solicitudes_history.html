@@ -26,10 +26,11 @@
         <td class="left">
           <div class="solicitudes-history-detail"
                x-data="{expanded:false, overflowing:false, observer:null,
-                        measure(){if(!this.expanded)this.overflowing=this.$refs.text.textContent.includes('\n') || this.$refs.text.scrollWidth>this.$refs.text.clientWidth},
+                        measure(){if(!this.expanded)this.overflowing=this.$refs.text.dataset.multiline==='true' || this.$refs.text.scrollWidth>this.$refs.text.clientWidth},
                         init(){this.$nextTick(()=>{this.measure();this.observer=new ResizeObserver(()=>this.measure());this.observer.observe(this.$el)})},
                         destroy(){this.observer?.disconnect()}}">
-            <span id="sol-history-detail-{{ loop.index }}" class="solicitudes-history-preview" x-ref="text" :class="{'is-expanded':expanded}">{% if entry.before is defined %}{% if entry.badge_kind %}{{ request_badge(entry.badge_kind, entry.before) }} → {{ request_badge(entry.badge_kind, entry.after) }}{% else %}{{ entry.before or '—' }} → {{ entry.after or '—' }}{% endif %}{% if entry.text %} · {% endif %}{% endif %}{{ entry.text }}</span>
+            {# «+ver más» solo si el detalle se CORTA en una línea o si el texto de la observación tiene saltos de línea propios (nunca por el espaciado del HTML de los badges). #}
+            <span id="sol-history-detail-{{ loop.index }}" class="solicitudes-history-preview" x-ref="text" data-multiline="{{ 'true' if '\n' in (entry.text or '') else 'false' }}" :class="{'is-expanded':expanded}">{% if entry.before is defined %}{% if entry.badge_kind %}{{ request_badge(entry.badge_kind, entry.before) }} → {{ request_badge(entry.badge_kind, entry.after) }}{% else %}{{ entry.before or '—' }} → {{ entry.after or '—' }}{% endif %}{% if entry.text %} · {% endif %}{% endif %}{{ entry.text }}</span>
             <button type="button" class="whatsnew-filter__clear solicitudes-history-toggle" x-cloak
                     x-show="overflowing || expanded" :aria-expanded="expanded" aria-controls="sol-history-detail-{{ loop.index }}"
                     @click="expanded=!expanded;$nextTick(()=>measure())" x-text="expanded ? '+ver menos' : '+ver más'">+ver más</button>
