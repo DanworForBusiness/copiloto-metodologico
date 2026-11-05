@@ -70,7 +70,7 @@ def test_the_four_kpis_count_the_whole_filtered_set_before_paging_once_per_read(
     assert len(calls) == 1                                                                                   # una lectura del snapshot, no cuatro consultas
     grid = soup.select_one("[data-solicitudes-kpis]")
     assert "activity-kpi-grid" in grid["class"] and [k.select_one(".activity-kpi__label").get_text() for k in grid.select("[data-kpi]")] == ["Aprobadas", "En curso", "Pendientes", "Sin movimiento"]
-    assert [c for k in grid.select("[data-kpi]") for c in k["class"] if c.startswith("activity-kpi--")] == ["activity-kpi--positive", "activity-kpi--info", "activity-kpi--attention", "activity-kpi--alert"]
+    assert [c for k in grid.select("[data-kpi]") for c in k["class"] if c.startswith("activity-kpi--") and c != "activity-kpi--clickable"] == ["activity-kpi--positive", "activity-kpi--info", "activity-kpi--attention", "activity-kpi--alert"]
     order = str(soup)
     assert order.index("solicitudes-filters") < order.index("data-solicitudes-kpis") < order.index('id="solicitudes-vigentes"') < order.index('id="solicitudes-cerradas"')
 
@@ -102,3 +102,31 @@ def test_a_refreshed_snapshot_recomputes_the_kpis(landing, monkeypatch):
     _, first = post()
     _, again = post(refresh="1")
     assert first == again and calls[-1].get("refresh") is True                                                # el reintento relee el snapshot y recalcula
+
+
+def test_clicking_a_tile_filters_both_groups_to_its_scope_and_the_close_button_restores_them(landing):
+    post, _ = landing
+    soup, kpis = post(kpi="en_curso")
+    tile = soup.select_one('[data-kpi="en_curso"]')
+    assert "activity-kpi--clickable" in tile["class"] and "is-active" in tile["class"] and tile["aria-pressed"] == "true"
+    assert '"kpi": ""' in tile["hx-vals"]                                                                     # el tile activo quita el filtro
+    assert kpis == {"aprobadas": "15", "en_curso": "11", "pendientes": "60", "sin_movimiento": "60"}         # los números de los tiles no cambian al filtrar
+    vigentes, cerradas = soup.select_one("#solicitudes-vigentes"), soup.select_one("#solicitudes-cerradas")
+    assert vigentes.select_one(".dashboard-section__count").get_text(" ", strip=True) == "10 solicitudes · En curso"
+    assert cerradas.select_one(".dashboard-section__count").get_text(" ", strip=True) == "1 solicitud · En curso"   # la rechazada En curso está en Cerradas
+    assert len(vigentes.select("[data-sol-select]")) == 10 and vigentes.select_one("[data-sol-clear-kpi]") is not None
+    assert soup.select_one('#solicitudes-filters input[name="kpi"]')["value"] == "en_curso"                  # paginar u ordenar conserva el filtro
+    soup, _ = post(kpi="pendientes", page_vigentes="2")
+    assert soup.select_one("#solicitudes-vigentes .dashboard-section__count").get_text(" ", strip=True) == "60 solicitudes · Pendientes"
+    soup, _ = post(kpi="")
+    assert soup.select_one("[data-sol-clear-kpi]") is None and soup.select_one("#solicitudes-vigentes .dashboard-section__count").get_text(" ", strip=True) == "70 solicitudes"
+    soup, _ = post(kpi="no-existe")
+    assert soup.select_one("[data-sol-clear-kpi]") is None                                                    # un KPI desconocido se ignora
+
+
+def test_a_tile_filter_combines_with_filters_and_search(landing):
+    post, _ = landing
+    soup, kpis = post(kpi="aprobadas", Prioridad="Baja")
+    assert kpis["aprobadas"] == "15" and soup.select_one("#solicitudes-vigentes .dashboard-section__count").get_text(" ", strip=True) == "10 solicitudes · Aprobadas"
+    soup, _ = post(kpi="sin_movimiento", q="Solicitud 001")
+    assert soup.select_one("#solicitudes-vigentes .dashboard-section__count").get_text(" ", strip=True) == "1 solicitud · Sin movimiento"

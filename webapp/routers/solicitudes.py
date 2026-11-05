@@ -81,6 +81,11 @@ async def solicitudes_data(request: Request, graph_token: str = Form("")):
     direction = "desc" if form.get("dir") == "desc" else "asc"
     matches = service.select_rows(rows, query, selected)
     kpis = None if error else service.kpi_counts(matches)                     # sin lectura confirmada no se muestra un cero como resultado
+    kpi_labels = {key: label for key, label, _tone in service.KPIS}
+    kpi = str(form.get("kpi", ""))
+    kpi = kpi if kpi in kpi_labels and not error else ""
+    if kpi:
+        matches = [row for row in matches if service.kpi_match(row, kpi)]      # clic en un tile: la tabla muestra el alcance de ese KPI
     classified, unknown_ids = service.classify_rows(matches)
     groups = []
     for key, title in (('vigentes', 'Solicitudes Vigentes'), ('cerradas', 'Solicitudes Cerradas')):
@@ -93,7 +98,7 @@ async def solicitudes_data(request: Request, graph_token: str = Form("")):
                        'count': len(ordered), 'sort': group_sort, 'direction': group_dir})
     pager = groups[0]['pager']
     return templates.TemplateResponse(request=request, name="partials/solicitudes_panel.html", context={
-        "rows": pager["items"], "pager": pager, "groups": groups, "unknown_ids": unknown_ids, "kpis": kpis, "kpi_defs": service.KPIS,
+        "rows": pager["items"], "pager": pager, "groups": groups, "unknown_ids": unknown_ids, "kpis": kpis, "kpi_defs": service.KPIS, "kpi": kpi, "kpi_label": kpi_labels.get(kpi, ""),
         "count": len(matches), "source_count": len(rows), "error": error, "query": query,
         "selection_scope": hashlib.sha256((str(user.get('sub', '')) + ':operaciones:' + repository.LIST_ID).encode()).hexdigest(),
         "universe_ids": [str(row['id']) for row in rows],

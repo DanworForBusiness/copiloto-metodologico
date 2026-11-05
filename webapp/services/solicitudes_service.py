@@ -284,20 +284,20 @@ KPIS = (
 )
 
 
+def kpi_match(row, key):
+    """¿La solicitud entra en el alcance del KPI `key`? Mismos criterios literales que `kpi_counts`."""
+    fields = row.get("fields", {})
+    funnel, status = values(fields.get(FUNNEL)), values(fields.get(STATUS))
+    return {"aprobadas": "Aprobado para Arquitectura" in funnel, "en_curso": "En curso" in status, "pendientes": "Pendiente" in status,
+            "sin_movimiento": "Solicitado" in funnel and "Pendiente" in status}.get(key, False)
+
+
 def kpi_counts(rows):
     """Indicadores operativos sobre el conjunto YA filtrado y buscado, antes de paginar y sin importar Vigentes/Cerradas.
     Criterios literales y NO excluyentes (una solicitud puede sumar en Pendientes y en Sin movimiento):
       Aprobadas = Funnel «Aprobado para Arquitectura»; En curso = Arquitectura «En curso»; Pendientes = Arquitectura «Pendiente»;
       Sin movimiento = Funnel «Solicitado» Y Arquitectura «Pendiente»."""
-    counts = {key: 0 for key, _label, _tone in KPIS}
-    for row in rows:
-        fields = row.get("fields", {})
-        funnel, status = values(fields.get(FUNNEL)), values(fields.get(STATUS))
-        counts["aprobadas"] += "Aprobado para Arquitectura" in funnel
-        counts["en_curso"] += "En curso" in status
-        counts["pendientes"] += "Pendiente" in status
-        counts["sin_movimiento"] += "Solicitado" in funnel and "Pendiente" in status
-    return counts
+    return {key: sum(1 for row in rows if kpi_match(row, key)) for key, _label, _tone in KPIS}
 
 
 def classify_rows(rows):
