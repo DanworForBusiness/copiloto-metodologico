@@ -63,24 +63,25 @@ def landing(monkeypatch):
     return post, calls
 
 
-def test_the_four_kpis_count_the_whole_filtered_set_before_paging_once_per_read(landing):
+def test_the_four_kpis_summarize_all_active_requests_before_paging_once_per_read(landing):
     post, calls = landing
     soup, kpis = post(page_vigentes="2")
-    assert kpis == {"aprobadas": "15", "en_curso": "11", "pendientes": "60", "sin_movimiento": "60"}        # no solo la página visible ni solo Vigentes
+    assert kpis == {"aprobadas": "10", "en_curso": "10", "pendientes": "60", "sin_movimiento": "60"}        # todas las VIGENTES (no solo la página visible); las cerradas no cuentan
     assert len(calls) == 1                                                                                   # una lectura del snapshot, no cuatro consultas
     grid = soup.select_one("[data-solicitudes-kpis]")
     assert "activity-kpi-grid" in grid["class"] and [k.select_one(".activity-kpi__label").get_text() for k in grid.select("[data-kpi]")] == ["Aprobadas", "En curso", "Pendientes", "Sin movimiento"]
     assert [c for k in grid.select("[data-kpi]") for c in k["class"] if c.startswith("activity-kpi--") and c != "activity-kpi--clickable"] == ["activity-kpi--positive", "activity-kpi--info", "activity-kpi--attention", "activity-kpi--alert"]
-    order = str(soup)
-    assert order.index("solicitudes-filters") < order.index("data-solicitudes-kpis") < order.index('id="solicitudes-vigentes"') < order.index('id="solicitudes-cerradas"')
+    assert soup.select_one("#solicitudes-vigentes [data-solicitudes-kpis]") is grid and soup.select_one("#solicitudes-cerradas [data-solicitudes-kpis]") is None
+    body = str(soup.select_one("#solicitudes-vigentes .dashboard-section__body"))
+    assert body.index("data-solicitudes-kpis") < body.index("<table")                                          # dentro de Vigentes, arriba de su tabla
 
 
 def test_kpis_follow_filters_and_search_and_show_zero_without_matches(landing):
     post, _ = landing
     _, kpis = post(Prioridad="Baja")
-    assert kpis == {"aprobadas": "15", "en_curso": "10", "pendientes": "0", "sin_movimiento": "0"}
+    assert kpis == {"aprobadas": "10", "en_curso": "10", "pendientes": "0", "sin_movimiento": "0"}
     _, kpis = post(q="Solicitud 076")
-    assert kpis == {"aprobadas": "0", "en_curso": "1", "pendientes": "0", "sin_movimiento": "0"}
+    assert kpis == {"aprobadas": "0", "en_curso": "0", "pendientes": "0", "sin_movimiento": "0"}               # la rechazada En curso está en Cerradas: no cuenta
     _, kpis = post(q="no existe")
     assert kpis == {"aprobadas": "0", "en_curso": "0", "pendientes": "0", "sin_movimiento": "0"}               # cero confirmado: la lectura funcionó
 
@@ -104,16 +105,17 @@ def test_a_refreshed_snapshot_recomputes_the_kpis(landing, monkeypatch):
     assert first == again and calls[-1].get("refresh") is True                                                # el reintento relee el snapshot y recalcula
 
 
-def test_clicking_a_tile_filters_both_groups_to_its_scope_and_the_close_button_restores_them(landing):
+def test_clicking_a_tile_filters_only_the_active_requests_and_the_close_button_restores_them(landing):
     post, _ = landing
     soup, kpis = post(kpi="en_curso")
     tile = soup.select_one('[data-kpi="en_curso"]')
     assert "activity-kpi--clickable" in tile["class"] and "is-active" in tile["class"] and tile["aria-pressed"] == "true"
     assert '"kpi": ""' in tile["hx-vals"]                                                                     # el tile activo quita el filtro
-    assert kpis == {"aprobadas": "15", "en_curso": "11", "pendientes": "60", "sin_movimiento": "60"}         # los números de los tiles no cambian al filtrar
+    assert kpis == {"aprobadas": "10", "en_curso": "10", "pendientes": "60", "sin_movimiento": "60"}         # los números de los tiles no cambian al filtrar
     vigentes, cerradas = soup.select_one("#solicitudes-vigentes"), soup.select_one("#solicitudes-cerradas")
     assert vigentes.select_one(".dashboard-section__count").get_text(" ", strip=True) == "10 solicitudes · En curso"
-    assert cerradas.select_one(".dashboard-section__count").get_text(" ", strip=True) == "1 solicitud · En curso"   # la rechazada En curso está en Cerradas
+    assert cerradas.select_one(".dashboard-section__count").get_text(" ", strip=True) == "6 solicitudes"     # Cerradas no se filtra
+    assert cerradas.select_one("[data-sol-clear-kpi]") is None
     assert len(vigentes.select("[data-sol-select]")) == 10 and vigentes.select_one("[data-sol-clear-kpi]") is not None
     assert soup.select_one('#solicitudes-filters input[name="kpi"]')["value"] == "en_curso"                  # paginar u ordenar conserva el filtro
     soup, _ = post(kpi="pendientes", page_vigentes="2")
@@ -127,6 +129,6 @@ def test_clicking_a_tile_filters_both_groups_to_its_scope_and_the_close_button_r
 def test_a_tile_filter_combines_with_filters_and_search(landing):
     post, _ = landing
     soup, kpis = post(kpi="aprobadas", Prioridad="Baja")
-    assert kpis["aprobadas"] == "15" and soup.select_one("#solicitudes-vigentes .dashboard-section__count").get_text(" ", strip=True) == "10 solicitudes · Aprobadas"
+    assert kpis["aprobadas"] == "10" and soup.select_one("#solicitudes-vigentes .dashboard-section__count").get_text(" ", strip=True) == "10 solicitudes · Aprobadas"
     soup, _ = post(kpi="sin_movimiento", q="Solicitud 001")
     assert soup.select_one("#solicitudes-vigentes .dashboard-section__count").get_text(" ", strip=True) == "1 solicitud · Sin movimiento"

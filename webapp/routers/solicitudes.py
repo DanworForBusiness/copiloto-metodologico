@@ -80,13 +80,14 @@ async def solicitudes_data(request: Request, graph_token: str = Form("")):
     sort = sort if sort in service.SORT_COLUMNS else ""
     direction = "desc" if form.get("dir") == "desc" else "asc"
     matches = service.select_rows(rows, query, selected)
-    kpis = None if error else service.kpi_counts(matches)                     # sin lectura confirmada no se muestra un cero como resultado
+    classified, unknown_ids = service.classify_rows(matches)
+    # Los KPIs resumen las solicitudes VIGENTES (filtros y búsqueda aplicados, antes de paginar). Sin lectura confirmada no se muestra un cero como resultado.
+    kpis = None if error else service.kpi_counts(classified['vigentes'])
     kpi_labels = {key: label for key, label, _tone in service.KPIS}
     kpi = str(form.get("kpi", ""))
     kpi = kpi if kpi in kpi_labels and not error else ""
     if kpi:
-        matches = [row for row in matches if service.kpi_match(row, kpi)]      # clic en un tile: la tabla muestra el alcance de ese KPI
-    classified, unknown_ids = service.classify_rows(matches)
+        classified['vigentes'] = [row for row in classified['vigentes'] if service.kpi_match(row, kpi)]   # clic en un tile: Vigentes muestra el alcance de ese KPI
     groups = []
     for key, title in (('vigentes', 'Solicitudes Vigentes'), ('cerradas', 'Solicitudes Cerradas')):
         group_sort = str(form.get('sort_' + key, sort))
