@@ -212,8 +212,8 @@ USER_INFO_NAME = "Name"
 # partición 'Time Logs Reports', TMDL de 'Horas  Trabajadas por Mes'/
 # Comparativo, page.json de "Horas Productivas consumidas"/"Hs No
 # Asignadas" — ver real-data-lineage.md §8bis/§10). MISMO sitio/carpeta que
-# la XLSX de Vacaciones de Staffing (`staffing_repository.ABSENCE_SITE_
-# PATH`/`ABSENCE_XLSX_PATH`, confirmada existente/alcanzable).
+# la XLSX de Ausencias de Staffing (`staffing_repository.ABSENCE_SITE_
+# PATH`/`ABSENCE_XLSX_PATH`).
 TIME_LOGS_SITE_PATH = "danwor.sharepoint.com:/sites/Operaciones"
 TIME_LOGS_FOLDER_PATH = "General/Template Dashboard"
 TIME_LOGS_REQUIRED_HEADERS = ("Date", "Client", "Project", "Task", "Email", "Duration Decimal")

@@ -108,7 +108,12 @@
      acá nunca oculta ni deshabilita el resto del dashboard, solo informa
      que el overlay de ausencias no está disponible ahora. #}
   <p class="staffing-absence-error" x-show="absencesLoadError && !absencesLoading">
-    No pudimos cargar las ausencias aprobadas. Las asignaciones siguen disponibles.
+    <span x-show="absencesErrorKind === 'auth'">La sesión de Microsoft venció y no pudimos cargar las ausencias aprobadas. Recargá la página para reintentar.</span>
+    <span x-show="absencesErrorKind === 'forbidden'">Tu cuenta no tiene acceso al archivo de ausencias en SharePoint.</span>
+    <span x-show="absencesErrorKind === 'not_found'">No encontramos Solicitudes.xlsx en la carpeta de Operaciones.</span>
+    <span x-show="absencesErrorKind === 'format'">El archivo de ausencias no tiene el formato esperado.</span>
+    <span x-show="!absencesErrorKind">No pudimos cargar las ausencias aprobadas.</span>
+    Las asignaciones siguen disponibles.
   </p>
 
   <div class="dashboard-empty" x-show="filteredAssignments.length === 0">

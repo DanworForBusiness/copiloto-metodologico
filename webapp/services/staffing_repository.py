@@ -48,7 +48,7 @@ tiempos. El caller (`StaffingService`/router) decide si loguearlo
 
 AUSENCIAS APROBADAS (Staffing Approved Absence Overlay — generalización del
 Vacation Timeline Overlay original, ver HANDOFF): `get_absences` lee el
-MISMO XLSX autoritativo de siempre (`Solicitudes (2).xlsx`, sitio
+XLSX autoritativo (`Solicitudes.xlsx`, sitio
 Operaciones) filtrando ÚNICAMENTE `Estado == "Aprobada"` — a diferencia del
 overlay original (que además exigía `Motivo == "Vacaciones"`), CUALQUIER
 Motivo aprobado es elegible ahora. Cada fila elegible se CLASIFICA
@@ -66,9 +66,12 @@ Staffing vive en `StaffingService` (sin cambios: sigue siendo join por
 nombre normalizado). `get_consultants` lee SOLO Colaboradores (id +
 nombre, sin Asignaciones/Proyectos) — universo de identidad para ese join.
 
-FUENTE AUTORITATIVA — XLSX EN SHAREPOINT (sin cambios de ubicación desde el
-corrective original): `Solicitudes (2).xlsx` en la biblioteca de
-documentos del sitio Operaciones (`General/Template Dashboard/`).
+FUENTE AUTORITATIVA — XLSX EN SHAREPOINT: `Solicitudes.xlsx` en la biblioteca
+de documentos del sitio Operaciones (`General/Template Dashboard/`). El
+archivo se REGENERA periódicamente y su driveItem id cambia entre
+generaciones: por eso se resuelve SIEMPRE por ruta en cada lectura (nunca
+un id persistido). Hasta 2026-11 el código apuntaba a `Solicitudes (2).xlsx`;
+al regenerarse con el nombre canónico la ruta vieja devolvía 404.
 `get_absences` descarga ese workbook vía Graph (`root:/{path}:/content`),
 lo parsea EN MEMORIA con openpyxl (read-only/data-only, sin persistir).
 
@@ -76,6 +79,9 @@ CONTRATO DE UBICACIÓN (module constants, no config): `ABSENCE_SITE_PATH`/
 `ABSENCE_XLSX_PATH`/`ABSENCE_WORKSHEET_NAME` son la ubicación estable
 (sitio + ruta en el drive), NO una URL de descarga temporal ni un id de
 driveItem. Ningún list ID de SharePoint — la fuente XLSX no lo necesita.
+Que el nombre coincida no alcanza: si la metadata dice que el item es una
+carpeta o no es un `.xlsx`, `AbsenceSchemaError(stage="file")`; los bytes
+pasan además por las validaciones de workbook/worksheet/headers.
 
 DIAGNÓSTICO SEGURO DE FALLAS (ver HANDOFF): `_call_absence_graph(stage,
 fn)` envuelve las llamadas Graph de Ausencias (`stage="site"` para
@@ -264,7 +270,8 @@ class StaffingAllocationRecord:
 class AbsenceSchemaError(Exception):
     """El workbook XLSX de Ausencias no matchea el contrato esperado
     (`stage="workbook"` inválido/corrupto, `"worksheet"` faltante, `"headers"`
-    requeridos ausentes, o `"site"` sin id resuelto) — problema de RUNTIME/
+    requeridos ausentes, `"file"` si la ruta no resuelve a un `.xlsx`, o
+    `"site"` sin id resuelto) — problema de RUNTIME/
     SOURCE, NUNCA de configuración de deployment. Deriva de `Exception`, NO de
     `RuntimeError`, a propósito: el router debe tratarlo igual que cualquier
     otra falla de Graph/transporte (`graph_error`), nunca como
@@ -341,11 +348,11 @@ def _call_absence_graph(stage: str, fn: Callable[[], object]) -> object:
 
 # ── Staffing Approved Absence Overlay — FUENTE AUTORITATIVA: XLSX en SharePoint
 # (misma ubicación que el corrective original de Vacaciones, ver HANDOFF). La
-# fuente real es "Solicitudes (2).xlsx" en la biblioteca de documentos del sitio
-# Operaciones. Estas son la UBICACIÓN autoritativa y estable (sitio + ruta en el
+# fuente real es "Solicitudes.xlsx" en la biblioteca de documentos del sitio
+# Operaciones (se regenera con otro id: se resuelve por ruta en cada lectura). Estas son la UBICACIÓN autoritativa y estable (sitio + ruta en el
 # drive), NO una URL de descarga temporal ni un id de driveItem.
 ABSENCE_SITE_PATH = "danwor.sharepoint.com:/sites/Operaciones"
-ABSENCE_XLSX_PATH = "General/Template Dashboard/Solicitudes (2).xlsx"
+ABSENCE_XLSX_PATH = "General/Template Dashboard/Solicitudes.xlsx"
 ABSENCE_WORKSHEET_NAME = "Solicitudes"
 
 # Semántica de negocio autoritativa del propio XLSX: elegible si
@@ -493,11 +500,33 @@ def _absence_workbook_metadata(site_id: str, access_token: str) -> dict | None:
     (descarga siempre fresca), MISMO comportamiento que existía antes de
     esta fase."""
     try:
-        return _call_absence_graph("metadata", lambda: microsoft365.graph_get_json(
+        item = _call_absence_graph("metadata", lambda: microsoft365.graph_get_json(
             f"{GRAPH_BASE}/sites/{site_id}/drive/root:/{quote(ABSENCE_XLSX_PATH)}", access_token,
         ))
-    except AbsenceGraphError:
+    except AbsenceGraphError as exc:
+        if exc.status_code in _ABSENCE_DEFINITIVE_STATUS:
+            raise                     # sesión vencida / sin permiso / archivo ausente: descargar daría lo mismo
         return None
+    _validate_absence_item(item)
+    return item
+
+
+# 401/403/404 sobre la metadata son respuestas definitivas de SharePoint, no fallas transitorias.
+_ABSENCE_DEFINITIVE_STATUS = frozenset({401, 403, 404})
+_XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def _validate_absence_item(item: dict | None) -> None:
+    """El driveItem resuelto por ruta tiene que ser un archivo Excel: no basta con que
+    el nombre coincida. Solo rechaza ante evidencia POSITIVA (carpeta, otra extensión u
+    otro mimeType); los campos ausentes no invalidan. El contenido pasa después por las
+    validaciones de `_parse_absence_workbook`."""
+    if not isinstance(item, dict):
+        return
+    name = str(item.get("name") or "")
+    mime = str((item.get("file") or {}).get("mimeType") or "") if isinstance(item.get("file"), dict) else ""
+    if "folder" in item or (name and not name.lower().endswith(".xlsx")) or (mime and mime != _XLSX_MIME):
+        raise AbsenceSchemaError(stage="file", missing_fields=["Solicitudes.xlsx"], ambiguous_fields=[])
 
 
 def _download_absence_workbook_bytes(site_id: str, access_token: str) -> bytes:
@@ -1261,7 +1290,7 @@ class StaffingRepository:
     def get_absences(self, access_token: str, *, cache_scope: str | None = None) -> list[AbsencePeriod]:
         """Ausencias APROBADAS desde el XLSX autoritativo en SharePoint
         (Approved Absence Overlay, generalización del Vacation Timeline
-        Overlay original — ver HANDOFF): descarga "Solicitudes (2).xlsx" del
+        Overlay original — ver HANDOFF): descarga "Solicitudes.xlsx" del
         sitio Operaciones y filtra `Estado == "Aprobada"` — CUALQUIER Motivo
         aprobado es elegible, clasificado server-side en uno de 4 conceptos
         canónicos (ver `_classify_absence_concept`). `consultant_name` =

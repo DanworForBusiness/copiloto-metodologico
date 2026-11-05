@@ -2751,6 +2751,7 @@ function staffingDashboard(payload) {
     absences: [],
     absencesLoading: false,
     absencesLoadError: false,
+    absencesErrorKind: "",
 
     // Grouping switch (Consultor ↔ Proyecto) — mismo `filteredAssignments`,
     // sin refetch. Ver `timelineGroups`/`groupHoursSuffix`/`rowGroupSecondaryLabel`.
@@ -2854,6 +2855,7 @@ function staffingDashboard(payload) {
     async _loadAbsences() {
       this.absencesLoading = true;
       this.absencesLoadError = false;
+      this.absencesErrorKind = "";
       try {
         const token = await dwGraphToken();
         // owner ticket "STAFFING — MSAL TOKEN FAILURE TELEMETRY": SOLO se
@@ -2882,8 +2884,14 @@ function staffingDashboard(payload) {
           }
         } else {
           // Fail-soft (ver HANDOFF): las asignaciones siguen 100% usables,
-          // solo se omite el overlay + aviso propio no bloqueante.
+          // solo se omite el overlay + aviso propio no bloqueante, específico
+          // por causa (sesión vencida, sin permiso, archivo ausente, formato).
           this.absencesLoadError = true;
+          this.absencesErrorKind = data.state === "auth_required" ? "auth"
+            : data.state === "schema_error" ? "format"
+            : data.http_status === 403 ? "forbidden"
+            : data.http_status === 404 ? "not_found"
+            : "";
         }
       } catch (e) {
         this.absencesLoadError = true;
