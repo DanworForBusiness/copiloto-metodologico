@@ -121,7 +121,7 @@ def test_metadata_without_name_or_file_facet_is_still_accepted(library):
 
 @pytest.mark.parametrize("content,stage", [
     (b"not an excel workbook", "workbook"),
-    (_workbook_bytes([_cells()], sheet_name="Otra hoja"), "worksheet"),
+    (_workbook_bytes([["x"]], sheet_name="Otra hoja", headers=["Columna"]), "worksheet"),
     (_workbook_bytes([], headers=["Apellido", "Nombre"]), "headers"),
 ])
 def test_unreadable_or_unexpected_workbook_is_a_schema_error(library, content, stage):

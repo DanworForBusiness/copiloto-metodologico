@@ -338,10 +338,26 @@ def test_malformed_workbook_bytes_fail_soft(monkeypatch):
 
 
 def test_missing_worksheet_fails_soft(monkeypatch):
-    _patch_source(monkeypatch, _workbook_bytes([_cells()], sheet_name="OtroNombre"))
+    # Sin hoja `Solicitudes` y sin otra hoja con los encabezados requeridos.
+    _patch_source(monkeypatch, _workbook_bytes([["x", "y"]], sheet_name="OtroNombre", headers=["Columna", "Otra"]))
     with pytest.raises(AbsenceSchemaError) as exc:
         StaffingRepository().get_absences("tok")
-    assert exc.value.stage == "worksheet"
+    assert exc.value.stage == "worksheet" and exc.value.missing_fields == ["Solicitudes"]
+
+
+def test_renamed_worksheet_with_the_required_headers_is_used(monkeypatch):
+    # El archivo regenerado puede traer la hoja con otro nombre: se toma la única con el encabezado del contrato.
+    data = _workbook_bytes([_cells()], sheet_name="Sheet1", extra_sheets={"Resumen": [["Total", 3]]})
+    _patch_source(monkeypatch, data)
+    assert [p.consultant_name for p in StaffingRepository().get_absences("tok")] == ["Matías Gómez"]
+
+
+def test_two_candidate_worksheets_without_solicitudes_are_ambiguous(monkeypatch):
+    data = _workbook_bytes([_cells()], sheet_name="Hoja1", extra_sheets={"Hoja2": [_HEADERS, _cells(Nombre="Otra")]})
+    _patch_source(monkeypatch, data)
+    with pytest.raises(AbsenceSchemaError) as exc:
+        StaffingRepository().get_absences("tok")
+    assert exc.value.stage == "worksheet" and exc.value.ambiguous_fields == ["Solicitudes"]
 
 
 # --- transporte: sitio/descarga → AbsenceGraphError seguro -----------------
