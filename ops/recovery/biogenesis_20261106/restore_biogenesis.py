@@ -56,7 +56,7 @@ PLAN: dict[str, dict] = {
     _POOL + "replication-flows/1RF_I_DATOS_MAESTROS.json": {"current": "fecfc5d6c941a72bb53a334f70cafef2e8e7d4ec8311a847a64fdc2ffbbff13b", "target": None},
     ".lineage_runs/Biogenesis/CALIDAD/analytic-model/AM_ANALISIS_VENCIMIENTO/lineage-manifest.json": {"current": "219aa80ab26d048c59b569edec5b14823a83ca1931cbbb869741d32d64f12cd2", "target": None},
 }
-ALLOWED_POOL_EXTRA_PREFIXES = ("Conexiones/", "Espacios/")          # conectividad: fuera de la firma y fuera de alcance (debe quedar intacta)
+ALLOWED_POOL_EXTRA_PREFIXES = ("Conexiones/", "Espacios/", "conexiones/", "espacios/",)          # conectividad: fuera de la firma y fuera de alcance (debe quedar intacta)
 JOURNAL_MODE_PREFIX = "biogenesis-restore-"
 
 OLD, NEW, OTHER, MIXED = "OLD", "NEW", "OTHER", "MIXED"
