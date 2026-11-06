@@ -117,7 +117,10 @@ def test_adhoc_report_shows_its_own_provisional_judgment_from_the_canonical_engi
     html = owner.get(url).text
     badge, level_label, section = _assert_badge_matches_section(html, provisional=True)
     assert level_label == official["level_label"] and f"catalog-card__verdict--{official['tone']}" in badge["class"]
-    assert "Clasificación provisional" in section.get_text(" ", strip=True)
+    text = section.get_text(" ", strip=True)
+    assert "Clasificación provisional" in text
+    assert "No incorpora las ratificaciones de gobierno" in text and "aunque el modelo no haya cambiado" in text   # puede diferir del materializado
+    assert "Se calcula con las reglas vigentes al abrir este informe" in text and official["ruleset_version"] in text   # limitación: ruleset vigente
     assert "Lectura de la adopción provisional" in section.get_text(" ", strip=True)
 
 

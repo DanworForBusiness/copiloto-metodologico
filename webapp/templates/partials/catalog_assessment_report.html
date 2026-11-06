@@ -241,7 +241,7 @@
 <section class="content-section" id="asr-juicio" aria-label="Adopción metodológica">
   {% set ns.n = ns.n + 1 %}{{ heading(ns.n, "Adopción metodológica", "Qué tan cerca está el modelo de adoptar la metodología, como resultado determinista sobre los cuatro contratos. Es independiente del veredicto del catálogo (higiene de extracción) y no recalcula el Assessment.") }}
   {% if v.state == "STALE" %}{% call callout("note", "Corresponde al perfil evaluado") %}<p>El Assessment técnico está desactualizado; la Adopción refleja el último perfil evaluado.</p>{% endcall %}{% endif %}
-  {% if v.judgment_provisional %}{% call callout("note", "Clasificación provisional") %}<p>Corresponde a esta ejecución: el mismo motor del Catálogo sobre la evidencia que se acaba de evaluar, sin las decisiones de gobierno registradas. No modifica la clasificación publicada en el Catálogo.</p>{% endcall %}{% endif %}
+  {% if v.judgment_provisional %}{% call callout("note", "Clasificación provisional") %}<p>Corresponde a esta ejecución: el mismo motor del Catálogo sobre la evidencia que se acaba de evaluar. <strong>No incorpora las ratificaciones de gobierno</strong> registradas en el Catálogo, por lo que puede diferir de la clasificación publicada aunque el modelo no haya cambiado. Se calcula con las reglas vigentes al abrir este informe{% if v.judgment.ruleset_version %} (<code>{{ v.judgment.ruleset_version }}</code>){% endif %}. No modifica la clasificación publicada.</p>{% endcall %}{% endif %}
   {# Contratos = 4 (una fila por dimensión); evidencias = ítems individuales (varios por contrato). #}
   {{ contracts_evaluated(j) }}
   {{ tile_grid(j.tiles) }}
