@@ -413,10 +413,11 @@ def delete_result(result_id: str, owner: str) -> bool:
 
 
 def result_status(record: dict) -> asvc.AssessmentStatus:
-    """El estado CURRENT del resultado (misma estructura que usa el informe del Catálogo, sin flujo ni caché del Catálogo)."""
+    """El estado CURRENT del resultado (misma estructura que usa el informe del Catálogo, sin flujo ni caché del Catálogo). El Juicio es el
+    PROVISIONAL de esta ejecución (``asvc.provisional_judgment`` sobre su propio perfil): nunca el publicado en el Catálogo."""
     created = datetime.fromtimestamp(float(record["created_at"]), tz=timezone.utc).isoformat(timespec="seconds")
     return asvc.AssessmentStatus(asvc.CURRENT, record["result_id"], record["client_display"], record["terminal_am"],
-                                 generated_at=created, profile=record["profile"])
+                                 generated_at=created, profile=record["profile"], judgment=asvc.provisional_judgment(record["profile"]))
 
 
 def owner_email(request) -> str:
