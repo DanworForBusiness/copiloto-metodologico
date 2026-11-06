@@ -29,7 +29,7 @@ En producción TODAS deben cumplirse. El hotfix **no agrega ni modifica configur
 
 | Precondición | Cómo se verifica | Si falta |
 |---|---|---|
-| **Persistencia remota efectiva** (modo `remote` con escritura habilitada) | log de arranque del componente web: la línea `persistencia: DANWOR_PERSISTENCE=remote · credenciales Spaces presentes · lectura remota sí · escritura remota sí`. Es el mismo estado que hoy permite el restore, la sincronización periódica y el write-through del Hub. Si la línea muestra otro valor, **no desplegar**: el problema es previo al hotfix (producción no estaría persistiendo) y se trata aparte | `PERSISTENCE_MODE_NOT_REMOTE` / `PERSISTENCE_NOT_WRITABLE` |
+| **Persistencia remota efectiva** (modo `remote` con escritura habilitada) | Console del componente web en App Platform: `python -c "import config; print(config.PERSISTENCE_MODE, config.SPACES_CONFIGURED, config.PERSIST_ENABLED)"` debe imprimir `remote True True` (solo el modo y dos booleanos, sin secretos). **No usar los Runtime Logs para esto:** la línea `persistencia: …` del arranque es `INFO` y se descarta (el repo no configura logging; raíz en `WARNING`); solo el aviso de modo NO remoto con credenciales (`WARNING`) llega a los logs. Verificado en producción el 2026-11-06: `remote True True`. Si imprime otra cosa, **no desplegar**: el problema es previo al hotfix (producción no estaría persistiendo) | `PERSISTENCE_MODE_NOT_REMOTE` / `PERSISTENCE_NOT_WRITABLE` |
 | `catalog_local` y `governed-assessments` en `SPACES_PERSIST_PATHS` (el **default del código ya los incluye**; solo hay que revisarlo si el entorno define la variable explícita) | App Platform → variables del componente | `CATALOG_NOT_PERSISTED` / `ASSESSMENT_NOT_PERSISTED` |
 | **Réplica única** (`instance_count = 1`) | App Platform → componente web → Resources | sin detección automática: el candado de SO no protege entre instancias (§5) |
 | Sin journals pendientes ni publicación en curso al desplegar | §4 (`recover_pending`) | la primera publicación responde `RECOVERY_REQUIRED` hasta resolverlo |
@@ -40,7 +40,7 @@ En producción TODAS deben cumplirse. El hotfix **no agrega ni modifica configur
 
 **Despliegue**
 1. Suspender publicaciones y «Generar catálogo» (aviso al equipo).
-2. Verificar las precondiciones de §2 en el log de arranque y la configuración vigente (solo verificar: el hotfix no requiere configurar nada nuevo).
+2. Verificar las precondiciones de §2 con la Console y la configuración vigente (solo verificar: el hotfix no requiere configurar nada nuevo).
 3. Desplegar. Al arrancar con persistencia remota: la **compuerta de arranque** cierra la lectura del Catálogo hasta que el restore termine y la recuperación verifique lo
    restaurado (503 con `BOOT_VERIFICATION_PENDING` durante ese lapso); el sincronizador queda retenido mientras tanto. Es el comportamiento esperado.
 4. Revisar el log del arranque: `verify_ledgers` no debe reportar clientes incoherentes (los que nunca publicaron por la unidad no tienen bitácora y no se reportan).
