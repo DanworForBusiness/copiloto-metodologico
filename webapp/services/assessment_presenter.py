@@ -1027,6 +1027,8 @@ def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: Adho
         "has_profile": doc is not None,
         "adhoc": adhoc is not None,
         "judgment": judgment_view(status.judgment),   # Juicio metodológico persistido (distinto de la vigencia del Assessment)
+        # Ad hoc: el Juicio es PROVISIONAL (derivado de ESTA ejecución, sin decisiones gobernadas; ver ``assessment_service.provisional_judgment``).
+        "judgment_provisional": adhoc is not None and status.judgment is not None,
     }
     view["title_desc"], view["title_id"] = terminal_titles(status, entry, doc, adhoc is not None)     # canónico → Catálogo → nombre técnico legible; sin modelo terminal: neutro
     view["module_label"] = MODULE_LABEL

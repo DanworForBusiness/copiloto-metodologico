@@ -143,6 +143,9 @@
     <span class="catalog-verdict-line">
       <span class="catalog-meta-dot{% if v.state_tone %} catalog-meta-dot--{{ v.state_tone }}{% endif %}" aria-hidden="true"></span>
       <span class="catalog-card__verdict{% if v.state_tone %} catalog-card__verdict--{{ v.state_tone }}{% endif %}">{{ v.state_label }}</span>
+      {# Clasificación global = el Juicio del informe que se está viendo (`v.judgment`, la MISMA vista que [02]); sin Juicio no hay badge.
+         Ad hoc: «provisional» (de esta ejecución, nunca el publicado en el Catálogo). #}
+      {% if v.judgment %}<span class="catalog-card__verdict catalog-card__verdict--{{ v.judgment.tone }}" data-asr-level="{{ v.judgment.level or 'NOT_DETERMINABLE' }}"{% if v.judgment_provisional %} data-asr-provisional{% endif %}>Adopción metodológica{% if v.judgment_provisional %} provisional{% endif %} · {{ v.judgment.level_label }}</span>{% endif %}
       {% if v.generated_at %}<span>Generado {{ v.generated_at.replace("T", " ").replace("+00:00", " UTC") }}</span>{% endif %}
       {% if v.drift_note %}<span>{{ v.drift_note }}</span>{% endif %}
       {% if v.has_profile %}<span>{{ v.scope_text }}</span>{% endif %}
@@ -231,13 +234,14 @@
 </section>
 
 {# ── [02] Adopción metodológica: resultado DETERMINISTA persistido (el ÚNICO grado metodológico del informe). Recorrido: contratos evaluados →
-   tiles → evidencias favorables → puntos de atención → cierre (punch con el tono de `status_tone`). Sin badge flotante de nivel: el
-   nivel se lee en el cierre. `id="asr-juicio"` se conserva. Independiente del veredicto del catálogo y del Gobierno / la Portabilidad. ── #}
+   tiles → evidencias favorables → puntos de atención → cierre (punch con el tono de `status_tone`). El nivel se lee en el cierre y en el
+   badge de la cabecera (misma vista `v.judgment`). `id="asr-juicio"` se conserva. Independiente del veredicto del catálogo y del Gobierno / la Portabilidad. ── #}
 {% if v.judgment %}
 {% set j = v.judgment %}
 <section class="content-section" id="asr-juicio" aria-label="Adopción metodológica">
   {% set ns.n = ns.n + 1 %}{{ heading(ns.n, "Adopción metodológica", "Qué tan cerca está el modelo de adoptar la metodología, como resultado determinista sobre los cuatro contratos. Es independiente del veredicto del catálogo (higiene de extracción) y no recalcula el Assessment.") }}
   {% if v.state == "STALE" %}{% call callout("note", "Corresponde al perfil evaluado") %}<p>El Assessment técnico está desactualizado; la Adopción refleja el último perfil evaluado.</p>{% endcall %}{% endif %}
+  {% if v.judgment_provisional %}{% call callout("note", "Clasificación provisional") %}<p>Corresponde a esta ejecución: el mismo motor del Catálogo sobre la evidencia que se acaba de evaluar. <strong>No incorpora las ratificaciones de gobierno</strong> registradas en el Catálogo, por lo que puede diferir de la clasificación publicada aunque el modelo no haya cambiado. Se calcula con las reglas vigentes al abrir este informe{% if v.judgment.ruleset_version %} (<code>{{ v.judgment.ruleset_version }}</code>){% endif %}. No modifica la clasificación publicada.</p>{% endcall %}{% endif %}
   {# Contratos = 4 (una fila por dimensión); evidencias = ítems individuales (varios por contrato). #}
   {{ contracts_evaluated(j) }}
   {{ tile_grid(j.tiles) }}
@@ -255,7 +259,7 @@
   <table><thead><tr><th>Contrato</th><th>Situación</th><th>Causa</th></tr></thead><tbody>{% for d in j.nd.dimensions %}<tr><td>{{ d.dimension }}</td><td>{{ d.state_text }}</td><td>{{ d.cause_text }}</td></tr>{% endfor %}</tbody></table>
   {% endif %}
   {# Cierre editorial = callout canónico del Hub con el tono de `status_tone` (verde / ámbar / naranja / gris); el nivel va en el título. #}
-  {% call callout(j.tone, "Lectura de la adopción · " ~ j.level_label) %}<p>{{ j.headline }}</p>{% endcall %}
+  {% call callout(j.tone, "Lectura de la adopción" ~ (" provisional" if v.judgment_provisional else "") ~ " · " ~ j.level_label) %}<p>{{ j.headline }}</p>{% endcall %}
 </section>
 {% endif %}
 

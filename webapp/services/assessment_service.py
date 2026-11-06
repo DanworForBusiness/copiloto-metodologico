@@ -396,6 +396,27 @@ def _derive_judgment(profile: dict | None, ratified: Any = None) -> dict | None:
     return evaluate_judgment(profile, ruleset=CURRENT_RULESET_VERSION, ratified_contracts=list(ratified or ())) if profile is not None else None
 
 
+def provisional_judgment(profile: dict | None) -> dict | None:
+    """Juicio de una ejecución AD HOC (Herramientas de Diagnóstico): ``_derive_judgment`` sobre el perfil de ESA ejecución, nada más.
+
+    · Fuente: SOLO el perfil recibido; jamás lee un sobre del Catálogo ni el Juicio publicado del mismo modelo.
+    · Sin decisiones gobernadas: el registro solo lo lee el operador explícito con una instantánea (D8). Leerlo al abrir el informe haría que
+      una revocación o una ratificación nueva cambiara la clasificación de una ejecución ya hecha; sin ellas, el resultado depende solo del
+      perfil (inmutable durante las 24 h del resultado) y del ruleset vigente. Es el mismo Juicio que produce una generación nueva en el Catálogo.
+      Consecuencia: puede diferir del Juicio materializado (que sí puede incorporar ratificaciones) aun sin cambios técnicos en el modelo.
+    · LIMITACIÓN conocida (sin persistencia nueva en este quick fix): se calcula al abrir el informe con el ruleset VIGENTE
+      (``CURRENT_RULESET_VERSION``), no con uno fijado al ejecutar. Si un deploy cambia el ruleset dentro de las 24 h de vida del resultado,
+      la clasificación provisional puede cambiar sin una nueva ejecución. El informe muestra la versión del ruleset utilizada.
+    · No persiste nada. Si el motor falla, ``None``: el informe no muestra clasificación antes que una engañosa."""
+    if profile is None:
+        return None
+    try:
+        return _derive_judgment(profile)
+    except Exception:  # noqa: BLE001 — un perfil que el motor no puede juzgar no rompe el informe; se registra y no se clasifica
+        log.warning("assessment.provisional_judgment failed", exc_info=True)
+        return None
+
+
 def _derive_business_classification(entry: Any, am: str | None) -> dict | None:
     """Clasificación de NEGOCIO v2 (línea de negocio + dominio) DERIVADA del contexto local del Catálogo. Sin red, sin Datasphere, sin leer el Juicio ni el perfil."""
     from webapp.services import domain_classification_service
