@@ -1,7 +1,7 @@
 """P1 · B2 — la publicación segura NO admite un assessment solo en disco efímero: valida la persistencia EFECTIVA antes de modificar nada.
 
-Criterio del dueño: con ``DANWOR_PUBLICATION_SAFE`` encendido y el almacén ``governed-assessments`` sin cobertura durable real, la publicación aborta ANTES de tocar el Catálogo (y antes de
-conectar con Datasphere). Se valida la configuración efectiva (modo, credenciales, escritura habilitada, confirmación remota pedida, rutas persistidas y el directorio al que de verdad
+Criterio del dueño: con el almacén ``governed-assessments`` sin cobertura durable real, la publicación aborta ANTES de tocar el Catálogo (y antes de
+conectar con Datasphere). Se valida la configuración efectiva (modo, credenciales, escritura habilitada, rutas persistidas y el directorio al que de verdad
 escribe el almacén), no la presencia textual de un nombre en una lista.
 
 Frontera simulada: el tenant de Datasphere y el bucket. Todo bajo ``tmp_path``: jamás Spaces de producción.
@@ -29,7 +29,6 @@ AM_A = "AM_Lista_Precios"
 @pytest.fixture()
 def world(ctx, monkeypatch, tmp_path):                                                                     # noqa: F811
     monkeypatch.setenv("DANWOR_GOVERNED_ASSESSMENTS_DIR", str(tmp_path / "governed"))
-    monkeypatch.setenv(txn.SAFE_ENV, "1")
     assess.reset_memory_cache()
     assess.invalidate_pool_index()
     gate.set_resolver(None)
@@ -45,7 +44,6 @@ def world(ctx, monkeypatch, tmp_path):                                          
 
 
 def pub(w, **kw):
-    kw.setdefault("mirror", True)
     return w.publish(AM_A, stage=True, **kw)
 
 
@@ -104,10 +102,11 @@ def test_a_store_under_the_catalog_has_no_valid_directory_and_aborts(world, monk
 
 
 # ═══════════════ la persistencia efectiva no confirma lo que se publica ═══════════════
-def test_without_the_remote_confirmation_requested_a_successful_publication_would_not_be_durable_so_it_aborts(world, monkeypatch):
+def test_remote_mode_always_requires_the_remote_confirmation_without_any_extra_switch(world, monkeypatch):
+    """La confirmación en Spaces ya no se «pide» con una variable: en modo remote es obligatoria y la publicación cubierta queda confirmada."""
     enable_remote(monkeypatch, world.s3, governed=world.governed)
-    res, _ = pub(world, mirror=False)
-    assert_aborted_untouched(world, res, "PERSISTENCE_NOT_REQUESTED")
+    res, _ = pub(world)
+    assert (res.status, res.durability) == (txn.COMPLETED, txn.DURABILITY_REMOTE)
 
 
 @pytest.mark.parametrize("mode", ["local", "read-only"])
@@ -115,7 +114,7 @@ def test_credentials_present_but_a_non_remote_persistence_mode_aborts(world, mon
     monkeypatch.setattr(config, "SPACES_CONFIGURED", True)
     monkeypatch.setattr(config, "PERSISTENCE_MODE", mode)
     monkeypatch.setattr(config, "PERSIST_ENABLED", False)
-    res, _ = pub(world, mirror=False)
+    res, _ = pub(world)
     assert_aborted_untouched(world, res, "PERSISTENCE_MODE_NOT_REMOTE")
 
 
@@ -144,19 +143,19 @@ def test_a_covered_configuration_publishes_and_the_governed_assessment_is_confir
 
 
 def test_a_local_development_environment_without_credentials_is_not_blocked(world):
-    res, _ = pub(world, mirror=False)                                                                           # sin credenciales y modo local explícito: el disco es la fuente de verdad
-    assert res.status == txn.COMPLETED and res.durability == txn.DURABILITY_NOT_REQUESTED
+    res, _ = pub(world)                                                                           # sin credenciales y modo local explícito: el disco es la fuente de verdad
+    assert res.status == txn.COMPLETED and res.durability == txn.DURABILITY_LOCAL_BY_CONFIG
     assert any(world.governed.rglob("*.json"))
 
 
 def test_a_publication_without_an_assessment_stage_is_not_subject_to_the_assessment_requirement(world, monkeypatch):
     enable_remote(monkeypatch, world.s3)                                                                        # sin 'governed-assessments' en las rutas…
-    res, _ = world.publish(AM_A, mirror=True)                                                                   # …pero esta publicación no genera assessment
+    res, _ = world.publish(AM_A)                                                                   # …pero esta publicación no genera assessment
     assert res.status == txn.COMPLETED
 
 
 # ═══════════════ cada causa tiene un mensaje para el usuario ═══════════════
 def test_every_coverage_failure_has_a_user_facing_message():
-    codes = {"ASSESSMENT_STORE_UNAVAILABLE", "PERSISTENCE_MODE_NOT_REMOTE", "PERSISTENCE_NOT_WRITABLE", "PERSISTENCE_NOT_REQUESTED", "CATALOG_NOT_PERSISTED", "ASSESSMENT_NOT_PERSISTED"}
+    codes = {"ASSESSMENT_STORE_UNAVAILABLE", "PERSISTENCE_MODE_NOT_REMOTE", "PERSISTENCE_NOT_WRITABLE", "CATALOG_NOT_PERSISTED", "ASSESSMENT_NOT_PERSISTED"}
     assert codes <= set(svc.PUBLICATION_MESSAGES)
-    assert pr.persistence_gap(remote_store, mirror_up=True, catalog_root=__import__("pathlib").Path("."), durable_store=None) is None
+    assert pr.persistence_gap(remote_store, catalog_root=__import__("pathlib").Path("."), durable_store=None) is None

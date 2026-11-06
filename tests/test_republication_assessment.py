@@ -334,7 +334,7 @@ def test_publishing_one_client_never_touches_another_clients_catalog_assessments
 def test_the_governed_assessments_are_confirmed_in_spaces_together_with_the_catalog_before_the_marker(world, monkeypatch):
     s3 = FakeS3()
     enable_remote(monkeypatch, s3, governed=world.governed)
-    res, _ = pub(world, mirror=True)
+    res, _ = pub(world)
     assert res.status == txn.COMPLETED and res.durability == txn.DURABILITY_REMOTE
     env_keys = [k for k in s3.objects if k.startswith("audit/governed-assessments/")]
     assert len(env_keys) == 1 and env_keys[0].endswith(".json")
@@ -346,11 +346,11 @@ def test_the_governed_assessments_are_confirmed_in_spaces_together_with_the_cata
 def test_a_remote_failure_restores_the_previous_assessment_in_local_and_in_spaces(world, monkeypatch):
     s3 = FakeS3()
     enable_remote(monkeypatch, s3, governed=world.governed)
-    pub(world, mirror=True)
+    pub(world)
     pre_governed, pre_remote = governed_tree(world), dict(s3.objects)
     v2_exclusive(world.tenant)
     s3.fail_keys = ("governed-assessments/",)                                                                       # el assessment NO se puede subir
-    res, _ = pub(world, mirror=True)
+    res, _ = pub(world)
     assert (res.status, res.error_code) == (txn.ROLLED_BACK, "PERSISTENCE_FAILED")
     assert governed_tree(world) == pre_governed and s3.objects == pre_remote
     assert assess.status_for_entry(entry_of(world, AM_A)).state == assess.CURRENT
@@ -359,12 +359,12 @@ def test_a_remote_failure_restores_the_previous_assessment_in_local_and_in_space
 def test_a_retired_model_assessment_is_also_removed_from_spaces(world, monkeypatch):
     s3 = FakeS3()
     enable_remote(monkeypatch, s3, governed=world.governed)
-    assert pub(world, AM_A, mirror=True)[0].ok and pub(world, AM_B, mirror=True)[0].ok
+    assert pub(world, AM_A)[0].ok and pub(world, AM_B)[0].ok
     b_key = next(k for k in s3.objects if k.startswith("audit/governed-assessments/") and AM_B in k)
     for rel in ("analytic-models/AM_Otro", "views/3VF_OT", "local-tables/RAW_OT"):
         (world.pool / CLIENT / f"{rel}.json").unlink()
     v2_exclusive(world.tenant)
-    res, _ = pub(world, AM_A, mirror=True)
+    res, _ = pub(world, AM_A)
     assert res.status == txn.COMPLETED and b_key not in s3.objects                                                  # no resucita en un restore
 
 

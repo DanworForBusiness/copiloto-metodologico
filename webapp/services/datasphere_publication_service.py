@@ -17,8 +17,8 @@ Reusa del servicio de Assessment TODO lo que es manejo de entrada / saneamiento 
 mensajes de error y de features, y el contexto de formulario NO sensible por sesión. Lo propio de acá es el ``run()`` que publica.
 
 Secretos: el ``client_secret`` entra por argumento, vive solo durante la extracción, jamás se guarda ni se devuelve ni se registra.
-A diferencia del Assessment, esta herramienta SÍ escribe en el pool/Catálogo canónicos (ese es su objetivo); nunca sube a Spaces
-salvo que se habilite explícitamente por entorno (``DANWOR_PUBLICATION_MIRROR_UP``).
+A diferencia del Assessment, esta herramienta SÍ escribe en el pool/Catálogo canónicos (ese es su objetivo), SIEMPRE como unidad transaccional
+(journal + deshacer + confirmación durable): con ``DANWOR_PERSISTENCE=remote`` la versión nueva solo es vigente confirmada en Spaces; en ``local`` vale el disco.
 """
 from __future__ import annotations
 
@@ -57,9 +57,8 @@ def tool_enabled(stem: str) -> bool:
 
 # ── quién puede publicar ──
 # Publicar ESCRIBE en el Catálogo gobernado (pool, manifiestos, Catálogo materializado, assessments). La AUTORIZACIÓN es el perfil, no la configuración: el dueño (APP_OWNER) o cualquier usuario
-# autenticado con perfil COMPLETO del Hub (``user_tier == "full"``, el MISMO criterio que el Assessment). No depende de ``DANWOR_PUBLICATION_SAFE``: la publicación segura (P1) mejora la INTEGRIDAD de la
-# operación —``run()`` elige el camino seguro o el de siempre según esa configuración, sea quien sea el que publica—, no decide quién puede ejecutarla. Riesgo residual del camino de siempre (SAFE apagada)
-# en docs/PUBLISH_CONSULTANT_ACCESS.md §3.
+# autenticado con perfil COMPLETO del Hub (``user_tier == "full"``, el MISMO criterio que el Assessment). La integridad no es configurable: toda publicación es la unidad transaccional (P1),
+# sea quien sea el que publica; la autorización solo decide quién puede ejecutarla.
 # ``DANWOR_PUBLICATION_CONSULTANT_CLIENTS`` es una restricción OPCIONAL: ausente o vacía no restringe; si está definida, un consultor solo publica sobre esos clientes (el dueño, sobre cualquiera).
 CONSULTANT_CLIENTS_ENV = "DANWOR_PUBLICATION_CONSULTANT_CLIENTS"
 CLIENT_NOT_AUTHORIZED_TITLE = "No se pudo publicar el modelo"
@@ -174,22 +173,20 @@ def _retry_restore_async() -> None:
 
 
 def begin_boot_gate() -> bool:
-    """Arranque con la publicación segura y la persistencia remota encendidas: cierra la compuerta de lectores ANTES de servir, hasta que el restore termine y la recuperación verifique lo
-    restaurado (un disco perdido con Spaces a medias no puede mostrarse como vigente). True si la cerró."""
+    """Arranque con persistencia remota: cierra la compuerta de lectores ANTES de servir, hasta que el restore termine y la recuperación verifique lo restaurado (un disco
+    perdido con Spaces a medias no puede mostrarse como vigente). True si la cerró."""
     from core import publication_gate as gate, remote_store
-    from tools.catalog import publication_txn as txn
-    if not (txn.safe_mode_enabled() and remote_store.enabled()):
+    if not remote_store.enabled():
         return False
     gate.begin_boot(_canonical_roots()[0])
     return True
 
 
 def _mirror_guard() -> str | None:
-    """Guarda del sync periódico: con la publicación segura encendida, NO sube mientras haya una publicación, una verificación de arranque o una recuperación sin resolver."""
+    """Guarda del sync periódico (siempre activa): NO sube mientras haya una publicación, una verificación de arranque o una recuperación sin resolver. Lee el estado del DISCO
+    (compuerta y journals), así que vale entre procesos; no deja bloqueos permanentes: la compuerta se cierra con la operación y la recuperación la resuelve."""
     from core import publication_gate as gate
     from tools.catalog import publication_txn as txn
-    if not txn.safe_mode_enabled():
-        return None
     root = _canonical_roots()[0]
     if gate.read_state(root) is not None:
         return "hay una publicación o una verificación de arranque en curso"
@@ -230,10 +227,7 @@ def verify_ledgers(root=None) -> dict[str, list[str]]:
 
 def boot_recover() -> None:
     """Arranque (después del restore): completa o deshace una publicación que la caída del proceso dejó a medias y VERIFICA que lo restaurado sea una versión publicada (no una mezcla).
-    Solo con la publicación segura encendida. Una incoherencia se registra con severidad de error: se corrige republicando el modelo (la republicación detecta el desvío y reescribe la unidad)."""
-    from tools.catalog import publication_txn as txn
-    if not txn.safe_mode_enabled():
-        return
+    Una incoherencia se registra con severidad de error: se corrige republicando el modelo (la republicación detecta el desvío y reescribe la unidad)."""
     resolve_pending()
     try:
         from core import publication_gate as gate
@@ -266,12 +260,6 @@ def _lock_for(values: asd.FormValues) -> threading.Lock:
     key = (values.client.lower(), values.space.lower(), values.root_object.lower())
     with _LOCKS_GUARD:
         return _RUNNING.setdefault(key, threading.Lock())
-
-
-def _mirror_up_enabled() -> bool:
-    """Subir a DigitalOcean Spaces (persistencia remota) está APAGADO por defecto: publicar regenera el Catálogo local
-    (``generate_catalog=True``), que es lo que la UI necesita mostrar. El espejo remoto se habilita explícitamente por entorno."""
-    return os.getenv("DANWOR_PUBLICATION_MIRROR_UP", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _canonical_roots() -> tuple[Path, Path]:
@@ -343,7 +331,6 @@ PUBLICATION_MESSAGES = {
     "PERSISTENCE_UNCONFIRMED": "Publicado en el Catálogo local, pero la persistencia en Spaces NO está confirmada. Reintentá la publicación (es idempotente) para confirmarla.",
     "PERSISTENCE_MODE_NOT_REMOTE": "El servidor tiene credenciales de Spaces pero no está en modo de persistencia remota: lo publicado se perdería en el próximo reinicio. No se modificó nada; avisá al equipo técnico (DANWOR_PERSISTENCE=remote).",
     "PERSISTENCE_NOT_WRITABLE": "La persistencia remota está indicada pero la escritura en Spaces no está habilitada. No se modificó nada; avisá al equipo técnico.",
-    "PERSISTENCE_NOT_REQUESTED": "La publicación segura exige confirmar en Spaces y esa confirmación no está activada en el servidor. No se modificó nada; avisá al equipo técnico (DANWOR_PUBLICATION_MIRROR_UP).",
     "CATALOG_NOT_PERSISTED": "El directorio del Catálogo no está entre los que se guardan en Spaces. No se modificó nada; avisá al equipo técnico (SPACES_PERSIST_PATHS).",
     "ASSESSMENT_NOT_PERSISTED": "Los assessments no se guardarían en Spaces (el almacén 'governed-assessments' no está cubierto por la persistencia). No se modificó nada; avisá al equipo técnico (SPACES_PERSIST_PATHS).",
     "ASSESSMENT_STORE_UNAVAILABLE": "El almacén de assessments no tiene un directorio válido, así que no habría dónde guardarlos. No se modificó nada; avisá al equipo técnico.",
@@ -434,8 +421,7 @@ def run(values: asd.FormValues, client_secret: str, *, user_email: str = "", on_
         catalog_root.mkdir(parents=True, exist_ok=True)
         csn_cache.mkdir(parents=True, exist_ok=True)
         from tools.catalog import publication_txn as txn
-        safe = txn.safe_mode_enabled()                                   # el interruptor se lee UNA vez por operación
-        try:                                                             # con o sin interruptor: un journal a medias nunca se pisa (apagar el interruptor no deja estados mixtos)
+        try:                                                             # un journal a medias nunca se pisa: se completa o se deshace antes de publicar
             txn.recover_pending(catalog_root)
         except txn.RecoveryError:
             return PublicationOutcome("FAILED", "RECOVERY_REQUIRED", PUBLICATION_MESSAGES["RECOVERY_REQUIRED"], operation_id=op_id, stage="publish", title=TITLE_PUBLISH,
@@ -445,11 +431,10 @@ def run(values: asd.FormValues, client_secret: str, *, user_email: str = "", on_
             host=values.host, client_id=values.client_id, client_secret=client_secret, token_url=values.token_url,
             space=values.space, root_object=values.root_object, client=values.client,
             catalog_root=catalog_root, csn_cache_dir=csn_cache,         # raíces CANÓNICAS: acá SÍ se escribe el Catálogo
-            generate_catalog=True, mirror_up=(True if safe else _mirror_up_enabled()),   # seguro: la confirmación remota es OBLIGATORIA; si no, Spaces solo si se habilita
+            generate_catalog=True,                                      # la confirmación en Spaces la decide DANWOR_PERSISTENCE (remote: obligatoria)
             mode="publish",                                             # forzado en el servidor: la UI no elige el modo
             features_requested=asd.requested_features(values),         # SOLO lo pedido: las dependencias las resuelve el extractor
-            safe=safe,
-            stage_hooks=(republication_stage.AssessmentStage() if safe else None),     # P1: el assessment gobernado forma parte de la unidad (preparar → validar → activar)
+            stage_hooks=republication_stage.AssessmentStage(),          # P1: el assessment gobernado forma parte de la unidad (preparar → validar → activar)
         )
 
         def live(line: str) -> None:
@@ -462,42 +447,10 @@ def run(values: asd.FormValues, client_secret: str, *, user_email: str = "", on_
         with dsp.capture_output(on_line=live) as cap:
             result = dsp.run_export(request)
         trace = asd._trace(cap.lines, secrets, roots)
-        if safe:
-            outcome = _safe_outcome(values, result, trace, secrets, roots, started, user_email, on_line, on_phase)
-            if outcome.state in ("SUCCESS", STATE_PARTIAL):                 # el modelo quedó publicado (aunque con advertencias): se registra quién lo publicó, igual que en la ruta no segura
-                record_provenance(values, user_email, outcome.operation_id or op_id)
-            return outcome
-        if not result.ok:
-            code = result.error_code or "EXTRACTION_FAILED"
-            log.warning("datasphere_publication op=%s user=%s client=%s space=%s model=%s status=FAILED code=%s duration=%.1fs",
-                        op_id, user_email, values.client, values.space, values.root_object, code, result.duration_s)
-            backend = asd._CODE_PREFIX_RE.sub("", asd.sanitize(result.message, secrets, roots)[:500], count=1)
-            message = backend if (str(result.message).startswith("PRECHECK_") or code in asd.BACKEND_WORDED_CODES) \
-                else asd.ERROR_MESSAGES.get(code, asd.ERROR_MESSAGES["EXTRACTION_FAILED"])
-            stage = "assessment" if code in {"CATALOG_GENERATION_FAILED", "STORAGE_UPLOAD_FAILED"} else "extraction"
-            return asd.Outcome("FAILED", code, message, trace=trace, operation_id=op_id, duration_s=result.duration_s,
-                               stage=stage, title=TITLE_PUBLISH)
-        # Publicado → invalidar la caché del Catálogo para que el nuevo dominio aparezca de inmediato.
-        try:
-            from webapp import main as hub_main
-            hub_main._invalidate_catalog_cache()
-        except Exception:                                               # noqa: BLE001
-            log.warning("datasphere_publication op=%s no se pudo invalidar el caché del catálogo", op_id)
-        # Mismo pool, sin reconectar: el assessment canónico del modelo publicado queda registrado junto con el Catálogo.
-        if on_phase is not None:
-            on_phase(PHASE_REGISTERING)
-        registered = register_assessment(values)
-        if on_line is not None:
-            for _eid, state in registered:
-                on_line(f"Assessment del modelo registrado: {state}")
-        record_provenance(values, user_email, op_id)                    # quién publicó/actualizó cada tile (habilita la regla de retiro «quien lo subió o actualizó»)
-        if on_phase is not None:
-            on_phase(PHASE_PUBLISHED)
-        duration = round((datetime.now(timezone.utc) - started).total_seconds(), 1)
-        log.info("datasphere_publication op=%s user=%s client=%s space=%s model=%s status=SUCCESS duration=%.1fs files=%s",
-                 op_id, user_email, values.client, values.space, values.root_object, duration, result.exported_files)
-        return asd.Outcome("SUCCESS", trace=trace, operation_id=op_id, duration_s=duration, stage="publish",
-                           terminal_am=values.root_object)
+        outcome = _safe_outcome(values, result, trace, secrets, roots, started, user_email, on_line, on_phase)
+        if outcome.state in ("SUCCESS", STATE_PARTIAL):                     # el modelo quedó publicado (aunque con advertencias): se registra quién lo publicó
+            record_provenance(values, user_email, outcome.operation_id or op_id)
+        return outcome
     except Exception as exc:                                            # noqa: BLE001 — jamás se muestra el texto crudo
         log.warning("datasphere_publication op=%s status=FAILED code=EXTRACTION_FAILED exc=%s", op_id, type(exc).__name__)
         return asd.Outcome("FAILED", "EXTRACTION_FAILED", asd.ERROR_MESSAGES["EXTRACTION_FAILED"], trace=[f"{type(exc).__name__}"],

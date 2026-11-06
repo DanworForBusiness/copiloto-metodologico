@@ -218,7 +218,6 @@ def test_run_export_manifest_and_orchestration_contract(monkeypatch, tmp_path):
         catalog_root=catalog_root,
         csn_cache_dir=cache_root,
         generate_catalog=False,
-        mirror_up=False,
     )
     result = dsp.run_export(req)
 
@@ -267,7 +266,6 @@ def test_run_export_preserves_precheck_classification(monkeypatch, tmp_path, fai
             catalog_root=tmp_path / "catalog",
             csn_cache_dir=tmp_path / "cache",
             generate_catalog=False,
-            mirror_up=False,
         )
     )
     assert result.ok is False
@@ -291,7 +289,6 @@ def test_run_export_launcher_resolution_failure_is_structured(monkeypatch, tmp_p
             catalog_root=tmp_path / "catalog",
             csn_cache_dir=tmp_path / "cache",
             generate_catalog=False,
-            mirror_up=False,
         )
     )
     assert result.ok is False
@@ -377,7 +374,6 @@ def test_run_export_list_spaces_bypasses_root_pipeline(monkeypatch, tmp_path):
                 catalog_root=tmp_path / "catalog",
                 csn_cache_dir=tmp_path / "cache",
                 generate_catalog=False,
-                mirror_up=False,
             )
         )
 

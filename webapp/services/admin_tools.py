@@ -315,7 +315,7 @@ def run_catalog_generation_locked(graph_token: str = "") -> tuple[bool, str]:
     try:
         from tools.catalog import publication_txn as _txn
         try:
-            with _txn.external_writer_guard(0):          # con DANWOR_PUBLICATION_SAFE activo: mismo candado ENTRE PROCESOS que la publicación (apagado: sin efecto)
+            with _txn.external_writer_guard(0):          # mismo candado ENTRE PROCESOS que la publicación
                 return True, run_catalog_generation(graph_token=graph_token)
         except _txn.CatalogBusyError:
             return False, "Hay una publicación o sincronización del Catálogo en curso (otro proceso). Esperá unos segundos y volvé a intentar."

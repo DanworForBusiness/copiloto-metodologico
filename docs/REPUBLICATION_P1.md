@@ -1,5 +1,7 @@
 # P1 — Reimportación del catálogo y regeneración consistente del assessment
 
+> **Actualización 2026-11-06 (hotfix P0):** el interruptor `DANWOR_PUBLICATION_SAFE`, la variable `DANWOR_PUBLICATION_MIRROR_UP` y el camino legacy se retiraron: la unidad descrita acá es el ÚNICO camino y la confirmación remota la decide `DANWOR_PERSISTENCE`. Las menciones al interruptor en este documento son históricas; ver `docs/PUBLICATION_SAFE_RUNBOOK.md`.
+
 Estado: implementado en la rama `feat/republication-p1` (commits locales, sin push/PR/merge/deploy). Interruptor: **`DANWOR_PUBLICATION_SAFE`**, apagado por defecto (ver `docs/PUBLICATION_SAFE_RUNBOOK.md`
 para activar, desactivar y operar). Diseño previo: `docs/audit/CATALOG_REPUBLICATION_AUDIT_20261026.md` y `docs/audit/CATALOG_REPUBLICATION_PHASE0_DESIGN_20261026.md`.
 
@@ -94,7 +96,6 @@ persistencia **efectiva** no lo cubre (`publication_remote.persistence_gap`, rev
 |---|---|
 | `PERSISTENCE_MODE_NOT_REMOTE` | hay credenciales de Spaces pero `DANWOR_PERSISTENCE` no es `remote` (lo publicado se perdería en el próximo reinicio) |
 | `PERSISTENCE_NOT_WRITABLE` | modo `remote` sin escritura habilitada (credenciales incompletas) |
-| `PERSISTENCE_NOT_REQUESTED` | la confirmación remota (`DANWOR_PUBLICATION_MIRROR_UP`) no está activada |
 | `CATALOG_NOT_PERSISTED` | el directorio del Catálogo no está entre los persistidos |
 | `ASSESSMENT_NOT_PERSISTED` | `governed-assessments` no figura en `SPACES_PERSIST_PATHS`, o el directorio al que el almacén escribe de verdad no está dentro del persistido (el nombre en la lista no alcanza) |
 | `ASSESSMENT_STORE_UNAVAILABLE` | el almacén no tiene directorio válido (p. ej. cae bajo el Catálogo) |
