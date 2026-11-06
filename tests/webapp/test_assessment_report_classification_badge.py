@@ -125,7 +125,7 @@ def test_adhoc_report_shows_its_own_provisional_judgment_from_the_canonical_engi
 
 
 @pytest.mark.parametrize("make,label", [(lambda j: _determined(j, "PARCIAL"), "Parcial"), (lambda j: _determined(j, "ADECUADA"), "Adecuada"),
-                                        (_not_determinable, "No determinable")])
+                                        (lambda j: _determined(j, "BUENA"), "Buena"), (_not_determinable, "No determinable")])
 def test_adhoc_report_renders_each_official_outcome(owner, fake_export, monkeypatch, make, label):  # noqa: F811
     rid, url = _adhoc(owner)
     real = asvc._derive_judgment
@@ -162,3 +162,30 @@ def test_adhoc_engine_failure_shows_no_misleading_badge(owner, fake_export, monk
     html = owner.get(url).text
     assert _badge(html)[1] is None and 'id="asr-juicio"' not in html
     assert re.search(r"<h1 class=\"asr-title\">", html)                     # el resto del informe sigue
+
+
+def test_adhoc_report_writes_nothing_to_catalog_spaces_or_governed_records(owner, fake_export, monkeypatch):  # noqa: F811
+    """Abrir el informe ad hoc (y exportarlo) solo LEE: ninguna escritura al Catálogo, a Spaces, a sobres gobernados ni al resultado ad hoc."""
+    rid, url = _adhoc(owner)
+    from core import remote_store
+    calls: list[str] = []
+    for name in ("mirror_up", "push_path", "delete_path"):
+        monkeypatch.setattr(remote_store, name, lambda *a, _n=name, **k: calls.append(_n))
+    monkeypatch.setattr(asvc, "_store_envelope", lambda *a, **k: calls.append("_store_envelope"))
+    monkeypatch.setattr(dsvc, "save_result", lambda *a, **k: calls.append("save_result"), raising=False)
+    before = json.dumps(dsvc.load_result(rid), sort_keys=True)
+    assert _badge(owner.get(url).text)[1] is not None
+    for ext in ("json", "md"):
+        assert owner.get(f"/modules/{ds.STEM}/datasphere-assessment/result/{rid}/export.{ext}").status_code == 200
+    assert calls == []
+    assert json.dumps(dsvc.load_result(rid), sort_keys=True) == before          # el resultado ad hoc queda byte a byte igual
+
+
+def test_materialized_report_is_untouched_by_the_provisional_path(world, monkeypatch):  # noqa: F811
+    """El informe materializado sigue mostrando el Juicio PERSISTIDO del sobre: nunca llama a ``provisional_judgment`` ni se rotula provisional."""
+    def forbidden(*a, **k):
+        raise AssertionError("el materializado no usa el Juicio provisional")
+    monkeypatch.setattr(asvc, "provisional_judgment", forbidden)
+    html = _catalog_report_with(lambda j: _determined(j, "ADECUADA"))
+    badge, level_label, _ = _assert_badge_matches_section(html, provisional=False)
+    assert level_label == "Adecuada" and "provisional" not in badge.get_text(" ", strip=True)
