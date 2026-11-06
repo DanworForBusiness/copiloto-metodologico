@@ -44,10 +44,6 @@ def svc(ctx, monkeypatch):                                                      
     return ctx
 
 
-def flag(monkeypatch, on: bool):
-    monkeypatch.setenv(txn.SAFE_ENV, "1") if on else monkeypatch.delenv(txn.SAFE_ENV, raising=False)
-
-
 # ═══════════════ mapeo de estados al contrato de la UI ═══════════════
 def _result(status, ok=False, code=None, durability="", **kw):
     return dsp.ExportResult(ok=ok, error_code=code, status=status, operation_id="op1", durability=durability, exported_files=3, duration_s=1.0,
@@ -68,13 +64,12 @@ CASES = [
 
 @pytest.mark.parametrize("status, ok, code, state, registers", CASES)
 def test_every_status_maps_to_the_ui_contract_and_the_safe_path_never_registers_the_assessment_after_the_commit(svc, monkeypatch, status, ok, code, state, registers):
-    flag(monkeypatch, True)
     seen: dict = {}
     monkeypatch.setattr(dsp, "run_export", lambda req: (seen.setdefault("req", req), _result(status, ok, code))[1])
     out = pub.run(values(), "supersecret", user_email="c@danwor.com")
     assert out.state == state and out.status == status and (out.error_code or None) == code
     assert svc.registered == []                                                                                # el assessment es parte de la UNIDAD (preparado antes de activar), no un registro posterior
-    assert seen["req"].safe is True and seen["req"].mirror_up is True and seen["req"].mode == "publish"        # seguro: la confirmación remota es obligatoria
+    assert seen["req"].mode == "publish" and not hasattr(seen["req"], "safe") and not hasattr(seen["req"], "mirror_up")   # sin interruptor ni pedido de espejo: lo decide el modo de persistencia
     assert seen["req"].stage_hooks is not None and type(seen["req"].stage_hooks).__name__ == "AssessmentStage"
     if state == "PARTIAL":
         assert out.title == "Publicación parcial" and out.message
@@ -84,30 +79,21 @@ def test_every_status_maps_to_the_ui_contract_and_the_safe_path_never_registers_
 
 
 def test_success_requires_a_completed_status_and_a_partial_never_opens_the_catalog(svc, monkeypatch):
-    flag(monkeypatch, True)
     monkeypatch.setattr(dsp, "run_export", lambda req: _result(txn.COMMITTED_UNCONFIRMED, False, "PERSISTENCE_UNCONFIRMED", txn.DURABILITY_UNCONFIRMED))
     out = pub.run(values(), "s")
     assert out.state == "PARTIAL" and out.durability == txn.DURABILITY_UNCONFIRMED and "NO está confirmada" in out.message
 
 
-def test_with_the_switch_off_the_service_keeps_the_legacy_path(svc, monkeypatch):
-    flag(monkeypatch, False)
-    monkeypatch.delenv("DANWOR_PUBLICATION_MIRROR_UP", raising=False)
-    seen: dict = {}
-    monkeypatch.setattr(dsp, "run_export", lambda req: (seen.setdefault("req", req), dsp.ExportResult(ok=True, exported_files=3, duration_s=1.0))[1])
+def test_there_is_no_legacy_path_a_result_without_status_is_never_a_success(svc, monkeypatch):
+    """El camino de siempre ya no existe: un resultado ``ok`` SIN ``status`` transaccional (lo que devolvía el camino legacy) no se trata como publicado."""
+    monkeypatch.setattr(dsp, "run_export", lambda req: dsp.ExportResult(ok=True, exported_files=3, duration_s=1.0))
     out = pub.run(values(), "s")
-    assert out.state == "SUCCESS" and seen["req"].safe is False and seen["req"].mirror_up is False              # camino de siempre: Spaces solo si se habilita por entorno
-    assert not hasattr(out, "status") or out.status == ""
-
-
-def test_the_switch_is_read_once_per_operation_and_defaults_to_off(svc, monkeypatch):
-    monkeypatch.delenv(txn.SAFE_ENV, raising=False)
-    assert txn.safe_mode_enabled() is False
+    assert out.state != "SUCCESS" and svc.registered == []
+    assert not hasattr(pub, "_mirror_up_enabled")
 
 
 # ═══════════════ extremo a extremo por el servicio (exportador, manifiestos y generador reales) ═══════════════
 def test_end_to_end_success_and_incomplete_extraction_through_the_service(svc, monkeypatch):
-    flag(monkeypatch, True)
     ok = pub.run(values(), "supersecret")
     assert ok.state == "SUCCESS" and ok.status == txn.COMPLETED and ok.change == "CHANGED" and ok.assessment["regenerated"] == ["AM_Lista_Precios"]
     assert assess.governed_path(CLIENT, "AM_Lista_Precios").is_file()                                          # el assessment se escribió DENTRO de la unidad
@@ -118,9 +104,8 @@ def test_end_to_end_success_and_incomplete_extraction_through_the_service(svc, m
     assert svc.registered == []                                                                                # y nunca se registró nada posterior
 
 
-# ═══════════════ interruptor: activar y desactivar sin estados mixtos ═══════════════
-def test_turning_the_switch_off_after_a_crash_never_leaves_a_mixed_state(svc, monkeypatch):
-    flag(monkeypatch, True)
+# ═══════════════ caída a mitad de la unidad: la siguiente publicación la resuelve primero ═══════════════
+def test_a_crash_mid_apply_is_rolled_back_before_the_next_publication_and_it_converges(svc, monkeypatch):
     assert pub.run(values(), "s").state == "SUCCESS"
     pre = svc.digest()
     svc.tenant.put(SPACE, "views", "1VR_LP_BASE", view("1VR_LP_BASE", ["RAW_PRECIOS"], cols=("A", "B", "C_NUEVA")))
@@ -131,25 +116,19 @@ def test_turning_the_switch_off_after_a_crash_never_leaves_a_mixed_state(svc, mo
         pub.run(values(), "s")
     monkeypatch.setattr(txn, "FAULT_HOOK", None)
     assert svc.digest() != pre and txn.has_pending(svc.catalog)                                                # estado a medias (journal APPLYING)
-    flag(monkeypatch, False)                                                                                   # se apaga el interruptor y se publica por el camino anterior
-    out = pub.run(values(), "s")
+    out = pub.run(values(), "s")                                                                               # la siguiente publicación recupera ANTES de aplicar
     assert out.state == "SUCCESS" and not txn.has_pending(svc.catalog)
-    assert sorted(j["state"] for j in svc.journals()) == sorted([txn.J_LOCAL_COMMITTED, txn.J_ROLLED_BACK])      # la operación a medias quedó ROLLED_BACK; la comprometida, intacta
+    assert sorted(j["state"] for j in svc.journals()) == sorted([txn.J_LOCAL_COMMITTED, txn.J_ROLLED_BACK, txn.J_LOCAL_COMMITTED])   # la operación a medias quedó ROLLED_BACK; las comprometidas, intactas
     assert "views/1VR_LP_EXTRA" not in svc.pool_names() and "C_NUEVA" in (svc.pool / CLIENT / "views" / "1VR_LP_BASE.json").read_text(encoding="utf-8")
-    flag(monkeypatch, True)                                                                                    # y se vuelve a encender: converge
-    assert pub.run(values(), "s").state == "SUCCESS"
+    assert pub.run(values(), "s").state == "SUCCESS"                                                           # y una republicación converge
 
 
-def test_an_unrecoverable_journal_blocks_publication_with_the_switch_on_or_off(svc, monkeypatch):
-    svc_flag_states = (True, False)
-    for on in svc_flag_states:
-        flag(monkeypatch, on)
-        jd = txn.journal_dir(svc.catalog)
-        jd.mkdir(parents=True, exist_ok=True)
-        (jd / "opX.json").write_text("{ilegible", encoding="utf-8")
-        out = pub.run(values(), "s")
-        assert out.state == "FAILED" and out.error_code == "RECOVERY_REQUIRED", on
-        (jd / "opX.json").unlink()
+def test_an_unrecoverable_journal_blocks_publication(svc, monkeypatch):
+    jd = txn.journal_dir(svc.catalog)
+    jd.mkdir(parents=True, exist_ok=True)
+    (jd / "opX.json").write_text("{ilegible", encoding="utf-8")
+    out = pub.run(values(), "s")
+    assert out.state == "FAILED" and out.error_code == "RECOVERY_REQUIRED"
 
 
 # ═══════════════ router: el evento final lleva el estado explícito ═══════════════
@@ -243,7 +222,7 @@ def test_ratifications_and_backups_in_spaces_are_never_touched_by_a_safe_publica
     seeded = {"audit/governed-decisions/Acme/abc123/2026-10-01T00:00:00Z-ev1.json": b'{"event":"ratification","actor":"senior"}',
               "audit/migration-backups/v1/Acme/x.json": b'{"backup":true}', "audit/governed-assessments/v1/acme/AM__x.json": b'{"envelope":true}'}
     s3.objects.update(seeded)
-    res, _ = governed.publish(mirror=True)
+    res, _ = governed.publish()
     assert res.status == txn.COMPLETED and res.durability == txn.DURABILITY_REMOTE
     assert {k: s3.objects[k] for k in seeded} == seeded                                                        # bytes idénticos
     new = set(s3.objects) - set(seeded)

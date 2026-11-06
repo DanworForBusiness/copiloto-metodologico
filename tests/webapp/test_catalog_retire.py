@@ -88,10 +88,9 @@ def test_publishing_records_who_published_first_and_last(world):
 
 @pytest.mark.parametrize("state, recorded", [("SUCCESS", True), ("PARTIAL", True), ("FAILED", False)])
 def test_the_safe_publication_path_also_records_who_published(world, monkeypatch, state, recorded):
-    """Integracion con P1: con ``DANWOR_PUBLICATION_SAFE`` el flujo vuelve por ``_safe_outcome`` y no por la ruta clasica: la procedencia se registra igual (publicado, aun con advertencias) y no si fallo."""
+    """Integracion con P1: el flujo (único) vuelve por ``_safe_outcome``: la procedencia se registra igual (publicado, aun con advertencias) y no si fallo."""
     from tools.catalog import DSP_CLI_Export_Lineage as dsp, publication_txn as txn
     monkeypatch.setattr(asd, "cli_available", lambda: True)
-    monkeypatch.setattr(txn, "safe_mode_enabled", lambda: True)
     monkeypatch.setattr(txn, "recover_pending", lambda root: None)
     monkeypatch.setattr(dsp, "run_export", lambda request: types.SimpleNamespace())
     monkeypatch.setattr(pub, "_safe_outcome", lambda *a, **k: pub.PublicationOutcome(state, operation_id="opSAFE"))

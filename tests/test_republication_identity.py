@@ -64,11 +64,3 @@ def test_an_existing_split_identity_is_refused_without_touching_anything(ctx):  
     assert (res.ok, res.status, res.error_code) == (False, txn.FAILED_NO_CHANGE, "CLIENT_KEY_CONFLICT")
     assert sorted(f["technical_name"] for f in res.failures) == sorted([CLIENT, CLIENT.upper()])
     assert ctx.digest() == before and not txn.has_pending(ctx.catalog)
-
-
-def test_the_legacy_path_keeps_the_typed_capitalization(ctx):                                    # noqa: F811
-    """Con el interruptor apagado el comportamiento es el de siempre (la canonicalización es parte de la publicación segura)."""
-    res, _ = ctx.publish(client=CLIENT, safe=False)
-    assert res.ok and [d.name for d in ctx.pool.iterdir() if d.is_dir()] == [CLIENT]
-    res2, _ = ctx.publish(client=CLIENT.upper(), safe=False)
-    assert res2.ok and sorted(d.name for d in ctx.pool.iterdir() if d.is_dir()) in (sorted([CLIENT, CLIENT.upper()]), [CLIENT])   # sin cambios de comportamiento (según el sistema de archivos)

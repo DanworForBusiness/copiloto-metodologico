@@ -28,7 +28,7 @@ Estado: **autorización por perfil** (dueño o consultor `full`), desacoplada de
 | Perfiles de clientes compartidos (`profile_id`), `/datasphere-profiles`, `refresh-catalog`, herramientas administrativas | solo `APP_OWNER` (`access.is_owner` **no se amplió**) |
 
 * **No hay interruptor para conceder la capacidad.** Se retiró `DANWOR_PUBLICATION_CONSULTANTS`: la capacidad ya está prevista por el perfil. El retiro de un usuario de la allowlist surte efecto en la siguiente request.
-* **`DANWOR_PUBLICATION_SAFE` no interviene en la autorización.** `run()` elige el camino seguro (P1) o el de siempre según esa configuración, sea quien sea el que publique. Se retiró la sonda `publication_guarantees_active`.
+* **La integridad no interviene en la autorización.** `run()` publica siempre por la unidad transaccional, sea quien sea el que publique. Se retiró la sonda `publication_guarantees_active`.
 * **`DANWOR_PUBLICATION_CONSULTANT_CLIENTS` es una restricción OPCIONAL.** Ausente o vacía = sin restricción adicional (no requiere configurar nada). Si está definida (lista separada por comas, sin distinguir mayúsculas ni espacios repetidos), un consultor solo publica sobre esos clientes (si no: `CLIENT_NOT_AUTHORIZED`, sin ejecutar nada); el dueño, sobre cualquiera. Un `*` suelto no es un cliente: se ignora (equivale a vacío).
 * Se conservan: sesión, mismo origen, validación de host/token URL, preflight OAuth, secretos transitorios y saneamiento, `record_provenance` y la regla de retiro («quien lo subió o actualizó»).
 
@@ -38,19 +38,12 @@ UI y backend usan el **mismo** predicado: botón «+», panel, deep link `?catal
 
 **Controles de propiedad sobre una republicación ajena (verificado):** hoy no existe ninguno que se aplique al usuario. La procedencia (`last_publisher`) se registra pero solo la lee la regla de retiro. Con la publicación segura hay una defensa de identidad del contenido (`POOL_IDENTITY_CONFLICT`: un objeto ya publicado desde otro Space/tenant con contenido distinto), no de propiedad por usuario. Un consultor `full` puede, por lo tanto, republicar el modelo de otro; el dueño también puede hacerlo hoy. No se agregó ningún bloqueo (queda como decisión del dueño; ver §3).
 
-## 3. Riesgo residual del camino de siempre (`DANWOR_PUBLICATION_SAFE` apagada)
+## 3. Integridad de la operación (sin camino alternativo)
 
-Esto **no** es un motivo para bloquear la publicación: es lo que el equipo debe saber al operar con más de un publicador. Con la publicación segura apagada, `run()` usa el camino de siempre (el mismo que el dueño usa hoy), que **no ofrece** las garantías de la fase 0 / P1:
-
-* **H1 · extracción incompleta:** una lectura o listado parcial de Datasphere puede regenerar el Catálogo con menos objetos de los reales.
-* **H2/H3 · borrados y persistencia sin confirmar; sin candado de escritor único entre procesos:** el candado del camino de siempre es de hilo (en proceso); una caída a mitad de operación puede dejar el estado local y el de Spaces distintos, y no hay journal ni deshacer.
-* **H5/H6 · manifiestos sin integridad verificada:** un manifiesto ilegible o corrupto no se detecta.
-* **H4 · identidad del pool sin Space (mitigado solo con SAFE):** `client` es texto libre y escribe en `catalog_local/<cliente>`; sin SAFE no hay detección de `POOL_IDENTITY_CONFLICT`, de modo que publicar bajo el nombre de un cliente existente puede pisar su contenido.
-* **Republicación ajena:** ver §2; sin control de propiedad por usuario.
-* **Persistencia:** sin SAFE, subir a Spaces depende de `DANWOR_PUBLICATION_MIRROR_UP`; si está apagada, lo publicado vive solo en el disco local y se pierde en el próximo reinicio.
-* Con más publicadores sube la **probabilidad** de que ocurra cualquiera de estos eventos; no cambia su naturaleza. Se mitigan activando la publicación segura (`DANWOR_PUBLICATION_SAFE=1` + requisitos B2: `DANWOR_PERSISTENCE=remote`, `DANWOR_PUBLICATION_MIRROR_UP=1`, `governed-assessments` en `SPACES_PERSIST_PATHS`; ver `docs/PUBLICATION_SAFE_RUNBOOK.md`) y, si se quiere acotar el radio de daño, con la restricción opcional de clientes. Ambas son decisiones de operación independientes de quién tiene permiso.
-* Réplica única (el candado y la compuerta de lectores no protegen entre instancias).
-* **Historial de autoría:** no se tocó; `log_activity("datasphere_publication_run")` ya registra usuario/cliente/space/modelo/estado.
+Desde el hotfix P0 (2026-11-06) toda publicación es la unidad transaccional (journal, deshacer, candado entre procesos, confirmación durable, compuerta de lectores,
+regeneración por cliente): el «camino de siempre» y su interruptor se retiraron. Riesgo residual que sigue vigente: **réplica única** (el candado y la compuerta no
+protegen entre instancias) e **identidad del pool sin Space** (mitigada por `POOL_IDENTITY_CONFLICT`; ver `_handoffs/ADR_CATALOG_SPACE_IDENTITY.md`). La restricción
+opcional de clientes sigue disponible para acotar el radio de daño.
 
 ## 4. Operación
 
@@ -60,4 +53,4 @@ Esto **no** es un motivo para bloquear la publicación: es lo que el equipo debe
 
 ## 5. Pruebas
 
-`tests/webapp/test_datasphere_publication_consultant_access.py`, **con `DANWOR_PUBLICATION_SAFE` encendida y apagada** en cada caso: dueño y `full` publican sin configuración alguna (UI, deep link y POST) · el perfil de publicar coincide con el del Assessment (incluye que delega en él) · la autorización no consulta el código de la publicación segura (aunque no importe o su sonda falle) · credenciales propias atribuidas al consultor · primera publicación y republicación · restricción opcional de clientes (ausente/vacía/`*` no restringe; definida limita, sin distinguir mayúsculas ni espacios; el dueño no se limita) · solo lectura, fuera de la allowlist y anónimo denegados en UI y backend · retiro de la allowlist al siguiente request · POST manual no elude lo que la UI oculta · perfiles compartidos, `/datasphere-profiles` y `refresh-catalog` siguen solo-dueño · mismo origen · validación de host antes de cualquier extracción · el secreto no sale. La regla de retiro (propio sí, ajeno no, dueño cualquiera) sigue cubierta en `tests/webapp/test_catalog_retire.py`.
+`tests/webapp/test_datasphere_publication_consultant_access.py`, dueño y `full` publican sin configuración alguna (UI, deep link y POST) · el perfil de publicar coincide con el del Assessment (incluye que delega en él) · la autorización no consulta el código de la publicación segura (aunque no importe o su sonda falle) · credenciales propias atribuidas al consultor · primera publicación y republicación · restricción opcional de clientes (ausente/vacía/`*` no restringe; definida limita, sin distinguir mayúsculas ni espacios; el dueño no se limita) · solo lectura, fuera de la allowlist y anónimo denegados en UI y backend · retiro de la allowlist al siguiente request · POST manual no elude lo que la UI oculta · perfiles compartidos, `/datasphere-profiles` y `refresh-catalog` siguen solo-dueño · mismo origen · validación de host antes de cualquier extracción · el secreto no sale. La regla de retiro (propio sí, ajeno no, dueño cualquiera) sigue cubierta en `tests/webapp/test_catalog_retire.py`.

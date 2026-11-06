@@ -2,7 +2,7 @@
 
 Contrato que fijan estas pruebas:
   * UN solo predicado (``datasphere_publication_service.can_execute``) gobierna la UI (botón «+», panel, deep link) y el backend (POST /run): lo que la UI oculta, el POST manual lo rechaza;
-  * dueño (APP_OWNER) y consultor ``full`` (el mismo criterio del Assessment): publican, con ``DANWOR_PUBLICATION_SAFE`` encendida o apagada —la publicación segura mejora la integridad de la operación, no decide
+  * dueño (APP_OWNER) y consultor ``full`` (el mismo criterio del Assessment): publican —la integridad de la operación (unidad transaccional) no es configurable ni decide
     QUIÉN la ejecuta—; solo lectura, fuera de la allowlist y anónimo: denegados SIEMPRE;
   * ``DANWOR_PUBLICATION_CONSULTANT_CLIENTS`` es una restricción OPCIONAL: ausente o vacía no restringe; si está definida, limita los clientes de un consultor (el dueño, no);
   * lo administrativo (perfiles de clientes compartidos con secretos de TODOS los clientes, regenerar el Catálogo) sigue siendo SOLO del dueño; ``access.is_owner`` no se amplió;
@@ -31,17 +31,16 @@ FORM = {"pack": "datasphere_core", "host": "https://t.eu10.hcs.cloud.sap", "toke
 PLUS = 'aria-label="Publicar en el catálogo"'
 
 
-@pytest.fixture(params=["safe_off", "safe_on"])
-def hub(request, monkeypatch, tmp_path):
-    """Perfiles del Hub y catálogo de demostración. Se corre CON y SIN ``DANWOR_PUBLICATION_SAFE``: la autorización no puede cambiar."""
+@pytest.fixture()
+def hub(monkeypatch, tmp_path):
+    """Perfiles del Hub y catálogo de demostración."""
     monkeypatch.setattr(access, "APP_OWNER", OWNER)
     monkeypatch.setattr(auth_service, "ALLOWED_USERS", f"{OWNER},{CONSULTANT},{OTHER}")           # perfil completo
     monkeypatch.setattr(auth_service, "ACADEMY_USERS", READER)                                   # solo lectura
     monkeypatch.delenv(pub.CONSULTANT_CLIENTS_ENV, raising=False)
-    monkeypatch.setenv("DANWOR_PUBLICATION_SAFE", "1" if request.param == "safe_on" else "0")
     pub._RUNNING.clear()
     _demo_catalog(monkeypatch, tmp_path)
-    yield request.param
+    yield "hub"
     main._invalidate_catalog_cache()
 
 
@@ -108,8 +107,6 @@ def test_authorization_does_not_consult_the_safe_publication_code(hub, monkeypat
     """La publicación segura no decide quién publica: aunque su módulo ni siquiera pueda importarse o su sonda falle, el predicado no cambia."""
     monkeypatch.setitem(sys.modules, "tools.catalog.publication_txn", None)
     consultant = _client(CONSULTANT)
-    assert PLUS in ui(consultant) and done(post(consultant))["state"] == "SUCCESS"
-    monkeypatch.setitem(sys.modules, "tools.catalog.publication_txn", types.SimpleNamespace(safe_mode_enabled=lambda: 1 / 0))
     assert PLUS in ui(consultant) and done(post(consultant))["state"] == "SUCCESS"
     assert not hasattr(pub, "publication_guarantees_active") and not hasattr(pub, "consultants_enabled") and not hasattr(pub, "CONSULTANTS_ENV")
 

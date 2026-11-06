@@ -80,33 +80,21 @@ def test_a_truncated_listing_marked_by_the_cli_is_an_incomplete_extraction(ctx):
 def test_incomplete_extraction_never_regenerates_the_catalog_nor_uploads(ctx, monkeypatch):
     s3 = FakeS3()
     enable_remote(monkeypatch, s3)
-    ctx.publish(mirror=True)
+    ctx.publish()
     uploads, before = s3.uploads, ctx.digest()
     monkeypatch.setattr(dsp, "regenerate_catalog_from_pool", lambda *a, **k: pytest.fail("no se regenera con evidencia incompleta"))
     ctx.tenant.fail_reads.add(("views", "1VR_LP_BASE"))
-    res, _ = ctx.publish(mirror=True)
+    res, _ = ctx.publish()
     assert res.status == txn.FAILED_NO_CHANGE and s3.uploads == uploads and ctx.digest() == before
 
 
-def test_the_legacy_path_is_untouched_when_the_switch_is_off(ctx):
-    """Con ``safe=False`` rige el camino anterior (documentación de la compatibilidad): mismo pool y Catálogo que el seguro en el camino feliz, y su comportamiento previo ante errores."""
-    ctx.publish(safe=False)
-    legacy = {k: v for k, v in ctx.digest().items() if "lineage-manifest" not in k and not k.startswith(".")}
-    assert ctx.publish(safe=False)[0].status == ""                                                         # el camino anterior no informa ``status``
-    shutil.rmtree(ctx.catalog)
-    ctx.catalog.mkdir()
-    safe, _ = ctx.publish(safe=True)
-    assert safe.status == txn.COMPLETED
-    assert {k: v for k, v in ctx.digest().items() if "lineage-manifest" not in k and not k.startswith(".")} == legacy
-    ctx.tenant.fail_reads.add(("views", "3VF_LP"))
-    assert ctx.publish(safe=False)[0].ok is True                                                           # defecto conocido del camino anterior: por eso el interruptor existe
 
 
 # ═══════════════ contrato de estados ═══════════════
 def test_happy_path_is_completed_and_reports_what_was_applied(ctx):
     res, lines = ctx.publish()
     assert (res.ok, res.status, res.error_code, res.exit_code) == (True, txn.COMPLETED, None, 0)
-    assert res.durability == txn.DURABILITY_NOT_REQUESTED and res.stages["extraction"] == "OK" and res.stages["apply"] == "OK" and res.stages["catalog"] == "OK"
+    assert res.durability == txn.DURABILITY_LOCAL_BY_CONFIG and res.stages["extraction"] == "OK" and res.stages["apply"] == "OK" and res.stages["catalog"] == "OK"
     assert res.applied["changed"] is True and len(res.applied["added"]) == 8 and res.applied["modified"] == [] and res.catalog_generated is True
     assert any("ESTADO DE LA PUBLICACIÓN: COMPLETED" in ln for ln in lines) and not any("Persistencia canónica: OK" in ln for ln in lines)
     manifest = txn.load_manifest(next(ctx.catalog.rglob("lineage-manifest.json")))
@@ -118,11 +106,11 @@ def test_happy_path_is_completed_and_reports_what_was_applied(ctx):
 def test_a_republication_without_changes_is_completed_and_rewrites_nothing(ctx, monkeypatch):
     s3 = FakeS3()
     enable_remote(monkeypatch, s3)
-    first, _ = ctx.publish(mirror=True)
+    first, _ = ctx.publish()
     assert first.status == txn.COMPLETED and first.durability == txn.DURABILITY_REMOTE
     stamps = {p: p.stat().st_mtime_ns for p in ctx.catalog.rglob("*") if p.is_file()}
     uploads, digest = s3.uploads, ctx.digest()
-    again, _ = ctx.publish(mirror=True)
+    again, _ = ctx.publish()
     assert again.status == txn.COMPLETED and again.applied["changed"] is False and again.applied["added"] == [] and again.applied["modified"] == []
     assert {p: p.stat().st_mtime_ns for p in ctx.catalog.rglob("*") if p.is_file()} == stamps                  # ni un archivo reescrito
     assert s3.uploads == uploads and ctx.digest() == digest                                                   # ni una subida
@@ -206,13 +194,16 @@ def test_an_unusable_own_previous_manifest_defers_cleanup_instead_of_deleting(ct
     assert ctx.publish()[0].status == txn.COMPLETED                                                           # el manifiesto quedó reescrito y sano: la siguiente es normal
 
 
-def test_an_incomplete_restore_defers_cleanup_and_never_deletes(ctx, monkeypatch):
+def test_an_incomplete_restore_refuses_the_publication_and_never_deletes(ctx, monkeypatch):
+    """Con persistencia remota la confirmación es obligatoria: sobre un restore incompleto no se puede verificar Spaces, así que no se publica NADA (antes: se publicaba
+    en local con la limpieza diferida)."""
     enable_remote(monkeypatch, FakeS3())
     ctx.publish()
     v2(ctx.tenant)
+    before = ctx.digest()
     monkeypatch.setattr(remote_store, "_restore_degraded", True, raising=False)
     res, _ = ctx.publish()
-    assert res.status == txn.COMMITTED_CLEANUP_DEFERRED and "restore_incomplete" in res.deferred_reasons and "views/1VR_LP_EXTRA" in ctx.pool_names()
+    assert res.status == txn.FAILED_NO_CHANGE and ctx.digest() == before and "views/1VR_LP_EXTRA" in ctx.pool_names()
 
 
 def test_revalidation_under_the_lock_sees_a_manifest_that_became_corrupt_after_extraction(ctx, monkeypatch):
@@ -285,7 +276,7 @@ def test_publishing_never_prunes_or_touches_another_clients_catalog(ctx):
 def test_remote_confirmation_requires_persist_changed_to_confirm_and_uploads_the_marker_last(ctx, monkeypatch):
     s3 = FakeS3()
     enable_remote(monkeypatch, s3)
-    res, lines = ctx.publish(mirror=True)
+    res, lines = ctx.publish()
     assert res.status == txn.COMPLETED and res.durability == txn.DURABILITY_REMOTE and res.stages["remote"] == "OK"
     assert {k.rsplit("/", 1)[-1] for k in s3.order[-2:]} == {".catalog_manifest.json", "Acme.publication.json"} and any("Persistencia canónica: OK" in ln for ln in lines)   # los marcadores van AL FINAL
     assert [j["state"] for j in ctx.journals()] == [txn.J_REMOTE_CONFIRMED]
@@ -295,13 +286,13 @@ def test_a_failed_upload_never_leaves_a_new_version_active_and_restores_the_last
     """P1: si Spaces no confirma, la versión nueva NO queda vigente (antes quedaba «publicada, no confirmada»): local y remoto vuelven a la última versión confirmada."""
     s3 = FakeS3(fail_after=3)
     enable_remote(monkeypatch, s3)
-    res, lines = ctx.publish(mirror=True)
+    res, lines = ctx.publish()
     assert (res.status, res.ok, res.error_code) == (txn.ROLLED_BACK, False, "PERSISTENCE_FAILED")
     assert not any("Persistencia canónica: OK" in ln for ln in lines)
     assert ctx.pool_names() == [] and not s3.objects                                                          # no había versión previa: local y remoto quedaron VACÍOS (compensación verificada)
     assert [j["state"] for j in ctx.journals()] == [txn.J_ROLLED_BACK] and not txn.has_pending(ctx.catalog)
     s3.fail_after = None                                                                                       # Spaces vuelve
-    retry, _ = ctx.publish(mirror=True)
+    retry, _ = ctx.publish()
     assert retry.status == txn.COMPLETED and retry.durability == txn.DURABILITY_REMOTE
     assert sum(1 for k in s3.objects if k.startswith("audit/catalog_local/")) == sum(1 for p in ctx.catalog.rglob("*") if p.is_file())
 
@@ -309,20 +300,20 @@ def test_a_failed_upload_never_leaves_a_new_version_active_and_restores_the_last
 def test_a_blocked_sync_refuses_the_publication_without_touching_anything(ctx, monkeypatch):
     enable_remote(monkeypatch, FakeS3())
     monkeypatch.setattr(remote_store, "_restore_degraded", True, raising=False)
-    res, lines = ctx.publish(mirror=True)
+    res, lines = ctx.publish()
     assert (res.status, res.error_code) == (txn.FAILED_NO_CHANGE, "REMOTE_NOT_READY") and not any("Persistencia canónica: OK" in ln for ln in lines)
     assert ctx.pool_names() == [] and not txn.has_pending(ctx.catalog)
 
 
 def test_local_persistence_by_configuration_is_reported_as_such_not_as_remote(ctx):
-    res, lines = ctx.publish(mirror=True)                                                                      # DANWOR_PERSISTENCE=local (desarrollo)
+    res, lines = ctx.publish()                                                                      # DANWOR_PERSISTENCE=local (desarrollo)
     assert res.status == txn.COMPLETED and res.durability == txn.DURABILITY_LOCAL_BY_CONFIG and not any("Persistencia canónica: OK" in ln for ln in lines)
 
 
 def test_partial_status_and_pending_remote_leave_the_periodic_cycle_from_publishing_half_states(ctx, monkeypatch):
     s3 = FakeS3(fail_after=2)
     enable_remote(monkeypatch, s3)
-    ctx.publish(mirror=True)
+    ctx.publish()
     uploaded = s3.uploads
     remote_store.mirror_up()                                                                                  # el ciclo periódico NO completa por su cuenta lo retenido
     assert s3.uploads == uploaded and not any(k.endswith(".catalog_manifest.json") for k in s3.objects)
@@ -445,13 +436,13 @@ def test_a_failure_after_the_local_commit_leaves_the_committed_state_and_a_retry
     enable_remote(monkeypatch, s3)
     monkeypatch.setattr(txn, "FAULT_HOOK", _hook(point, "crash"))
     with pytest.raises(SimulatedCrash):
-        ctx.publish(mirror=True)
+        ctx.publish()
     monkeypatch.setattr(txn, "FAULT_HOOK", None)
     assert [j["state"] for j in ctx.journals()][-1] == txn.J_COMMIT_UNCERTAIN and not any(k.endswith("Acme.publication.json") for k in s3.objects)   # P1: comprometido en local, SIN confirmar en Spaces
     recovered = txn.recover_pending(ctx.catalog)
     assert [r["action"] for r in recovered] == ["CONFIRMED"] and ctx.digest() == post                         # la recuperación VERIFICA el remoto y completa hacia adelante
     assert any(k.endswith("Acme.publication.json") for k in s3.objects) and not txn.has_pending(ctx.catalog)
-    again, _ = ctx.publish(mirror=True)
+    again, _ = ctx.publish()
     assert again.status == txn.COMPLETED and again.applied["changed"] is False and again.outcome == "NO_CHANGE" and ctx.digest() == post
     _record(kind="caída (kill)", point=point, result="el proceso muere", state_after="POST local, sin confirmar", recovery="CONFIRMED (verificó el remoto y completó)", recovered_state="POST", retry=again.status + " (NO_CHANGE)", retry_state="POST")
 
@@ -476,7 +467,7 @@ def test_a_failed_verification_rolls_back(ctx, monkeypatch):
 def test_results_journals_and_undo_never_contain_secrets(ctx, monkeypatch):
     s3 = FakeS3(fail_after=1)
     enable_remote(monkeypatch, s3)
-    res, lines = ctx.publish(mirror=True)
+    res, lines = ctx.publish()
     blobs = [json.dumps(res.__dict__, default=str), "\n".join(lines)] + [p.read_text(encoding="utf-8", errors="ignore") for p in txn.runtime_dir(ctx.catalog).rglob("*.json")]
     blobs += [p.read_text(encoding="utf-8", errors="ignore") for p in ctx.catalog.rglob("lineage-manifest.json")]
     assert not any("not-a-real-secret" in b for b in blobs)

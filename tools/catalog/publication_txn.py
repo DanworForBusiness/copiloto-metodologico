@@ -1,10 +1,9 @@
 """publication_txn.py — primitivas transaccionales de la publicación del Catálogo (FASE 0: H1/H3/H5/H6).
 
-Sin dependencias de la app (las usa el exportador, que también corre como script). Todo lo que acá vive es **inerte** salvo que ``DANWOR_PUBLICATION_SAFE``
-esté activo: con el interruptor apagado el camino de publicación es el de siempre (ver ``docs/PUBLICATION_SAFE_RUNBOOK.md``).
+Sin dependencias de la app (las usa el exportador, que también corre como script). Es el ÚNICO camino de publicación: no hay interruptor ni camino
+alternativo (ver ``docs/PUBLICATION_SAFE_RUNBOOK.md``).
 
 Piezas:
-  * ``safe_mode_enabled`` — interruptor ``DANWOR_PUBLICATION_SAFE`` (apagado por defecto).
   * ``writer_lock`` — candado de ESCRITOR ÚNICO de ``catalog_local``, de hilo y de SISTEMA OPERATIVO (``flock``/``msvcrt``): protege entre procesos que comparten el
     disco; NO protege entre instancias con discos distintos (App Platform debe tener réplica única: precondición temporal).
   * ``load_manifest`` / ``seal_manifest`` — manifiestos con integridad y carga TRI-ESTADO (ausente · ok · ilegible · esquema inválido · digest incorrecto):
@@ -37,7 +36,6 @@ except ImportError:                               # pragma: no cover - ruta de s
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     from core import atomic_io
 
-SAFE_ENV = "DANWOR_PUBLICATION_SAFE"
 LOCK_DIR_ENV = "DANWOR_CATALOG_LOCK_DIR"
 DEFAULT_LOCK_TIMEOUT_S = 30.0
 _LOCK_POLL_S = 0.05
@@ -58,11 +56,6 @@ DURABILITY_REMOTE = "remote_confirmed"
 DURABILITY_LOCAL_BY_CONFIG = "local_only_by_config"
 DURABILITY_UNCONFIRMED = "unconfirmed"
 DURABILITY_NOT_REQUESTED = "not_requested"
-
-
-def safe_mode_enabled() -> bool:
-    """Interruptor ``DANWOR_PUBLICATION_SAFE`` (apagado por defecto). Se lee UNA vez por operación (la operación en curso no cambia de camino a mitad)."""
-    return os.getenv(SAFE_ENV, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def now_iso() -> str:
@@ -170,11 +163,8 @@ def writer_lock(timeout: float | None = None):
 
 @contextlib.contextmanager
 def external_writer_guard(timeout: float = 0.0):
-    """Para los OTROS productores de ``catalog_local`` (regeneración legacy, APIS_ONLY): con el interruptor APAGADO no hace nada (comportamiento de siempre); con
-    el interruptor ENCENDIDO toman el mismo candado entre procesos y, si está ocupado, lanzan ``CatalogBusyError`` sin haber escrito nada."""
-    if not safe_mode_enabled():
-        yield
-        return
+    """Para los OTROS productores de ``catalog_local`` («Generar catálogo», APIS_ONLY): toman el MISMO candado entre procesos que la publicación y, si está
+    ocupado, lanzan ``CatalogBusyError`` sin haber escrito nada."""
     with writer_lock(timeout):
         yield
 
