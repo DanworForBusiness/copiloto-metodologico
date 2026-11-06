@@ -175,8 +175,9 @@ def preflight(ctx: Ctx) -> tuple[str, list[str]]:
         raise Abort("DANWOR_CATALOG_CSN_CACHE no es <catalog_local>/.csn_cache: fuera del alcance de este script")
     leftovers = [j for j in _restore_journals(ctx) if j["state"] not in (txn.J_REMOTE_CONFIRMED, txn.J_ROLLED_BACK, txn.J_DISCARDED)]
     if leftovers:
-        raise Abort("journal de una restauración anterior SIN resolver " + json.dumps(leftovers) + ". Si el disco pudo reconstruirse desde Spaces, NO forzar "
-                    "recover_pending: escalar (ver README, «journal superviviente»). No se escribe nada.")
+        raise Abort("journal de una restauración anterior SIN resolver " + json.dumps(leftovers) + ": inconsistencia entre journal, disco y Spaces. "
+                    "DETENIDO: no modificar ni mover nada, no ejecutar recover_pending; conservar toda la evidencia y exigir diagnóstico "
+                    "específico (ver README, «Journal anómalo»). No se escribe nada.")
     if txn.has_pending(ctx.root):
         raise Abort("hay operaciones de publicación pendientes: resolverlas primero (recover_pending)")
     if gate.read_state(ctx.root) is not None:
