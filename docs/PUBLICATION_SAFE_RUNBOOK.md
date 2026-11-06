@@ -10,7 +10,7 @@ Diseño y causas: `docs/audit/CATALOG_REPUBLICATION_AUDIT_20261026.md` y `docs/a
 | Garantía | Comportamiento |
 |---|---|
 | **H1** extracción incompleta | Cualquier fallo de lectura o de listado (o una violación de los invariantes de completitud) **aborta antes de tocar nada**: `FAILED_NO_CHANGE` / `EXTRACTION_INCOMPLETE`. No se limpia, no se regenera, no se sube, no se registra el Assessment |
-| **H3** persistencia | La decide **`DANWOR_PERSISTENCE`** (no hay otra variable): `remote` ⇒ la confirmación en Spaces es **obligatoria** y se **verifica** (`publication_remote.confirm`: cuerpo, marcador de activación al final, bytes exactos; una respuesta perdida tras una escritura efectiva se reconcilia leyendo el remoto) bajo `hold_publication`; `local` (desarrollo) ⇒ la misma unidad transaccional en disco, `local_only_by_config`; `read-only` ⇒ no se puede confirmar: se rechaza sin tocar nada. **P1:** si Spaces no confirma, la versión nueva **no queda vigente**: se restaura la última confirmada (`ROLLED_BACK`/`PERSISTENCE_FAILED`) o, si no se puede verificar, se bloquea la lectura (`RECOVERY_REQUIRED`/`PERSISTENCE_UNCERTAIN`) hasta resolverlo |
+| **H3** persistencia | La decide el **modo de persistencia efectivo** del servidor (el control preexistente `DANWOR_PERSISTENCE`, default `local`; el hotfix no lo cambia ni agrega otra variable): `remote` ⇒ la confirmación en Spaces es **obligatoria** y se **verifica** (`publication_remote.confirm`: cuerpo, marcador de activación al final, bytes exactos; una respuesta perdida tras una escritura efectiva se reconcilia leyendo el remoto) bajo `hold_publication`; `local` (desarrollo) ⇒ la misma unidad transaccional en disco, `local_only_by_config`; `read-only` ⇒ no se puede confirmar: se rechaza sin tocar nada. **P1:** si Spaces no confirma, la versión nueva **no queda vigente**: se restaura la última confirmada (`ROLLED_BACK`/`PERSISTENCE_FAILED`) o, si no se puede verificar, se bloquea la lectura (`RECOVERY_REQUIRED`/`PERSISTENCE_UNCERTAIN`) hasta resolverlo |
 | **H5** concurrencia | Candado de **escritor único entre procesos** (`flock`/`msvcrt`) sobre `catalog_local`, tomado por la publicación, «Generar catálogo» y APIS_ONLY. Ocupado ⇒ `CATALOG_BUSY` sin efectos |
 | **H6** manifiestos | Escrituras atómicas; manifiesto v3 con integridad y `sha256` por objeto; carga tri-estado: **un manifiesto ilegible nunca autoriza un borrado** (limpieza diferida ⇒ **PARTIAL**, nunca `COMPLETED`) |
 | Transaccionalidad | journal + copia de deshacer: ante cualquier falla se restaura el estado previo (`ROLLED_BACK`); una caída del proceso se recupera al inicio de la siguiente operación |
@@ -25,11 +25,11 @@ Estados funcionales: `COMPLETED` · `FAILED_NO_CHANGE` · `ROLLED_BACK` · `COMM
 
 ## 2. Precondiciones de despliegue (configuración de infraestructura, sin variables nuevas)
 
-Con `DANWOR_PERSISTENCE=remote` (producción) TODAS deben cumplirse; si alguna falta, la publicación **aborta antes de tocar nada** con un código explícito (fail-closed), el resto del Hub sigue funcionando:
+En producción TODAS deben cumplirse. El hotfix **no agrega ni modifica configuración**: solo exige VERIFICAR el estado efectivo. Si alguna falta, la publicación **aborta antes de tocar nada** con un código explícito (fail-closed) y el resto del Hub sigue funcionando:
 
 | Precondición | Cómo se verifica | Si falta |
 |---|---|---|
-| `DANWOR_PERSISTENCE=remote` y credenciales `SPACES_*` completas | log de arranque `persistencia: DANWOR_PERSISTENCE=remote · credenciales Spaces presentes` | `PERSISTENCE_MODE_NOT_REMOTE` / `PERSISTENCE_NOT_WRITABLE` |
+| **Persistencia remota efectiva** (modo `remote` con escritura habilitada) | log de arranque del componente web: la línea `persistencia: DANWOR_PERSISTENCE=remote · credenciales Spaces presentes · lectura remota sí · escritura remota sí`. Es el mismo estado que hoy permite el restore, la sincronización periódica y el write-through del Hub. Si la línea muestra otro valor, **no desplegar**: el problema es previo al hotfix (producción no estaría persistiendo) y se trata aparte | `PERSISTENCE_MODE_NOT_REMOTE` / `PERSISTENCE_NOT_WRITABLE` |
 | `catalog_local` y `governed-assessments` en `SPACES_PERSIST_PATHS` (el **default del código ya los incluye**; solo hay que revisarlo si el entorno define la variable explícita) | App Platform → variables del componente | `CATALOG_NOT_PERSISTED` / `ASSESSMENT_NOT_PERSISTED` |
 | **Réplica única** (`instance_count = 1`) | App Platform → componente web → Resources | sin detección automática: el candado de SO no protege entre instancias (§5) |
 | Sin journals pendientes ni publicación en curso al desplegar | §4 (`recover_pending`) | la primera publicación responde `RECOVERY_REQUIRED` hasta resolverlo |
@@ -40,7 +40,7 @@ Con `DANWOR_PERSISTENCE=remote` (producción) TODAS deben cumplirse; si alguna f
 
 **Despliegue**
 1. Suspender publicaciones y «Generar catálogo» (aviso al equipo).
-2. Verificar las precondiciones de §2 (sin cambiarlas salvo que falte algo).
+2. Verificar las precondiciones de §2 en el log de arranque y la configuración vigente (solo verificar: el hotfix no requiere configurar nada nuevo).
 3. Desplegar. Al arrancar con persistencia remota: la **compuerta de arranque** cierra la lectura del Catálogo hasta que el restore termine y la recuperación verifique lo
    restaurado (503 con `BOOT_VERIFICATION_PENDING` durante ese lapso); el sincronizador queda retenido mientras tanto. Es el comportamiento esperado.
 4. Revisar el log del arranque: `verify_ledgers` no debe reportar clientes incoherentes (los que nunca publicaron por la unidad no tienen bitácora y no se reportan).
