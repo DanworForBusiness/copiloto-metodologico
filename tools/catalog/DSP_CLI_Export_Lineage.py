@@ -1697,15 +1697,13 @@ class ExportRequest:
     catalog_root: Path | None = None
     csn_cache_dir: Path | None = None
     generate_catalog: bool = True
-    mirror_up: bool = False
     root_object: str = ""
     root_type: str | None = None
     features_requested: str | Iterable[str] | None = None
     mode: str = "assessment"
     allowed_root_types: str | Iterable[str] | None = None
     diagnostics: bool = False
-    safe: bool | None = None          # publicación SEGURA (fase 0); None = según DANWOR_PUBLICATION_SAFE. Solo aplica al modo PUBLISH
-    stage_hooks: Any = None           # etapas adicionales de la unidad de publicación (P1: el assessment gobernado); ver ``publication_txn.StageHooks``. Solo publicación segura
+    stage_hooks: Any = None           # etapas adicionales de la unidad de publicación (P1: el assessment gobernado); ver ``publication_txn.StageHooks``. Solo modo PUBLISH
 
 
 @dataclass
@@ -1798,8 +1796,8 @@ def format_runtime(seconds: float) -> str:
 
 
 # ════════════════════════════════════════════════════════════════════════════════════════
-# PUBLICACIÓN SEGURA (fase 0: H1/H3/H5/H6) — se usa SOLO con ``DANWOR_PUBLICATION_SAFE`` activo (o ``ExportRequest.safe=True``) y modo PUBLISH.
-# Diseño: docs/audit/CATALOG_REPUBLICATION_PHASE0_DESIGN_20261026.md. Con el interruptor apagado ``run_export`` sigue exactamente el camino anterior.
+# PUBLICACIÓN TRANSACCIONAL (fase 0 + P1: H1/H3/H5/H6) — el ÚNICO camino del modo PUBLISH (sin interruptor ni camino alternativo).
+# Diseño: docs/audit/CATALOG_REPUBLICATION_PHASE0_DESIGN_20261026.md. La confirmación en Spaces la decide el modo de persistencia (``_remote_confirmation_required``).
 #   EXTRACT (sin candado) → VALIDATE (completitud) → [hold] → candado de ESCRITOR ÚNICO → recuperar pendientes → REVALIDAR manifiestos/precondiciones (bajo candado)
 #   → journal + undo → APPLY atómico → VERIFY → COMMIT (journal) → confirmación remota (persist_changed) → resultado con ``status`` explícito.
 # ════════════════════════════════════════════════════════════════════════════════════════
@@ -1813,6 +1811,12 @@ def _txn():
         sys.path.insert(0, root)
     from tools.catalog import publication_txn
     return publication_txn
+
+
+def _remote_confirmation_required(remote_store) -> bool:
+    """Contrato de persistencia de la publicación: con ``DANWOR_PERSISTENCE=remote`` la versión nueva SOLO es vigente confirmada en Spaces; en ``local`` (desarrollo)
+    la fuente de verdad es el disco; en ``read-only`` no se puede confirmar y la publicación se rechaza sin tocar nada. No hay otra variable que lo cambie."""
+    return not remote_store.local_only()
 
 
 def _txn_call(hooks, name):
@@ -1841,7 +1845,7 @@ def _safe_failure(req: "ExportRequest", base: "ExportResult", finish, status: st
 
 
 PERSISTENCE_GAP_MESSAGE = ("La persistencia efectiva no cubre esta publicación ({code}): {detail}. No se modificó nada; corregí la configuración "
-                           "(DANWOR_PERSISTENCE=remote, DANWOR_PUBLICATION_MIRROR_UP, SPACES_PERSIST_PATHS con 'governed-assessments') y reintentá.")
+                           "(DANWOR_PERSISTENCE=remote, SPACES_PERSIST_PATHS con 'governed-assessments') y reintentá.")
 
 
 def _persistence_gap(req: "ExportRequest", txn, remote_store, catalog_root: Path, csn_cache_root: Path, client_dir_name: str, root_object: str, root_type: str | None) -> "tuple[str, str] | None":
@@ -1853,7 +1857,7 @@ def _persistence_gap(req: "ExportRequest", txn, remote_store, catalog_root: Path
     if hooks is not None and callable(getattr(hooks, "durable_store", None)):
         ctx = txn.StageContext(operation_id="", client_dir=client_dir_name, catalog_root=catalog_root, csn_cache_root=csn_cache_root, root_object=root_object, root_type=root_type or "", space=req.space)
         store = hooks.durable_store(ctx)
-    return pr.persistence_gap(remote_store, mirror_up=bool(req.mirror_up), catalog_root=catalog_root, durable_store=store)
+    return pr.persistence_gap(remote_store, catalog_root=catalog_root, durable_store=store)
 
 
 def _publish_safe(req: "ExportRequest", exporter: "LineageExporter", *, base: "ExportResult", client_dir_name: str, catalog_root: Path,
@@ -1865,7 +1869,7 @@ def _publish_safe(req: "ExportRequest", exporter: "LineageExporter", *, base: "E
     base.effective_features = sorted(exporter.effective_features)
     stages: dict[str, str] = {"extraction": "OK"}
     _say("\n==========================================")
-    _say("PUBLICACION SEGURA (DANWOR_PUBLICATION_SAFE)")
+    _say("PUBLICACION TRANSACCIONAL")
     _say("==========================================")
 
     # ── VALIDATE: una extracción incompleta NO llega a tocar nada ──
@@ -1888,7 +1892,7 @@ def _publish_safe(req: "ExportRequest", exporter: "LineageExporter", *, base: "E
     txn.fault("after_validate")
 
     from core import remote_store
-    want_remote = bool(req.mirror_up)
+    want_remote = _remote_confirmation_required(remote_store)
     hold_names = ("catalog_local", *(_txn_call(req.stage_hooks, "persisted_names") or ()))
     hold_cm = remote_store.hold_publication(hold_names) if (want_remote and remote_store.write_enabled()) else contextlib.nullcontext(None)
     try:
@@ -2067,7 +2071,7 @@ def _apply_locked(req, exporter, *, base, txn, op_id, stages, planned, planned_s
     stage_names = tuple(txn.call_hook(hooks, "persisted_names", default=()) or ())
     stage_dir = txn.call_hook(hooks, "governed_client_dir", ctx)
     persisted = ("catalog_local", *stage_names)
-    want_remote = bool(req.mirror_up and remote_store.write_enabled())
+    want_remote = bool(_remote_confirmation_required(remote_store) and remote_store.write_enabled())
     dirs = _remote_dirs(remote_store) if want_remote else {}
     markers = (catalog_manifest.name, ledger_file.name)
     prefix_keys: list[str] = []
@@ -2084,7 +2088,7 @@ def _apply_locked(req, exporter, *, base, txn, op_id, stages, planned, planned_s
             return _safe_failure(req, base, finish, txn.FAILED_NO_CHANGE, pre.code,
                                  "No se puede confirmar la publicación en Spaces (" + pre.code + "): no se modificó nada.", operation_id=op_id, stages=stages)
         listing = pre.listing
-    elif req.mirror_up and not remote_store.local_only():
+    elif _remote_confirmation_required(remote_store):
         stages["remote"] = "FAILED"
         return _safe_failure(req, base, finish, txn.FAILED_NO_CHANGE, "PERSISTENCE_NOT_AVAILABLE",
                              "La persistencia en Spaces no está disponible en este modo (solo lectura o sin autorizar): no se modificó nada.", operation_id=op_id, stages=stages)
@@ -2165,7 +2169,7 @@ def _finish_no_change(req, exporter, *, base, txn, op_id, stages, planned, clien
         stages["remote"] = "OK"
     else:
         stages["remote"] = "SKIPPED"
-        durability = txn.DURABILITY_LOCAL_BY_CONFIG if req.mirror_up else txn.DURABILITY_NOT_REQUESTED
+        durability = txn.DURABILITY_LOCAL_BY_CONFIG                              # solo se llega acá en modo local (remote confirma o rechaza antes)
     files_by_type = {t: sum(1 for _ in (client_cache_dir / t).glob("*.json")) if (client_cache_dir / t).is_dir() else 0 for t in OBJECT_TYPES}
     base.ok, base.status, base.exit_code, base.outcome = True, txn.COMPLETED, 0, "NO_CHANGE"
     base.client, base.space, base.analytic_model = req.client, space, req.analytic_model
@@ -2386,7 +2390,7 @@ def _apply_unit(req, exporter, *, base, txn, op_id, stages, planned, planned_sha
                                  "No se pudo verificar en Spaces si la publicación quedó guardada: la lectura queda bloqueada hasta resolverlo.", operation_id=op_id, stages=stages)
     else:
         stages["remote"] = "SKIPPED"
-        durability = txn.DURABILITY_LOCAL_BY_CONFIG if req.mirror_up else txn.DURABILITY_NOT_REQUESTED
+        durability = txn.DURABILITY_LOCAL_BY_CONFIG                              # solo se llega acá en modo local (remote confirma o rechaza antes)
         journal.update(txn.J_LOCAL_COMMITTED, durability=durability)
     shutil.rmtree(txn.undo_dir(catalog_root, op_id), ignore_errors=True)
     txn.call_hook(hooks, "finished", ctx)                                           # cachés fuera ANTES de abrir la compuerta: los lectores ven SOLO la versión nueva
@@ -2456,8 +2460,8 @@ def run_export(req: ExportRequest) -> ExportResult:
 
     The caller owns business orchestration. In particular, alternate output roots
     can be used for ephemeral assessments, while canonical roots can be used for
-    governed publication. ``generate_catalog`` and ``mirror_up`` are explicit
-    orchestration decisions and are not inferred by lineage traversal.
+    governed publication. ``generate_catalog`` is an explicit orchestration decision. PUBLISH always runs the transactional unit (``_publish_safe``);
+    whether it must be confirmed in Spaces follows the persistence mode, never a per-call flag.
     """
     started_at = time.perf_counter()
     safe_flag = {"on": False}
@@ -2571,7 +2575,7 @@ def run_export(req: ExportRequest) -> ExportResult:
         base.exit_code = 2
         return finish(base)
 
-    safe = bool(req.mode == "publish" and (req.safe if req.safe is not None else _txn().safe_mode_enabled()))
+    safe = req.mode == "publish"                       # PUBLISH = siempre la unidad transaccional; el resto del flujo es solo el modo ASSESSMENT (destino efímero)
     safe_flag["on"] = safe
     if safe:                                          # un cliente es UNA identidad aunque se escriba con otra capitalización (P1): se reusa el directorio existente o se rechaza el conflicto
         txn = _txn()
@@ -2751,7 +2755,7 @@ def run_export(req: ExportRequest) -> ExportResult:
         _say("REGENERANDO CATALOGO EXISTENTE")
         _say("==========================================")
         try:
-            summary = regenerate_catalog_from_pool(csn_cache_root, catalog_root)
+            summary = regenerate_catalog_from_pool(csn_cache_root, catalog_root, only_clients={client_dir_name})
             _say(summary)
             result.catalog_generated = True
         except Exception as exc:
@@ -2766,29 +2770,6 @@ def run_export(req: ExportRequest) -> ExportResult:
     else:
         _say("\nCatálogo: SKIP - deshabilitado por el orquestador.")
 
-    if req.mirror_up:
-        _say("\n==========================================")
-        _say("PERSISTIENDO EN DIGITALOCEAN SPACES")
-        _say("==========================================")
-        try:
-            if str(project_root) not in sys.path:
-                sys.path.insert(0, str(project_root))
-            from core import remote_store
-
-            result.storage_enabled = bool(remote_store.enabled())
-            if result.storage_enabled:
-                result.mirrored_files = int(remote_store.mirror_up() or 0)
-                _say("mirror_up OK")
-            else:
-                _say("WARN: remote_store is disabled; no se confirmó persistencia remota.")
-        except Exception as exc:
-            _say(f"ERROR: PERSISTENCE_FAILED - {exc}", file=sys.stderr)
-            result.ok = False
-            result.error_code = "STORAGE_UPLOAD_FAILED"
-            result.message = f"{type(exc).__name__}: {exc}"
-            result.exit_code = 1
-            return finish(result)
-
     _say("\nEXTRACCION DE LINAJE FINALIZADA")
     _say(f"Cliente: {req.client}")
     _say(f"Space: {req.space}")
@@ -2801,12 +2782,7 @@ def run_export(req: ExportRequest) -> ExportResult:
     _say(f"Compartidos retenidos: {retained_shared}")
     _say(f"Pool CSN: {exported_pool}")
     _say(f"Manifest diagnóstico: {manifest_path}")
-    if req.mode == "publish":
-        _say(f"Catálogo materializado: {'SI' if result.catalog_generated else 'NO'}")
-        if req.mirror_up:
-            _say(f"Persistencia canónica: {'OK' if result.storage_enabled else 'NO CONFIRMADA'}")
-    else:
-        _say("Publicación en catálogo: NO")
+    _say("Publicación en catálogo: NO")
     _say(f"Total Runtime: {format_runtime(time.perf_counter() - started_at)}")      # duración MEDIDA por el backend (reloj monotónico), solo la extracción
     _say("STATUS: SUCCESS")
     return finish(result)
@@ -2841,11 +2817,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--no-generate-catalog",
         action="store_true",
         help="Compatibility override: never run generate_catalog even in publish mode.",
-    )
-    parser.add_argument(
-        "--mirror-up",
-        action="store_true",
-        help="Force core.remote_store.mirror_up() after a successful publish.",
     )
     return parser.parse_args(argv)
 
@@ -2883,8 +2854,6 @@ def main(argv: list[str] | None = None) -> int:
     if legacy_root:
         _say("WARN: --analytic-model está deprecated; use --root-object en nuevas integraciones.")
     _say(f"Destination policy: {'EPHEMERAL' if ephemeral_destination else 'CANONICAL'}")
-    if args.mode == "assessment" and args.mirror_up:
-        _say("WARN: --mirror-up ignorado en modo ASSESSMENT.")
 
     result = run_export(ExportRequest(
         host=args.host,
@@ -2898,7 +2867,6 @@ def main(argv: list[str] | None = None) -> int:
         catalog_root=catalog_root,
         csn_cache_dir=csn_cache_root,
         generate_catalog=(args.mode == "publish" and not args.no_generate_catalog),
-        mirror_up=bool(args.mirror_up and args.mode == "publish"),
         features_requested=args.features,
         mode=args.mode,
     ))

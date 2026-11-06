@@ -327,7 +327,7 @@ def test_adhoc_run_does_not_publish_and_leaves_canonical_state_untouched(owner, 
     assert _tree(canonical) == before == []                                           # ni .csn_cache ni .lineage_runs ni catálogo
     assert not (canonical / ".csn_cache").exists() and not (canonical / ".lineage_runs").exists()
     req = fake_export["requests"][0]
-    assert req.generate_catalog is False and req.mirror_up is False                    # sin generate_all ni Spaces (los stubs lanzarían)
+    assert req.generate_catalog is False and req.mode == "assessment"                # sin generate_all ni Spaces (el modo ASSESSMENT jamás espeja; los stubs lanzarían)
     assert asvc._memory == {}                                                           # la caché de assessment del Catálogo no se tocó
 
 
@@ -681,7 +681,7 @@ def test_modeling_assessment_package_is_only_reached_through_the_assessment_serv
 def test_cli_adapter_and_web_adapter_share_one_implementation():
     src = (REPO / "tools/catalog/DSP_CLI_Export_Lineage.py").read_text(encoding="utf-8")
     assert "def run_export(" in src and src.count("def main(") == 1 and "run_export(ExportRequest(" in src
-    assert "--client-secret" in src and "--mirror-up" in src and "--no-generate-catalog" in src and "repr=False" in src
+    assert "--client-secret" in src and "--mirror-up" not in src and "--no-generate-catalog" in src and "repr=False" in src   # la persistencia la decide DANWOR_PERSISTENCE
     assert dsp.classify_error("PRECHECK_OAUTH_401 - x") == "AUTHENTICATION_FAILED" and dsp.classify_error("otra") == "EXTRACTION_FAILED"
 
 
@@ -718,7 +718,7 @@ def test_service_passes_root_object_and_forces_assessment_mode_server_side(owner
     assert _done(r)["state"] == "SUCCESS"
     req = fake_export["requests"][0]
     assert req.root_object == "4AM_ACME" and not req.analytic_model                      # sin traducción root_object -> analytic_model
-    assert req.mode == "assessment" and req.generate_catalog is False and req.mirror_up is False
+    assert req.mode == "assessment" and req.generate_catalog is False and not hasattr(req, "mirror_up")
     assert req.root_type is None and not req.features_requested                          # root_type lo deriva el extractor; features fuera de este patch
 
 
@@ -1035,7 +1035,7 @@ def test_manipulated_features_are_whitelisted_and_server_policy_is_untouched(own
     req = fake_export["requests"][0]
     assert req.features_requested == ["analytic-models", "views", "tables", "data-flows"]          # solo la lista blanca canónica
     assert req.allowed_root_types is None and req.mode == "assessment"
-    assert req.generate_catalog is False and req.mirror_up is False and req.root_type is None
+    assert req.generate_catalog is False and not hasattr(req, "mirror_up") and req.root_type is None
 
 
 def test_task_chains_without_any_flow_family_gets_the_extractors_backend_validation(owner, fake_export):

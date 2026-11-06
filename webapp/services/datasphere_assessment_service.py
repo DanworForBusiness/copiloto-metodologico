@@ -546,7 +546,7 @@ def run(values: FormValues, client_secret: str, *, user_email: str = "", on_line
             host=values.host, client_id=values.client_id, client_secret=client_secret, token_url=values.token_url,
             space=values.space, root_object=values.root_object, client=values.client,
             catalog_root=workspace / "catalog", csn_cache_dir=workspace / "pool",     # raíces del workspace: NADA canónico se toca
-            generate_catalog=False, mirror_up=False,                                   # evaluar != publicar: sin Catálogo ni Spaces
+            generate_catalog=False,                                                    # evaluar != publicar: sin Catálogo ni Spaces (modo ASSESSMENT jamás espeja)
             mode="assessment",                                                         # forzado en el servidor: la UI no elige el modo
             features_requested=requested_features(values),                             # SOLO lo pedido: las dependencias las resuelve el extractor
         )

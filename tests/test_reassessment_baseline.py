@@ -32,7 +32,6 @@ def published(ctx, monkeypatch, tmp_path):                                      
     from core import publication_gate as gate
     from webapp.services import assessment_service as assess
     monkeypatch.setenv("DANWOR_GOVERNED_ASSESSMENTS_DIR", str(tmp_path / "governed"))
-    monkeypatch.setenv(txn.SAFE_ENV, "1")
     assess.reset_memory_cache()
     assess.invalidate_pool_index()
     gate.set_resolver(None)

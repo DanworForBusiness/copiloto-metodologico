@@ -46,6 +46,17 @@ def remote(ctx, monkeypatch):                                                   
     gate.set_resolver(None)
 
 
+def publish_with_local_persistence(ctx, monkeypatch):
+    """Una versión publicada mientras el servidor estaba en modo ``local``: queda en disco y Spaces nunca la recibió (remoto atrasado)."""
+    import config
+    with monkeypatch.context() as m:
+        m.setattr(config, "PERSISTENCE_MODE", "local")
+        m.setattr(config, "PERSIST_ENABLED", False)
+        res, _ = ctx.publish()
+    assert res.status == txn.COMPLETED and res.durability == txn.DURABILITY_LOCAL_BY_CONFIG
+    return res
+
+
 def crash_before_remote(monkeypatch, then=None, point="after_intent"):
     """Spaces cae justo al empezar la confirmación del cuerpo: después de registrar la intención (``after_intent``), antes de subir el primer objeto."""
     def hook(p, **kw):
@@ -56,11 +67,11 @@ def crash_before_remote(monkeypatch, then=None, point="after_intent"):
 
 # ═══════════════ idempotencia ═══════════════
 def test_an_identical_reimport_writes_nothing_locally_nor_remotely(ctx, remote):                              # noqa: F811
-    first, _ = ctx.publish(mirror=True)
+    first, _ = ctx.publish()
     assert first.status == txn.COMPLETED and first.outcome == "CHANGED"
     before_tree, before_uploads, before_log = local_tree(ctx), remote.uploads, list(remote.log)
     mtimes = {p: p.stat().st_mtime_ns for p in ctx.catalog.rglob("*") if p.is_file()}
-    again, lines = ctx.publish(mirror=True)
+    again, lines = ctx.publish()
     assert (again.status, again.ok, again.outcome, again.applied["changed"]) == (txn.COMPLETED, True, "NO_CHANGE", False)
     assert local_tree(ctx) == before_tree and {p: p.stat().st_mtime_ns for p in ctx.catalog.rglob("*") if p.is_file()} == mtimes
     assert remote.uploads == before_uploads and remote.log == before_log                                    # Spaces: ni una escritura
@@ -75,17 +86,17 @@ def test_an_identical_reimport_does_not_grow_the_history(ctx):                  
     assert state == ledger_mod.L_OK and len(data["history"]) == 1
 
 
-def test_an_identical_reimport_repairs_a_remote_that_was_behind(ctx, remote):                               # noqa: F811
-    ctx.publish()                                                                                           # publicada en local, nunca confirmada en Spaces (p. ej. con el modo local)
-    again, _ = ctx.publish(mirror=True)
+def test_an_identical_reimport_repairs_a_remote_that_was_behind(ctx, remote, monkeypatch):                  # noqa: F811
+    publish_with_local_persistence(ctx, monkeypatch)                                                        # publicada en local, nunca confirmada en Spaces (modo local)
+    again, _ = ctx.publish()
     assert again.status == txn.COMPLETED and again.outcome == "NO_CHANGE" and again.durability == txn.DURABILITY_REMOTE
     assert any(k.endswith(MARKER) for k in remote.objects) and any(k.endswith("AM_Lista_Precios.json") for k in remote.objects)
 
 
-def test_an_identical_reimport_with_an_unconfirmable_remote_is_refused_not_reported_as_fine(ctx, remote):    # noqa: F811
-    ctx.publish()
+def test_an_identical_reimport_with_an_unconfirmable_remote_is_refused_not_reported_as_fine(ctx, remote, monkeypatch):    # noqa: F811
+    publish_with_local_persistence(ctx, monkeypatch)
     remote.fail_keys = ("RAW_PROD",)
-    res, _ = ctx.publish(mirror=True)
+    res, _ = ctx.publish()
     assert (res.status, res.error_code) == (txn.FAILED_NO_CHANGE, "PERSISTENCE_UNCONFIRMED")
 
 
@@ -170,7 +181,7 @@ def test_the_gate_opens_after_a_rollback_too(ctx, monkeypatch):                 
 
 # ═══════════════ confirmación durable: la versión nueva no es vigente sin Spaces ═══════════════
 def test_the_new_version_is_not_visible_to_readers_until_spaces_confirms(ctx, remote, monkeypatch):           # noqa: F811
-    ctx.publish(mirror=True)
+    ctx.publish()
     v2(ctx.tenant)
     states: dict = {}
 
@@ -179,17 +190,17 @@ def test_the_new_version_is_not_visible_to_readers_until_spaces_confirms(ctx, re
         states["marker_remote"] = any(k.endswith(MARKER) for k in remote.objects)
 
     monkeypatch.setattr(txn, "FAULT_HOOK", lambda point, **kw: at_remote() if point == "before_remote" else None)
-    res, _ = ctx.publish(mirror=True)
+    res, _ = ctx.publish()
     assert states["gate"] == gate.ACTIVATING                                                                  # durante la confirmación los lectores esperan
     assert res.status == txn.COMPLETED and res.durability == txn.DURABILITY_REMOTE and gate.read_state(ctx.catalog) is None
 
 
 def test_the_activation_marker_is_uploaded_last_and_removals_are_deleted_before_uploading(ctx, remote):        # noqa: F811
-    ctx.publish(mirror=True)
+    ctx.publish()
     assert any(k.endswith("1VR_LP_EXTRA.json") for k in remote.objects)
     v2(ctx.tenant)
     start = len(remote.log)
-    res, _ = ctx.publish(mirror=True)
+    res, _ = ctx.publish()
     ops = [(o, k) for o, k in remote.log[start:] if ".intent/" not in k]                                    # la intención (evidencia de recuperación) se registra antes y se retira al confirmar
     assert res.status == txn.COMPLETED and not any(k.endswith("1VR_LP_EXTRA.json") for k in remote.objects)    # el objeto retirado NO queda en Spaces (no resucita en un restore)
     kinds = [o for o, _k in ops]
@@ -201,7 +212,7 @@ def test_the_activation_marker_is_uploaded_last_and_removals_are_deleted_before_
 def test_a_lost_response_after_a_successful_write_is_verified_not_reverted(ctx, remote):                      # noqa: F811
     """La escritura del marcador SÍ ocurrió pero la respuesta se perdió: persist_changed lo ve como fallo; la publicación VERIFICA el remoto y la da por confirmada."""
     remote.lose_response_keys = (MARKER,)
-    res, _ = ctx.publish(mirror=True)
+    res, _ = ctx.publish()
     assert (res.status, res.ok, res.durability) == (txn.COMPLETED, True, txn.DURABILITY_REMOTE)
     assert any(k.endswith(MARKER) for k in remote.objects) and [j["state"] for j in ctx.journals()] == [txn.J_REMOTE_CONFIRMED]
     assert gate.read_state(ctx.catalog) is None
@@ -209,32 +220,32 @@ def test_a_lost_response_after_a_successful_write_is_verified_not_reverted(ctx, 
 
 def test_a_lost_response_on_a_body_file_is_also_verified_before_declaring_failure(ctx, remote):               # noqa: F811
     remote.lose_response_keys = ("RAW_PROD.json",)
-    res, _ = ctx.publish(mirror=True)
+    res, _ = ctx.publish()
     assert res.status == txn.COMPLETED and res.durability == txn.DURABILITY_REMOTE
     for key in ("audit/catalog_local/.csn_cache/Acme/local-tables/RAW_PROD.json", "audit/catalog_local/.publication_state/" + MARKER):
         assert key in remote.objects
 
 
 def test_a_rejected_upload_restores_the_last_confirmed_version_in_local_and_in_spaces(ctx, remote):            # noqa: F811
-    ctx.publish(mirror=True)
+    ctx.publish()
     confirmed_local, confirmed_remote = local_tree(ctx), dict(remote.objects)
     v2(ctx.tenant)
     remote.fail_keys = ("3VF_LP.json",)
-    res, _ = ctx.publish(mirror=True)
+    res, _ = ctx.publish()
     assert (res.status, res.error_code, res.ok) == (txn.ROLLED_BACK, "PERSISTENCE_FAILED", False)
     assert local_tree(ctx) == confirmed_local and remote.objects == confirmed_remote                          # NI UN byte distinto de la última versión confirmada, en ambos lados
     assert gate.read_state(ctx.catalog) is None and not txn.has_pending(ctx.catalog)
     remote.fail_keys = ()
-    retry, _ = ctx.publish(mirror=True)
+    retry, _ = ctx.publish()
     assert retry.status == txn.COMPLETED and retry.durability == txn.DURABILITY_REMOTE and not any(k.endswith("1VR_LP_EXTRA.json") for k in remote.objects)
 
 
 def test_when_spaces_cannot_be_read_the_publication_is_neither_confirmed_nor_undone_and_readers_are_blocked(ctx, remote, monkeypatch):   # noqa: F811
-    ctx.publish(mirror=True)
+    ctx.publish()
     confirmed_remote = dict(remote.objects)
     v2(ctx.tenant)
     crash_before_remote(monkeypatch, lambda: setattr(remote, "down", True))                                  # Spaces cae justo al confirmar
-    res, _ = ctx.publish(mirror=True)
+    res, _ = ctx.publish()
     assert (res.status, res.error_code) == (txn.RECOVERY_REQUIRED, "PERSISTENCE_UNCERTAIN")
     assert gate.read_state(ctx.catalog)["state"] == gate.UNCERTAIN                                           # lectura bloqueada: no se muestra como vigente
     with pytest.raises(gate.PublicationBlocked):
@@ -246,7 +257,7 @@ def test_when_spaces_cannot_be_read_the_publication_is_neither_confirmed_nor_und
     assert [j["state"] for j in ctx.journals() if j["operation_id"] == res.operation_id] == [txn.J_COMMIT_UNCERTAIN] and txn.has_pending(ctx.catalog)
     # una nueva publicación NO avanza sobre un estado sin resolver
     monkeypatch.setattr(txn, "FAULT_HOOK", None)
-    blocked, _ = ctx.publish(mirror=True)
+    blocked, _ = ctx.publish()
     assert (blocked.status, blocked.error_code) == (txn.RECOVERY_REQUIRED, "RECOVERY_REQUIRED")
     # Spaces vuelve y SÍ guarda todo: la recuperación completa hacia adelante, verificando, y abre la compuerta
     remote.down = False
@@ -256,11 +267,11 @@ def test_when_spaces_cannot_be_read_the_publication_is_neither_confirmed_nor_und
 
 
 def test_an_uncertain_publication_that_spaces_can_no_longer_store_is_undone_after_verifying(ctx, remote, monkeypatch):   # noqa: F811
-    ctx.publish(mirror=True)
+    ctx.publish()
     confirmed_local, confirmed_remote = local_tree(ctx), dict(remote.objects)
     v2(ctx.tenant)
     crash_before_remote(monkeypatch, lambda: setattr(remote, "down", True))
-    res, _ = ctx.publish(mirror=True)
+    res, _ = ctx.publish()
     assert res.error_code == "PERSISTENCE_UNCERTAIN"
     monkeypatch.setattr(txn, "FAULT_HOOK", None)
     remote.down = False
@@ -271,11 +282,11 @@ def test_an_uncertain_publication_that_spaces_can_no_longer_store_is_undone_afte
 
 
 def test_if_the_compensation_cannot_complete_the_previous_version_stays_active_and_new_publications_wait(ctx, remote, monkeypatch):   # noqa: F811
-    ctx.publish(mirror=True)
+    ctx.publish()
     confirmed_local = local_tree(ctx)
     v2(ctx.tenant)
     crash_before_remote(monkeypatch, lambda: setattr(remote, "down", True))
-    assert ctx.publish(mirror=True)[0].error_code == "PERSISTENCE_UNCERTAIN"
+    assert ctx.publish()[0].error_code == "PERSISTENCE_UNCERTAIN"
     monkeypatch.setattr(txn, "FAULT_HOOK", None)
     remote.down = False
     remote.fail_keys = ("3VF_LP.json", "1VR_LP_EXTRA.json")                                                   # ni la nueva ni la previa pueden escribirse para esas claves
@@ -283,19 +294,19 @@ def test_if_the_compensation_cannot_complete_the_previous_version_stays_active_a
     assert [r["action"] for r in recovered] == ["DIVERGED"]
     assert local_tree(ctx, with_intent=False) == confirmed_local and gate.read_state(ctx.catalog) is None   # los lectores vuelven a la ÚLTIMA versión confirmada
     assert any(".intent/intent.json" in k for k in local_tree(ctx))                                          # y la evidencia se conserva mientras la compensación siga pendiente
-    blocked, _ = ctx.publish(mirror=True)
+    blocked, _ = ctx.publish()
     assert blocked.error_code == "RECOVERY_REQUIRED"
     remote.fail_keys = ()
     assert [r["action"] for r in txn.recover_pending(ctx.catalog)] == ["ROLLED_BACK"] and not txn.has_pending(ctx.catalog)
     assert local_tree(ctx) == confirmed_local and not any(".intent/" in k for k in remote.objects)          # resuelto: ni rastro de la evidencia, local ni remota
-    assert ctx.publish(mirror=True)[0].status == txn.COMPLETED
+    assert ctx.publish()[0].status == txn.COMPLETED
 
 
 def test_a_gate_resolver_lets_a_blocked_reader_recover_the_publication(ctx, remote, monkeypatch):             # noqa: F811
-    ctx.publish(mirror=True)
+    ctx.publish()
     v2(ctx.tenant)
     crash_before_remote(monkeypatch, lambda: setattr(remote, "down", True))
-    assert ctx.publish(mirror=True)[0].error_code == "PERSISTENCE_UNCERTAIN"
+    assert ctx.publish()[0].error_code == "PERSISTENCE_UNCERTAIN"
     monkeypatch.setattr(txn, "FAULT_HOOK", None)
     remote.down = False
     gate.set_resolver(lambda root: txn.recover_pending(root, timeout=0))
@@ -311,22 +322,22 @@ def test_a_gate_resolver_lets_a_blocked_reader_recover_the_publication(ctx, remo
 def test_a_failing_remote_listing_refuses_the_publication_before_touching_anything(ctx, remote):               # noqa: F811
     remote.fail_list = True
     before = local_tree(ctx)
-    res, _ = ctx.publish(mirror=True)
+    res, _ = ctx.publish()
     assert (res.status, res.error_code) == (txn.FAILED_NO_CHANGE, "REMOTE_LISTING_FAILED") and local_tree(ctx) == before
     assert not txn.has_pending(ctx.catalog) and ctx.journals() == [] and gate.read_state(ctx.catalog) is None
 
 
 def test_an_unreadable_remote_probe_refuses_the_publication(ctx, remote):                                     # noqa: F811
     remote.fail_head_keys = (MARKER,)
-    res, _ = ctx.publish(mirror=True)
+    res, _ = ctx.publish()
     assert (res.status, res.error_code) == (txn.FAILED_NO_CHANGE, "REMOTE_LISTING_FAILED")
 
 
 def test_local_files_that_differ_from_the_remote_and_were_never_reconciled_refuse_the_publication(ctx, remote):  # noqa: F811
-    ctx.publish(mirror=True)
+    ctx.publish()
     key = remote_store._key("catalog_local/.csn_cache/Acme/views/3VF_LP.json")
     remote_store._unreconciled.add(key)
-    res, _ = ctx.publish(mirror=True)
+    res, _ = ctx.publish()
     assert (res.status, res.error_code) == (txn.FAILED_NO_CHANGE, "REMOTE_NOT_RECONCILED")
 
 
@@ -334,19 +345,19 @@ def test_a_read_only_persistence_mode_cannot_confirm_so_it_refuses(ctx, monkeypa
     import config
     monkeypatch.setattr(config, "PERSISTENCE_MODE", "read-only")
     monkeypatch.setattr(config, "PERSIST_ENABLED", False)
-    res, _ = ctx.publish(mirror=True)
+    res, _ = ctx.publish()
     assert (res.status, res.error_code) == (txn.FAILED_NO_CHANGE, "PERSISTENCE_NOT_AVAILABLE")
 
 
 # ═══════════════ H2: lo que se borra en local también se borra en Spaces ═══════════════
 def test_remote_orphans_that_a_restore_would_resurrect_are_removed_only_inside_the_clients_own_prefixes(ctx, remote):   # noqa: F811
-    ctx.publish(mirror=True)
+    ctx.publish()
     own_orphan = "audit/catalog_local/.csn_cache/Acme/views/VIEJA_BORRADA.json"
     other_client = "audit/catalog_local/.csn_cache/Otro/views/DE_OTRO.json"
     remote.objects[own_orphan] = b"{}"
     remote.objects[other_client] = b"{}"
     v2(ctx.tenant)
-    res, _ = ctx.publish(mirror=True)
+    res, _ = ctx.publish()
     assert res.status == txn.COMPLETED
     assert own_orphan not in remote.objects                                                                   # huérfano del cliente: retirado
     assert other_client in remote.objects                                                                     # el de otro cliente: INTACTO
@@ -355,12 +366,12 @@ def test_remote_orphans_that_a_restore_would_resurrect_are_removed_only_inside_t
 
 def test_the_remote_deletion_cap_protects_the_bucket_from_a_calculation_error(ctx, remote, monkeypatch):        # noqa: F811
     from tools.catalog import DSP_CLI_Export_Lineage as dsp
-    ctx.publish(mirror=True)
+    ctx.publish()
     for i in range(30):
         remote.objects[f"audit/catalog_local/.csn_cache/Acme/views/ORFANA_{i}.json"] = b"{}"
     monkeypatch.setattr(dsp, "_MAX_REMOTE_DELETES", 10)
     v2(ctx.tenant)
-    res, _ = ctx.publish(mirror=True)
+    res, _ = ctx.publish()
     assert res.status == txn.COMPLETED and sum(1 for k in remote.objects if "ORFANA_" in k) >= 20
 
 

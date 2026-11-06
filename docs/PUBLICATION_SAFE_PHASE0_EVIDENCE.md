@@ -1,5 +1,7 @@
 # Fase 0 de la republicación del Catálogo — evidencia de implementación local
 
+> **Actualización 2026-11-06 (hotfix P0):** el interruptor `DANWOR_PUBLICATION_SAFE`, la variable `DANWOR_PUBLICATION_MIRROR_UP` y el camino legacy se retiraron: la unidad descrita acá es el ÚNICO camino y la confirmación remota la decide `DANWOR_PERSISTENCE`. Las menciones al interruptor en este documento son históricas; ver `docs/PUBLICATION_SAFE_RUNBOOK.md`.
+
 Rama local `feat/publication-safe-phase0` (worktree `ArquitectoDanwor-p0`) sobre `origin/main` 1726497. **Sin push, PR, merge ni deploy.** Alcance: **solo** H1, H3, H5 y H6. Fuera: H2, aislamiento físico Tenant/Space, migración de rutas, diario de publicaciones, UX histórica.
 Interruptor `DANWOR_PUBLICATION_SAFE`, **apagado por defecto** (camino anterior intacto). Activación/rollback: `docs/PUBLICATION_SAFE_RUNBOOK.md`.
 

@@ -143,27 +143,23 @@ def test_the_lock_excludes_another_PROCESS_and_the_os_releases_it_when_the_holde
         pass
 
 
-def test_external_producers_only_take_the_lock_when_the_switch_is_on(lock_dir, monkeypatch):
-    monkeypatch.delenv(txn.SAFE_ENV, raising=False)
+def test_external_producers_always_take_the_cross_process_lock(lock_dir):
+    """Sin interruptor: «Generar catálogo» y APIS_ONLY toman SIEMPRE el candado de escritor entre procesos; ocupado ⇒ ``CatalogBusyError`` sin escribir."""
     holder = _spawn_holder(lock_dir)
     try:
-        with txn.external_writer_guard(0):                                                                # interruptor apagado: comportamiento de siempre (no espera ni falla)
-            pass
-        monkeypatch.setenv(txn.SAFE_ENV, "1")
         with pytest.raises(txn.CatalogBusyError):
             with txn.external_writer_guard(0):
                 pass
     finally:
         holder.kill()
         holder.wait(10)
+    with txn.external_writer_guard(5):                                                                    # libre: se obtiene
+        pass
 
 
-def test_the_switch_is_off_by_default_and_parses_truthy_values(monkeypatch):
-    monkeypatch.delenv(txn.SAFE_ENV, raising=False)
-    assert txn.safe_mode_enabled() is False
-    for value, expected in (("1", True), ("true", True), ("ON", True), ("yes", True), ("0", False), ("off", False), ("", False), ("no", False)):
-        monkeypatch.setenv(txn.SAFE_ENV, value)
-        assert txn.safe_mode_enabled() is expected, value
+def test_there_is_no_publication_switch_anymore():
+    """La integridad no es configurable: ni el interruptor ni su lectura existen."""
+    assert not hasattr(txn, "SAFE_ENV") and not hasattr(txn, "safe_mode_enabled")
 
 
 # ─────────────── journal, undo y recuperación ───────────────

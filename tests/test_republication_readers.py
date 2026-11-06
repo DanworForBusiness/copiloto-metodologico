@@ -93,7 +93,6 @@ def test_the_web_answers_503_with_retry_after_while_a_version_is_being_activated
 
 
 def test_boot_verification_is_silent_for_a_coherent_disk_and_reports_a_mixture(world, monkeypatch, caplog):
-    monkeypatch.setenv(txn.SAFE_ENV, "1")
     assert world.publish(stage=True)[0].ok
     assert pub.verify_ledgers() == {}                                                                       # lo restaurado ES una versión publicada
     (world.pool / CLIENT / "views" / "3VF_LP.json").write_text("{}", encoding="utf-8")                      # un restore desde un Spaces a medias: mezcla
@@ -104,12 +103,12 @@ def test_boot_verification_is_silent_for_a_coherent_disk_and_reports_a_mixture(w
     assert any("NO coincide con su última publicación" in r.getMessage() for r in caplog.records)
 
 
-def test_boot_recovery_does_nothing_with_the_switch_off(world, monkeypatch):
-    monkeypatch.delenv(txn.SAFE_ENV, raising=False)
+def test_boot_recovery_always_runs_without_any_switch(world, monkeypatch):
+    """Sin interruptor: el arranque SIEMPRE completa o deshace lo pendiente."""
     called: list = []
     monkeypatch.setattr(pub, "resolve_pending", lambda *a, **k: called.append(1))
     pub.boot_recover()
-    assert called == []
+    assert called == [1]
 
 
 def test_resolve_pending_never_raises_and_discards_caches_when_something_was_resolved(world, monkeypatch):

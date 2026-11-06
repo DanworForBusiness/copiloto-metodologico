@@ -58,11 +58,20 @@ def _valid_values():
 
 
 class _FakeOk(types.SimpleNamespace):
+    """Resultado COMPLETED de la unidad transaccional (el único camino de publicación)."""
     ok = True
     error_code = None
     message = ""
     duration_s = 1.0
     exported_files = 3
+    status = "COMPLETED"
+    operation_id = "op-fake"
+    durability = "local_only_by_config"
+    stages: dict = {}
+    deferred_reasons: list = []
+    failures: list = []
+    applied: dict = {}
+    outcome = "CHANGED"
 
 
 # ───────────────────────── contrato de PUBLICACIÓN (servidor fuerza publish) ─────────────────────────
@@ -70,14 +79,12 @@ def test_server_forces_publish_against_canonical_roots(monkeypatch, tmp_path):
     canonical = tmp_path / "catalog_local"
     monkeypatch.setenv("DANWOR_CATALOG_DIR", str(canonical))
     monkeypatch.delenv("DANWOR_CATALOG_CSN_CACHE", raising=False)
-    monkeypatch.delenv("DANWOR_PUBLICATION_MIRROR_UP", raising=False)
     monkeypatch.setattr(asd, "cli_available", lambda: True)
 
     captured = {}
-    invalidated = {"n": 0}
     from tools.catalog import DSP_CLI_Export_Lineage as dsp
     monkeypatch.setattr(dsp, "run_export", lambda req: (captured.setdefault("req", req), _FakeOk())[1])
-    monkeypatch.setattr(main, "_invalidate_catalog_cache", lambda: invalidated.__setitem__("n", invalidated["n"] + 1))
+    monkeypatch.setattr(main, "_invalidate_catalog_cache", lambda: None)
 
     outcome = pub.run(_valid_values(), "supersecret", user_email="owner@danwor.com")
     assert outcome.state == "SUCCESS", (outcome.state, outcome.error_code)
@@ -85,17 +92,17 @@ def test_server_forces_publish_against_canonical_roots(monkeypatch, tmp_path):
     # El SERVIDOR fuerza el modo publish y la regeneración del catálogo; nunca lo elige la UI.
     assert req.mode == "publish"
     assert req.generate_catalog is True
-    assert req.mirror_up is False                      # Spaces apagado por defecto
+    assert not hasattr(req, "mirror_up") and not hasattr(req, "safe")   # sin pedido de espejo ni interruptor: la persistencia la decide DANWOR_PERSISTENCE
+    assert type(req.stage_hooks).__name__ == "AssessmentStage"       # el assessment es parte de la unidad transaccional
     # Raíces CANÓNICAS (no un workspace efímero por operación como el Assessment).
     assert Path(req.catalog_root).resolve() == canonical.resolve()
     assert Path(req.csn_cache_dir).resolve() == (canonical / ".csn_cache").resolve()
     # El secreto se pasa al extractor pero no vive en FormValues.
     assert req.client_secret == "supersecret"
-    # Publicar invalida la caché del catálogo (para que el nuevo dominio aparezca).
-    assert invalidated["n"] == 1
 
 
-def test_mirror_up_is_opt_in_by_env(monkeypatch, tmp_path):
+def test_the_retired_mirror_variable_has_no_effect(monkeypatch, tmp_path):
+    """``DANWOR_PUBLICATION_MIRROR_UP`` se retiró: definirla no cambia la solicitud (la confirmación remota la decide el modo de persistencia)."""
     monkeypatch.setenv("DANWOR_CATALOG_DIR", str(tmp_path / "c"))
     monkeypatch.setenv("DANWOR_PUBLICATION_MIRROR_UP", "1")
     monkeypatch.setattr(asd, "cli_available", lambda: True)
@@ -103,8 +110,8 @@ def test_mirror_up_is_opt_in_by_env(monkeypatch, tmp_path):
     from tools.catalog import DSP_CLI_Export_Lineage as dsp
     monkeypatch.setattr(dsp, "run_export", lambda req: (captured.setdefault("req", req), _FakeOk())[1])
     monkeypatch.setattr(main, "_invalidate_catalog_cache", lambda: None)
-    pub.run(_valid_values(), "s", user_email="o@danwor.com")
-    assert captured["req"].mirror_up is True
+    assert pub.run(_valid_values(), "s", user_email="o@danwor.com").state == "SUCCESS"
+    assert not hasattr(captured["req"], "mirror_up")
 
 
 def test_assessment_remains_non_publishing():

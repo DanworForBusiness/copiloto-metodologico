@@ -1,8 +1,9 @@
 """test_publication_registers_assessment.py — puente PUBLICAR → assessment canónico.
 
-Contrato: publicar un modelo registra su assessment CANÓNICO desde la MISMA evidencia que acaba de adquirir (UNA extracción, dos
-registros): reusa ``assessment_service.generate`` (misma resolución de AM, misma vigencia, misma caché ``(cliente, AM)``), NO
-reconecta a Datasphere, NO vuelve a extraer, y un fallo del assessment jamás tumba la publicación.
+Contrato del PUENTE ``register_assessment``: registra el assessment CANÓNICO de un modelo desde la evidencia ya adquirida: reusa
+``assessment_service.generate`` (misma resolución de AM, misma vigencia, misma caché ``(cliente, AM)``), NO reconecta a Datasphere,
+NO vuelve a extraer y nunca lanza. La publicación (unidad transaccional, único camino) ya NO lo llama después del commit: el assessment
+se prepara y activa DENTRO de la unidad (ver test_datasphere_publication_safe).
 """
 from __future__ import annotations
 
@@ -51,17 +52,14 @@ def _patch_catalog(monkeypatch, entries):
     monkeypatch.setattr(catalog_reads, "_catalog_entries", lambda: (object(), entries))
 
 
-def test_publication_registers_the_assessment_of_the_published_root_only(monkeypatch, published_env):
+def test_the_bridge_registers_the_assessment_of_the_published_root_only(monkeypatch, published_env):
     entries = [_entry("e1", "Pampa", ["AM_Compras", "VF_X"]), _entry("e2", "Pampa", ["AM_Otro"]), _entry("e3", "Otro", ["AM_Compras"])]
     _patch_catalog(monkeypatch, entries)
     generated = []
     monkeypatch.setattr(assess, "generate", lambda e: (generated.append(e.entry_id), types.SimpleNamespace(state="CURRENT"))[1])
-    phases = []
-    outcome = pub.run(_valid(), "secret", on_phase=phases.append)
-    assert outcome.state == "SUCCESS"
+    assert pub.register_assessment(_valid()) == [("e1", "CURRENT")]
     assert generated == ["e1"]                       # solo la entrada del MISMO cliente que contiene la raíz publicada
-    assert published_env["export"] == 1              # UNA sola extracción: el assessment no reconecta ni re-extrae
-    assert phases == [pub.PHASE_PUBLISHING, pub.PHASE_REGISTERING, pub.PHASE_PUBLISHED]
+    assert published_env["export"] == 0              # el puente no reconecta ni re-extrae
 
 
 def _valid():
@@ -72,23 +70,22 @@ def test_client_match_is_case_insensitive(monkeypatch, published_env):
     _patch_catalog(monkeypatch, [_entry("e1", "PAMPA", ["AM_Compras"])])
     generated = []
     monkeypatch.setattr(assess, "generate", lambda e: (generated.append(e.entry_id), types.SimpleNamespace(state="CURRENT"))[1])
-    assert pub.run(_valid(), "secret").state == "SUCCESS" and generated == ["e1"]
+    assert pub.register_assessment(_valid()) == [("e1", "CURRENT")] and generated == ["e1"]
 
 
-def test_assessment_failure_never_fails_the_publication(monkeypatch, published_env):
+def test_an_assessment_failure_never_raises_from_the_bridge(monkeypatch, published_env):
     _patch_catalog(monkeypatch, [_entry("e1", "Pampa", ["AM_Compras"])])
 
     def boom(_entry):
         raise RuntimeError("motor caído")
     monkeypatch.setattr(assess, "generate", boom)
-    outcome = pub.run(_valid(), "secret")
-    assert outcome.state == "SUCCESS" and outcome.stage == "publish"        # el modelo quedó publicado igual
+    assert isinstance(pub.register_assessment(_valid()), list)                # nunca lanza: el estado estable lo resuelve el Catálogo
 
 
-def test_publication_without_a_matching_catalog_entry_registers_nothing(monkeypatch, published_env):
+def test_the_bridge_without_a_matching_catalog_entry_registers_nothing(monkeypatch, published_env):
     _patch_catalog(monkeypatch, [_entry("e9", "Otro", ["AM_Compras"])])
     monkeypatch.setattr(assess, "generate", lambda e: pytest.fail("no debe generar un assessment ajeno"))
-    assert pub.run(_valid(), "secret").state == "SUCCESS"
+    assert pub.register_assessment(_valid()) == []
 
 
 def test_failed_extraction_registers_no_assessment(monkeypatch, tmp_path):

@@ -1,44 +1,57 @@
-# Publicación segura del Catálogo (fase 0 + P1) — activación, desactivación y rollback
+# Publicación del Catálogo (fase 0 + P1) — precondiciones, despliegue y operación
 
-Interruptor: **`DANWOR_PUBLICATION_SAFE`** — apagado por defecto. Alcance: solo el modo **PUBLISH** (el Assessment ad-hoc no cambia).
+**Único camino.** Desde el hotfix P0 (incidente Biogenesis, 2026-11-06) la publicación transaccional es el ÚNICO camino del modo **PUBLISH**: se retiraron el
+interruptor `DANWOR_PUBLICATION_SAFE`, la variable `DANWOR_PUBLICATION_MIRROR_UP` y el flag `--mirror-up` de la CLI, junto con el camino legacy (escritura directa
+sobre el pool sin deshacer, regeneración global, espejo sin guarda). La integridad no es configurable. El Assessment ad-hoc no cambia.
 Diseño y causas: `docs/audit/CATALOG_REPUBLICATION_AUDIT_20261026.md` y `docs/audit/CATALOG_REPUBLICATION_PHASE0_DESIGN_20261026.md` (rama de auditoría). **P1** (assessment dentro de la unidad, confirmación durable antes de visibilidad, lectores protegidos, idempotencia, borrados remotos): `docs/REPUBLICATION_P1.md`.
 
-## 1. Qué cambia cuando está ENCENDIDO
+## 1. Garantías (siempre activas)
 
 | Garantía | Comportamiento |
 |---|---|
 | **H1** extracción incompleta | Cualquier fallo de lectura o de listado (o una violación de los invariantes de completitud) **aborta antes de tocar nada**: `FAILED_NO_CHANGE` / `EXTRACTION_INCOMPLETE`. No se limpia, no se regenera, no se sube, no se registra el Assessment |
-| **H3** persistencia | La confirmación remota se **verifica** (`publication_remote.confirm`: cuerpo, marcador de activación al final, bytes exactos; una respuesta perdida tras una escritura efectiva se reconcilia leyendo el remoto) bajo `hold_publication`; **solo `remote` confirma**. Modo `local` (desarrollo) ⇒ `local_only_by_config`. **P1:** si Spaces no confirma, la versión nueva **no queda vigente**: se restaura la última confirmada (`ROLLED_BACK`/`PERSISTENCE_FAILED`) o, si no se puede verificar, se bloquea la lectura (`RECOVERY_REQUIRED`/`PERSISTENCE_UNCERTAIN`) hasta resolverlo |
+| **H3** persistencia | La decide el **modo de persistencia efectivo** del servidor (el control preexistente `DANWOR_PERSISTENCE`, default `local`; el hotfix no lo cambia ni agrega otra variable): `remote` ⇒ la confirmación en Spaces es **obligatoria** y se **verifica** (`publication_remote.confirm`: cuerpo, marcador de activación al final, bytes exactos; una respuesta perdida tras una escritura efectiva se reconcilia leyendo el remoto) bajo `hold_publication`; `local` (desarrollo) ⇒ la misma unidad transaccional en disco, `local_only_by_config`; `read-only` ⇒ no se puede confirmar: se rechaza sin tocar nada. **P1:** si Spaces no confirma, la versión nueva **no queda vigente**: se restaura la última confirmada (`ROLLED_BACK`/`PERSISTENCE_FAILED`) o, si no se puede verificar, se bloquea la lectura (`RECOVERY_REQUIRED`/`PERSISTENCE_UNCERTAIN`) hasta resolverlo |
 | **H5** concurrencia | Candado de **escritor único entre procesos** (`flock`/`msvcrt`) sobre `catalog_local`, tomado por la publicación, «Generar catálogo» y APIS_ONLY. Ocupado ⇒ `CATALOG_BUSY` sin efectos |
 | **H6** manifiestos | Escrituras atómicas; manifiesto v3 con integridad y `sha256` por objeto; carga tri-estado: **un manifiesto ilegible nunca autoriza un borrado** (limpieza diferida ⇒ **PARTIAL**, nunca `COMPLETED`) |
 | Transaccionalidad | journal + copia de deshacer: ante cualquier falla se restaura el estado previo (`ROLLED_BACK`); una caída del proceso se recupera al inicio de la siguiente operación |
 | Revalidación | Los manifiestos y las precondiciones se calculan **bajo el candado**, no antes |
 | Contracción | Una caída de más del 50 % de los objetos se **observa** (línea `OBSERVACION` y `observations.contraction`); no bloquea |
+| Sincronizador periódico | `mirror_up` consulta SIEMPRE la guarda (`datasphere_publication_service._mirror_guard`): no sube mientras haya una publicación activándose, una verificación de arranque o un journal sin resolver. La guarda lee el estado del DISCO (compuerta y journals), así que vale entre procesos y no deja bloqueos permanentes (la recuperación los resuelve) |
+| Regeneración | Por **cliente** (`only_clients`): un cliente inconsistente no bloquea ni toca la publicación de otro. La regeneración global queda como operación explícita de mantenimiento («Generar catálogo» en el panel del dueño) |
 
 `SUCCESS` en la UI ⇔ `status == COMPLETED`. `PARTIAL` (solo `COMMITTED_CLEANUP_DEFERRED`) se muestra como «Publicación parcial» (aviso, botón rehabilitado para **reintentar**: es idempotente). Una reimportación idéntica termina `COMPLETED` con `outcome=NO_CHANGE` y no escribe nada.
 
 Estados funcionales: `COMPLETED` · `FAILED_NO_CHANGE` · `ROLLED_BACK` · `COMMITTED_CLEANUP_DEFERRED` · `RECOVERY_REQUIRED`. `COMMITTED_UNCONFIRMED` es **solo** el estado interno `COMMIT_UNCERTAIN` del journal (no un resultado vigente).
 
-## 2. Activar (sin estados mixtos)
+## 2. Precondiciones de despliegue (configuración de infraestructura, sin variables nuevas)
 
-Precondiciones (todas):
-1. **Réplica única** de App Platform (`instance_count = 1`) — ver §5. El candado de SO **no** protege entre instancias.
-2. `DANWOR_PERSISTENCE=remote` ya vigente en producción (gate de despliegue existente), **`DANWOR_PUBLICATION_MIRROR_UP=1`** y **`governed-assessments` dentro de `SPACES_PERSIST_PATHS`** (si el entorno define esa variable explícita, hay que sumarlo). Sin eso la publicación **aborta antes de tocar nada** (`PERSISTENCE_*` / `ASSESSMENT_NOT_PERSISTED`, ver `docs/REPUBLICATION_P1.md` §3.2).
-3. Ninguna publicación ni «Generar catálogo» en curso (el panel de Catálogo no muestra operación activa) y **sin journals pendientes** (§4).
+En producción TODAS deben cumplirse. El hotfix **no agrega ni modifica configuración**: solo exige VERIFICAR el estado efectivo. Si alguna falta, la publicación **aborta antes de tocar nada** con un código explícito (fail-closed) y el resto del Hub sigue funcionando:
 
-Pasos:
-1. Desplegar el código con el interruptor **apagado** (por defecto). Verificar que una publicación de prueba sigue comportándose igual.
-2. Definir `DANWOR_PUBLICATION_SAFE=1` en el entorno y reiniciar la app. El interruptor se lee **una vez por operación**: la operación en curso nunca cambia de camino a mitad.
-3. Publicar un modelo de prueba (entorno aislado primero) y comprobar: `status=COMPLETED`, `durability=remote_confirmed`, línea «Persistencia canónica: OK», un journal `REMOTE_CONFIRMED` en `<dirname(DANWOR_CATALOG_DIR)>/.publication_runtime/journal/`.
-4. Republicar el mismo modelo: debe terminar `COMPLETED` sin reescribir ni subir archivos (`applied.changed=false`).
+| Precondición | Cómo se verifica | Si falta |
+|---|---|---|
+| **Persistencia remota efectiva** (modo `remote` con escritura habilitada) | Console del componente web en App Platform: `python -c "import config; print(config.PERSISTENCE_MODE, config.SPACES_CONFIGURED, config.PERSIST_ENABLED)"` debe imprimir `remote True True` (solo el modo y dos booleanos, sin secretos). **No usar los Runtime Logs para esto:** la línea `persistencia: …` del arranque es `INFO` y se descarta (el repo no configura logging; raíz en `WARNING`); solo el aviso de modo NO remoto con credenciales (`WARNING`) llega a los logs. Verificado en producción el 2026-11-06: `remote True True`. Si imprime otra cosa, **no desplegar**: el problema es previo al hotfix (producción no estaría persistiendo) | `PERSISTENCE_MODE_NOT_REMOTE` / `PERSISTENCE_NOT_WRITABLE` |
+| `catalog_local` y `governed-assessments` en `SPACES_PERSIST_PATHS` (el **default del código ya los incluye**; solo hay que revisarlo si el entorno define la variable explícita) | App Platform → variables del componente | `CATALOG_NOT_PERSISTED` / `ASSESSMENT_NOT_PERSISTED` |
+| **Réplica única** (`instance_count = 1`) | App Platform → componente web → Resources | sin detección automática: el candado de SO no protege entre instancias (§5) |
+| Sin journals pendientes ni publicación en curso al desplegar | §4 (`recover_pending`) | la primera publicación responde `RECOVERY_REQUIRED` hasta resolverlo |
 
-## 3. Desactivar / rollback (sin estados mixtos)
+**Variables a RETIRAR del entorno** (ya no se leen; dejarlas no tiene efecto, pero confunden): `DANWOR_PUBLICATION_SAFE`, `DANWOR_PUBLICATION_MIRROR_UP`.
 
-1. Quitar `DANWOR_PUBLICATION_SAFE` (o `=0`) y reiniciar. **No hay que migrar nada**: el manifiesto v3 es un superconjunto del v2 y el código anterior lo lee; el directorio `.publication_runtime/` está fuera del árbol que lee el código anterior.
-2. **La recuperación corre SIEMPRE** (con el interruptor encendido o apagado) al inicio de cada publicación: si el proceso murió a mitad de un apply, el journal `APPLYING` se restaura desde la copia de deshacer **antes** de publicar por el camino anterior. Apagar el interruptor después de una caída no deja estados mixtos (prueba: `test_turning_the_switch_off_after_a_crash_never_leaves_a_mixed_state`).
-3. Si una recuperación no puede verificarse, la publicación responde `RECOVERY_REQUIRED` con el interruptor encendido **o** apagado: no se publica encima de un estado a medias. Resolución: §4.
-4. Revertir el commit equivale a (1); no deja datos huérfanos del lado de la app (los journals son inertes).
-5. Lo que **no** se revierte solo: objetos que una publicación segura ya borró legítimamente (limpieza por manifiesto OK) — es el comportamiento correcto de una republicación; el respaldo está en el undo solo **durante** la operación.
+## 3. Orden de despliegue y rollback
+
+**Despliegue**
+1. Suspender publicaciones y «Generar catálogo» (aviso al equipo).
+2. Verificar las precondiciones de §2 con la Console y la configuración vigente (solo verificar: el hotfix no requiere configurar nada nuevo).
+3. Desplegar. Al arrancar con persistencia remota: la **compuerta de arranque** cierra la lectura del Catálogo hasta que el restore termine y la recuperación verifique lo
+   restaurado (503 con `BOOT_VERIFICATION_PENDING` durante ese lapso); el sincronizador queda retenido mientras tanto. Es el comportamiento esperado.
+4. Revisar el log del arranque: `verify_ledgers` no debe reportar clientes incoherentes (los que nunca publicaron por la unidad no tienen bitácora y no se reportan).
+5. Publicar un modelo de prueba y comprobar `status=COMPLETED`, `durability=remote_confirmed` y un journal `REMOTE_CONFIRMED` en
+   `<dirname(DANWOR_CATALOG_DIR)>/.publication_runtime/journal/`. Republicarlo: `COMPLETED` / `NO_CHANGE` sin subir nada.
+6. Reabrir publicaciones. Un cliente con evidencia inconsistente en el pool (p. ej. Biogenesis) ya no bloquea a los demás; su propia publicación fallará con un
+   código explícito hasta su recuperación (procedimiento aparte).
+
+**Rollback**: revertir el commit y redeployar. El manifiesto v3 es un superconjunto del v2 y el directorio `.publication_runtime/` está fuera del árbol que lee el
+código anterior: no hay migración. *Advertencia:* el código anterior vuelve al camino legacy (sin deshacer) mientras no se defina `DANWOR_PUBLICATION_SAFE=1`;
+con el rollback hay que mantener suspendidas las publicaciones o definir esa variable.
 
 ## 4. Operación y diagnóstico
 

@@ -69,13 +69,13 @@ def _within(child: Path, parent: Path) -> bool:
         return False
 
 
-def persistence_gap(rs, *, mirror_up: bool, catalog_root: Path, durable_store: "tuple[str, Path | None] | None") -> "tuple[str, str] | None":
+def persistence_gap(rs, *, catalog_root: Path, durable_store: "tuple[str, Path | None] | None") -> "tuple[str, str] | None":
     """B2. ``None`` si la persistencia efectiva cubre la publicación; si no, ``(código, detalle)`` y la publicación NO debe empezar.
 
     ``durable_store``: ``(nombre persistido, carpeta del cliente)`` del almacén que la etapa exige durable (los assessments gobernados), o ``None`` si no hay etapa.
     Reglas (sobre la configuración EFECTIVA de ``remote_store``):
       * modo distinto de ``remote`` con credenciales de Spaces presentes → lo publicado quedaría SOLO en el disco efímero (el despliegue olvidó ``DANWOR_PERSISTENCE=remote``);
-      * modo ``remote`` sin escritura habilitada, o sin pedir la confirmación remota (``mirror_up``) → una publicación «exitosa» no estaría confirmada en Spaces;
+      * modo ``remote`` sin escritura habilitada → una publicación «exitosa» no estaría confirmada en Spaces;
       * el Catálogo fuera de los directorios persistidos, o el almacén de la etapa inexistente / fuera de su directorio persistido efectivo → no sobrevive a un redeploy.
     Sin credenciales (desarrollo local explícito) el disco es la fuente de verdad y solo se exige que el almacén exista. Sin almacén durable exigido (``None``) no hay nada que cubrir."""
     if durable_store is None:
@@ -90,8 +90,6 @@ def persistence_gap(rs, *, mirror_up: bool, catalog_root: Path, durable_store: "
         return None
     if not rs.write_enabled():
         return "PERSISTENCE_NOT_WRITABLE", "DANWOR_PERSISTENCE=remote pero la escritura en Spaces no está habilitada (credenciales incompletas)"
-    if not mirror_up:
-        return "PERSISTENCE_NOT_REQUESTED", "la publicación segura exige confirmar en Spaces (DANWOR_PUBLICATION_MIRROR_UP): sin eso lo publicado quedaría solo en el disco efímero"
     dirs = {name: Path(local).resolve() for name, local in rs._persist_dirs()}
     if not any(_within(catalog_root, base) for base in dirs.values()):
         return "CATALOG_NOT_PERSISTED", "el directorio del Catálogo no figura entre los directorios persistidos (SPACES_PERSIST_PATHS)"

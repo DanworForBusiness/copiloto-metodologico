@@ -54,7 +54,7 @@ def _publish(w, **kw):
 def test_scan_and_relations_survive_the_transactional_publication_the_bucket_and_the_catalog_read(world, monkeypatch):
     s3 = FakeS3()
     enable_remote(monkeypatch, s3)
-    res = _publish(world, mirror=True)
+    res = _publish(world)
     assert res.status == txn.COMPLETED
     m = _manifest(world)
     assert m["schemaVersion"] == 3 and "integrity" in m                                    # manifiesto TRANSACCIONAL sellado

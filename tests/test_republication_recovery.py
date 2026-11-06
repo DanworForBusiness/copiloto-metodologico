@@ -43,7 +43,6 @@ def world(ctx, monkeypatch, tmp_path):                                          
     s3 = FakeS3()
     governed = tmp_path / "governed"
     enable_remote(monkeypatch, s3, governed=governed)
-    monkeypatch.setenv(txn.SAFE_ENV, "1")
     assess.reset_memory_cache()
     assess.invalidate_pool_index()
     gate.set_resolver(None)
@@ -57,7 +56,6 @@ def world(ctx, monkeypatch, tmp_path):                                          
 
 
 def pub(w, root=AM_A, **kw):
-    kw.setdefault("mirror", True)
     return w.publish(root, stage=True, **kw)
 
 

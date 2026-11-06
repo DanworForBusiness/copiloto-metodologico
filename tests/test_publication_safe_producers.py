@@ -19,14 +19,7 @@ def holder(tmp_path, monkeypatch):
     proc.wait(10)
 
 
-def test_legacy_regeneration_waits_for_nobody_when_the_switch_is_off(holder, monkeypatch):
-    monkeypatch.delenv(txn.SAFE_ENV, raising=False)
-    monkeypatch.setattr(admin_tools, "run_catalog_generation", lambda graph_token="": "regenerado")
-    assert admin_tools.run_catalog_generation_locked() == (True, "regenerado")                                  # comportamiento de siempre
-
-
 def test_legacy_regeneration_aborts_without_writing_when_another_process_holds_the_catalog_lock(holder, monkeypatch):
-    monkeypatch.setenv(txn.SAFE_ENV, "1")
     monkeypatch.setattr(admin_tools, "run_catalog_generation", lambda graph_token="": pytest.fail("no debe regenerar con otro proceso aplicando"))
     ran, message = admin_tools.run_catalog_generation_locked()
     assert ran is False and "otro proceso" in message
@@ -34,21 +27,19 @@ def test_legacy_regeneration_aborts_without_writing_when_another_process_holds_t
     admin_tools._CATALOG_REGEN_LOCK.release()
 
 
-def test_legacy_regeneration_runs_normally_with_the_switch_on_and_nobody_holding_the_lock(tmp_path, monkeypatch):
+def test_legacy_regeneration_runs_normally_when_nobody_holds_the_lock(tmp_path, monkeypatch):
     monkeypatch.setenv(txn.LOCK_DIR_ENV, str(tmp_path / "locks"))
-    monkeypatch.setenv(txn.SAFE_ENV, "1")
     monkeypatch.setattr(admin_tools, "run_catalog_generation", lambda graph_token="": "regenerado")
     assert admin_tools.run_catalog_generation_locked() == (True, "regenerado")
 
 
 def test_apis_only_apply_aborts_without_touching_anything_when_another_process_holds_the_lock(holder, monkeypatch):
-    monkeypatch.setenv(txn.SAFE_ENV, "1")
     monkeypatch.setattr(catalog_apis_sync, "_apply_locked", lambda *a, **k: pytest.fail("no debe aplicar con otro proceso aplicando"))
     out = catalog_apis_sync.apply("tok", "plan", catalog_apis_sync.CONFIRM_PHRASE)
     assert out.state == "aborted" and any("No se aplicó nada" in line for line in out.lines)
 
 
-def test_apis_only_hold_and_guard_is_the_plain_publication_hold_when_the_switch_is_off(holder, monkeypatch):
-    monkeypatch.delenv(txn.SAFE_ENV, raising=False)
+def test_apis_only_hold_and_guard_reports_busy_while_another_process_holds_the_lock(holder):
+    """Sin interruptor: APIS_ONLY siempre consulta el candado entre procesos; con otro proceso aplicando no obtiene un hold exclusivo."""
     with catalog_apis_sync._hold_and_guard() as hold:
-        assert hold.exclusive is True and not isinstance(hold, catalog_apis_sync._BusyHold)
+        assert isinstance(hold, catalog_apis_sync._BusyHold) and hold.exclusive is False

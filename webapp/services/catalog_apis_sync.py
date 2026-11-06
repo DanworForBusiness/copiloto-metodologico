@@ -45,7 +45,7 @@ class _BusyHold:
 
 @contextlib.contextmanager
 def _hold_and_guard():
-    """``hold_publication`` + (solo con ``DANWOR_PUBLICATION_SAFE`` activo) el candado de escritor ENTRE PROCESOS de la publicación. Sin interruptor: idéntico a antes."""
+    """``hold_publication`` + el candado de escritor ENTRE PROCESOS de la publicación."""
     from tools.catalog import publication_txn as txn
     with contextlib.ExitStack() as stack:
         try:
