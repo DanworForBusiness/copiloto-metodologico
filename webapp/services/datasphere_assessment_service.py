@@ -193,6 +193,24 @@ def can_use_client_profiles(request) -> bool:
     return access.is_owner(request)
 
 
+_PREFILL_RE = re.compile(r"^[A-Za-z0-9_.\- ]{1,120}$")
+
+
+def catalog_prefill_url(stem: str, pack: str, client: str, root_object: str) -> str:
+    """Enlace del Catálogo a ESTA herramienta con el modelo precargado (cliente + objeto raíz; nunca Space ni credenciales)."""
+    return f"/modules/{stem}?" + urllib.parse.urlencode({"pack": pack, "tool": "assessment", "client": client, "root": root_object})
+
+
+def _catalog_prefill(request, values: dict[str, str]) -> dict[str, str]:
+    """Precarga desde el Catálogo (``?client=…&root=…``): SOLO campos no sensibles y validados. El Space se VACÍA a propósito: el consultor elige desde qué Space
+    evaluar (la versión publicada en el Catálogo puede venir de otro); nunca se infiere. Sin parámetros, el contexto de la sesión queda como estaba."""
+    qp = getattr(request, "query_params", None) or {}
+    client, root = str(qp.get("client") or "").strip(), str(qp.get("root") or "").strip()
+    if not (client and root and _PREFILL_RE.match(client) and _PREFILL_RE.match(root)):
+        return values
+    return {**values, "client": client, "root_object": root, "space": ""}
+
+
 def tool_context(request, stem: str) -> dict:
     """Contexto para la plantilla del panel. Sin secretos: ``form`` son SOLO los campos no sensibles de la última ejecución de ESTA
     sesión (el Client Secret no existe en ningún almacén) y ``recent`` los assessments ad-hoc vivos del propio usuario."""
@@ -204,6 +222,7 @@ def tool_context(request, stem: str) -> dict:
     if can:
         values = load_form_context(session_key(request))
         recent = list_results(owner_email(request))
+        values = _catalog_prefill(request, values)
     selected = values.get("features")
     checked = list(OPTIONAL_FEATURES) if selected is None else [f for f in OPTIONAL_FEATURES if f in selected.split(",")]
     options = [{"value": f, "label": FEATURE_LABELS[f], "checked": f in checked} for f in OPTIONAL_FEATURES]

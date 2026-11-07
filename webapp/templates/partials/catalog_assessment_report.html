@@ -127,10 +127,14 @@
   {% if v.adhoc %}{# assessment ad-hoc (página propia): "Volver" regresa a la herramienta, sin HTMX ni flujo del Catálogo #}
   <a class="catalog-back" href="{{ v.flow_url }}">← Volver</a>
   {% else %}<a class="catalog-back" href="#" role="button" hx-get="{{ v.flow_url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>← Volver</a>{% endif %}
-  {% if v.has_profile %}
+  {% if v.has_profile or diagnostic_url %}
   <div class="support-links catalog-actionbar__actions">
+    {# Mejora continua: evaluar la versión ACTUAL del modelo en Datasphere (cualquier Space) con el mismo motor, sin publicar ni tocar este registro gobernado. #}
+    {% if diagnostic_url and not v.adhoc %}<a class="support-link" href="{{ diagnostic_url }}" data-asr-diagnostic>Evaluar la versión actual<span>↗</span></a>{% endif %}
+    {% if v.has_profile %}
     <a class="support-link" href="{{ v.md_url }}" download>Exportar Markdown<span>↗</span></a>
     <a class="support-link" href="{{ v.json_url }}" download>Exportar JSON<span>↗</span></a>
+    {% endif %}
   </div>
   {% endif %}
 </div>
