@@ -269,6 +269,34 @@ def adhoc_execution_log(request: Request, stem: str, result_id: str, pack: str =
                  "available_workspaces": workspaces.available_workspaces(user)})
 
 
+@router.get("/modules/{stem}/datasphere-assessment/result/{result_id}/catalog", response_class=HTMLResponse, include_in_schema=False)
+def adhoc_catalog_review(request: Request, stem: str, result_id: str, pack: str = Query(DEFAULT_PACK)):
+    """«Regenerar Catálogo»: REVISIÓN (solo lectura) de cómo llevar ESTE diagnóstico al Catálogo gobernado. Muestra cliente, modelo, Space de origen, el Assessment del
+    Catálogo si existe y la operación gobernada realmente disponible (la publicación desde el Space del resultado). No escribe nada: la publicación la confirma el
+    usuario en su propio formulario, con sus credenciales y bajo la guarda de identidad del pool."""
+    from webapp.services import datasphere_publication_service as pub
+    user = _authorize_read(request, stem)
+    selected = resolve_pack(pack)
+    record = _record_or_404(request, result_id)
+    review = svc.catalog_continuity(record)
+    report_url, _json, _md, back_url = _result_urls(stem, result_id, selected)
+    can_publish = pub.tool_enabled(stem) and pub.can_execute(request) and pub.client_authorized(request, review["client"])
+    publish_url = (svc.publication_prefill_url(stem, selected, review["client"], review["model"], review["space"])
+                   if can_publish and review["operation"] in svc.PUBLISHABLE_OPERATIONS else None)
+    catalog_url = presenter.flow_url(review["catalog"]["entry"], selected) if review.get("catalog") else None
+    academy = [a for a in list_academy(selected) if not a.nav_hidden]
+    return templates.TemplateResponse(
+        request=request, name="datasphere_assessment_catalog.html",
+        context={"review": review, "publish_url": publish_url, "can_publish": can_publish, "catalog_url": catalog_url, "report_url": report_url, "back_url": back_url,
+                 "level_labels": {"BUENA": "Buena", "ADECUADA": "Adecuada", "PARCIAL": "Parcial", "PLENA": "Plena"},
+                 "state_labels": presenter.STATE_LABELS,
+                 "modules": list_modules(selected), "appendices": [a for a in list_appendices(selected) if not a.nav_hidden],
+                 "academy": academy, "academy_assets": {a.stem: academy_asset_for(a.stem, selected) for a in academy},
+                 "active_group": "core", "active_stem": stem, "readonly": False, "pack": selected,
+                 "pack_label": content_pack_short_label(selected), "user": user, "current_workspace": workspaces.COPILOT,
+                 "available_workspaces": workspaces.available_workspaces(user)})
+
+
 def _export(request: Request, stem: str, result_id: str, ext: str) -> Response:
     _authorize_read(request, stem)
     record = _record_or_404(request, result_id)

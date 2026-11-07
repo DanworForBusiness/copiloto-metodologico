@@ -108,6 +108,7 @@
   "GET /modules/{stem}/connectivity-inventory/review/{operation_id}",
   "GET /modules/{stem}/datasphere-assessment/operation/{run_id}",
   "GET /modules/{stem}/datasphere-assessment/result/{result_id}",
+  "GET /modules/{stem}/datasphere-assessment/result/{result_id}/catalog",
   "GET /modules/{stem}/datasphere-assessment/result/{result_id}/export.json",
   "GET /modules/{stem}/datasphere-assessment/result/{result_id}/export.md",
   "GET /modules/{stem}/datasphere-assessment/result/{result_id}/log",

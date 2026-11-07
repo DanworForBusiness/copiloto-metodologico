@@ -119,7 +119,7 @@ def tool_context(request, stem: str) -> dict:
     owner_only = bool(can and can_use_client_profiles(request))
     values: dict[str, str] = {}
     if can:
-        values = asd.load_form_context(asd.session_key(request))
+        values = asd.publication_prefill(request, asd.load_form_context(asd.session_key(request)))
     selected = values.get("features")
     checked = list(asd.OPTIONAL_FEATURES) if selected is None else [f for f in asd.OPTIONAL_FEATURES if f in selected.split(",")]
     options = [{"value": f, "label": asd.FEATURE_LABELS[f], "checked": f in checked} for f in asd.OPTIONAL_FEATURES]

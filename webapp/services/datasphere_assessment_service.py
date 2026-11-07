@@ -41,6 +41,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlparse
 
 import config
@@ -195,6 +196,91 @@ def can_use_client_profiles(request) -> bool:
 
 _PREFILL_RE = re.compile(r"^[A-Za-z0-9_.\- ]{1,120}$")
 
+# ───────────────────── continuidad Diagnóstico → Catálogo (SOLO LECTURA) ─────────────────────
+# El resultado ad hoc NO se convierte en un Assessment gobernado: su perfil temporal no reemplaza nada. La ÚNICA operación que actualiza el Catálogo con la versión
+# actual de un modelo es la PUBLICACIÓN (re-extrae el CSN al pool canónico como unidad transaccional, regenera el Catálogo y registra el Assessment canónico desde esa
+# MISMA evidencia), con la guarda de identidad del pool intacta. ``catalog_continuity`` solo arma la revisión y decide qué operación está realmente disponible.
+OP_UPDATE_SAME_SPACE = "UPDATE_FROM_SAME_SPACE"            # el modelo está en el Catálogo y su última publicación registrada es de ESTE Space
+OP_INCORPORATE = "INCORPORATE"                            # el modelo no está en el Catálogo
+OP_UPDATE_UNVERIFIED_SPACE = "UPDATE_SPACE_NOT_RECORDED"  # está en el Catálogo pero sin Space de publicación registrado: la guarda del pool decide al publicar
+OP_BLOCKED_OTHER_SPACE = "BLOCKED_PUBLISHED_FROM_OTHER_SPACE"   # publicado desde OTRO Space: la publicación chocaría con POOL_IDENTITY_CONFLICT (no se ofrece)
+OP_BLOCKED_AMBIGUOUS = "BLOCKED_AMBIGUOUS_CATALOG_IDENTITY"     # más de una entrada del Catálogo para el mismo cliente y modelo: no se elige una
+OP_BLOCKED_NO_SPACE = "BLOCKED_RESULT_WITHOUT_SPACE"            # resultado previo a la procedencia por Space: hay que volver a diagnosticar
+OP_BLOCKED_CATALOG_UNVERIFIED = "BLOCKED_CATALOG_NOT_VERIFIABLE"  # no se pudo leer el Catálogo o resolver la identidad: NO se afirma que el modelo no exista
+# Resoluciones que NO establecen una identidad cierta (no permiten afirmar que el modelo no está en el Catálogo). NO_TERMINAL_AM sí es una resolución válida.
+_UNVERIFIABLE_RESOLUTIONS = frozenset({"POOL_UNAVAILABLE", "POOL_AMBIGUOUS_DOMAIN", "POOL_LOAD_ERROR", "MULTIPLE_TERMINAL_AMS"})
+PUBLISHABLE_OPERATIONS = frozenset({OP_UPDATE_SAME_SPACE, OP_INCORPORATE, OP_UPDATE_UNVERIFIED_SPACE})
+
+
+def _norm(value: Any) -> str:
+    return " ".join(str(value or "").split()).casefold()
+
+
+def _query_params(request) -> Any:
+    """Parámetros de la URL, o vacío si el request no los trae (p. ej. un Request mínimo sin ``query_string``): la precarga es opcional y nunca rompe el panel."""
+    try:
+        return request.query_params
+    except Exception:                                    # noqa: BLE001
+        return {}
+
+
+def publication_prefill_url(stem: str, pack: str, client: str, root_object: str, space: str) -> str:
+    """Formulario de PUBLICACIÓN (pestaña Catálogo) con el modelo y el Space DEL RESULTADO precargados; las credenciales las ingresa el usuario."""
+    return f"/modules/{stem}?" + urllib.parse.urlencode({"pack": pack, "tab": "catalogo", "catalog_action": "publish", "client": client, "root": root_object, "space": space})
+
+
+def catalog_continuity(record: dict) -> dict:
+    """Revisión Diagnóstico → Catálogo de UN resultado ad hoc: identidad (cliente, modelo, Space de origen), Assessment del Catálogo si existe (estado, nivel, Space de su
+    última publicación registrada) y la operación gobernada realmente disponible. Solo lee; no ejecuta nada ni usa el perfil temporal como Assessment gobernado."""
+    client, am, space = str(record.get("client_display") or ""), str(record.get("terminal_am") or ""), str(record.get("space") or "")
+    judgment = asvc.provisional_judgment(record.get("profile"))
+    out: dict[str, Any] = {"client": client, "model": am, "space": space or None, "result_id": record.get("result_id"),
+                           "diagnostic": {"status": (judgment or {}).get("status"), "level": (judgment or {}).get("level"), "rule": (judgment or {}).get("level_rule")},
+                           "catalog": None, "differences": [], "operation": None}
+    matches: list = []
+    unverifiable = False
+    try:
+        from webapp.services import catalog_reads
+        mod, entries = catalog_reads._catalog_entries()
+        if mod is None:                                  # el Catálogo no se pudo cargar: (None, []) NO significa «sin modelos»
+            raise RuntimeError("catalog not loaded")
+        candidates = [e for e in entries if _norm(getattr(e, "cliente", "")) == _norm(client)]
+        resolved = asvc.resolve_entries(candidates) if candidates else {}
+        if any(getattr(resolved.get(e.entry_id), "kind", None) in _UNVERIFIABLE_RESOLUTIONS for e in candidates):
+            raise RuntimeError("catalog identity not resolvable")          # una entrada sin identidad cierta podría ser este modelo
+        matches = [e for e in candidates if getattr(resolved.get(e.entry_id), "terminal_am", None) == am]
+        if len(matches) == 1:
+            entry = matches[0]
+            res = resolved[entry.entry_id]
+            status = asvc.status_for_entry(entry)
+            published = asvc.published_space(res.client_dir, am)
+            out["catalog"] = {"entry": entry, "state": status.state, "level": (status.judgment or {}).get("level"), "status": (status.judgment or {}).get("status"),
+                              "rule": (status.judgment or {}).get("level_rule"), "published_space": published, "generated_at": status.generated_at}
+            if published and space and _norm(published) != _norm(space):
+                out["differences"].append(f"El modelo del Catálogo se publicó desde el Space {published}; este diagnóstico corresponde al Space {space}.")
+            elif not published:
+                out["differences"].append("El Catálogo no tiene registrado desde qué Space se publicó este modelo.")
+    except Exception:                                    # noqa: BLE001 — sin Catálogo legible o sin identidad resuelta no se afirma nada sobre él
+        log.warning("catalog_continuity: no se pudo leer el Catálogo o resolver la identidad", exc_info=True)
+        unverifiable = True
+        matches, out["catalog"], out["differences"] = [], None, []
+        out["catalog_unavailable"] = True
+    if not space:
+        out["operation"] = OP_BLOCKED_NO_SPACE
+    elif unverifiable:
+        out["operation"] = OP_BLOCKED_CATALOG_UNVERIFIED
+    elif len(matches) > 1:
+        out["operation"] = OP_BLOCKED_AMBIGUOUS
+    elif not matches:
+        out["operation"] = OP_INCORPORATE
+    elif not out["catalog"]["published_space"]:
+        out["operation"] = OP_UPDATE_UNVERIFIED_SPACE
+    elif _norm(out["catalog"]["published_space"]) == _norm(space):
+        out["operation"] = OP_UPDATE_SAME_SPACE
+    else:
+        out["operation"] = OP_BLOCKED_OTHER_SPACE
+    return out
+
 
 def catalog_prefill_url(stem: str, pack: str, client: str, root_object: str) -> str:
     """Enlace del Catálogo a ESTA herramienta con el modelo precargado (cliente + objeto raíz; nunca Space ni credenciales)."""
@@ -204,11 +290,21 @@ def catalog_prefill_url(stem: str, pack: str, client: str, root_object: str) -> 
 def _catalog_prefill(request, values: dict[str, str]) -> dict[str, str]:
     """Precarga desde el Catálogo (``?client=…&root=…``): SOLO campos no sensibles y validados. El Space se VACÍA a propósito: el consultor elige desde qué Space
     evaluar (la versión publicada en el Catálogo puede venir de otro); nunca se infiere. Sin parámetros, el contexto de la sesión queda como estaba."""
-    qp = getattr(request, "query_params", None) or {}
+    qp = _query_params(request)
     client, root = str(qp.get("client") or "").strip(), str(qp.get("root") or "").strip()
     if not (client and root and _PREFILL_RE.match(client) and _PREFILL_RE.match(root)):
         return values
     return {**values, "client": client, "root_object": root, "space": ""}
+
+
+def publication_prefill(request, values: dict[str, str]) -> dict[str, str]:
+    """Precarga del formulario de PUBLICACIÓN desde la revisión Diagnóstico → Catálogo (``?client=…&root=…&space=…``): cliente, modelo y el Space DEL RESULTADO
+    diagnosticado (procedencia registrada, no inferida del contexto del usuario). Validados; nunca credenciales."""
+    qp = _query_params(request)
+    client, root, space = (str(qp.get(k) or "").strip() for k in ("client", "root", "space"))
+    if not (client and root and space and all(_PREFILL_RE.match(v) for v in (client, root, space))):
+        return values
+    return {**values, "client": client, "root_object": root, "space": space}
 
 
 def tool_context(request, stem: str) -> dict:
