@@ -54,6 +54,11 @@
       <div class="admin-actions">
         <a class="btn-secondary" href="/modules/{{ dsa.stem }}/datasphere-assessment/result/{{ r.id }}?pack={{ pack | urlencode }}">Abrir assessment</a>
         {% if r.has_log %}<a class="btn-secondary" href="/modules/{{ dsa.stem }}/datasphere-assessment/result/{{ r.id }}/log?pack={{ pack | urlencode }}">Ver ejecución</a>{% endif %}
+        {# Regenerar Catálogo: abre la REVISIÓN Diagnóstico → Catálogo de ESTE resultado (solo lectura; no escribe). Mismo patrón visual que Eliminar (`.table-action-btn` + SVG + tooltip). #}
+        <a class="table-action-btn chart-tooltip-anchor" href="/modules/{{ dsa.stem }}/datasphere-assessment/result/{{ r.id }}/catalog?pack={{ pack | urlencode }}" aria-label="Regenerar Catálogo" data-dsa-catalog>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+          <span class="chart-tooltip" aria-hidden="true"><p>Regenerar Catálogo</p></span>
+        </a>
         {# Eliminar: MISMO patrón que Capital Humano (form[data-dw-confirm-form] + `.table-action-btn--danger` + SVG de papelera + tooltip). #}
         <form method="post" action="/modules/{{ dsa.stem }}/datasphere-assessment/result/{{ r.id }}/delete" class="admin-actions__end"
               data-dsa-delete data-dw-confirm-form data-dw-confirm-title="¿Eliminar este assessment?"
