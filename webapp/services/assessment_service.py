@@ -355,6 +355,29 @@ def resolve_entry(entry: Any) -> Resolution:
     return resolve_entries([entry])[entry.entry_id]
 
 
+def published_space(client_dir: str | None, am: str | None) -> str | None:
+    """Space desde el que se PUBLICÓ ``am``, SOLO si hay evidencia persistida y confiable: la última activación COMPLETA de esa raíz en el
+    ledger de publicación del cliente (``catalog_local/.publication_state``; el ledger se escribe únicamente al activar una publicación).
+    Sin ledger legible, sin una activación de esa raíz (p. ej. publicada antes del ledger o fuera de las últimas ``HISTORY_KEEP``) o sin un
+    Space registrado: ``None`` (no se muestra). Nunca se infiere del contexto del usuario, de otros manifiestos ni de nombres.
+    Es PROCEDENCIA: no participa del perfil, de su firma ni del Juicio gobernado."""
+    if not client_dir or not am:
+        return None
+    from tools.catalog import publication_ledger as ledger_mod
+    try:
+        state, ledger = ledger_mod.load(catalog_dir(), client_dir)
+    except Exception:                                    # noqa: BLE001 — la procedencia es opcional: jamás rompe el informe
+        log.warning("assessment: ledger de publicación ilegible para %s", client_dir, exc_info=True)
+        return None
+    if state != ledger_mod.L_OK:
+        return None
+    for item in reversed(ledger.get("history") or []):
+        if isinstance(item, dict) and item.get("root_object") == am and item.get("outcome", "ACTIVATED") == "ACTIVATED":
+            space = item.get("space")
+            return space.strip() if isinstance(space, str) and space.strip() else None
+    return None
+
+
 # ═══════════════════════════ versiones y sobre de caché ═══════════════════════════
 def current_assessment_versions() -> dict:
     """Bloque ``versions`` del código ACTUAL, tomado del propio paquete (sin duplicar las constantes ni correr

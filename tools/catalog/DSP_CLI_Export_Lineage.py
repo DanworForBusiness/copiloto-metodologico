@@ -127,6 +127,15 @@ OBJECT_TYPES = [
 ]
 ROOT_OBJECT_TYPES = ["analytic-models", "views", "local-tables", "remote-tables"]
 PRODUCER_TYPES = ["replication-flows", "data-flows", "transformation-flows"]
+# Procedencia operativa (manifiesto `dataflowProvenance`): fuentes de los Data Flows que PRODUCEN una tabla local del linaje.
+# Los Transformation Flows NO se siguen: el Modeling Assessment no los interpreta como procedencia (`readers`: solo propiedades).
+DF_PROVENANCE_VERSION = "dataflow-provenance/v1"
+DF_PROVENANCE_MAX_DEPTH = 3          # Data Flows encadenados (DF -> fuente -> ... -> otro DF); más allá queda registrado DEPTH_LIMIT
+DF_SOURCE_ACQUIRED = "ACQUIRED"                # la fuente es un objeto del Space (tipo único en el inventario) y se adquirió
+DF_SOURCE_NOT_IN_SPACE = "NOT_IN_SPACE"        # no figura en el inventario del Space (otro Space, borrada o inaccesible): no se fabrica
+DF_SOURCE_AMBIGUOUS = "AMBIGUOUS_TYPE"         # el nombre figura en más de una familia: no se elige
+DF_SOURCE_OUT_OF_SCOPE = "OUT_OF_SCOPE"        # su familia no está en el alcance pedido (views/tables)
+DF_SOURCE_DEPTH_LIMIT = "DEPTH_LIMIT"          # alcanzada la profundidad máxima: se registra y no se sigue
 FEATURES = [
     "analytic-models",
     "views",
@@ -874,6 +883,8 @@ class LineageExporter:
         self.failures: list[dict[str, Any]] = []     # fallos de lectura/listado (códigos estables, sin texto crudo del CLI)
         # Cobertura REAL del escaneo de Task Chains (manifiesto `taskChainScan`): distingue «se miró y no hay» de «no se miró».
         self.task_chain_scan: dict[str, Any] = {"version": TASK_CHAIN_SCAN_VERSION, "state": TC_SCAN_DISABLED}
+        # Procedencia operativa de Data Flows productores (manifiesto `dataflowProvenance`): qué se siguió y qué NO, con causa.
+        self.dataflow_provenance: dict[str, Any] = {"version": DF_PROVENANCE_VERSION, "flows": [], "sources": []}
 
     def ensure_inventory(self, object_type: str) -> set[str]:
         if object_type in self.inventory:
@@ -1069,7 +1080,16 @@ class LineageExporter:
         if not isinstance(definition, dict):
             return set()
         sql = definition.get("@DataWarehouse.sqlEditor.query")
-        return self._extract_sql_dependencies(sql) if isinstance(sql, str) else set()
+        deps = self._extract_sql_dependencies(sql) if isinstance(sql, str) else set()
+        # Vistas GRÁFICAS (y SQL compiladas): la fuente vive en `query.SELECT.from` del CSN, no en el SQL. Sin esto, las fuentes de una
+        # vista gráfica nunca se adquirían y la evidencia quedaba corta respecto de la que lee el Assessment. MISMA regla que el loader
+        # del Catálogo: `generate_catalog._extract_query_sources` (FROM/JOIN/UNION) filtrado a ENTIDADES (el loader filtra `r in
+        # entities`; acá, el inventario del Space). Así se descartan alias y columnas de subconsultas del FROM sin heurísticas, y una
+        # referencia estructural que no es un objeto del Space no se convierte en fuente externa. Import diferido (script).
+        from tools.catalog.generate_catalog import _extract_query_sources
+        deps |= {r for r in _extract_query_sources(definition)
+                 if isinstance(r, str) and any(r in self.ensure_inventory(t) for t in ROOT_OBJECT_TYPES)}
+        return deps
 
     def parse_association_targets(self, data: dict[str, Any], technical_name: str) -> set[str]:
         """Targets de las asociaciones ``cds.Association`` declaradas en la definición CSN del artefacto (``elements``).
@@ -1132,8 +1152,18 @@ class LineageExporter:
         _say("RESOLVIENDO LINAJE UPSTREAM")
         _say("==========================================")
         started = time.perf_counter()
-        queue: list[Node] = [Node(root_object_type, self.root_object)]
-        processed: set[tuple[str, str]] = set()
+        self._walk([Node(root_object_type, self.root_object)])
+        _say("\n------------------------------------------")
+        _say(f"LINAJE UPSTREAM terminado en {time.perf_counter() - started:.1f}s")
+        _say(f"Nodos actuales: {len(self.nodes)}")
+        _say("------------------------------------------")
+
+    def _walk(self, start: list[Node]) -> None:
+        """Recorrido upstream COMPARTIDO (linaje del modelo y procedencia operativa): misma lectura, misma resolución de tipos por
+        inventario (`resolve_type`) y mismo gating de alcance. Un nodo ya adquirido en una fase anterior no se recorre de nuevo
+        (control de ciclos y duplicados); sus dependencias ya están en el grafo."""
+        queue: list[Node] = list(start)
+        processed: set[tuple[str, str]] = {key for key in self.nodes if key not in {(n.object_type, n.technical_name) for n in start}}
         i = 0
 
         while queue:
@@ -1184,11 +1214,6 @@ class LineageExporter:
                 self.add_edge(node.object_type, node.technical_name, "DEPENDS_ON", dep_type, dep_name)
                 queue.append(Node(dep_type, dep_name))
             _say(f"Dependencias incluidas: {accepted}/{len(deps)}")
-
-        _say("\n------------------------------------------")
-        _say(f"LINAJE UPSTREAM terminado en {time.perf_counter() - started:.1f}s")
-        _say(f"Nodos actuales: {len(self.nodes)}")
-        _say("------------------------------------------")
 
     def discover_producers(self) -> None:
         enabled = [feature for feature in PRODUCER_TYPES if feature in self.effective_features]
@@ -1275,6 +1300,121 @@ class LineageExporter:
         _say("\n------------------------------------------")
         _say(f"PRODUCTORES terminados en {time.perf_counter() - started:.1f}s")
         _say("------------------------------------------")
+
+    def _dataflow_io(self, flow_name: str) -> tuple[set[str], set[str]] | None:
+        """(fuentes, destinos) DECLARADOS del Data Flow (`dataflows.<DF>.sources/targets`, misma lectura que el Modeling Assessment:
+        `readers._read_data_flow`). Usa la lectura ya hecha por el descubrimiento de productores (sin relectura)."""
+        data = self.read_cache.get(("data-flows", flow_name))
+        if not isinstance(data, dict):
+            return None
+        flows = data.get("dataflows")
+        body = flows.get(flow_name) if isinstance(flows, dict) else None
+        if not isinstance(body, dict) and isinstance(flows, dict):
+            body = next((v for v in flows.values() if isinstance(v, dict)), None)
+        if not isinstance(body, dict):
+            return None
+        srcs = body.get("sources") if isinstance(body.get("sources"), dict) else {}
+        tgts = body.get("targets") if isinstance(body.get("targets"), dict) else {}
+        return {str(k) for k in srcs if k}, {str(k) for k in tgts if k}
+
+    def _source_family(self, name: str) -> tuple[str | None, str]:
+        """Familia ÚNICA de ``name`` en el inventario del Space, o la causa por la que no se adquiere (sin inferencias)."""
+        candidates = [t for t in ROOT_OBJECT_TYPES if name in self.ensure_inventory(t)]
+        if not candidates:
+            return None, DF_SOURCE_NOT_IN_SPACE
+        if len(candidates) > 1:
+            return None, DF_SOURCE_AMBIGUOUS
+        if not self._dependency_allowed(candidates[0]):
+            return None, DF_SOURCE_OUT_OF_SCOPE
+        return candidates[0], DF_SOURCE_ACQUIRED
+
+    def discover_dataflow_provenance(self) -> None:
+        """PROCEDENCIA OPERATIVA de las tablas locales del linaje producidas por un Data Flow: se adquieren las FUENTES declaradas del
+        Data Flow (y su linaje upstream, con el mismo walker) para que la frontera de procedencia sea verificable. Reglas:
+          * solo Data Flows cuyo DESTINO declarado es una tabla local ya adquirida (productor, no consumidor del linaje);
+          * tipos por inventario del Space; un nombre ausente o ambiguo NO se adquiere y queda registrado con su causa;
+          * no cambia el cierre semántico: el Assessment lo calcula desde la raíz (un DF es plano de procesamiento);
+          * profundidad acotada (``DF_PROVENANCE_MAX_DEPTH``), nodos ya adquiridos no se releen (ciclos/duplicados);
+          * las tablas locales nuevas se emparejan con los Replication Flows YA leídos (sin lecturas extra).
+        Todo queda en el manifiesto (`dataflowProvenance`)."""
+        if "data-flows" not in self.effective_features:
+            return
+        flows_seen: set[str] = set()
+        rf_names = sorted(self.inventory.get("replication-flows", ())) if "replication-flows" in self.effective_features else []
+        started = time.perf_counter()
+        header = False
+        for depth in range(1, DF_PROVENANCE_MAX_DEPTH + 2):
+            leaves = {n.technical_name for n in self.nodes.values() if n.object_type == "local-tables"}
+            producers: list[tuple[str, set[str], set[str]]] = []
+            for flow_name in sorted(self.inventory.get("data-flows", ())):
+                if flow_name in flows_seen:
+                    continue
+                io = self._dataflow_io(flow_name)
+                if io is None:
+                    continue
+                sources, targets = io
+                produced = targets & leaves
+                if produced:
+                    producers.append((flow_name, sources, produced))
+            if not producers:
+                break
+            if not header:
+                _say("\n==========================================")
+                _say("PROCEDENCIA DE DATA FLOWS PRODUCTORES")
+                _say("==========================================")
+                header = True
+            new_nodes: list[Node] = []
+            for flow_name, sources, produced in producers:
+                flows_seen.add(flow_name)
+                self.add_node("data-flows", flow_name)
+                for target in sorted(produced):
+                    self.add_edge("data-flows", flow_name, "PRODUCES", "local-tables", target)
+                self.dataflow_provenance["flows"].append({"flow": flow_name, "produces": sorted(produced), "depth": depth})
+                _say(f"\n[DF] {flow_name} -> {', '.join(sorted(produced))}")
+                for src in sorted(sources):
+                    if depth > DF_PROVENANCE_MAX_DEPTH:
+                        family, state = None, DF_SOURCE_DEPTH_LIMIT
+                    else:
+                        family, state = self._source_family(src)
+                    self.dataflow_provenance["sources"].append({"flow": flow_name, "entity": src, "object_type": family, "state": state})
+                    if family is None:
+                        _say(f"  FUENTE {state}: {src}")
+                        continue
+                    _say(f"  FUENTE {family}: {src}")
+                    self.add_edge(family, src, "SOURCE_OF", "data-flows", flow_name)
+                    if (family, src) not in self.nodes:
+                        new_nodes.append(Node(family, src))
+            if new_nodes:
+                self._walk(new_nodes)
+                self._match_replication_producers(rf_names)
+        if header:
+            acquired = sum(1 for s in self.dataflow_provenance["sources"] if s["state"] == DF_SOURCE_ACQUIRED)
+            _say(f"\nFuentes de Data Flows adquiridas: {acquired}/{len(self.dataflow_provenance['sources'])} "
+                 f"({time.perf_counter() - started:.1f}s)")
+
+    def _match_replication_producers(self, rf_names: list[str]) -> None:
+        """Empareja Replication Flows YA LEÍDOS con las tablas locales nuevas del grafo (misma regla canónica de targets que
+        ``discover_producers``). Sin lecturas: un RF no leído antes no se lee acá."""
+        local_tables = [n.technical_name for n in self.nodes.values() if n.object_type == "local-tables"]
+        acquired_universe = {n.technical_name for n in self.nodes.values()}
+        for rf_name in rf_names:
+            data = self.read_cache.get(("replication-flows", rf_name))
+            if not isinstance(data, dict):
+                continue
+            info = self.parse_replication_flow(data, rf_name)
+            matched = sorted(leaf for leaf in local_tables if any(_canonical_target_match(t, leaf, acquired_universe) for t in info["targets"]))
+            fresh = [leaf for leaf in matched if Edge("replication-flows", rf_name, "PRODUCES", "local-tables", leaf) not in self.edges]
+            if not fresh:
+                continue
+            _say(f"  [RF] {rf_name} produce: {', '.join(fresh)}")
+            self.add_node("replication-flows", rf_name)
+            for target in fresh:
+                self.add_edge("replication-flows", rf_name, "PRODUCES", "local-tables", target)
+            for src in sorted(info["sources"]):
+                self.external_sources.add(src)
+                self.add_edge("external-source", src, "REPLICATED_BY", "replication-flows", rf_name)
+            for connection in sorted(info["connections"]):
+                self.add_edge("connection", connection, "USED_BY", "replication-flows", rf_name)
 
     def discover_task_chains(self) -> None:
         if "task-chains" not in self.effective_features:
@@ -1463,6 +1603,7 @@ class LineageExporter:
             self.walk_model_graph()
         with self.diagnostics.phase("PRODUCER DISCOVERY"):
             self.discover_producers()
+            self.discover_dataflow_provenance()
         with self.diagnostics.phase("TASK CHAINS"):
             self.discover_task_chains()
         return self.output_dir
@@ -1674,6 +1815,7 @@ def _write_manifest_v2(
         ],
         "externalSources": sorted(exporter.external_sources),
         "taskChainScan": exporter.task_chain_scan,
+        "dataflowProvenance": exporter.dataflow_provenance,
         "cleanup": {
             "deletedStaleObjects": deleted_stale,
             "retainedSharedObjects": retained_shared,
@@ -2062,6 +2204,7 @@ def _apply_locked(req, exporter, *, base, txn, op_id, stages, planned, planned_s
         "edges": [asdict(e) for e in sorted(exporter.edges, key=lambda e: (e.source_type, e.source_name, e.relation, e.target_type, e.target_name))],
         "externalSources": sorted(exporter.external_sources),
         "taskChainScan": exporter.task_chain_scan,
+        "dataflowProvenance": exporter.dataflow_provenance,
         "cleanup": {"deletedStaleObjects": len(deletable), "retainedSharedObjects": len(retained_shared)},
         **({"pendingCleanup": [{"object_type": t, "technical_name": n} for t, n in pending_next]} if pending_next else {}),
     })

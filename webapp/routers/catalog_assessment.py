@@ -64,10 +64,18 @@ def _pack(request: Request, pack: str) -> str:
     return resolve_pack(pack) if access.is_diagnostic(request) else DEFAULT_PACK
 
 
+def _published_space(entry, status: svc.AssessmentStatus) -> str | None:
+    """Space de publicación del modelo, SOLO desde el ledger de publicación (evidencia persistida); si no hay, no se muestra."""
+    try:
+        return svc.published_space(svc.resolve_entry(entry).client_dir, status.terminal_am)
+    except Exception:                                    # noqa: BLE001 — procedencia opcional: nunca rompe el informe
+        return None
+
+
 def _report_response(request: Request, status: svc.AssessmentStatus, entry, pack: str) -> HTMLResponse:
     return templates.TemplateResponse(
         request=request, name="partials/catalog_assessment_report.html",
-        context={"v": presenter.report_view(status, entry, pack), "pack": pack,
+        context={"v": presenter.report_view(status, entry, pack, space=_published_space(entry, status)), "pack": pack,
                  "governed_contracts": gd_presenter.governed_contract_links(status.profile, status.client, pack)})
 
 
