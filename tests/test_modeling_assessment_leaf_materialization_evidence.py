@@ -88,7 +88,7 @@ def _v3(d: dict) -> dict:
 
 # ───────────────────────────── contrato y serializacion ─────────────────────────────
 def test_the_profile_declares_v4_and_persists_the_derived_section_with_the_exact_identities(doc):
-    assert doc["versions"]["canonical_evidence"] == doc["canonical_evidence"]["version"] == "canonical-evidence/v4" and set(V4_SECTIONS) == {KEY}
+    assert doc["versions"]["canonical_evidence"] == doc["canonical_evidence"]["version"] == "canonical-evidence/v5" and set(V4_SECTIONS) == {KEY}
     s = _sec(doc)
     assert s["version"] == LM.LEAF_MATERIALIZATION_VERSION and s["evidence_version"] == LME.EVIDENCE_VERSION and s["evaluation_state"] == LME.EVALUATED
     assert s["derivation"] == {"module": LME.DERIVATION_MODULE, "version": LM.LEAF_MATERIALIZATION_VERSION}
@@ -304,7 +304,7 @@ def test_both_contract_versions_are_accepted_by_the_judgment_gate(doc):
 # ───────────────────────────── firmas y vigencia (STALE) ─────────────────────────────
 def test_a_v3_profile_is_covered_exactly_by_the_v4c_migration_and_is_transitionally_current(doc):
     cur = svc.current_assessment_versions()
-    assert cur["canonical_evidence"] == "canonical-evidence/v4" and cur["assessability"] == "assessability-rules/v4" and cur["confidence"] == "confidence-cuts/v3"       # solo cambia canonical_evidence
+    assert cur["canonical_evidence"] == "canonical-evidence/v5" and cur["assessability"] == "assessability-rules/v4" and cur["confidence"] == "confidence-cuts/v3"       # solo cambia canonical_evidence
     old = dict(cur, canonical_evidence="canonical-evidence/v3")
     c = svc.classify_currentness("sig", old, "sig", cur)
     # Opcion A (compatibilidad transitoria estricta): la UNICA diferencia es la que cubre la migracion => CURRENT pendiente de ella (la diferencia sigue visible)

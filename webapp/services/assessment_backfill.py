@@ -533,7 +533,7 @@ ABSTENTION_CODES = frozenset({*svc.ERROR_MESSAGES, "PREVIOUS_NOT_TARGETED_VERSIO
                               "CLOSURE_NOT_VERIFIABLE", "TERMINAL_AM_CHANGED", "NON_MATERIALIZATION_CONTENT_CHANGED", "NON_LAYER_BOUNDARY_CONTENT_CHANGED", "CONFIDENCE_LEVEL_CHANGED", "CANDIDATE_VERSIONS_NOT_CURRENT", "CANDIDATE_TARGET_VERSIONS_MISMATCH",
                               "MATERIALIZATION_SECTION_MISSING", "MATERIALIZATION_NOT_EVALUATED", "MATERIALIZATION_CSN_NOT_PROVIDED", "MATERIALIZATION_POOL_SIGNATURE_MISMATCH",
                               "MATERIALIZATION_REFERENCES_INCOMPLETE", "MATERIALIZATION_SOURCE_NOT_RECOVERABLE", "MATERIALIZATION_REFERENCE_UNRESOLVED", "JUDGMENT_METHODOLOGY_DIVERGED"})
-CONFIRMATION_REQUIRED = frozenset({svc.MATERIALIZATION_MIGRATION, svc.LAYER_BOUNDARY_MIGRATION})        # ``--apply`` de estas migraciones exige ``--confirm-migration <nombre>`` ademas de la autorizacion firmada
+CONFIRMATION_REQUIRED = frozenset({svc.MATERIALIZATION_MIGRATION, svc.LAYER_BOUNDARY_MIGRATION, svc.HARMONIZATION_MIGRATION})        # ``--apply`` de estas migraciones exige ``--confirm-migration <nombre>`` ademas de la autorizacion firmada
 SECURED_MIGRATIONS = CONFIRMATION_REQUIRED                                  # solo se aplican por ``secured_migrate`` (autorizacion fail-closed + respaldo + olas); ``migrate_stale_evidence(apply=True)`` directo se NIEGA
 _PLAN_KEYS = ("previous_artifact_signature", "pool_signature", "candidate_artifact_signature", "judgment_action")
 

@@ -174,7 +174,7 @@ def doc() -> dict:
 
 def test_the_profile_declares_the_current_contract_which_keeps_the_v3_sections_and_validates(doc):
     ce = doc["canonical_evidence"]
-    assert ce["version"] == "canonical-evidence/v4" == doc["versions"]["canonical_evidence"] and doc["versions"]["assessability"] == "assessability-rules/v4"      # v4 = v3 + leaf_materialization (v4.A)
+    assert ce["version"] == "canonical-evidence/v5" == doc["versions"]["canonical_evidence"] and doc["versions"]["assessability"] == "assessability-rules/v4"      # v5 = v4 (misma forma) + Armonización a través de subselects; v4 = v3 + leaf_materialization (v4.A)
     EC.validate_canonical_evidence(ce)
     assert ce["published_field_lineage"]["counts"] == {"fields": 5, "COMPLETE": 5, "PARTIAL": 0, "UNRESOLVED": 0, "AMBIGUOUS": 0}
 

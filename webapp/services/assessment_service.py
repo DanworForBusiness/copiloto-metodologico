@@ -1215,6 +1215,26 @@ def _without_materialization(profile: dict | None) -> dict | None:
     return out
 
 
+HARMONIZATION_MIGRATION = "evidence_harmonization_nested_projection_v5"
+
+
+def _without_harmonization(profile: dict | None) -> dict | None:
+    """Perfil sin lo UNICO que ``evidence_harmonization_nested_projection_v5`` puede cambiar: ``canonical_evidence.version``, ``versions.canonical_evidence``, la seccion
+    ``harmonization_contract`` y su resumen derivado en ``naming_evidence.semantic_contract.harmonization_contract``. Todo lo demas debe quedar IDENTICO."""
+    if not isinstance(profile, dict):
+        return None
+    out = copy.deepcopy(profile)
+    ce = out.get("canonical_evidence")
+    if isinstance(ce, dict):
+        ce.pop("harmonization_contract", None)
+        ce.pop("version", None)
+        sc = ((ce.get("naming_evidence") or {}).get("semantic_contract"))
+        if isinstance(sc, dict):
+            sc.pop("harmonization_contract", None)
+    (out.get("versions") or {}).pop("canonical_evidence", None)
+    return out
+
+
 LAYER_BOUNDARY_MIGRATION = "signals_layer_boundary_v4"
 _LAYER_BOUNDARY_ID = "LAYER_BOUNDARY_REVIEW"
 _LAYER_BOUNDARY_SURFACE = "rule.layer_boundary_review"
@@ -1307,6 +1327,8 @@ def migration_postcheck(name: str, doc: dict, previous: dict | None, versions: d
             raise EnrichmentError("NON_CONFIDENCE_CONTENT_CHANGED")      # solo la confianza puede cambiar: evidencia, cobertura, areas y hallazgos quedan IDENTICOS
         if name == MATERIALIZATION_MIGRATION and _without_materialization(doc) != _without_materialization((previous or {}).get("profile_json")):
             raise EnrichmentError("NON_MATERIALIZATION_CONTENT_CHANGED")  # mismo Assessment metodologico: solo version + seccion nueva pueden diferir
+        if name == HARMONIZATION_MIGRATION and _without_harmonization(doc) != _without_harmonization((previous or {}).get("profile_json")):
+            raise EnrichmentError("NON_HARMONIZATION_CONTENT_CHANGED")   # solo el contrato de Armonizacion (y su resumen) puede cambiar
         if name == LAYER_BOUNDARY_MIGRATION:
             _check_layer_boundary_delta(doc, (previous or {}).get("profile_json"))      # solo la revision LAYER_BOUNDARY_REVIEW (y lo derivado de ella) puede diferir; la confianza no cambia de nivel
         return
@@ -1436,6 +1458,24 @@ def _materialization_envelope_hook(doc: dict, previous: dict | None) -> tuple[di
             {"judgment_action": action, "previous_judgment_level": (prev.get("judgment") or {}).get("level"), "new_judgment_level": (judgment or {}).get("level")})
 
 
+def _harmonization_envelope_hook(doc: dict, previous: dict | None) -> tuple[dict, dict]:
+    """Sobre candidato de ``evidence_harmonization_nested_projection_v5``: la EVIDENCIA de Armonizacion cambia, asi que el Juicio se RE-DERIVA con el motor vigente y las MISMAS
+    ratificaciones que consumio el Juicio anterior (replay: no se relee el registro ni se agregan decisiones). Si alguna deja de aplicarse, la migracion se ABSTIENE (las ratificaciones
+    siguen sus propias reglas de vigencia por el flujo gobernado). Los derivados hermanos (dominio, negocio) se conservan tal cual. El cambio de nivel se informa en las notas."""
+    from webapp.services import judgment_decisions as jd
+    prev = previous or {}
+    replay = jd.consumed(prev.get("judgment"))
+    fresh = _derive_judgment(doc, replay)
+    if fresh is None or jd.lost_decisions(prev.get("judgment"), fresh):
+        raise EnrichmentError("RATIFICATION_NOT_REAPPLIED")
+    old = prev.get("judgment") or {}
+    same = old.get("output_signature") == fresh.get("output_signature")
+    return ({"judgment": fresh, "domain_classification": prev.get("domain_classification"), "business_classification": prev.get("business_classification")},
+            {"judgment_action": "judgment_current" if same else "judgment_rederived", "previous_judgment_status": old.get("status"),
+             "previous_judgment_level": old.get("level"), "previous_judgment_rule": old.get("level_rule"), "new_judgment_status": fresh.get("status"),
+             "new_judgment_level": fresh.get("level"), "new_judgment_rule": fresh.get("level_rule")})
+
+
 def regenerate_stale_evidence(entry: Any, migration: str) -> RegeneratedAssessment:
     """MIGRACION DE EVIDENCIA: regenera en MEMORIA un assessment gobernado STALE VERSION_ONLY cubierto por ``migration`` (registro ``EVIDENCE_MIGRATIONS``).
     Misma disciplina que el enriquecimiento (mismo nucleo): sin escrituras, sin Datasphere, sin OAuth, sin ``restore()``; cualquier fallo conserva el registro
@@ -1454,7 +1494,8 @@ def regenerate_stale_evidence(entry: Any, migration: str) -> RegeneratedAssessme
             _materialization_postcheck(doc, res)
 
     return _regenerate_core(entry, precondition=precondition, log_label=f"migración {migration}", postcheck=postcheck,
-                            envelope_hook=_materialization_envelope_hook if migration in JUDGMENT_REVALIDATING_MIGRATIONS else None)
+                            envelope_hook=(_materialization_envelope_hook if migration in JUDGMENT_REVALIDATING_MIGRATIONS
+                                           else _harmonization_envelope_hook if migration == HARMONIZATION_MIGRATION else None))
 
 
 def regenerate_current_evidence(entry: Any, snapshot: Any = None) -> RegeneratedAssessment:

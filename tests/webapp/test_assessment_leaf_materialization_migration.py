@@ -188,7 +188,7 @@ def test_the_dry_run_runs_the_real_engine_in_memory_reports_the_delta_and_writes
     r = _rec(out)
     assert out["dry_run"] and not out["apply"] and r["action"] == bf.WOULD_REGENERATE and r["eligible"] and out["counts"]["would_regenerate"] == 1
     d = r["delta"]
-    assert d["versions"] == {"canonical_evidence": {"old": V3, "new": "canonical-evidence/v4"}} and d["closure"]["drift"] is False and d["closure"]["added"] == [] and d["closure"]["removed"] == []
+    assert d["versions"] == {"canonical_evidence": {"old": V3, "new": "canonical-evidence/v5"}} and d["closure"]["drift"] is False and d["closure"]["added"] == [] and d["closure"]["removed"] == []
     lm = d["leaf_materialization"]
     assert lm["state"] == "EVALUATED" and lm["csn_provided"] is True and lm["references"] == 3 and lm["limitations"] == [] and lm["counts"]["by_kind"] == {"REPLICA": 1}
     assert d["judgment"]["judgment_action"] == svc.JDG_SIGNATURE_REBOUND and d["judgment"]["previous_judgment_level"] == d["judgment"]["new_judgment_level"]
@@ -204,7 +204,7 @@ def test_apply_migrates_to_v4_with_a_profile_identical_except_version_and_sectio
     r = _rec(out)
     assert r["action"] == bf.REGENERATED and r["durable"] == svc.DURABLE_LOCAL and out["counts"]["regenerated_local"] == 1 and out["counts"]["abstained"] == 0
     new = _env(_path(kworld, "Kensing"))
-    assert new["profile_json"]["canonical_evidence"]["version"] == "canonical-evidence/v4" and KEY in new["profile_json"]["canonical_evidence"]
+    assert new["profile_json"]["canonical_evidence"]["version"] == "canonical-evidence/v5" and KEY in new["profile_json"]["canonical_evidence"]
     assert new["assessment_versions"] == svc.current_assessment_versions() and new["input_pool_signature"] == old["input_pool_signature"]               # misma firma de pool
     assert _minus(new["profile_json"]) == _minus(old["profile_json"])                                                   # CLOSURE_EQUAL estricto: mismo Assessment metodologico
     assert svc.closure_identity(new["profile_json"]) == svc.closure_identity(old["profile_json"])
@@ -221,7 +221,7 @@ def test_the_persisted_judgment_keeps_its_methodology_and_recognizes_the_new_pro
     assert svc.judgment_methodology(jo) == svc.judgment_methodology(jn) and svc.judgment_methodology_diff(jo, jn) == []                   # niveles, fortalezas, razones, criterios intactos
     assert (jn["status"], jn["level"], jn["level_rule"], jn["ruleset_version"]) == (jo["status"], jo["level"], jo["level_rule"], svc.JUDGMENT_CONTRACT_VERSIONS[1])
     assert jn["source_assessment"]["profile_signature"] == jsig(new["profile_json"]) != jo["source_assessment"]["profile_signature"]                  # reconoce la NUEVA firma del perfil
-    assert jn["source_assessment"]["assessment_versions"]["canonical_evidence"] == "canonical-evidence/v4" and jn["output_signature"] != jo["output_signature"]
+    assert jn["source_assessment"]["assessment_versions"]["canonical_evidence"] == "canonical-evidence/v5" and jn["output_signature"] != jo["output_signature"]
     assert svc.classify_judgment_backfill(new)[0] == svc.JDG_CURRENT and svc.classify_judgment_revalidation(new)[0] == svc.JDG_CURRENT
 
 

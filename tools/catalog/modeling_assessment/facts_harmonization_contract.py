@@ -4,7 +4,10 @@ Hecho (subject = artefacto candidato): ``harmonization.contract_character``. Es 
 remoto) cuya capa inferida es 2 (por nombre de seccion 28 o por rol declarado) o que DECLARA rol de dimension. La base de la candidatura queda registrada.
 
 Por candidato se persiste COMO se arma su contrato, desde la evidencia estructural disponible:
-  * query-defined: la proyeccion del SELECT externo (IDENTITY mismo nombre / RENAME otro nombre / DERIVED expresion / CAST) y las derivaciones (AST);
+  * query-defined: la proyeccion del SELECT externo (IDENTITY mismo nombre / RENAME otro nombre / DERIVED expresion / CAST) y las derivaciones (AST). Si una columna
+    del SELECT externo NO tiene proveedor determinado (su fuente es un subselect: las vistas graficas compilan a SELECT anidados), su procedencia se toma del resolvedor
+    canonico de linaje de campo (``field_lineage.resolve_query`` sobre el mismo ``query_ir``) SOLO si es UN origen inequivoco de tipo IDENTITY/RENAME/CAST; si no, queda
+    como antes (sin proveedor). Resolver el proveedor NO aporta etiquetas: la etiqueta del proveedor solo se observa si esa entidad esta en la evidencia con ese campo;
   * tabla producida por un Data Flow: los ``attributeMappings`` del flujo (identidad / renombre / expresion; la expresion del flujo es TEXTO: no se parsea);
   * tabla sin productor adquirido: el mapeo NO es observable (se dice, no se supone).
 Mas: campos retenidos de la fuente, campos renombrados, origen de la ETIQUETA de cada campo (igual al nombre propio / igual a la etiqueta del proveedor / igual al
@@ -26,6 +29,7 @@ from . import contract as C
 from . import naming_rules as R
 from .boundary import resolve_physical_boundaries
 from .derivation import MAP_CAST, MAP_DERIVED, MAP_IDENTITY, MAP_RENAME, MAP_UNKNOWN, MAPPING_KINDS, TRANSFORMATION_CLASSES, transformation_classes
+from .field_lineage import MT_CAST, MT_IDENTITY, MT_RENAME, resolve_query
 from .facts_source import source_state_of
 from .facts_support import entity_refs, make_fact, sort_facts
 from .graph import EdgeKind
@@ -91,6 +95,21 @@ def resolve_unqualified_provider(col: Any, entities: Mapping[str, Any]) -> str |
         if any(f.get("campo") == col.source_field for f in flds):
             holders.append(p)
     return holders[0] if len(holders) == 1 else None
+
+
+_NESTED_COMPATIBLE = {MT_IDENTITY: MAP_IDENTITY, MT_RENAME: MAP_RENAME, MT_CAST: MAP_CAST}
+
+
+def nested_projection_origin(origins: Any, output: str) -> tuple[str, str, str] | None:
+    """``(tipo de mapeo, proveedor, campo)`` de la columna ``output`` segun el resolvedor canonico de linaje de campo, SOLO si es UN origen inequivoco (sin ambiguedad,
+    con proveedor y campo) de tipo IDENTITY/RENAME/CAST. Cualquier otro caso (varios origenes, ambiguedad, derivacion/expresion, sin insumo) => ``None``: no se adivina."""
+    found = (origins or {}).get(output) if isinstance(origins, Mapping) else None
+    if not found or len(found) != 1:
+        return None
+    o = found[0]
+    if o.ambiguity is not None or not o.provider or not o.field or o.mapping_type not in _NESTED_COMPATIBLE:
+        return None
+    return _NESTED_COMPATIBLE[o.mapping_type], o.provider, o.field
 
 
 def _flow_properties(ev: Any, kind: str, name: str):
@@ -167,9 +186,17 @@ def harmonization_contract_facts(
             proj = [c for c in d.projections if c.branch == 0]
             if proj:
                 mapping_basis = "QUERY_PROJECTION"
+                nested: Any = None                                             # resolucion complementaria perezosa (solo si alguna columna lo necesita)
                 for c in proj:
                     prov = c.source_provider if c.source_provider is not None else resolve_unqualified_provider(c, entities)
-                    mapping[c.output] = (c.kind, prov, c.source_field)
+                    kind, sf = c.kind, c.source_field
+                    if prov is None and c.kind in (MAP_IDENTITY, MAP_RENAME, MAP_CAST) and getattr(d, "query_ir", None) is not None:
+                        if nested is None:
+                            nested = resolve_query(d.query_ir, lambda e: tuple(f["campo"] for f in (getattr(entities[e], "fields", None) or [])) if e in entities else None)
+                        hit = nested_projection_origin(nested, c.output)
+                        if hit is not None:
+                            kind, prov, sf = hit
+                    mapping[c.output] = (kind, prov, sf)
             else:
                 undet = "NO_QUERY_EVIDENCE"
             derived_cols = [c for c in d.columns if c.branch == 0]
