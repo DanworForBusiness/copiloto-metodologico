@@ -4,7 +4,10 @@
 //
 // Contrato (ver webapp/routers/datasphere_publication.py): POST (cuerpo urlencoded, jamás query string) → respuesta NDJSON:
 //   {"t":"start"} · {"t":"line","v":"<línea del extractor>"}* · {"t":"phase","phase":"<id>","v":"<hito>"}* ·
-//   {"t":"done","state","error_code","message","title","errors","result_url"}  (+ publicación segura: "status","durability","stages","change" CHANGED|NO_CHANGE,"assessment" {regenerated,rebased,kept,uncertain,removed: cantidad})
+//   {"t":"done","state","error_code","message","title","errors","result_url"}  (+ publicación segura: "status","durability","stages","change" CHANGED|NO_CHANGE,"assessment" {regenerated,rebased,kept,uncertain,removed: cantidad},
+//   "replacement" {safe,token,reasons,displaced{space,...},exclusive[],shared[],target_space,root_object} ante un conflicto de identidad)
+// Reemplazo GOBERNADO: ante POOL_IDENTITY_CONFLICT con alcance, el diálogo muestra el impacto real; «Reemplazar» existe solo si el backend lo demostró seguro y pide la
+// confirmación explícita. La huella del plan (`replace_token`) viaja SOLO en la próxima publicación (un solo uso) y el servidor la revalida bajo el candado.
 // Todo texto externo entra con textContent (nunca como HTML). El Client Secret se lee del formulario, se limpia del campo ANTES de
 // enviar y no se guarda en ningún lado. Éxito = el backend entrega `result_url` (pestaña Catálogo) y el navegador la abre.
 (function () {
@@ -16,6 +19,84 @@
   function el(root, sel) { return root.querySelector(sel); }
 
   function setHidden(node, hidden) { if (node) node.hidden = !!hidden; }
+
+  // ── reemplazo gobernado ──
+  let replaceToken = "";                                       // huella del plan confirmado (no es un secreto); se consume en la próxima publicación
+  const IDENTITY_FIELDS = new Set(["host", "token_url", "space", "datasphere_root_object", "client"]);
+  const REASONS = {
+    SHARED_DEPENDENCY: "Hay dependencias compartidas con otros modelos: reemplazarlas cambiaría modelos que no estás publicando.",
+    CLAIMED_BY_OTHER_MODEL: "Algún objeto en conflicto lo publicó otro modelo.",
+    MULTIPLE_PREVIOUS_PUBLICATIONS: "El modelo tiene publicaciones desde más de un Space: no hay una única publicación que reemplazar.",
+    UNCLAIMED_CONFLICT: "Algún objeto en conflicto no pertenece a ninguna publicación registrada.",
+    UNUSABLE_MANIFESTS: "Hay registros de linaje ilegibles: no se puede demostrar qué usa cada modelo.",
+    CATALOG_NOT_VERIFIABLE: "No se pudo leer el Catálogo del cliente para verificar qué modelos usan cada objeto.",
+  };
+
+  function names(list, total) {
+    const all = (list || []).filter(Boolean);
+    const count = Math.max(total || 0, all.length);                // dos fichas pueden compartir nombre de dominio: «y N más» cuenta fichas, no nombres
+    return count > 3 ? all.slice(0, 3).join(", ") + " y " + (count - 3) + " más" : all.join(", ");
+  }
+
+  function setReplacePending(form, pending, text) {
+    const submit = el(form, "[data-dsp-submit]");
+    submit.textContent = pending ? submit.dataset.replaceLabel : submit.dataset.label;
+    const hint = el(form, "[data-dsp-replace-pending]");
+    hint.textContent = pending ? text : "";
+    setHidden(hint, !pending);
+  }
+
+  function clearReplacement(form) {
+    replaceToken = "";
+    setReplacePending(form, false);
+  }
+
+  function showReplacement(form, r) {
+    const dlg = document.getElementById("dsp-replace-dialog");
+    if (!dlg || !r || typeof dlg.showModal !== "function") return;
+    const from = (r.displaced && r.displaced.space) || "otro Space";
+    el(dlg, "[data-dsp-replace-context]").textContent = (r.root_object || "") + " · " + from + " → " + (r.target_space || "");
+    el(dlg, "[data-dsp-replace-summary]").textContent = "El modelo ya está publicado en el Catálogo desde " + from + ". Estos objetos difieren entre ambos Spaces:";
+    const rows = el(dlg, "[data-dsp-replace-rows]");
+    rows.replaceChildren();
+    (r.exclusive || []).concat(r.shared || []).forEach((c) => {
+      const tr = document.createElement("tr");
+      const models = c.used_by_count || (c.used_by_models || []).length;
+      const parts = [];
+      if (models) parts.push(models + (models === 1 ? " modelo: " : " modelos: ") + names(c.used_by_models, models));
+      if ((c.legacy_packages || []).length) parts.push(c.legacy_packages.length + (c.legacy_packages.length === 1 ? " paquete legacy" : " paquetes legacy"));
+      if (!models && (c.other_manifests || []).length) parts.push("publicación de " + names(c.other_manifests));
+      [c.object_type + "/" + c.technical_name, c.exclusive ? "Exclusivo del modelo" : "Compartido", c.exclusive ? "—" : parts.join(" · ")].forEach((text) => {
+        const td = document.createElement("td");
+        td.className = "left";
+        td.textContent = text;
+        tr.appendChild(td);
+      });
+      rows.appendChild(tr);
+    });
+    const confirm = el(dlg, "[data-dsp-replace-confirm]");
+    const verdict = el(dlg, "[data-dsp-replace-verdict]");
+    if (r.safe && r.token) {
+      verdict.textContent = "Todos son exclusivos de este modelo: se puede reemplazar la publicación de " + from + " por la de " + r.target_space +
+        ". El Catálogo y el Assessment gobernado se regeneran con la evidencia que se publique; si algo cambia antes de ejecutar, no se modifica nada.";
+      setHidden(confirm, false);
+      confirm.onclick = () => {
+        dlg.close();
+        dwConfirmChoice({ title: "Reemplazar publicación", confirmLabel: "Continuar", okClass: "btn-primary",
+          message: "Vas a reemplazar la publicación de " + r.root_object + " desde " + from + " por la de " + r.target_space + ". ¿Estás seguro de que querés continuar?" })
+          .then((res) => {
+            if (!res || !res.ok) return;
+            replaceToken = r.token;
+            setReplacePending(form, true, "Reemplazo confirmado. Volvé a ingresar el Client Secret y presioná «Reemplazar y publicar»: antes de escribir se vuelve a verificar todo.");
+          });
+      };
+    } else {
+      verdict.textContent = (r.reasons || []).map((code) => REASONS[code] || code).join(" ") + " No se puede reemplazar sin afectar otros modelos: no se modificó nada.";
+      setHidden(confirm, true);
+      confirm.onclick = null;
+    }
+    dlg.showModal();
+  }
 
   async function run(form) {
     const panel = form.closest("#dsp-panel");
@@ -35,6 +116,8 @@
     // El cuerpo se arma ahora y el secreto se borra del campo YA: no queda en el DOM durante la corrida ni para reintentar.
     const body = new URLSearchParams(new FormData(form));
     form.querySelectorAll('input[type="password"]').forEach((i) => { i.value = ""; });
+    if (replaceToken) body.set("replace_token", replaceToken);  // reemplazo confirmado: un solo uso
+    clearReplacement(form);
 
     submit.disabled = true;
     submit.setAttribute("aria-busy", "true");
@@ -101,8 +184,17 @@
       el(panel, "[data-dsp-message]").textContent = done.message || "";
       if (done.error_code) log.textContent += "[" + done.error_code + "]" + String.fromCharCode(10);   // el código técnico vive en "Detalle técnico"
       setHidden(el(panel, "[data-dsp-failed]"), false);
+      if (done.replacement && (done.error_code === "POOL_IDENTITY_CONFLICT" || done.error_code === "REPLACEMENT_PLAN_CHANGED")) {
+        showReplacement(form, done.replacement);              // impacto real del conflicto (y, si es seguro, el reemplazo explícito)
+      }
     }
   }
+
+  // Cambiar la identidad de lo que se publica invalida un reemplazo confirmado (era para OTRO plan).
+  document.addEventListener("input", (event) => {
+    const form = event.target && event.target.closest && event.target.closest("form[data-dsp-form]");
+    if (form && replaceToken && IDENTITY_FIELDS.has(event.target.name)) clearReplacement(form);
+  });
 
   document.addEventListener("submit", (event) => {
     const form = event.target;

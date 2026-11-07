@@ -31,10 +31,16 @@
       <p data-review-confirmation><strong>Confirmación definitiva.</strong> La decide la publicación transaccional al ejecutarse: si detecta un conflicto de identidad, no modifica nada y lo informa.</p>
     </div></div>
     {% if not publish_url %}<p class="field-hint" data-review-no-permission>No tenés permiso para publicar este cliente en el Catálogo.</p>{% endif %}
-  {% elif r.operation == "BLOCKED_PUBLISHED_FROM_OTHER_SPACE" %}
+  {% elif r.operation == "REPLACE_PUBLISHED_FROM_OTHER_SPACE" %}
+    {% set pv = r.replacement_preview %}
+    <p><strong>Operación posible: reemplazar la publicación de {{ r.catalog.published_space }} por la de {{ r.space }}</strong></p>
+    <p class="field-hint" data-review-replace>Publicar desde {{ r.space }} choca con la publicación de {{ r.catalog.published_space }}. La publicación extrae el modelo, identifica exactamente qué objetos difieren y te muestra el impacto antes de escribir: solo podrás confirmar el reemplazo si todos los que difieren son exclusivos de este modelo.</p>
     <div class="callout callout--punch callout--feedback"><div class="callout__body field-hint">
-      <p><strong>No disponible: el modelo del Catálogo se publicó desde otro Space.</strong> Publicar desde {{ r.space }} reemplazaría definiciones homónimas publicadas desde {{ r.catalog.published_space }}; la guarda de identidad del pool lo impide y no se ofrece. Usá este diagnóstico para comparar con el Assessment del Catálogo.</p>
+      {% if pv %}<p data-review-replace-preview><strong>Publicación de {{ pv.space }}: {{ pv.objects }} objetos, {{ pv.exclusive }} exclusivos de este modelo{% if pv.shared %} y {{ pv.shared | length }} compartidos con otros modelos ({{ pv.shared[:4] | map(attribute="name") | join(", ") }}{% if pv.shared | length > 4 %} y {{ pv.shared | length - 4 }} más{% endif %}){% endif %}.</strong>{% if pv.shared %} Si alguno de los compartidos difiere en {{ r.space }}, el reemplazo no será posible: cambiaría modelos que no estás publicando.{% endif %}</p>
+      {% else %}<p data-review-replace-preview><strong>No se pudo anticipar el alcance.</strong> La publicación lo calcula con lo extraído antes de escribir.</p>{% endif %}
+      <p data-review-confirmation><strong>Confirmación definitiva.</strong> El reemplazo requiere tu confirmación explícita y se vuelve a verificar al ejecutarse: si algo cambió, no se modifica nada.</p>
     </div></div>
+    {% if not publish_url %}<p class="field-hint" data-review-no-permission>No tenés permiso para publicar este cliente en el Catálogo.</p>{% endif %}
   {% elif r.operation == "BLOCKED_CATALOG_NOT_VERIFIABLE" %}
     <div class="callout callout--punch callout--feedback"><div class="callout__body field-hint">
       <p><strong>No disponible: no se pudo verificar el Catálogo.</strong> No se pudo leer el Catálogo o resolver la identidad de sus modelos, así que no se puede afirmar si el modelo ya está publicado. Volvé a intentarlo más tarde.</p>

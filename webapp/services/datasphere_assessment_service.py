@@ -203,13 +203,27 @@ _PREFILL_RE = re.compile(r"^[A-Za-z0-9_.\- ]{1,120}$")
 OP_UPDATE_SAME_SPACE = "UPDATE_FROM_SAME_SPACE"            # el modelo está en el Catálogo y su última publicación registrada es de ESTE Space
 OP_INCORPORATE = "INCORPORATE"                            # el modelo no está en el Catálogo
 OP_UPDATE_UNVERIFIED_SPACE = "UPDATE_SPACE_NOT_RECORDED"  # está en el Catálogo pero sin Space de publicación registrado: la guarda del pool decide al publicar
-OP_BLOCKED_OTHER_SPACE = "BLOCKED_PUBLISHED_FROM_OTHER_SPACE"   # publicado desde OTRO Space: la publicación chocaría con POOL_IDENTITY_CONFLICT (no se ofrece)
+OP_REPLACE_OTHER_SPACE = "REPLACE_PUBLISHED_FROM_OTHER_SPACE"  # publicado desde OTRO Space: la publicación choca con POOL_IDENTITY_CONFLICT y muestra su alcance; el reemplazo
+                                                              # explícito solo se ofrece si todos los objetos que difieren son exclusivos del modelo (publication_replacement)
+OP_BLOCKED_OTHER_SPACE = OP_REPLACE_OTHER_SPACE               # nombre histórico (compatibilidad de importaciones)
 OP_BLOCKED_AMBIGUOUS = "BLOCKED_AMBIGUOUS_CATALOG_IDENTITY"     # más de una entrada del Catálogo para el mismo cliente y modelo: no se elige una
 OP_BLOCKED_NO_SPACE = "BLOCKED_RESULT_WITHOUT_SPACE"            # resultado previo a la procedencia por Space: hay que volver a diagnosticar
 OP_BLOCKED_CATALOG_UNVERIFIED = "BLOCKED_CATALOG_NOT_VERIFIABLE"  # no se pudo leer el Catálogo o resolver la identidad: NO se afirma que el modelo no exista
 # Resoluciones que NO establecen una identidad cierta (no permiten afirmar que el modelo no está en el Catálogo). NO_TERMINAL_AM sí es una resolución válida.
 _UNVERIFIABLE_RESOLUTIONS = frozenset({"POOL_UNAVAILABLE", "POOL_AMBIGUOUS_DOMAIN", "POOL_LOAD_ERROR", "MULTIPLE_TERMINAL_AMS"})
-PUBLISHABLE_OPERATIONS = frozenset({OP_UPDATE_SAME_SPACE, OP_INCORPORATE, OP_UPDATE_UNVERIFIED_SPACE})
+PUBLISHABLE_OPERATIONS = frozenset({OP_UPDATE_SAME_SPACE, OP_INCORPORATE, OP_UPDATE_UNVERIFIED_SPACE, OP_REPLACE_OTHER_SPACE})
+
+
+def _replacement_preview(client_dir: str, am: str, space: str) -> dict | None:
+    """Vista previa SIN extracción de la publicación anterior del modelo (otro Space): cuántos objetos tiene y cuáles comparte con otros modelos. No decide nada."""
+    try:
+        from tools.catalog import publication_replacement as rp
+        from webapp.services import datasphere_publication_service as pub
+        catalog_root, csn_cache = pub._canonical_roots()
+        return rp.preview(catalog_root=catalog_root, csn_cache_root=csn_cache, client_dir=client_dir, root_type="analytic-model", root_object=am, target_space=space)
+    except Exception:                                    # noqa: BLE001 — la vista previa es informativa: sin ella, la publicación igual calcula el alcance real
+        log.warning("catalog_continuity: no se pudo armar la vista previa del reemplazo", exc_info=True)
+        return None
 
 
 def _norm(value: Any) -> str:
@@ -254,7 +268,7 @@ def catalog_continuity(record: dict) -> dict:
             res = resolved[entry.entry_id]
             status = asvc.status_for_entry(entry)
             published = asvc.published_space(res.client_dir, am)
-            out["catalog"] = {"entry": entry, "state": status.state, "level": (status.judgment or {}).get("level"), "status": (status.judgment or {}).get("status"),
+            out["catalog"] = {"entry": entry, "client_dir": res.client_dir, "state": status.state, "level": (status.judgment or {}).get("level"), "status": (status.judgment or {}).get("status"),
                               "rule": (status.judgment or {}).get("level_rule"), "published_space": published, "generated_at": status.generated_at}
             if published and space and _norm(published) != _norm(space):
                 out["differences"].append(f"El modelo del Catálogo se publicó desde el Space {published}; este diagnóstico corresponde al Space {space}.")
@@ -278,7 +292,8 @@ def catalog_continuity(record: dict) -> dict:
     elif _norm(out["catalog"]["published_space"]) == _norm(space):
         out["operation"] = OP_UPDATE_SAME_SPACE
     else:
-        out["operation"] = OP_BLOCKED_OTHER_SPACE
+        out["operation"] = OP_REPLACE_OTHER_SPACE
+        out["replacement_preview"] = _replacement_preview(out["catalog"].get("client_dir") or client, am, space)
     return out
 
 

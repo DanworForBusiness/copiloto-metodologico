@@ -54,7 +54,8 @@ def test_same_space_updates_and_other_space_is_blocked(world):  # noqa: F811
     assert dsvc.catalog_continuity(_record(space="CALIDAD"))["operation"] == dsvc.OP_UPDATE_SAME_SPACE
     _ledger("PRODUCCION")
     r = dsvc.catalog_continuity(_record(space="CALIDAD"))
-    assert r["operation"] == dsvc.OP_BLOCKED_OTHER_SPACE and r["operation"] not in dsvc.PUBLISHABLE_OPERATIONS
+    # publicado desde OTRO Space: ya no es un callejón sin salida, es el REEMPLAZO gobernado (la publicación calcula el alcance y solo lo permite si es seguro)
+    assert r["operation"] == dsvc.OP_REPLACE_OTHER_SPACE and r["operation"] in dsvc.PUBLISHABLE_OPERATIONS and "replacement_preview" in r
     assert any("PRODUCCION" in d and "CALIDAD" in d for d in r["differences"])
 
 
@@ -138,7 +139,7 @@ def test_view_in_catalog_opens_the_flow_over_the_tool_so_back_returns():
     cierra ese detalle y deja la herramienta como estaba. Una navegación de página completa dejaba un «Volver» sin módulo debajo (recargaba el mismo flujo)."""
     from webapp.templating import templates
     review = {"model": "M", "client": "C", "diagnostic": {"level": None, "status": None}, "catalog": None, "differences": [],
-              "operation": "BLOCKED_PUBLISHED_FROM_OTHER_SPACE", "space": "S", "catalog_unavailable": False}
+              "operation": "REPLACE_PUBLISHED_FROM_OTHER_SPACE", "space": "S", "replacement_preview": None, "catalog_unavailable": False}
     html = templates.env.get_template("partials/datasphere_assessment_catalog_dialog.html").render(
         review={**review, "catalog": {"published_space": "OTRO", "level": None, "status": None, "state": "x"}}, catalog_url="/catalog/flow?flow=f",
         publish_url=None, level_labels={}, state_labels={}, status_tone=lambda v: "neutra")

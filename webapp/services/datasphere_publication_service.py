@@ -305,6 +305,7 @@ class PublicationOutcome(asd.Outcome):
     failures: list = field(default_factory=list)
     change: str = ""                                          # CHANGED | NO_CHANGE (una republicación idéntica no escribe nada)
     assessment: dict = field(default_factory=dict)           # resumen: regenerados / conservados / inciertos / retirados (P1)
+    replacement: dict | None = None                           # alcance de un conflicto de identidad (exclusivos/compartidos, si es seguro y su token) o del reemplazo aplicado
 
 
 STATE_PARTIAL = "PARTIAL"
@@ -313,6 +314,7 @@ TITLE_PARTIAL = "Publicación parcial"
 PUBLICATION_MESSAGES = {
     "EXTRACTION_INCOMPLETE": "La extracción desde Datasphere quedó incompleta (falló la lectura o el listado de algún objeto). No se modificó el Catálogo. Reintentá; si persiste, revisá la conexión y los permisos.",
     "POOL_IDENTITY_CONFLICT": "Un objeto ya está publicado desde otro Space o tenant con contenido distinto. No se modificó nada. Revisá el cliente, el Space y el tenant.",
+    "REPLACEMENT_PLAN_CHANGED": "El reemplazo que confirmaste ya no coincide con el estado actual (cambió la publicación anterior, el modelo o sus dependencias). No se modificó nada: revisá el nuevo impacto.",
     "ASSESSMENT_FAILED": "No se pudo preparar el assessment de los modelos afectados por esta publicación. No se activó nada: se conserva la última versión válida del Catálogo y de sus assessments.",
     "PERSISTENCE_FAILED": "Spaces no aceptó la versión nueva. Se mantuvo la última versión confirmada (en el servidor y en Spaces). Reintentá la publicación.",
     "PERSISTENCE_UNCERTAIN": "No se pudo verificar en Spaces si la publicación quedó guardada. La lectura del Catálogo queda bloqueada temporalmente hasta resolverlo; se reintenta solo.",
@@ -343,7 +345,8 @@ def _safe_outcome(values: asd.FormValues, result, trace: list, secrets: tuple, r
     from tools.catalog import publication_txn as txn
     code = result.error_code or ""
     common = dict(trace=trace, operation_id=result.operation_id, duration_s=result.duration_s, status=result.status, durability=result.durability,
-                  stages=dict(result.stages), deferred_reasons=list(result.deferred_reasons), failures=list(result.failures))
+                  stages=dict(result.stages), deferred_reasons=list(result.deferred_reasons), failures=list(result.failures),
+                  replacement=(dict(result.replacement) if getattr(result, "replacement", None) else None))
     if result.status in txn.SUCCESS_STATUSES or result.status in txn.PARTIAL_STATUSES:
         # P1: el assessment YA es parte de la unidad activada (se preparó, validó y escribió ANTES de activar, y las cachés se descartaron antes de abrir la compuerta): no hay registro posterior.
         if on_phase is not None:
@@ -394,7 +397,7 @@ def record_provenance(values: asd.FormValues, actor: str, operation_id: str) -> 
 
 
 # ───────────────────────────── ejecución (PUBLICAR) ─────────────────────────────
-def run(values: asd.FormValues, client_secret: str, *, user_email: str = "", on_line=None, on_phase=None) -> asd.Outcome:
+def run(values: asd.FormValues, client_secret: str, *, user_email: str = "", on_line=None, on_phase=None, replace_token: str = "") -> asd.Outcome:
     """Valida y ejecuta la PUBLICACIÓN: extracción + regeneración del Catálogo (MISMA función que el CLI, ``mode="publish"``,
     ``generate_catalog=True``) contra las raíces canónicas, y luego invalida la caché del Catálogo. El secreto no se almacena ni se
     devuelve. ``on_line`` recibe, en tiempo real y saneada, cada línea del extractor."""
@@ -435,6 +438,7 @@ def run(values: asd.FormValues, client_secret: str, *, user_email: str = "", on_
             mode="publish",                                             # forzado en el servidor: la UI no elige el modo
             features_requested=asd.requested_features(values),         # SOLO lo pedido: las dependencias las resuelve el extractor
             stage_hooks=republication_stage.AssessmentStage(),          # P1: el assessment gobernado forma parte de la unidad (preparar → validar → activar)
+            replace_token=replace_token,                                # reemplazo EXPLÍCITO confirmado (huella del plan); vacío = la guarda decide como siempre
         )
 
         def live(line: str) -> None:
