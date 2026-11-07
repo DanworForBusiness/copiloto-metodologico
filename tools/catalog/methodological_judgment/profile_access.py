@@ -220,6 +220,12 @@ class ProfileEvidence:
             return PHYSICAL_RAW_BOUNDARY
         if cls == "UNKNOWN":
             return EXTERNAL_CONTRACT_UNDETERMINED
+        if cls == "MIXED_BOUNDARY_CLASSES":
+            # Hoja cuya procedencia llega a VARIAS fronteras con clase EXPLICITA cada una: si TODAS son clases gobernadas (la MISMA definicion compartida que clasifica una hoja de
+            # clase unica), el contacto con la fuente es gobernado; no es evidencia insuficiente. Cualquier otra mezcla (con tabla fisica, externa o desconocida) sigue como antes.
+            boundary = set(rec.get("boundary_classes") or ())
+            if boundary and boundary <= _GOVERNED_CONTRACT_CLASSES:
+                return GOVERNED_SAP_CONTRACT
         return {"UNDETERMINED": EXTERNAL_CONTRACT_UNDETERMINED, "PHYSICAL_RAW": PHYSICAL_RAW_BOUNDARY, "GOVERNED": GOVERNED_SAP_CONTRACT}[external_policy]
 
     @cached_property
