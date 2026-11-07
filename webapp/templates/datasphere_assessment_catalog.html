@@ -25,21 +25,26 @@
         <thead><tr><th></th><th>Diagnóstico (este resultado)</th><th>Catálogo gobernado</th></tr></thead>
         <tbody>
           <tr><td>Cliente</td><td>{{ r.client or "—" }}</td><td>{{ r.catalog.entry.cliente if r.catalog else "—" }}</td></tr>
-          <tr><td>Modelo</td><td>{{ r.model }}</td><td>{{ r.model if r.catalog else "No está en el Catálogo" }}</td></tr>
+          <tr><td>Modelo</td><td>{{ r.model }}</td><td data-review-catalog-model>{{ r.model if r.catalog else ("No verificable" if r.catalog_unavailable else "No está en el Catálogo") }}</td></tr>
           <tr><td>Space</td><td data-review-space>{{ r.space or "No registrado" }}</td><td data-review-published-space>{{ (r.catalog.published_space or "No registrado") if r.catalog else "—" }}</td></tr>
           <tr><td>Adopción metodológica</td><td>{{ dlevel }} (provisional)</td>
               <td>{% if r.catalog %}{% if r.catalog.level %}{{ level_labels.get(r.catalog.level, r.catalog.level) }}{% elif r.catalog.status %}No determinable{% else %}Sin juicio{% endif %} · {{ state_labels.get(r.catalog.state, r.catalog.state) }}{% else %}—{% endif %}</td></tr>
         </tbody>
       </table>
       {% for d in r.differences %}<p class="admin-help" data-review-difference>{{ d }}</p>{% endfor %}
-      {% if r.catalog_unavailable %}<p class="admin-help">No se pudo leer el Catálogo: no se afirma nada sobre él.</p>{% endif %}
     </section>
 
     <section class="content-section" data-review-operation>
       {% if r.operation in ("UPDATE_FROM_SAME_SPACE", "INCORPORATE", "UPDATE_SPACE_NOT_RECORDED") %}
         <p><strong>{% if r.operation == "INCORPORATE" %}Incorporar el modelo al Catálogo{% else %}Actualizar el modelo en el Catálogo{% endif %}</strong></p>
-        <p class="admin-help">La operación gobernada es <strong>publicar el modelo desde el Space {{ r.space }}</strong>: vuelve a extraer su definición actual de Datasphere al pool del Catálogo, regenera el Catálogo y registra su Assessment gobernado desde esa misma evidencia, como una unidad transaccional. El resultado de este diagnóstico no se copia: puede diferir si el modelo cambió desde que lo diagnosticaste.</p>
-        {% if r.operation == "UPDATE_SPACE_NOT_RECORDED" %}<p class="admin-help">El Catálogo no registra desde qué Space se publicó este modelo. Si el pool tiene definiciones homónimas de otro Space, la publicación se bloqueará (conflicto de identidad del pool) sin modificar nada.</p>{% endif %}
+        <dl data-review-guarantees>
+          <dt>Operación disponible</dt>
+          <dd data-review-available>Publicar el modelo desde el Space {{ r.space }}: vuelve a extraer de Datasphere su definición actual y la de sus dependencias al pool del Catálogo, regenera el Catálogo y registra su Assessment gobernado desde esa misma evidencia. El resultado de este diagnóstico no se copia: puede diferir si el modelo cambió desde que lo diagnosticaste.</dd>
+          <dt>Conflictos no verificados</dt>
+          <dd data-review-not-verified>Esta revisión no verifica que la publicación esté libre de conflictos. La guarda de identidad del pool controla <strong>todos</strong> los objetos que se publican (el modelo y sus dependencias): si alguno ya existe con otra definición publicada desde otro Space, la publicación se detiene.{% if r.operation == "UPDATE_SPACE_NOT_RECORDED" %} Además, el Catálogo no registra desde qué Space se publicó este modelo.{% endif %}</dd>
+          <dt>Confirmación definitiva</dt>
+          <dd data-review-confirmation>La decide la publicación transaccional al ejecutarse: si detecta un conflicto de identidad, no modifica nada y lo informa.</dd>
+        </dl>
         {% if publish_url %}
           <div class="admin-actions"><a class="btn-primary" href="{{ publish_url }}" data-review-publish>Continuar a publicar</a>{% if catalog_url %}<a class="btn-secondary" href="{{ catalog_url }}">Ver en el Catálogo</a>{% endif %}</div>
           <p class="admin-help">Se abre el formulario de publicación con cliente, modelo y Space precargados; vas a ingresar tus credenciales y confirmar.</p>
@@ -50,6 +55,9 @@
         <p><strong>No disponible: el modelo del Catálogo se publicó desde otro Space</strong></p>
         <p class="admin-help">Publicar desde {{ r.space }} reemplazaría definiciones homónimas publicadas desde {{ r.catalog.published_space }}; la guarda de identidad del pool lo impide y no se ofrece. Para comparar, usá este diagnóstico junto al Assessment del Catálogo. Publicar varias versiones del mismo modelo por Space es una decisión de arquitectura pendiente.</p>
         {% if catalog_url %}<div class="admin-actions"><a class="btn-secondary" href="{{ catalog_url }}">Ver en el Catálogo</a></div>{% endif %}
+      {% elif r.operation == "BLOCKED_CATALOG_NOT_VERIFIABLE" %}
+        <p><strong>No disponible: no se pudo verificar el Catálogo</strong></p>
+        <p class="admin-help">No se pudo leer el Catálogo o resolver la identidad de sus modelos, así que esta revisión no puede afirmar si el modelo ya está publicado. Volvé a intentarlo más tarde.</p>
       {% elif r.operation == "BLOCKED_AMBIGUOUS_CATALOG_IDENTITY" %}
         <p><strong>No disponible: hay más de una entrada del Catálogo para este cliente y modelo</strong></p>
         <p class="admin-help">No se elige una por vos. Resolvé la ambigüedad en el Catálogo antes de publicar.</p>
