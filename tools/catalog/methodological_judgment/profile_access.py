@@ -76,7 +76,7 @@ class ProfileEvidence:
     @cached_property
     def has_canonical_evidence_v3(self) -> bool:
         """El Juicio v1 se evalua SOBRE ``canonical-evidence/v3``: sin linaje de campo ni clase de contrato por hoja no se puede establecer causalmente la restauracion semantica."""
-        return self.has_canonical_evidence_v2 and self.ce.get("version") in ("canonical-evidence/v3", "canonical-evidence/v4") and "source_contract_classes" in self.ce and "published_field_lineage" in self.ce
+        return self.has_canonical_evidence_v2 and self.ce.get("version") in ("canonical-evidence/v3", "canonical-evidence/v4", "canonical-evidence/v5") and "source_contract_classes" in self.ce and "published_field_lineage" in self.ce
 
     # ───────────────────────────── clase de contrato de fuente por hoja y linaje de campo (v3) ─────────────────────────────
     @cached_property

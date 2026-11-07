@@ -88,6 +88,13 @@ EVIDENCE_MIGRATIONS: dict[str, MigrationTarget] = {
         "contrato gobernado. Misma entrada, mismo cierre, mismo resto del perfil y MISMO Juicio: el perfil solo puede diferir en `versions.signals` y en la revision LAYER_BOUNDARY_REVIEW con lo derivado de ella "
         "(areas, superficie y resultado de regla, preguntas de contexto y la parte de «insumos completos de las reglas» de la confianza, sin cambiar su nivel). CLOSURE_EQUAL + Juicio revalidado (misma metodologia, nueva firma) o la migracion se abstiene",
         CLOSURE_EQUAL, transitional=True),
+    "evidence_harmonization_nested_projection_v5": MigrationTarget(
+        "evidence_harmonization_nested_projection_v5", ("canonical_evidence",), {"canonical_evidence": frozenset({"canonical-evidence/v4"})},
+        "canonical-evidence/v5: el contrato de Armonizacion resuelve el proveedor de una columna proyectada desde un subselect (vistas graficas anidadas) con el resolvedor canonico de "
+        "linaje de campo, solo con un origen inequivoco IDENTITY/RENAME/CAST. Misma entrada y mismo cierre: el perfil solo puede diferir en `canonical_evidence.version`, "
+        "`versions.canonical_evidence`, la seccion `harmonization_contract` y su resumen en `naming_evidence.semantic_contract.harmonization_contract` (CLOSURE_EQUAL). El Juicio se RE-DERIVA con "
+        "las MISMAS ratificaciones que consumio el anterior (sin releer el registro); si alguna deja de aplicarse la migracion se abstiene. Puede cambiar el nivel: se informa por modelo",
+        CLOSURE_EQUAL, transitional=True),
     "evidence_confidence_v3": MigrationTarget(
         "evidence_confidence_v3", ("confidence",), {"confidence": frozenset({"confidence-cuts/v2"})},
         "Confianza metodologica v3: `resolved_provenance` mide el ORIGEN DE LOS DATOS (una hoja de identidad UNKNOWN con productor y clase de contrato resuelta cuenta como resuelta). "

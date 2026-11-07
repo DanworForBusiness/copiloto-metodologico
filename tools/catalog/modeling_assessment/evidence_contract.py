@@ -30,8 +30,11 @@ from .readers import (
 CANONICAL_EVIDENCE_VERSION_V1 = "canonical-evidence/v1"
 CANONICAL_EVIDENCE_VERSION_V2 = "canonical-evidence/v2"      # v2 (evidence release): closure / physical boundaries / published contract / naming / harmonization / expressions / reconvergence / complexity / processing
 CANONICAL_EVIDENCE_VERSION_V3 = "canonical-evidence/v3"      # v3 (field-lineage evidence release): + published_field_lineage (procedencia por campo publicado hasta las hojas frontera) + source_contract_classes (clase explicita de contrato de fuente por hoja)
-CANONICAL_EVIDENCE_VERSION = "canonical-evidence/v4"         # v4.A: + leaf_materialization (materializacion derivada de las hojas locales con sus pruebas tecnicas minimas y referencias recuperables; sin CSN completo)
-SUPPORTED_VERSIONS = (CANONICAL_EVIDENCE_VERSION_V1, CANONICAL_EVIDENCE_VERSION_V2, CANONICAL_EVIDENCE_VERSION_V3, CANONICAL_EVIDENCE_VERSION)
+CANONICAL_EVIDENCE_VERSION_V4 = "canonical-evidence/v4"      # v4.A: + leaf_materialization (materializacion derivada de las hojas locales con sus pruebas tecnicas minimas y referencias recuperables; sin CSN completo)
+CANONICAL_EVIDENCE_VERSION = "canonical-evidence/v5"         # v5: MISMA forma que v4; `harmonization_contract` resuelve el proveedor de una columna proyectada desde un subselect con el resolvedor canonico de
+                                                             #     linaje de campo (un origen inequivoco IDENTITY/RENAME/CAST) -> mapeo, campos retenidos y origen de etiquetas observables en vistas graficas anidadas
+_V4_SHAPE = ("canonical-evidence/v4", "canonical-evidence/v5")  # versiones con las secciones v4 (leaf_materialization)
+SUPPORTED_VERSIONS = (CANONICAL_EVIDENCE_VERSION_V1, CANONICAL_EVIDENCE_VERSION_V2, CANONICAL_EVIDENCE_VERSION_V3, CANONICAL_EVIDENCE_VERSION_V4, CANONICAL_EVIDENCE_VERSION)
 
 PROVENANCE_STATES = frozenset({PROV_ESTABLISHED, PROV_DECLARED, PROV_NOT_OBSERVABLE})
 PROVENANCE_BASES = frozenset({BASIS_REPLICATION_FLOW, BASIS_DATA_FLOW, BASIS_DECLARED_DATASET, BASIS_TABLE_FUNCTION, BASIS_NONE})
@@ -201,7 +204,7 @@ def validate_canonical_evidence(ce: Any) -> None:
     _expect(isinstance(ce, dict), "", "debe ser un objeto")
     version = ce.get("version")
     _expect(version in SUPPORTED_VERSIONS, ".version", "version no soportada")
-    if version == CANONICAL_EVIDENCE_VERSION:
+    if version in _V4_SHAPE:
         _keys(ce, {"version", *EXPECTED_SECTIONS, *V2_SECTIONS, *V3_SECTIONS, *V4_SECTIONS}, "", closed=True)
     elif version == CANONICAL_EVIDENCE_VERSION_V3:
         _keys(ce, {"version", *EXPECTED_SECTIONS, *V2_SECTIONS, *V3_SECTIONS}, "", closed=True)
@@ -218,13 +221,13 @@ def validate_canonical_evidence(ce: Any) -> None:
     _validate_derivation(ce["derivation_semantics"])
     _validate_repetition(ce["expression_repetition"])
     _validate_topology(ce["assembly_topology"])
-    if version in (CANONICAL_EVIDENCE_VERSION_V2, CANONICAL_EVIDENCE_VERSION_V3, CANONICAL_EVIDENCE_VERSION):
+    if version in (CANONICAL_EVIDENCE_VERSION_V2, CANONICAL_EVIDENCE_VERSION_V3, *_V4_SHAPE):
         from .evidence_contract_v2 import validate_v2_sections
         validate_v2_sections(ce)
-    if version in (CANONICAL_EVIDENCE_VERSION_V3, CANONICAL_EVIDENCE_VERSION):
+    if version in (CANONICAL_EVIDENCE_VERSION_V3, *_V4_SHAPE):
         from .evidence_contract_v3 import validate_v3_sections
         validate_v3_sections(ce)
-    if version == CANONICAL_EVIDENCE_VERSION:
+    if version in _V4_SHAPE:
         from .evidence_contract_v4 import validate_v4_sections
         validate_v4_sections(ce)
 
@@ -247,7 +250,7 @@ def validate_document_evidence(doc: dict) -> None:
     ce = doc["canonical_evidence"]
     _expect(ce.get("version") == declared, ".version", "la version de la seccion no coincide con versions.canonical_evidence")
     validate_canonical_evidence(ce)
-    if declared in (CANONICAL_EVIDENCE_VERSION_V2, CANONICAL_EVIDENCE_VERSION_V3, CANONICAL_EVIDENCE_VERSION):
+    if declared in (CANONICAL_EVIDENCE_VERSION_V2, CANONICAL_EVIDENCE_VERSION_V3, *_V4_SHAPE):
         _expect(versions.get("closure") == CLOSURE_RULESET, ".closure", f"{declared} exige versions.closure == " + CLOSURE_RULESET)
         pc = ce["closure"]["plane_context"]
         size = (doc.get("scope") or {}).get("closure_size")
