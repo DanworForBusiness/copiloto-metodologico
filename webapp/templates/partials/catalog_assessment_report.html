@@ -262,7 +262,7 @@
   {# T2 — «No determinable» sigue siendo el valor oficial; esta tabla EXPLICA la causa real desde hechos del Juicio (``presenter.nd_explanation``), por contrato. #}
   {% if j.nd and j.nd.dimensions %}
   <h3>Por qué no hay un nivel · {{ j.nd.label }}</h3>
-  <table><thead><tr><th>Contrato</th><th>Situación</th><th>Causa</th></tr></thead><tbody>{% for d in j.nd.dimensions %}<tr><td>{{ d.dimension }}</td><td>{{ d.state_text }}</td><td>{{ d.cause_text }}</td></tr>{% endfor %}</tbody></table>
+  <table><thead><tr><th>Contrato</th><th>Situación</th><th>Causa</th></tr></thead><tbody>{% for d in j.nd.dimensions %}<tr><td>{{ d.dimension }}</td><td>{{ d.state_text }}</td><td>{{ d.cause_text }}{% if d.responsible_text %}<br><span data-asr-nd-responsible>{{ d.responsible_text }}</span>{% endif %}</td></tr>{% endfor %}</tbody></table>
   {% endif %}
   {# Cierre editorial = callout canónico del Hub con el tono de `status_tone` (verde / ámbar / naranja / gris); el nivel va en el título. #}
   {% call callout(j.tone, "Lectura de la adopción" ~ (" provisional" if v.judgment_provisional else "") ~ " · " ~ j.level_label) %}<p>{{ j.headline }}</p>{% endcall %}

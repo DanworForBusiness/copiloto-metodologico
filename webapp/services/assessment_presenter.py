@@ -445,7 +445,7 @@ def nd_explanation(judgment: dict | None) -> dict | None:
 
     def _dim(d: dict) -> dict:
         return {"dimension": _DIM_LABEL.get(d.get("dimension") or "", d.get("dimension") or ""), "state_text": _JDG_ND_STATE_TEXT.get(d.get("state") or "", ""),
-                "cause_text": _JDG_ND_CAUSE.get(d.get("cause") or "", "")}
+                "cause_text": _JDG_ND_CAUSE.get(d.get("cause") or "", ""), "cause": d.get("cause"), "unmet_conditions": list(d.get("unmet_conditions") or [])}
 
     def names(ds: list[dict]) -> str:
         return ", ".join(_DIM_LABEL.get(d.get("dimension") or "", d.get("dimension") or "") for d in ds)
@@ -495,6 +495,39 @@ def _jdg_statement_text(item: dict) -> str:
 
 
 _DIM_LABEL = dict(_JDG_DIMENSIONS)
+
+
+_PUB_CONDITION_TEXT = {
+    "lineage_complete": "linaje publicado completo", "no_vocabulary_leak": "sin vocabulario de una fuente no gobernada que llegue sin cambios al consumidor",
+    "field_level_affirmative_family": "evidencia afirmativa a nivel de campo", "measures_published": "medidas publicadas",
+    "measures_business_identity": "medidas con nombre de negocio propio (distinto del técnico)", "no_source_column_names": "ningún campo publicado con el nombre de la columna fuente",
+}
+
+
+def nd_responsibles(profile: dict | None, judgment: dict | None) -> dict[str, str]:
+    """``{causa de la dimension: texto}`` con los RESPONSABLES concretos de una dimension sin fortaleza, leidos de la MISMA evidencia y con las MISMAS funciones del motor
+    (``classify_source``, ``vocabulary_exposure``): hojas de contrato indeterminado y campos publicados cuyo vocabulario llega sin resolver. Solo presentacion: no decide nada."""
+    if not profile or not judgment:
+        return {}
+    from tools.catalog.methodological_judgment import rules as JR
+    from tools.catalog.methodological_judgment.profile_access import EXTERNAL_CONTRACT_UNDETERMINED, GOVERNED_SAP_CONTRACT, ProfileEvidence
+    policy = "UNDETERMINED"
+    try:
+        ev = ProfileEvidence(profile)
+        records = ev.leaf_class_records
+        und = [l for l in ev.source_contact_leaves if ev.classify_source(l, policy) == EXTERNAL_CONTRACT_UNDETERMINED]
+        not_gov = [l for l in ev.source_contact_leaves if ev.classify_source(l, policy) not in (None, GOVERNED_SAP_CONTRACT)]
+        exposure = JR.vocabulary_exposure(ev, not_gov)
+    except Exception:                                    # noqa: BLE001 — la trazabilidad es complementaria: jamás rompe el informe
+        return {}
+    out: dict[str, str] = {}
+    if und:
+        out["SOURCE_CONTRACT_CLASS_UNDETERMINED"] = "Hojas sin clase de contrato determinable: " + "; ".join(
+            f"{l} ({(records.get(l) or {}).get('contract_class')}: {', '.join((records.get(l) or {}).get('remote_entities') or []) or 'sin entidad remota'})" for l in und) + "."
+    leaks = [f"{f} ← {leaf}" for leaf, fields in exposure.items() for f in fields]
+    if leaks:
+        out["UNRESOLVED_VOCABULARY_REACHES_THE_CONSUMER"] = "Campos publicados que heredan sin cambios el vocabulario de una fuente no gobernada: " + ", ".join(leaks) + "."
+    return out
 
 
 def judgment_view(judgment: dict | None) -> dict | None:
@@ -1008,6 +1041,22 @@ def _context_questions(ctx: dict, groups_by_id: dict[str, dict]) -> dict:
             "context_backed_n": sum(1 for r in rows if r["has_finding"]), "context_independent_n": sum(1 for r in rows if not r["has_finding"])}
 
 
+def _with_nd_responsibles(view: dict | None, profile: dict | None, judgment: dict | None) -> dict | None:
+    """Agrega a cada dimension sin fortaleza del detalle de No determinable sus responsables concretos (ver ``nd_responsibles``) y el texto de las condiciones incumplidas."""
+    nd = (view or {}).get("nd")
+    if not nd or not nd.get("dimensions"):
+        return view
+    resp = nd_responsibles(profile, judgment)
+    for d in nd["dimensions"]:
+        parts = []
+        if resp.get(d.get("cause") or ""):
+            parts.append(resp[d["cause"]])
+        if d.get("unmet_conditions"):
+            parts.append("Condiciones no cumplidas: " + "; ".join(_PUB_CONDITION_TEXT.get(c, c) for c in d["unmet_conditions"]) + ".")
+        d["responsible_text"] = " ".join(parts) or None
+    return view
+
+
 def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: AdhocReport | None = None, space: str | None = None) -> dict:
     """View-model del informe. ``status.profile`` es el JSON canónico validado; nada se deriva de otra fuente.
     ``adhoc`` (opcional) reemplaza el contexto del Catálogo (flujo/URLs/linaje) por el de un assessment ad-hoc; el contenido es el mismo.
@@ -1028,7 +1077,7 @@ def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: Adho
         "md_url": adhoc.md_url if adhoc else "/catalog/flow/assessment.md?" + urlencode({"flow": entry.entry_id}),
         "has_profile": doc is not None,
         "adhoc": adhoc is not None,
-        "judgment": judgment_view(status.judgment),   # Juicio metodológico persistido (distinto de la vigencia del Assessment)
+        "judgment": _with_nd_responsibles(judgment_view(status.judgment), status.profile, status.judgment),   # Juicio metodológico persistido (distinto de la vigencia del Assessment)
         # Ad hoc: el Juicio es PROVISIONAL (derivado de ESTA ejecución, sin decisiones gobernadas; ver ``assessment_service.provisional_judgment``).
         "judgment_provisional": adhoc is not None and status.judgment is not None,
         "space": (space or "").strip() or None,
