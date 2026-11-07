@@ -4,16 +4,21 @@
 // comparte ningún indicador ni evento global con las demás interacciones del panel lateral.
 //
 // Contrato (ver webapp/routers/datasphere_assessment.py): POST (cuerpo urlencoded, jamás query string) → respuesta NDJSON:
-//   {"t":"start"} · {"t":"line","v":"<línea del extractor>"}* · {"t":"phase","v":"<hito>"}* ·
+//   {"t":"start","run_id"} · {"t":"line","v":"<línea del extractor>"}* · {"t":"phase","v":"<hito>"}* · {"t":"ping"}* ·
 //   {"t":"done","state","error_code","message","title","errors","result_url"}
 // Todo texto externo entra con textContent (nunca como HTML). El navegador no interpreta ni re-diagnostica: muestra lo que el
 // backend emite. El Client Secret se lee del formulario, se limpia del campo ANTES de enviar y no se guarda en ningún lado.
 // Éxito = el backend entrega `result_url` y el navegador abre el informe automáticamente.
+// La extracción es una operación del SERVIDOR: si la conexión se corta, se retoma con GET …/operation/{run_id}?since=N (sin reiniciarla).
 (function () {
   "use strict";
 
   // Fases semánticas del backend en las que hay trabajo en curso ("extracting" es la fase inicial, antes de cualquier evento).
   const WORKING = new Set(["extracting", "assessing"]);
+  // Recuperación tras un corte de la conexión: consulta la operación del servidor cada RECOVERY_POLL_MS; se rinde tras
+  // RECOVERY_MAX_FAILURES consultas fallidas SEGUIDAS (red caída). Una extracción larga no tiene límite propio.
+  const RECOVERY_POLL_MS = 3000;
+  const RECOVERY_MAX_FAILURES = 20;
 
   function el(root, sel) { return root.querySelector(sel); }
 
@@ -45,6 +50,21 @@
     setHidden(spinner, false);                                 // extracción en curso: misma fila de procesamiento, spinner visible
 
     let done = null;
+    let runId = null;
+    function handle(event) {
+      if (event.t === "start") {
+        runId = event.run_id || null;                         // cómo retomar la operación del servidor si esta conexión se corta
+      } else if (event.t === "line") {
+        log.textContent += event.v + "\n";
+        log.scrollTop = log.scrollHeight;
+      } else if (event.t === "phase") {
+        status.textContent = event.v;                          // hito veraz emitido por el backend (sin porcentajes)
+        setHidden(spinner, !WORKING.has(event.phase));       // presentación: el spinner solo gira en fases con trabajo en curso
+      } else if (event.t === "done") {
+        done = event;
+      }                                                        // "ping": latido del servidor, sin efecto visible
+    }
+    let received = 0;                                          // eventos de la operación ya mostrados (= cursor del servidor; start y ping no cuentan)
     try {
       const response = await fetch(form.getAttribute("action"), {
         method: "POST", body, credentials: "same-origin", cache: "no-store",
@@ -66,19 +86,37 @@
           buffer = buffer.slice(index + 1);
           if (!raw.trim()) continue;
           const event = JSON.parse(raw);
-          if (event.t === "line") {
-            log.textContent += event.v + "\n";
-            log.scrollTop = log.scrollHeight;
-          } else if (event.t === "phase") {
-            status.textContent = event.v;                      // hito veraz emitido por el backend (sin porcentajes)
-            setHidden(spinner, !WORKING.has(event.phase));   // presentación: el spinner solo gira en fases con trabajo en curso
-          } else if (event.t === "done") {
-            done = event;
-          }
+          if (event.t !== "start" && event.t !== "ping") received += 1;
+          handle(event);
         }
       }
     } catch (error) {
-      done = { state: "FAILED", error_code: "CONNECTION_INTERRUPTED", title: "No se pudo completar la extracción", message: "Se interrumpió la conexión con el servidor. Revisá el detalle técnico e intentá nuevamente.", errors: {} };
+      done = null;                                             // se intenta recuperar la operación antes de declarar la falla
+    }
+
+    // La conexión se cortó (proxy, red) pero la extracción sigue en el servidor: se retoma la MISMA operación sin reiniciarla.
+    if (!done && runId) {
+      const url = form.getAttribute("action").replace(/\/run$/, "/operation/") + encodeURIComponent(runId);
+      status.textContent = status.dataset.resumingText || "La conexión se interrumpió; seguimos la extracción en curso...";
+      setHidden(spinner, false);
+      let failures = 0;
+      while (!done && failures < RECOVERY_MAX_FAILURES) {
+        await new Promise((resolve) => setTimeout(resolve, RECOVERY_POLL_MS));
+        try {
+          const response = await fetch(url + "?since=" + received, { credentials: "same-origin", cache: "no-store", headers: { "Accept": "application/json" } });
+          if (response.status === 404) break;                  // vencida o ajena: no hay nada que retomar
+          if (!response.ok) throw new Error("HTTP " + response.status);
+          const data = await response.json();
+          failures = 0;
+          (data.events || []).forEach(handle);
+          received = data.next;
+        } catch (error) {
+          failures += 1;
+        }
+      }
+    }
+    if (!done) {
+      done = { state: "FAILED", error_code: "CONNECTION_INTERRUPTED", title: "No se pudo completar la extracción", message: "Se interrumpió la conexión con el servidor. Si la extracción terminó, su resultado aparece en «Assessments recientes». Revisá el detalle técnico e intentá nuevamente.", errors: {} };
     }
 
     if (done && done.state === "SUCCESS" && done.result_url) {

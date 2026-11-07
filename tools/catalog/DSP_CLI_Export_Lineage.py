@@ -1207,12 +1207,20 @@ class LineageExporter:
         # del Space: puede listar tablas ``_Delta`` que nunca se materializan como entidad del pool.)
         acquired_universe = known_names
 
-        if "replication-flows" in self.effective_features:
+        if "replication-flows" in self.effective_features and not local_tables:
+            # Un RF solo se relaciona si un target matchea una HOJA local-table del linaje: sin hojas, ningún RF puede producir el
+            # linaje y leer sus definiciones no aporta evidencia (mismo resultado, sin costo). Se informa explícitamente.
+            _say("\nReplication Flows: SKIP - el linaje no tiene Local Tables que un Replication Flow pueda producir")
+        elif "replication-flows" in self.effective_features:
+            # La lista del CLI solo trae nombres: el target de un RF está en su definición, así que se leen TODOS (completitud).
+            # Cada lectura informa su duración (trazabilidad de una lectura lenta; la conexión del Hub la sostiene el latido).
             rf_names = sorted(self.ensure_inventory("replication-flows"))
             rf_ok = 0
             for i, rf_name in enumerate(rf_names, start=1):
                 _say(f"\n[RF {i}/{len(rf_names)}] {rf_name}")
+                read_started = time.perf_counter()
                 data = self.safe_read("replication-flows", rf_name)
+                _say(f"  lectura: {time.perf_counter() - read_started:.1f}s")
                 if data is None:
                     _say("ERROR")
                     continue

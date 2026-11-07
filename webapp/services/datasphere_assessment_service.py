@@ -506,6 +506,83 @@ def load_form_context(key: str) -> dict[str, str]:
     return out
 
 
+# ───────────────────── operación desacoplada de la conexión HTTP ─────────────────────
+# La extracción corre en su propio hilo y NO depende de la respuesta HTTP que la inició: el proxy de App Platform corta las
+# conexiones (≈100 s, ver docs/CCHH_EXPORTACION_CVS_FASE2_REQUISITOS.md) y una lectura larga del CLI (p. ej. un Replication Flow
+# grande) deja el stream sin bytes. Cada evento del run (start/line/phase/done) se registra acá, en memoria del proceso (réplica
+# única, como los candados de `_RUNNING`), para que el navegador:
+#   · reciba un latido (`{"t":"ping"}`) cada `HEARTBEAT_S` mientras no haya salida (la conexión no queda inactiva), y
+#   · si la conexión igual se corta, recupere el avance y el resultado por `operation_events` SIN reiniciar la extracción.
+# Solo eventos ya saneados (los mismos del stream); el secreto jamás entra. La operación es del usuario que la inició.
+HEARTBEAT_S = 15.0
+OPERATION_TTL_S = 24 * 3600          # = vida del resultado ad hoc
+_OPERATION_MAX_EVENTS = 20000
+
+
+@dataclass
+class _Operation:
+    owner: str
+    created_at: float
+    events: list = field(default_factory=list)
+    finished_at: float | None = None
+    dropped: int = 0
+
+
+_OPERATIONS: dict[str, _Operation] = {}
+_OPERATIONS_COND = threading.Condition()
+
+
+def start_operation(owner: str, *, now: float | None = None) -> str:
+    now = time.time() if now is None else now
+    run_id = uuid.uuid4().hex
+    with _OPERATIONS_COND:
+        for key in [k for k, op in _OPERATIONS.items() if now - op.created_at > OPERATION_TTL_S]:
+            del _OPERATIONS[key]
+        _OPERATIONS[run_id] = _Operation(owner=owner, created_at=now)
+    return run_id
+
+
+def publish_event(run_id: str, event: dict) -> None:
+    """Agrega un evento ya saneado. ``done`` cierra la operación. Un exceso de líneas se descarta (contado), nunca el ``done``."""
+    with _OPERATIONS_COND:
+        op = _OPERATIONS.get(run_id)
+        if op is None or op.finished_at is not None:
+            return
+        if event.get("t") == "line" and len(op.events) >= _OPERATION_MAX_EVENTS:
+            op.dropped += 1
+            return
+        op.events.append(event)
+        if event.get("t") == "done":
+            op.finished_at = time.time()
+        _OPERATIONS_COND.notify_all()
+
+
+def wait_events(run_id: str, cursor: int, timeout: float) -> tuple[list[dict], int, bool]:
+    """Eventos desde ``cursor`` (espera hasta ``timeout`` si no hay nuevos): ``(eventos, cursor nuevo, terminada)``."""
+    with _OPERATIONS_COND:
+        op = _OPERATIONS.get(run_id)
+        if op is None:
+            return [], cursor, True
+        if cursor >= len(op.events) and op.finished_at is None:
+            _OPERATIONS_COND.wait(timeout)
+            op = _OPERATIONS.get(run_id)
+            if op is None:
+                return [], cursor, True
+        new = op.events[cursor:]
+        return list(new), cursor + len(new), op.finished_at is not None
+
+
+def operation_events(run_id: str, owner: str, since: int = 0) -> dict | None:
+    """Recuperación tras un corte: eventos desde ``since`` de una operación PROPIA. La de otro usuario o una vencida es ``None`` (404)."""
+    with _OPERATIONS_COND:
+        op = _OPERATIONS.get(str(run_id or ""))
+        if op is None or not owner or op.owner != owner or time.time() - op.created_at > OPERATION_TTL_S:
+            return None
+        since = max(0, int(since))
+        new = op.events[since:]
+        return {"events": list(new), "next": since + len(new), "finished": op.finished_at is not None}
+
+
 # ───────────────────────────── ejecución ─────────────────────────────
 def run(values: FormValues, client_secret: str, *, user_email: str = "", on_line=None, on_phase=None) -> Outcome:
     """Valida y encadena: extracción (MISMA función que el CLI) → assessment (MISMO motor) → resultado ad-hoc. El secreto no se
