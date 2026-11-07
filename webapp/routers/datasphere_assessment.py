@@ -133,7 +133,12 @@ def run_assessment(
     owner = svc.owner_email(request)
     run_id = svc.start_operation(owner)        # la operación vive en el servidor: el corte de ESTA conexión no la detiene ni la pierde
 
+    failed_done = {"t": "done", "state": "FAILED", "error_code": "EXTRACTION_FAILED", "message": svc.ERROR_MESSAGES["EXTRACTION_FAILED"],
+                   "title": svc.TITLE_EXTRACTION, "errors": {}, "operation_id": None, "duration_s": None, "result_url": None}
+
     def worker() -> None:
+        # INVARIANTE: toda operación termina en UN `done`, publicado en el `finally` ANTES de la telemetría. Ni una falla del run ni una del
+        # registro de actividad pueden dejar al navegador esperando, y la telemetría jamás cambia el resultado real del Assessment.
         nonlocal secret
         outcome = None
         try:
@@ -144,20 +149,25 @@ def run_assessment(
             log.warning("datasphere_assessment run=%s worker failed exc=%s", run_id, type(exc).__name__)
         finally:
             secret = ""                                                    # el secreto no sobrevive a la ejecución
-            if outcome is None:                                            # defensa: el navegador nunca queda esperando un `done` que no llega
-                svc.publish_event(run_id, {"t": "done", "state": "FAILED", "error_code": "EXTRACTION_FAILED",
-                                           "message": svc.ERROR_MESSAGES["EXTRACTION_FAILED"], "title": svc.TITLE_EXTRACTION,
-                                           "errors": {}, "operation_id": None, "duration_s": None, "result_url": None})
+            done = failed_done
+            if outcome is not None:
+                try:
+                    result_url = _result_urls(stem, outcome.result_id, selected)[0] if outcome.result_id else None
+                    done = {"t": "done", "state": outcome.state, "error_code": outcome.error_code, "message": outcome.message,
+                            "title": outcome.title, "errors": outcome.errors, "operation_id": outcome.operation_id,
+                            "duration_s": outcome.duration_s, "result_url": result_url}
+                except Exception as exc:                                   # noqa: BLE001 — sin URL no hay informe que abrir: falla visible, nunca espera
+                    log.warning("datasphere_assessment run=%s done build failed exc=%s", run_id, type(exc).__name__)
+            svc.publish_event(run_id, done)
         if outcome is None:
             return
-        log_activity("datasphere_assessment_run", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG,
-                     client=values.client, space=values.space, root_object=values.root_object,
-                     state=outcome.state, error_code=outcome.error_code, stage=outcome.stage, duration_s=outcome.duration_s,
-                     operation_id=outcome.operation_id, outcome=outcome_of(outcome.state))
-        result_url = _result_urls(stem, outcome.result_id, selected)[0] if outcome.result_id else None
-        svc.publish_event(run_id, {"t": "done", "state": outcome.state, "error_code": outcome.error_code, "message": outcome.message,
-                                   "title": outcome.title, "errors": outcome.errors, "operation_id": outcome.operation_id,
-                                   "duration_s": outcome.duration_s, "result_url": result_url})
+        try:                                                               # telemetría DESPUÉS del `done`: su falla solo se registra
+            log_activity("datasphere_assessment_run", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG,
+                         client=values.client, space=values.space, root_object=values.root_object,
+                         state=outcome.state, error_code=outcome.error_code, stage=outcome.stage, duration_s=outcome.duration_s,
+                         operation_id=outcome.operation_id, outcome=outcome_of(outcome.state))
+        except Exception as exc:                                           # noqa: BLE001 — solo el tipo: nunca valores del run ni del usuario
+            log.warning("datasphere_assessment run=%s op=%s activity log failed exc=%s", run_id, outcome.operation_id, type(exc).__name__)
 
     threading.Thread(target=worker, name="datasphere-assessment", daemon=True).start()
 

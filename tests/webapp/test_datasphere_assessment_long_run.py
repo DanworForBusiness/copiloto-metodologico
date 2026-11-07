@@ -188,3 +188,59 @@ def test_browser_recovers_the_operation_after_a_cut():
     harness = Path(__file__).with_name("datasphere_assessment_recovery.node.js")
     proc = subprocess.run([node, str(harness)], capture_output=True, text=True, timeout=60)
     assert proc.returncode == 0 and proc.stdout.strip().endswith("OK"), proc.stdout + proc.stderr
+
+
+# ── la telemetría nunca deja la operación sin `done` ni cambia el resultado ──────────────────────────────────────────
+def test_activity_log_failure_still_finishes_the_operation_with_the_real_result(owner, fake_export, monkeypatch, caplog):  # noqa: F811
+    from webapp.routers import datasphere_assessment as router
+
+    def broken_telemetry(*a, **k):
+        raise OSError(f"disco lleno {ds.SECRET}")                                       # el texto de la excepción jamás llega al log
+    monkeypatch.setattr(router, "log_activity", broken_telemetry)
+    caplog.set_level("WARNING", logger=router.log.name)
+    r = ds._post(owner)
+    run_id = ds._events(r)[0]["run_id"]
+    done = ds._done(r)
+    assert done["state"] == "SUCCESS" and done["result_url"]                         # el resultado real, no una falla por telemetría
+    deadline = time.monotonic() + 5
+    while "activity log failed" not in caplog.text:                                  # el registro corre en el hilo, después del `done`
+        assert time.monotonic() < deadline, "la falla de telemetría no se registró"
+        time.sleep(0.02)
+    recovered = _poll(owner, run_id)                                                 # el navegador que perdió la conexión lo recupera igual
+    assert recovered[-1] == done
+    report = owner.get(done["result_url"])
+    assert report.status_code == 200 and "Adopción metodológica provisional" in report.text
+    assert "OSError" in caplog.text and ds.SECRET not in caplog.text and "disco lleno" not in caplog.text
+
+
+def test_failure_building_the_done_is_still_terminal(owner, fake_export, monkeypatch):  # noqa: F811
+    from webapp.routers import datasphere_assessment as router
+
+    def broken_urls(*a, **k):
+        raise ValueError("url")
+    monkeypatch.setattr(router, "_result_urls", broken_urls)
+    r = ds._post(owner)
+    run_id = ds._events(r)[0]["run_id"]
+    assert ds._done(r)["state"] == "FAILED" and _poll(owner, run_id)[-1]["t"] == "done"
+
+
+def test_a_read_that_never_returns_ends_in_a_visible_terminal_timeout(owner, fake_export, monkeypatch):  # noqa: F811
+    """Una lectura del CLI que no vuelve nunca: el navegador NO espera indefinidamente; recibe OPERATION_TIMEOUT. La extracción no se mata;
+    si termina después, su resultado se guarda igual (y el `done` tardío no reabre la operación)."""
+    gate = threading.Event()
+    _slow_export(monkeypatch, gate=gate)
+    monkeypatch.setattr(svc, "OPERATION_MAX_S", 0.3)
+    monkeypatch.setattr(svc, "HEARTBEAT_S", 0.05)
+    try:
+        r = ds._post(owner)                                                          # el stream termina solo, sin liberar la lectura
+        run_id = ds._events(r)[0]["run_id"]
+        done = ds._done(r)
+        assert done["state"] == "FAILED" and done["error_code"] == "OPERATION_TIMEOUT" and "Assessments recientes" in done["message"]
+        assert _poll(owner, run_id)[-1] == done
+    finally:
+        gate.set()
+    deadline = time.monotonic() + 10
+    while not svc.list_results("owner@danwor.com"):                                  # la extracción terminó después: resultado guardado
+        assert time.monotonic() < deadline, "el resultado tardío no se guardó"
+        time.sleep(0.05)
+    assert _poll(owner, run_id)[-1] == done                                          # el `done` terminal no cambia

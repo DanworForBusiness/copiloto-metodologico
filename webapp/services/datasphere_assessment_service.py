@@ -514,9 +514,25 @@ def load_form_context(key: str) -> dict[str, str]:
 #   · reciba un latido (`{"t":"ping"}`) cada `HEARTBEAT_S` mientras no haya salida (la conexión no queda inactiva), y
 #   · si la conexión igual se corta, recupere el avance y el resultado por `operation_events` SIN reiniciar la extracción.
 # Solo eventos ya saneados (los mismos del stream); el secreto jamás entra. La operación es del usuario que la inició.
+#
+# DEPENDENCIA DE DESPLIEGUE — UN SOLO PROCESO: el registro vive en la memoria del proceso que ejecuta la extracción (sin almacenamiento
+# persistente, por diseño). Requiere UNA réplica (App Platform → componente web → instance_count = 1, misma precondición documentada en
+# docs/PUBLICATION_SAFE_RUNBOOK.md) y UN worker de uvicorn: el Procfile no pasa `--workers`, así que uvicorn usa `WEB_CONCURRENCY` si
+# el entorno la define (si no, 1). Con más de un proceso, la consulta de recuperación puede llegar a otro proceso y responder 404: el
+# navegador muestra la falla (nunca espera indefinidamente) y el resultado igual aparece en «Assessments recientes» si se guardó.
+# Verificación en la Console del componente web:
+#   echo "WEB_CONCURRENCY=${WEB_CONCURRENCY:-sin definir}"; ps -eo pid,ppid,args | grep "[u]vicorn"
+# (esperado: WEB_CONCURRENCY sin definir o 1, y un único proceso uvicorn). Un reinicio o deploy durante la corrida pierde la operación
+# igual que hoy pierde la extracción en curso; un resultado ya guardado no se pierde.
 HEARTBEAT_S = 15.0
 OPERATION_TTL_S = 24 * 3600          # = vida del resultado ad hoc
+# Plazo máximo de ESPERA del navegador: pasado este tiempo sin `done`, la operación se cierra con OPERATION_TIMEOUT (terminal y visible).
+# No mata la extracción (el CLI es compartido con la publicación y no tiene timeout por lectura): si termina después, su resultado se
+# guarda igual y aparece en «Assessments recientes». Evita el único camino de espera indefinida: una lectura del CLI que nunca vuelve.
+OPERATION_MAX_S = 3 * 3600
 _OPERATION_MAX_EVENTS = 20000
+OPERATION_TIMEOUT_MESSAGE = ("La extracción superó el tiempo máximo de seguimiento. Si termina, su resultado aparecerá en «Assessments "
+                             "recientes»; revisá en el detalle técnico el último objeto que se estaba leyendo.")
 
 
 @dataclass
@@ -557,17 +573,28 @@ def publish_event(run_id: str, event: dict) -> None:
         _OPERATIONS_COND.notify_all()
 
 
+def _close_if_overdue(op: _Operation, now: float) -> None:
+    """Bajo ``_OPERATIONS_COND``: cierra con un `done` terminal la operación que superó ``OPERATION_MAX_S`` sin terminar."""
+    if op.finished_at is None and now - op.created_at > OPERATION_MAX_S:
+        op.events.append({"t": "done", "state": "FAILED", "error_code": "OPERATION_TIMEOUT", "message": OPERATION_TIMEOUT_MESSAGE,
+                          "title": TITLE_EXTRACTION, "errors": {}, "operation_id": None, "duration_s": None, "result_url": None})
+        op.finished_at = now
+        _OPERATIONS_COND.notify_all()
+
+
 def wait_events(run_id: str, cursor: int, timeout: float) -> tuple[list[dict], int, bool]:
     """Eventos desde ``cursor`` (espera hasta ``timeout`` si no hay nuevos): ``(eventos, cursor nuevo, terminada)``."""
     with _OPERATIONS_COND:
         op = _OPERATIONS.get(run_id)
         if op is None:
             return [], cursor, True
+        _close_if_overdue(op, time.time())
         if cursor >= len(op.events) and op.finished_at is None:
             _OPERATIONS_COND.wait(timeout)
             op = _OPERATIONS.get(run_id)
             if op is None:
                 return [], cursor, True
+            _close_if_overdue(op, time.time())
         new = op.events[cursor:]
         return list(new), cursor + len(new), op.finished_at is not None
 
@@ -578,6 +605,7 @@ def operation_events(run_id: str, owner: str, since: int = 0) -> dict | None:
         op = _OPERATIONS.get(str(run_id or ""))
         if op is None or not owner or op.owner != owner or time.time() - op.created_at > OPERATION_TTL_S:
             return None
+        _close_if_overdue(op, time.time())
         since = max(0, int(since))
         new = op.events[since:]
         return {"events": list(new), "next": since + len(new), "finished": op.finished_at is not None}
