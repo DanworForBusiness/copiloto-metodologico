@@ -194,7 +194,7 @@ def test_judgment_is_rederived_replaying_the_same_ratifications(tmp_path, monkey
     _a, doc = _harm(_pool(tmp_path, _nested_dimension("VD_N", {"ref": ["LT_SRC"]}, RENAMES)))
     prev_j = asvc._derive_judgment(doc)
     overrides, notes = asvc._harmonization_envelope_hook(doc, {"judgment": prev_j, "domain_classification": {"d": 1}, "business_classification": {"b": 2}})
-    assert overrides["judgment"]["output_signature"] == prev_j["output_signature"] and notes["judgment_action"] == "judgment_current"
+    assert overrides["judgment"]["output_signature"] == prev_j["output_signature"] and notes["judgment_action"].startswith("judgment_current:")
     assert overrides["domain_classification"] == {"d": 1} and overrides["business_classification"] == {"b": 2}
     from webapp.services import judgment_decisions as jd
     monkeypatch.setattr(jd, "lost_decisions", lambda *a, **k: [{"event_id": "e1"}])                     # una ratificación que ya no se re-aplica
@@ -219,3 +219,14 @@ def test_a_business_dimension_published_by_association_counts_as_consumed():
     assert ev.consumed_downstream("2TR")                       # por linaje (3VF lo lee)
     assert ev.consumed_downstream("VD_DIM") and not ev.descendants("VD_DIM")     # por asociación publicada, sin FROM aguas abajo
     assert not ev.consumed_downstream("VD_ORPHAN") and not ev.consumed_downstream("VD_TEXT")   # ni linaje ni dimensión de negocio publicada
+
+
+def test_the_projected_judgment_change_enters_the_signed_plan_item(tmp_path):
+    """Mismo ruleset, otra interpretacion (p. ej. ND -> ADECUADA): el resultado proyectado viaja en ``judgment_action`` y por eso en el digest que firma el aprobador."""
+    _a, doc = _harm(_pool(tmp_path, _nested_dimension("VD_N", {"ref": ["LT_SRC"]}, RENAMES)))
+    fresh = asvc._derive_judgment(doc)
+    stale = {**fresh, "status": "NOT_DETERMINABLE", "level": None, "level_rule": "LVL-06", "output_signature": "sha256:otra-interpretacion"}
+    _over, notes = asvc._harmonization_envelope_hook(doc, {"judgment": stale})
+    assert notes["judgment_action"] == f"judgment_rederived:ND/LVL-06->{fresh['level'] or 'ND'}/{fresh['level_rule']}"
+    cand = type("C", (), {"client": "Acme", "terminal_am": AM, "previous_signature": "x", "envelope": {}, "notes": notes})()
+    assert bf._plan_item(cand)["judgment_action"] == notes["judgment_action"]               # entra al ítem firmado
