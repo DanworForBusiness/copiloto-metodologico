@@ -539,7 +539,7 @@ def har_str_01_reformulated(ev: ProfileEvidence, policy: str) -> list[str]:
     atraviesa al consumidor, semantica reutilizable creada aguas abajo, alineacion de ramas en Propagacion). Candidatos de caracter UNKNOWN/MIXED no bloquean (no son deficiencia demostrada)
     ni cuentan como fortaleza; la ausencia de defectos por si sola nunca la otorga."""
     cands = [c for c in ev.harmonization.values() if (c.get("character") or {}).get("value") == "TECHNICAL_MATERIALIZATION"]
-    qualified = [c["artifact"] for c in cands if _har_sources_governed(ev, c, policy) and _har_business_labels(c) and ev.descendants(c["artifact"])]
+    qualified = [c["artifact"] for c in cands if _har_sources_governed(ev, c, policy) and _har_business_labels(c) and ev.consumed_downstream(c["artifact"])]
     if not qualified:
         return []
     if harmonization_passthrough_exposure(ev) or _downstream_created_semantics(ev)[0] or any(_aligns_branches(ev, n) for n in ev.product_nodes):
@@ -588,7 +588,7 @@ def strengths(ev: ProfileEvidence, policy: str, has_pro_mat: bool, variants: fro
             out.append(_strength("HAR-STR-01", C.HARMONIZATION, "har.legitimate_reusable_boundary_over_governed_contract", ev=ev, artifacts=qual, refs=[f"ce:harmonization_contract/{a}" for a in qual],
                                  basis=["HAR.one_to_one_over_governed_contract", "HAR.business_vocabulary_preserved_by_provider_labels", "HAR.consumed_by_downstream_artifact", "HAR.no_downstream_compensation"]))
     enriched = [c["artifact"] for c in cands if (c.get("label_origin_counts") or {}).get("DIFFERENT_FROM_PROVIDER") or (c.get("character") or {}).get("value") == "SEMANTIC_TRANSFORMATION_PRESENT"]
-    if enriched and all(ev.descendants(a) for a in enriched):
+    if enriched and all(ev.consumed_downstream(a) for a in enriched):                 # consumido = por linaje o publicado como dimensión de negocio (asociación)
         out.append(_strength("HAR-STR-02", C.HARMONIZATION, "har.reusable_semantic_enrichment", ev=ev, artifacts=enriched,
                              refs=[f"ce:harmonization_contract/{a}" for a in enriched], basis=["HAR.candidate_owns_enrichment", "HAR.consumed_by_downstream_artifact"]))
     # PRO-STR-01 — producto sobre insumos resueltos

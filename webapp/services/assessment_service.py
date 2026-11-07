@@ -1461,7 +1461,9 @@ def _materialization_envelope_hook(doc: dict, previous: dict | None) -> tuple[di
 def _harmonization_envelope_hook(doc: dict, previous: dict | None) -> tuple[dict, dict]:
     """Sobre candidato de ``evidence_harmonization_nested_projection_v5``: la EVIDENCIA de Armonizacion cambia, asi que el Juicio se RE-DERIVA con el motor vigente y las MISMAS
     ratificaciones que consumio el Juicio anterior (replay: no se relee el registro ni se agregan decisiones). Si alguna deja de aplicarse, la migracion se ABSTIENE (las ratificaciones
-    siguen sus propias reglas de vigencia por el flujo gobernado). Los derivados hermanos (dominio, negocio) se conservan tal cual. El cambio de nivel se informa en las notas."""
+    siguen sus propias reglas de vigencia por el flujo gobernado). Los derivados hermanos (dominio, negocio) se conservan tal cual. El cambio de nivel se informa en las notas y el
+    resultado PROYECTADO (``ANTERIOR->NUEVO`` nivel/regla) viaja en ``judgment_action``, que ENTRA al digest del plan firmado (mismo criterio que ``--regenerate-selected``): un Juicio derivado
+    con una interpretacion distinta bajo el MISMO ruleset no puede aplicarse sin que el aprobador haya firmado ese cambio exacto."""
     from webapp.services import judgment_decisions as jd
     prev = previous or {}
     replay = jd.consumed(prev.get("judgment"))
@@ -1471,7 +1473,8 @@ def _harmonization_envelope_hook(doc: dict, previous: dict | None) -> tuple[dict
     old = prev.get("judgment") or {}
     same = old.get("output_signature") == fresh.get("output_signature")
     return ({"judgment": fresh, "domain_classification": prev.get("domain_classification"), "business_classification": prev.get("business_classification")},
-            {"judgment_action": "judgment_current" if same else "judgment_rederived", "previous_judgment_status": old.get("status"),
+            {"judgment_action": f"{'judgment_current' if same else 'judgment_rederived'}:{old.get('level') or 'ND'}/{old.get('level_rule')}->{fresh.get('level') or 'ND'}/{fresh.get('level_rule')}",
+             "previous_judgment_status": old.get("status"),
              "previous_judgment_level": old.get("level"), "previous_judgment_rule": old.get("level_rule"), "new_judgment_status": fresh.get("status"),
              "new_judgment_level": fresh.get("level"), "new_judgment_rule": fresh.get("level_rule")})
 
