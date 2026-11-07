@@ -394,7 +394,7 @@ def test_progress_phases_are_truthful_and_stdout_streams_in_order(owner, fake_ex
     fake_export["extra_lines"] = ["Inventory analytic-models: 11", "[RF 12/38] RF_MD_REGUH"]
     r = _post(owner)
     events = _events(r)
-    assert events[0] == {"t": "start"} and events[-1]["t"] == "done"
+    assert events[0]["t"] == "start" and len(events[0]["run_id"]) == 32 and events[-1]["t"] == "done"
     lines = _lines(r)
     wanted = ["Preflight OAuth: OK (HTTP 200)", "Preflight autorización: OK - acceso al Space ACME_SPACE", "Inventory analytic-models: 11", "[RF 12/38] RF_MD_REGUH"]
     positions = [lines.index(w) for w in wanted]

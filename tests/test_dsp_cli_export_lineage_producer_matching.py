@@ -165,3 +165,49 @@ def test_g_resolver_and_acquisition_matcher_agree(rf_targets, leaf, known_entiti
     assert bool(acq_kinds) == resolver_matched
     if resolver_matched:
         assert resolver_match_kind in acq_kinds
+
+
+# --------------------------------------------------------------------------- costo del descubrimiento (sin perder completitud)
+class _CountingCli(FakeCli):
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self.reads: list[tuple[str, str]] = []
+        self.lists: list[str] = []
+
+    def list_objects(self, space, object_type):
+        self.lists.append(object_type)
+        return super().list_objects(space, object_type)
+
+    def read_object(self, space, object_type, technical_name):
+        self.reads.append((object_type, technical_name))
+        return super().read_object(space, object_type, technical_name)
+
+
+def test_without_local_table_leaves_no_replication_flow_is_read(tmp_path, capsys):
+    """Sin hojas local-table ningún RF puede producir el linaje: no se lista ni se lee ningún RF (mismo resultado, costo cero) y se informa."""
+    inv = {t: [] for t in dsp.ROOT_OBJECT_TYPES}
+    inv["replication-flows"] = ["RF_A", "RF_B"]
+    cli = _CountingCli(inv, {("replication-flows", r): _rf_json(r, ["X"]) for r in ("RF_A", "RF_B")})
+    exp = dsp.LineageExporter(cli, "S", output_dir=tmp_path, root_object="ROOT")
+    exp.effective_features = {"replication-flows"}
+    exp.add_node("views", "V_ONLY")
+    exp.discover_producers()
+    assert cli.reads == [] and "replication-flows" not in cli.lists
+    assert _produces(exp) == set() and not exp.failures
+    assert "Replication Flows: SKIP - el linaje no tiene Local Tables" in capsys.readouterr().out
+
+
+def test_with_leaves_every_replication_flow_is_read_and_timed(tmp_path, capsys):
+    """Completitud: con hojas, se leen TODOS los RF del inventario (la lista no trae targets) y cada lectura informa su duración."""
+    rfs = {"RF_ACDOCA": ["ACDOCA"], "RF_Billing": ["VBRK"], "1RF_I_DATOS_MAESTROS": ["1LT_I_PRODUCTPLANTBASIC"]}
+    inv = {t: [] for t in dsp.ROOT_OBJECT_TYPES}
+    inv["replication-flows"] = sorted(rfs)
+    cli = _CountingCli(inv, {("replication-flows", r): _rf_json(r, t) for r, t in rfs.items()})
+    exp = dsp.LineageExporter(cli, "S", output_dir=tmp_path, root_object="ROOT")
+    exp.effective_features = {"replication-flows"}
+    exp.add_node("local-tables", "1LT_I_PRODUCTPLANTBASIC")
+    exp.discover_producers()
+    assert sorted(n for _, n in cli.reads) == sorted(rfs)
+    assert _produces(exp) == {("1RF_I_DATOS_MAESTROS", "1LT_I_PRODUCTPLANTBASIC")}
+    out = capsys.readouterr().out
+    assert out.count("  lectura: ") == 3 and "Replication Flows relacionados: 1/3" in out

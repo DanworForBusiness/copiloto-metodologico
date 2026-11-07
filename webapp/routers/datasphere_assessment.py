@@ -6,8 +6,9 @@ ad-hoc (24 h) → abrir el informe. Nada se publica en el Catálogo ni en Spaces
 
 Rutas (SOLO el POST ejecuta; los GET son de lectura):
 
-  POST /modules/{stem}/datasphere-assessment/run                       valida + ejecuta y transmite el avance en tiempo real
+  POST /modules/{stem}/datasphere-assessment/run                       valida + ejecuta (operación del servidor) y transmite el avance en tiempo real
                                                                        (NDJSON, vía fetch); termina con la URL del informe
+  GET  /modules/{stem}/datasphere-assessment/operation/{run_id}?since=N  recupera avance y resultado de una ejecución PROPIA si la conexión se cortó
   GET  /modules/{stem}/datasphere-assessment/result/{result_id}        informe ad-hoc (MISMA plantilla/presenter que el del Catálogo)
   GET  /modules/{stem}/datasphere-assessment/result/{result_id}/log          detalle de ejecución (log saneado, vence con el resultado)
   POST /modules/{stem}/datasphere-assessment/result/{result_id}/delete       elimina ESE resultado temporal (y su log); solo su dueño
@@ -28,7 +29,7 @@ solo por el cuerpo del POST, se pasa al servicio y NO se devuelve, no se guarda 
 from __future__ import annotations
 
 import json
-import queue
+import logging
 import threading
 from urllib.parse import urlencode
 
@@ -49,6 +50,7 @@ from webapp.services.content_service import academy_asset_for, list_academy, lis
 from webapp.templating import templates
 
 router = APIRouter()
+log = logging.getLogger(__name__)
 
 
 def _authorize_read(request: Request, stem: str) -> dict:
@@ -103,7 +105,8 @@ def run_assessment(
     profile_id: str = Form(""), graph_token: str = Form(""),
 ):
     """Ejecuta y emite el avance EN TIEMPO REAL como NDJSON (una línea JSON por evento):
-        {"t":"start"}                              apenas arranca
+        {"t":"start","run_id":…}                   apenas arranca (run_id = cómo retomarla si la conexión se corta)
+        {"t":"ping"}                               latido cada HEARTBEAT_S sin salida (la conexión nunca queda inactiva)
         {"t":"line","v":"<línea del extractor>"}   cada línea de salida del extractor, en orden y sin reinterpretar
         {"t":"phase","phase":"<id>","v":"<texto>"}  hito semántico del backend (evidence_acquired | assessing | assessment_ready) + su texto;
                                                    cómo se dibuja (spinner) lo decide el frontend
@@ -127,38 +130,74 @@ def run_assessment(
                                      headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
         secret = profile.secret
         del profile
-    events: queue.Queue = queue.Queue()
+    owner = svc.owner_email(request)
+    run_id = svc.start_operation(owner)        # la operación vive en el servidor: el corte de ESTA conexión no la detiene ni la pierde
+
+    failed_done = {"t": "done", "state": "FAILED", "error_code": "EXTRACTION_FAILED", "message": svc.ERROR_MESSAGES["EXTRACTION_FAILED"],
+                   "title": svc.TITLE_EXTRACTION, "errors": {}, "operation_id": None, "duration_s": None, "result_url": None}
 
     def worker() -> None:
+        # INVARIANTE: toda operación termina en UN `done`, publicado en el `finally` ANTES de la telemetría. Ni una falla del run ni una del
+        # registro de actividad pueden dejar al navegador esperando, y la telemetría jamás cambia el resultado real del Assessment.
         nonlocal secret
+        outcome = None
         try:
-            outcome = svc.run(values, secret, user_email=svc.owner_email(request),
-                              on_line=lambda line: events.put({"t": "line", "v": line}),
-                              on_phase=lambda phase: events.put({"t": "phase", "phase": phase, "v": svc.PHASE_COPY[phase]}))
+            outcome = svc.run(values, secret, user_email=owner,
+                              on_line=lambda line: svc.publish_event(run_id, {"t": "line", "v": line}),
+                              on_phase=lambda phase: svc.publish_event(run_id, {"t": "phase", "phase": phase, "v": svc.PHASE_COPY[phase]}))
+        except Exception as exc:                                           # noqa: BLE001 — jamás el texto crudo; el `done` de falla lo emite el finally
+            log.warning("datasphere_assessment run=%s worker failed exc=%s", run_id, type(exc).__name__)
         finally:
             secret = ""                                                    # el secreto no sobrevive a la ejecución
-        log_activity("datasphere_assessment_run", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG,
-                     client=values.client, space=values.space, root_object=values.root_object,
-                     state=outcome.state, error_code=outcome.error_code, stage=outcome.stage, duration_s=outcome.duration_s,
-                     operation_id=outcome.operation_id, outcome=outcome_of(outcome.state))
-        result_url = _result_urls(stem, outcome.result_id, selected)[0] if outcome.result_id else None
-        events.put({"t": "done", "state": outcome.state, "error_code": outcome.error_code, "message": outcome.message,
-                    "title": outcome.title, "errors": outcome.errors, "operation_id": outcome.operation_id,
-                    "duration_s": outcome.duration_s, "result_url": result_url})
-        events.put(None)
+            done = failed_done
+            if outcome is not None:
+                try:
+                    result_url = _result_urls(stem, outcome.result_id, selected)[0] if outcome.result_id else None
+                    done = {"t": "done", "state": outcome.state, "error_code": outcome.error_code, "message": outcome.message,
+                            "title": outcome.title, "errors": outcome.errors, "operation_id": outcome.operation_id,
+                            "duration_s": outcome.duration_s, "result_url": result_url}
+                except Exception as exc:                                   # noqa: BLE001 — sin URL no hay informe que abrir: falla visible, nunca espera
+                    log.warning("datasphere_assessment run=%s done build failed exc=%s", run_id, type(exc).__name__)
+            svc.publish_event(run_id, done)
+        if outcome is None:
+            return
+        try:                                                               # telemetría DESPUÉS del `done`: su falla solo se registra
+            log_activity("datasphere_assessment_run", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG,
+                         client=values.client, space=values.space, root_object=values.root_object,
+                         state=outcome.state, error_code=outcome.error_code, stage=outcome.stage, duration_s=outcome.duration_s,
+                         operation_id=outcome.operation_id, outcome=outcome_of(outcome.state))
+        except Exception as exc:                                           # noqa: BLE001 — solo el tipo: nunca valores del run ni del usuario
+            log.warning("datasphere_assessment run=%s op=%s activity log failed exc=%s", run_id, outcome.operation_id, type(exc).__name__)
 
     threading.Thread(target=worker, name="datasphere-assessment", daemon=True).start()
 
     def stream():
-        yield json.dumps({"t": "start"}) + chr(10)
+        # `run_id` = cómo retomar la operación si la conexión se corta (GET …/operation/{run_id}); el latido evita el corte por inactividad.
+        yield json.dumps({"t": "start", "run_id": run_id}) + chr(10)
+        cursor = 0
         while True:
-            event = events.get()
-            if event is None:
+            batch, cursor, finished = svc.wait_events(run_id, cursor, svc.HEARTBEAT_S)
+            if not batch and not finished:
+                yield json.dumps({"t": "ping"}) + chr(10)
+                continue
+            for event in batch:
+                yield json.dumps(event, ensure_ascii=False) + chr(10)
+            if finished:
                 return
-            yield json.dumps(event, ensure_ascii=False) + chr(10)
 
     return StreamingResponse(stream(), media_type="application/x-ndjson",
                              headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no", "X-Content-Type-Options": "nosniff"})
+
+
+@router.get("/modules/{stem}/datasphere-assessment/operation/{run_id}", include_in_schema=False)
+def run_operation_events(request: Request, stem: str, run_id: str, since: int = Query(0, ge=0)):
+    """Recuperación tras un corte de la conexión: avance y resultado de una ejecución PROPIA en curso o terminada, sin reiniciarla.
+    Solo LEE el registro en memoria (mismos eventos saneados del stream). Otra operación o una vencida: 404 indistinguible."""
+    _authorize_read(request, stem)
+    data = svc.operation_events(run_id, svc.owner_email(request), since)
+    if data is None:
+        raise HTTPException(404, "La ejecución no existe o venció.")
+    return JSONResponse(data, headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
 
 
 @router.post("/modules/{stem}/datasphere-profiles", include_in_schema=False)
