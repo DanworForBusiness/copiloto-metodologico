@@ -146,6 +146,8 @@
       {# Clasificación global = el Juicio del informe que se está viendo (`v.judgment`, la MISMA vista que [02]); sin Juicio no hay badge.
          Ad hoc: «provisional» (de esta ejecución, nunca el publicado en el Catálogo). #}
       {% if v.judgment %}<span class="catalog-card__verdict catalog-card__verdict--{{ v.judgment.tone }}" data-asr-level="{{ v.judgment.level or 'NOT_DETERMINABLE' }}"{% if v.judgment_provisional %} data-asr-provisional{% endif %}>Adopción metodológica{% if v.judgment_provisional %} provisional{% endif %} · {{ v.judgment.level_label }}</span>{% endif %}
+      {# Procedencia: Space REAL de la ejecución (ad hoc) o de la publicación registrada en el ledger (Catálogo); sin dato, sin badge. #}
+      {% if v.space %}<span class="catalog-card__verdict catalog-card__verdict--neutra" data-asr-space>Space: {{ v.space }}</span>{% endif %}
       {% if v.generated_at %}<span>Generado {{ v.generated_at.replace("T", " ").replace("+00:00", " UTC") }}</span>{% endif %}
       {% if v.drift_note %}<span>{{ v.drift_note }}</span>{% endif %}
       {% if v.has_profile %}<span>{{ v.scope_text }}</span>{% endif %}

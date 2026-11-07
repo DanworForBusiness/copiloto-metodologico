@@ -1008,9 +1008,11 @@ def _context_questions(ctx: dict, groups_by_id: dict[str, dict]) -> dict:
             "context_backed_n": sum(1 for r in rows if r["has_finding"]), "context_independent_n": sum(1 for r in rows if not r["has_finding"])}
 
 
-def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: AdhocReport | None = None) -> dict:
+def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: AdhocReport | None = None, space: str | None = None) -> dict:
     """View-model del informe. ``status.profile`` es el JSON canónico validado; nada se deriva de otra fuente.
-    ``adhoc`` (opcional) reemplaza el contexto del Catálogo (flujo/URLs/linaje) por el de un assessment ad-hoc; el contenido es el mismo."""
+    ``adhoc`` (opcional) reemplaza el contexto del Catálogo (flujo/URLs/linaje) por el de un assessment ad-hoc; el contenido es el mismo.
+    ``space`` (opcional) = PROCEDENCIA de la ejecución (ad hoc: el Space validado de la corrida; Catálogo: ``svc.published_space``); solo se
+    muestra, nunca se compara ni modifica evidencia o Juicio."""
     doc = P.display_doc(status.profile) if status.profile is not None else None      # títulos públicos vigentes aun en perfiles persistidos anteriores
     link_entry = None if adhoc else entry
     view: dict[str, Any] = {
@@ -1029,6 +1031,7 @@ def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: Adho
         "judgment": judgment_view(status.judgment),   # Juicio metodológico persistido (distinto de la vigencia del Assessment)
         # Ad hoc: el Juicio es PROVISIONAL (derivado de ESTA ejecución, sin decisiones gobernadas; ver ``assessment_service.provisional_judgment``).
         "judgment_provisional": adhoc is not None and status.judgment is not None,
+        "space": (space or "").strip() or None,
     }
     view["title_desc"], view["title_id"] = terminal_titles(status, entry, doc, adhoc is not None)     # canónico → Catálogo → nombre técnico legible; sin modelo terminal: neutro
     view["module_label"] = MODULE_LABEL

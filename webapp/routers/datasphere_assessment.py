@@ -225,7 +225,8 @@ def adhoc_report(request: Request, stem: str, result_id: str, pack: str = Query(
     selected = resolve_pack(pack)
     record = _record_or_404(request, result_id)
     _report, json_url, md_url, back_url = _result_urls(stem, result_id, selected)
-    view = presenter.report_view(svc.result_status(record), None, selected, adhoc=presenter.AdhocReport(back_url, json_url, md_url))
+    view = presenter.report_view(svc.result_status(record), None, selected, adhoc=presenter.AdhocReport(back_url, json_url, md_url),
+                                 space=record.get("space"))
     academy = [a for a in list_academy(selected) if not a.nav_hidden]
     return templates.TemplateResponse(
         request=request, name="datasphere_assessment_result.html",
