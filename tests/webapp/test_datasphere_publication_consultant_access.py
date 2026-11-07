@@ -54,7 +54,7 @@ def runs(monkeypatch):
     """Registra cada ejecución real de la publicación (el extractor jamás corre en estas pruebas)."""
     calls: list[dict] = []
 
-    def fake_run(values, client_secret, *, user_email="", on_line=None, on_phase=None):
+    def fake_run(values, client_secret, *, user_email="", on_line=None, on_phase=None, replace_token=""):
         calls.append({"client": values.client, "model": values.root_object, "secret": client_secret, "user": user_email, "client_id": values.client_id})
         return asd.Outcome("SUCCESS", operation_id="op1", duration_s=0.1, stage="publish", terminal_am=values.root_object)
     monkeypatch.setattr(pub, "run", fake_run)

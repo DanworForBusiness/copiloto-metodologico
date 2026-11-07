@@ -194,3 +194,18 @@ def test_the_run_endpoint_forwards_only_a_well_formed_token_and_returns_the_scop
     r = s._client("owner@danwor.com").post(s.RUN_URL, data={**s.FORM, "replace_token": sent}, headers={"Origin": "http://testserver"})
     done = next(json.loads(ln) for ln in r.text.splitlines() if '"done"' in ln)
     assert seen["token"] == received and done["error_code"] == "POOL_IDENTITY_CONFLICT" and done["replacement"] == scope and done["result_url"] is None
+
+
+def test_an_unexpected_failure_in_the_worker_still_ends_the_stream(monkeypatch):
+    """Una excepción dentro del hilo (p. ej. una firma incompatible) jamás deja el stream sin evento terminal: antes colgaba al cliente (y a la suite) indefinidamente."""
+    from tests.webapp import test_datasphere_publication_safe as s
+    from webapp import access
+    from webapp.services import datasphere_publication_service as pubsvc
+    monkeypatch.setattr(access, "APP_OWNER", "owner@danwor.com")
+
+    def boom(values, secret, *, user_email="", on_line=None, on_phase=None):              # firma VIEJA: TypeError por replace_token
+        raise AssertionError("no debería llegar acá")
+    monkeypatch.setattr(pubsvc, "run", boom)
+    r = s._client("owner@danwor.com").post(s.RUN_URL, data=s.FORM, headers={"Origin": "http://testserver"})
+    done = next(json.loads(ln) for ln in r.text.splitlines() if '"done"' in ln)
+    assert done["state"] == "FAILED" and done["error_code"] == "EXTRACTION_FAILED" and done["result_url"] is None

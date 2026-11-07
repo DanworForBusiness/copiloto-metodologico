@@ -18,6 +18,7 @@ registra.
 from __future__ import annotations
 
 import json
+import logging
 import queue
 import threading
 from urllib.parse import urlencode
@@ -35,6 +36,7 @@ from webapp.services.activity_context import AREA_CATALOG, SCOPE_COPILOT
 from webapp.services.activity_service import log_activity
 from webapp.services.activity_catalog import outcome_of
 
+log = logging.getLogger("danwor.datasphere_publication")
 router = APIRouter()
 
 
@@ -97,11 +99,19 @@ def run_publication(
     def worker() -> None:
         nonlocal secret
         try:
-            outcome = svc.run(values, secret, user_email=svc.owner_email(request), replace_token=replacement.valid_token(replace_token),
-                              on_line=lambda line: events.put({"t": "line", "v": line}),
-                              on_phase=lambda phase: events.put({"t": "phase", "phase": phase, "v": svc.PHASE_COPY[phase]}))
+            _work()
+        except Exception:                                                  # noqa: BLE001 — una falla inesperada NUNCA deja el stream sin evento terminal (colgaría al cliente)
+            log.exception("datasphere_publication: falla inesperada en el hilo de publicación")
+            events.put({"t": "done", "state": "FAILED", "error_code": "EXTRACTION_FAILED", "message": svc.asd.ERROR_MESSAGES["EXTRACTION_FAILED"],
+                        "title": svc.TITLE_PUBLISH, "errors": {}, "result_url": None})
         finally:
             secret = ""                                                    # el secreto no sobrevive a la ejecución
+            events.put(None)                                               # fin del stream SIEMPRE
+
+    def _work() -> None:
+        outcome = svc.run(values, secret, user_email=svc.owner_email(request), replace_token=replacement.valid_token(replace_token),
+                          on_line=lambda line: events.put({"t": "line", "v": line}),
+                          on_phase=lambda phase: events.put({"t": "phase", "phase": phase, "v": svc.PHASE_COPY[phase]}))
         log_activity("datasphere_publication_run", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG,
                      client=values.client, space=values.space, root_object=values.root_object,
                      state=outcome.state, error_code=outcome.error_code, stage=outcome.stage, duration_s=outcome.duration_s,
@@ -115,7 +125,6 @@ def run_publication(
                     "status": getattr(outcome, "status", ""), "durability": getattr(outcome, "durability", ""), "stages": getattr(outcome, "stages", {}),
                     "change": getattr(outcome, "change", ""), "assessment": {k: len(v) for k, v in (getattr(outcome, "assessment", None) or {}).items()},
                     "replacement": getattr(outcome, "replacement", None)})            # alcance del conflicto / reemplazo (solo nombres de objetos y modelos; sin rutas)
-        events.put(None)
 
     threading.Thread(target=worker, name="datasphere-publication", daemon=True).start()
 
