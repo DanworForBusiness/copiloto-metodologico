@@ -95,3 +95,23 @@ def test_catalog_space_never_changes_the_governed_result(world):  # noqa: F811
     assert (level(html_without) is None) == (level(html_with) is None)
     if level(html_with) is not None:
         assert level(html_with)["data-asr-level"] == level(html_without)["data-asr-level"]
+
+
+# ── «Evaluar la versión actual»: del Catálogo al Assessment ad hoc, sin publicar ────────────────────────────────────
+def test_catalog_report_links_to_the_adhoc_assessment_of_the_same_model(world, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(dsvc, "can_execute", lambda request: True)
+    link = BeautifulSoup(_catalog_html(), "html.parser").select_one("[data-asr-diagnostic]")
+    assert link is not None and link["href"] == dsvc.catalog_prefill_url("04_Modelado_y_Desarrollo", "datasphere_core", "Acme", "4AM_ACME")
+    monkeypatch.setattr(dsvc, "can_execute", lambda request: False)                       # sin acceso a la herramienta: sin enlace
+    assert BeautifulSoup(_catalog_html(), "html.parser").select_one("[data-asr-diagnostic]") is None
+
+
+def test_the_tool_is_prefilled_with_the_model_and_never_with_a_space(owner, fake_export):  # noqa: F811
+    ds._post(owner, data={**ds.VALID, "space": "CALIDAD"})                               # contexto previo de la sesión con un Space
+    html = owner.get(f"/modules/{ds.STEM}?pack=datasphere_core&tool=assessment&client=Acme&root=4AM_OTRO").text
+    soup = BeautifulSoup(html, "html.parser")
+    form = soup.select_one("#dsa-form")
+    assert form.select_one('[name="datasphere_root_object"]')["value"] == "4AM_OTRO" and form.select_one('[name="client"]')["value"] == "Acme"
+    assert (form.select_one('[name="space"]').get("value") or "") == ""                 # el Space lo elige el consultor
+    bad = owner.get(f"/modules/{ds.STEM}?pack=datasphere_core&tool=assessment&client=Acme&root=%3Cscript%3E").text
+    assert BeautifulSoup(bad, "html.parser").select_one('#dsa-form [name="datasphere_root_object"]')["value"] != "<script>"   # inválido: no precarga
