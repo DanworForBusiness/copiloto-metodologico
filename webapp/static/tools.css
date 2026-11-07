@@ -1277,6 +1277,11 @@ button.star-rating__star:focus-visible { outline: 2px solid var(--gold); outline
 /* Diálogo ancho con una zona de selección que scrollea («Agregar candidato desde el Banco» de CCHH; «Componente de la región» de Presentaciones): promovido desde human_capital.css para que lo consuman ambos.
    Va DESPUÉS de `.dw-confirm` (mismo peso) para pisar su ancho; los refinamientos propios de CCHH (`.busqueda-picker--search`, tabla, grupo de casillas) siguen en human_capital.css, que carga después. */
 .busqueda-dialog { max-width: 640px; width: calc(100% - 32px); }
+/* «Regenerar Catálogo» (Herramientas de Diagnóstico): aire entre contexto, comparación y operación con el MISMO 14px que ya separa el `.callout`, y el texto de la operación
+   2px por debajo del cuerpo del diálogo (el aviso sigue en su tamaño de `.callout`). */
+#dsa-catalog-dialog .matrix-scroll, #dsa-catalog-dialog .busqueda-contact__context { margin-bottom: 14px; }
+#dsa-catalog-dialog [data-review-difference], #dsa-catalog-dialog [data-review-operation] > p { font-size: 14px; margin: 0 0 6px; }
+#dsa-catalog-dialog [data-review-diagnostic-level], #dsa-catalog-dialog [data-review-catalog-level] { white-space: normal; }   /* badge + «(gobernado · estado)» completos, sin elipsis */
 .busqueda-picker { max-height: 52vh; overflow: auto; padding: 0 24px; }
 /* Acciones de fila (Editar + Eliminar) lado a lado, centradas en su celda. */
 .dw-row-actions { display: inline-flex; align-items: center; gap: 4px; }
@@ -3075,6 +3080,7 @@ details:not([open]) > summary > .panel-close[data-asr-close] { display: none; }
 .catalog-actionbar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin: 0 0 16px; }
 .catalog-actionbar .catalog-back { position: static; top: auto; margin: 0; background: none; z-index: auto; }
 .catalog-actionbar__actions { margin: 0 0 0 auto; flex-wrap: wrap; }
+.catalog-actionbar__actions > [data-catalog-regenerate] { align-self: center; }   /* «Regenerar Catálogo» (ícono 28px) centrado con los support-links (36px) */
 /* Fila de estado del assessment bajo el título (concepto nuevo): pegada al título, 6px más arriba por pedido del owner. */
 .asm-hero-meta { margin-top: -4px; }
 /* La fila de metadata legacy (veredicto · artefactos) hereda `.hero-meta{margin-top:22px}` del Hub: pegada a la del assessment forman un solo bloque. */

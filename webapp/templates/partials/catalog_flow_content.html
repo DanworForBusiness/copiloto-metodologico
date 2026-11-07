@@ -15,6 +15,11 @@
   <a class="catalog-back" href="#" role="button" hx-get="{{ assessment_url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>← Volver</a>
   {% else %}<a class="catalog-back" href="#" onclick="return dwCatalogBack();">← Volver</a>{% endif %}
   <div class="support-links heading-supports catalog-actionbar__actions">
+    {# «Regenerar Catálogo» (MISMO ícono/tooltip que en Assessments recientes): abre el formulario de publicación precargado; no publica nada por sí mismo. Solo si `regenerate_url` (puede publicar este cliente). #}
+    {% if regenerate_url %}<a class="table-action-btn chart-tooltip-anchor" href="{{ regenerate_url }}" aria-label="Regenerar Catálogo" data-catalog-regenerate>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+      <span class="chart-tooltip" aria-hidden="true"><p>Regenerar Catálogo</p></span>
+    </a>{% endif %}
     {{ assessment_action(ah) }}
     {# Informe de Cliente (consolidado V1): `.support-link` hermano del assessment del flujo; carga en el MISMO slot y su "← Volver" regresa a este flujo. #}
     <a class="support-link" href="#" role="button" hx-get="/catalog/client/assessment?flow={{ entry_id|urlencode }}&pack={{ pack|urlencode }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>Ver Informe de Cliente<span>↗</span></a>

@@ -299,10 +299,11 @@ def _catalog_prefill(request, values: dict[str, str]) -> dict[str, str]:
 
 def publication_prefill(request, values: dict[str, str]) -> dict[str, str]:
     """Precarga del formulario de PUBLICACIÓN desde la revisión Diagnóstico → Catálogo (``?client=…&root=…&space=…``): cliente, modelo y el Space DEL RESULTADO
-    diagnosticado (procedencia registrada, no inferida del contexto del usuario). Validados; nunca credenciales."""
+    diagnosticado (procedencia registrada, no inferida del contexto del usuario). Validados; nunca credenciales. Desde el Catálogo («Regenerar Catálogo» del flujo) el Space es el de
+    la última publicación registrada; si no hay registro llega vacío y se deja VACÍO a propósito (lo elige el usuario; nunca el de la sesión)."""
     qp = _query_params(request)
     client, root, space = (str(qp.get(k) or "").strip() for k in ("client", "root", "space"))
-    if not (client and root and space and all(_PREFILL_RE.match(v) for v in (client, root, space))):
+    if not (client and root and all(_PREFILL_RE.match(v) for v in (client, root)) and (not space or _PREFILL_RE.match(space))):
         return values
     return {**values, "client": client, "root_object": root, "space": space}
 

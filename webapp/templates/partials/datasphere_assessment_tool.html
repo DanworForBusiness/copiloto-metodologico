@@ -54,13 +54,16 @@
       <div class="admin-actions">
         <a class="btn-secondary" href="/modules/{{ dsa.stem }}/datasphere-assessment/result/{{ r.id }}?pack={{ pack | urlencode }}">Abrir assessment</a>
         {% if r.has_log %}<a class="btn-secondary" href="/modules/{{ dsa.stem }}/datasphere-assessment/result/{{ r.id }}/log?pack={{ pack | urlencode }}">Ver ejecución</a>{% endif %}
-        {# Regenerar Catálogo: abre la REVISIÓN Diagnóstico → Catálogo de ESTE resultado (solo lectura; no escribe). Mismo patrón visual que Eliminar (`.table-action-btn` + SVG + tooltip). #}
-        <a class="table-action-btn chart-tooltip-anchor" href="/modules/{{ dsa.stem }}/datasphere-assessment/result/{{ r.id }}/catalog?pack={{ pack | urlencode }}" aria-label="Regenerar Catálogo" data-dsa-catalog>
+        {# Regenerar Catálogo: abre la REVISIÓN Diagnóstico → Catálogo de ESTE resultado (solo lectura; no escribe). Mismo patrón visual que Eliminar (`.table-action-btn` + SVG + tooltip).
+           Los dos íconos van JUNTOS a la derecha: el alineado (`admin-actions__end`) lo toma el primero de ellos, así Eliminar queda pegado a su lado y en su lugar de siempre. #}
+        <a class="table-action-btn chart-tooltip-anchor admin-actions__end" href="/modules/{{ dsa.stem }}/datasphere-assessment/result/{{ r.id }}/catalog?pack={{ pack | urlencode }}" aria-label="Regenerar Catálogo" data-dsa-catalog
+           data-dialog-open="dsa-catalog-dialog" hx-get="/modules/{{ dsa.stem }}/datasphere-assessment/result/{{ r.id }}/catalog?pack={{ pack | urlencode }}" hx-target="#dsa-catalog-content" hx-swap="innerHTML"
+           hx-on::before-request="document.getElementById('dsa-catalog-content').replaceChildren(document.getElementById('dsa-catalog-loading').content.cloneNode(true))">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
           <span class="chart-tooltip" aria-hidden="true"><p>Regenerar Catálogo</p></span>
         </a>
         {# Eliminar: MISMO patrón que Capital Humano (form[data-dw-confirm-form] + `.table-action-btn--danger` + SVG de papelera + tooltip). #}
-        <form method="post" action="/modules/{{ dsa.stem }}/datasphere-assessment/result/{{ r.id }}/delete" class="admin-actions__end"
+        <form method="post" action="/modules/{{ dsa.stem }}/datasphere-assessment/result/{{ r.id }}/delete"
               data-dsa-delete data-dw-confirm-form data-dw-confirm-title="¿Eliminar este assessment?"
               data-dw-confirm-message="Este resultado temporal y su detalle de ejecución dejarán de estar disponibles." data-dw-confirm-ok="Eliminar">
           <input type="hidden" name="pack" value="{{ pack }}">
@@ -73,6 +76,10 @@
     </div>
     {% endfor %}
   </div>
+  {# Diálogo ÚNICO «Regenerar Catálogo» (mismo `<dialog class="dw-confirm busqueda-dialog">` que «Acciones masivas» de Solicitudes): el ícono lo abre con el abridor compartido del Hub
+     (`[data-dialog-open]`, app.js) y trae por HTMX la revisión del resultado; mientras llega, «Consultando…» con «Cancelar». #}
+  <template id="dsa-catalog-loading"><div class="dw-confirm__body"><h2 class="dw-confirm__title" id="dsa-catalog-title">Regenerar Catálogo</h2><p class="field-hint" role="status">Consultando la revisión…</p></div><form method="dialog" class="dw-confirm__actions"><button type="submit" class="btn-secondary" value="cancel">Cancelar</button></form></template>
+  <dialog class="dw-confirm busqueda-dialog" id="dsa-catalog-dialog" aria-labelledby="dsa-catalog-title"><div id="dsa-catalog-content"></div></dialog>
   {% endif %}
 {% endif %}
 </div>

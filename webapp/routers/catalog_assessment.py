@@ -74,6 +74,24 @@ def _diagnostic_url(request: Request, status: svc.AssessmentStatus, pack: str) -
     return dsa.catalog_prefill_url(stem, pack, status.client, status.terminal_am)
 
 
+def regenerate_url(request: Request, entry, pack: str) -> str | None:
+    """«Regenerar Catálogo» desde el detalle del flujo: el formulario de PUBLICACIÓN (Herramientas de Diagnóstico → Catálogo) precargado con cliente, modelo y el Space de su última
+    publicación registrada en el ledger (vacío si no hay: lo elige el usuario, nunca se infiere). No publica nada: la confirma el usuario con sus credenciales, bajo la publicación
+    transaccional y la guarda de identidad del pool. Solo para quien puede publicar sobre ese cliente y si el flujo resuelve un modelo terminal; ante cualquier duda, no se ofrece."""
+    from webapp.services import datasphere_assessment_service as dsa
+    from webapp.services import datasphere_publication_service as pub
+    stem = next(iter(sorted(pub.PUBLICATION_MODULES)), None)
+    try:
+        if not stem or not pub.tool_enabled(stem) or not pub.can_execute(request):
+            return None
+        status = svc.status_for_entry(entry)
+        if not status.terminal_am or not pub.client_authorized(request, status.client):
+            return None
+        return dsa.publication_prefill_url(stem, pack, status.client, status.terminal_am, _published_space(entry, status) or "")
+    except Exception:                                    # noqa: BLE001 — acción opcional: nunca rompe el detalle del flujo
+        return None
+
+
 def _published_space(entry, status: svc.AssessmentStatus) -> str | None:
     """Space de publicación del modelo, SOLO desde el ledger de publicación (evidencia persistida); si no hay, no se muestra."""
     try:
