@@ -282,6 +282,12 @@ class ProfileEvidence:
                     dq.append(c)
         return tuple(sorted(seen))
 
+    def consumed_downstream(self, name: str) -> bool:
+        """¿``name`` es CONSUMIDO dentro del modelo evaluado? Por linaje (algún artefacto del cierre lo lee: ``descendants``) o porque el contrato PUBLICADO lo expone como
+        dimensión de negocio por asociación (``business_association_targets``): una dimensión se consume por asociación, no por FROM/JOIN. Es la MISMA evidencia por la que el
+        artefacto es miembro del cierre; sin esto, una dimensión publicada contaba como «no consumida» solo por la forma de su consumo."""
+        return bool(self.descendants(name)) or name in self.business_association_targets
+
     def ancestors(self, name: str) -> tuple[str, ...]:
         """Todo lo que esta aguas ARRIBA de ``name`` (proveedores transitivos dentro del cierre)."""
         seen: set[str] = set()

@@ -206,3 +206,16 @@ def test_judgment_is_rederived_replaying_the_same_ratifications(tmp_path, monkey
 def test_judgment_ruleset_is_untouched():
     from tools.catalog.methodological_judgment import CURRENT_RULESET_VERSION
     assert CURRENT_RULESET_VERSION == "judgment-rules/v4"
+
+
+# ── consumo de un candidato de Armonización: linaje O dimensión publicada por asociación ─────────────────────────────
+def test_a_business_dimension_published_by_association_counts_as_consumed():
+    from tools.catalog.methodological_judgment.profile_access import ProfileEvidence
+    ev = ProfileEvidence({"canonical_evidence": {
+        "view_complexity": {"views": [{"artifact": "3VF", "provider_names": ["2TR"]}, {"artifact": "VD_DIM", "provider_names": ["T"]},
+                                          {"artifact": "VD_ORPHAN", "provider_names": ["T"]}]},
+        "published_contract": {"associations": {"associations": [{"target": "VD_DIM", "category": "BUSINESS_DIMENSION"},
+                                                                 {"target": "VD_TEXT", "category": "TEXT"}]}}}})
+    assert ev.consumed_downstream("2TR")                       # por linaje (3VF lo lee)
+    assert ev.consumed_downstream("VD_DIM") and not ev.descendants("VD_DIM")     # por asociación publicada, sin FROM aguas abajo
+    assert not ev.consumed_downstream("VD_ORPHAN") and not ev.consumed_downstream("VD_TEXT")   # ni linaje ni dimensión de negocio publicada
