@@ -1,14 +1,426 @@
 # HANDOFF — Copiloto Metodológico Danwor
 
-> **Documento de continuidad entre sesiones de Claude Code.** Si sos una sesión
-> nueva y no tenés el historial de la conversación: **este archivo es tu única
-> fuente de verdad del estado de la iniciativa**. Leelo COMPLETO, después
-> verificá `git status` + branch, y ejecutá **únicamente** la fase que el
-> usuario haya autorizado explícitamente. Ver **A.17 Regla de continuidad**.
+> **Documento de continuidad entre agentes.** Si sos una sesión nueva:
+>
+> 1. Leé **completa** la PARTE I (estado vigente al 2026-11-08). Es la fuente de verdad.
+> 2. La PARTE II es el **anexo histórico** por frente, hasta 2026-10-19. Consultala solo cuando la Parte I te remita o necesites el detalle de un frente cerrado. **Si contradice a la Parte I, manda la Parte I.**
+> 3. Verificá `git status` y la rama antes de tocar nada. Ejecutá **solo** lo que el owner autorice explícitamente.
 
 ---
 
-# NEXT AGENT — START HERE (frente Juicio metodológico; bootstrap operativo)
+# PARTE I — ESTADO VIGENTE (actualizado 2026-11-08)
+
+## I.0 Por dónde empezar (lectura obligatoria, en este orden)
+
+1. **§I.9: tu primer trabajo.** Es el discovery de revisiones resolubles y de la oportunidad de Transformation Flow. **No implementes**: primero el entregable del discovery.
+2. **§I.8:** especificación de la iniciativa.
+3. **§I.3 y §I.4:** marco metodológico y caso de referencia `AM_ANALISIS_VENCIMIENTO`. **No reabrir** lo cerrado ahí.
+4. **§I.6:** pendientes reales, entre ellos la migración de Biogenesis a CALIDAD en curso.
+5. **Primeros comandos:**
+   ```powershell
+   git fetch origin; git status -sb; git log --oneline -8 origin/main
+   ```
+   Archivos a abrir primero:
+   - `tools/catalog/modeling_assessment/signals.py`: detección de `ROLE_LAYER_DIVERGENCE`.
+   - `tools/catalog/modeling_assessment/profile.py`: texto del caso.
+   - `webapp/services/governed_decisions_store.py` y `webapp/services/judgment_decisions.py`: decisiones gobernadas y vigencia.
+   - `webapp/templates/partials/catalog_assessment_report.html`: sección `asr-revision`.
+
+## I.1 Qué es el Hub y cómo está organizado
+
+- **Repositorio:** `DanworForBusiness/copiloto-metodologico`.
+  - **Producción:** `main`. **Un push o merge a `main` despliega solo en DigitalOcean App Platform.**
+  - **Arranque:** `Procfile`, `web: python -m uvicorn webapp.main:app --host 0.0.0.0 --port $PORT`.
+  - **Python:** 3.14.3 (`.python-version`).
+- **Stack:** FastAPI, Jinja2 SSR, HTMX y Alpine.js. El runtime viejo en Streamlit quedó como legado (`ui/`, `engine/` vacíos; ADRs de Streamlit en `DECISIONS.md`).
+- **Estructura:**
+
+  | Carpeta | Contenido |
+  |---|---|
+  | `webapp/` | App: `main.py`, `routers/` (un router por superficie: `catalog_assessment`, `datasphere_assessment`, `datasphere_publication`, `governed_decisions`, `human_capital`, `solicitudes`…), `services/` (lógica: `assessment_service`, `assessment_presenter`, `datasphere_*`, `governed_decisions*`, `judgment_decisions`…), `templates/`, `static/` (`app.js`, `tools.css`, JS por herramienta). Acceso: `access.py`. |
+  | `core/` | Infraestructura compartida: `content_registry`, `remote_store` (Spaces), `publication_gate` (compuerta de lectores), `atomic_io`, `corpus`, `prompts`. |
+  | `content_packs/` | Contenido metodológico por pack. Activo: `datasphere_core`, con `content/`, `trees/` (árboles de decisión), `guides/`, `templates/`, `whats_new.yaml` y `portability_bdc.yaml`. Otro pack: `bdc_next`. |
+  | `tools/catalog/` | Extractor `DSP_CLI_Export_Lineage.py` (CLI de Datasphere de `node_modules/@sap/datasphere-cli`), publicación transaccional (`publication_txn`, `publication_ledger`, `publication_remote`, `publication_intent`, `publication_replacement`), motor del Assessment `modeling_assessment/` y del Juicio `methodological_judgment/`, generador del Catálogo y `connectivity_governance/`. Tiene su propio `tools/catalog/HANDOFF.md`, histórico de la familia de catálogos. |
+  | `tests/` | pytest. `tests/route_surface.json` es el **contrato de rutas** (hoy 300). Una ruta nueva exige actualizarlo, junto con los conteos de `test_commercial_strategy_viewport_reveal.py` y `test_staffing_production_corrective.py`. |
+  | `docs/` | Documentación por frente: `REPUBLICATION_P1.md`, `PUBLICATION_SAFE_RUNBOOK.md`, `PUBLISH_CONSULTANT_ACCESS.md`, `ASSESSMENT_*`, `CATALOG_*`… |
+  | `_handoffs/` | **Local y no versionado** (excluido en `.git/info/exclude`). Contiene evidencia y scripts de operación. **No existe en otro checkout ni en el repo.** |
+
+- **Entornos:**
+  - **Local (Windows):** `C:\Users\Joe\ArquitectoDanwor`, servidor `python -m uvicorn webapp.main:app --port 8082` (configuración `danwor-webapp` en `.claude/launch.json`). El owner valida la UI en **su** navegador sobre localhost antes de aprobar.
+  - **Producción:** DigitalOcean App Platform, desde `main`.
+- **Persistencia (`config.py`, `DANWOR_PERSISTENCE`):**
+
+  | Modo | Comportamiento |
+  |---|---|
+  | `local` (por defecto) | Nada remoto, aunque haya credenciales en `.env`. |
+  | `read-only` | Solo lectura explícita. |
+  | `remote` | Producción: restore al arrancar, sincronización periódica y write-through a Spaces. |
+
+  Detalles:
+  - El modo **nunca se infiere** de las credenciales. DO **debe** tener `remote`; se verifica en la Console, porque la línea INFO de arranque no llega a los Runtime Logs.
+  - Lo que se persiste está en `SPACES_PERSIST_PATHS`.
+  - El registro de decisiones gobernadas vive en un namespace propio, `governed-decisions/`, create-only y fuera de `PERSIST_PATHS`.
+- **Datos de runtime que nunca se commitean:** `catalog_local/`, `catalog_inbound/`, `reports/`, `case_library/`, `assessment_cache/`, `governed-assessments/`, `human-capital/` y `reporting_cache/`.
+- **Autenticación y autorización:**
+  - Login corporativo con Microsoft Entra ID (MSAL) y cookie de sesión `dw_session`, un JWT firmado por `auth_service`.
+  - **Owner:** `access.APP_OWNER`.
+  - **Tiers:** los usuarios de las allowlists `ALLOWED_USERS` tienen perfil completo; los de `ACADEMY_USERS`, solo lectura, sin IA.
+  - **Publicar en el Catálogo** (`datasphere_publication_service.can_execute`): el owner o cualquier usuario con perfil **completo**. `DANWOR_PUBLICATION_CONSULTANT_CLIENTS` es una restricción **opcional** por cliente.
+  - Los perfiles de credenciales de clientes en SharePoint son **solo del owner**.
+  - Los POST exigen el mismo origen (`same_origin_guard`).
+
+## I.2 Convenciones visuales y componentes reutilizables (no crear diseños paralelos)
+
+- **Diálogos:** `<dialog class="dw-confirm busqueda-dialog">` con `dw-confirm__body`, `dw-confirm__title` y `dw-confirm__actions` (en un `form method="dialog"`).
+  - **Abridor compartido:** `[data-dialog-open="<id>"]` en `app.js`.
+  - **Contenido por HTMX** (`hx-get` al contenedor del diálogo).
+  - **Confirmación genérica:** `dwConfirmChoice({title, message, confirmLabel, okClass})`, que devuelve una promesa.
+- **Badges de estado:** `catalog-card__verdict catalog-card__verdict--{tone}`. El tono **siempre** sale de `webapp/services/status_tone.py` (fuente única: el color es el estado semántico, no el rango).
+- **Tiles KPI:** `activity-kpi`, con la paleta canónica `--kpi-accent` (azul, verde, ámbar, naranja y dorado). En el informe de Assessment, `asm-facts` fuerza el dorado. Los agrupadores de área usan `asm-facts--accent-N`, un color por agrupador.
+- **Disclosures:** `details.dashboard-section`.
+- **Tablas:**
+  - `dashboard-table`, envuelta en `matrix-scroll`.
+  - Las listas de artefactos se muestran como tabla (`artifact_table` en `assessment_report_macros.html`), nunca como texto concatenado.
+- **Acciones icónicas:** `table-action-btn chart-tooltip-anchor`, con SVG y `.chart-tooltip`. «Regenerar Catálogo» usa el SVG refresh-cw.
+- **Barra de acciones:** `catalog-actionbar` / `support-link`.
+- **Callouts:** `callout callout--{tone}`.
+- **Trampa conocida:** `.field-hint` y `.busqueda-contact__context` viven en `human_capital.css`, que **no** se carga en las páginas de módulo. Un diálogo fuera de CCHH necesita sus reglas en `tools.css`; ver `#dsa-catalog-dialog` / `#dsp-replace-dialog`.
+- **Hay tests que fijan contratos visuales.** Antes de cambiar una plantilla o el CSS, buscá el test. Ejemplos:
+  - `.matrix-scroll {` aparece una sola vez en `tools.css`.
+  - El bloque CSS del Assessment no admite colores literales.
+  - `datasphere_assessment.js` no usa HTMX.
+  - Los formularios de publicación y de Assessment tienen los mismos campos.
+
+## I.3 Marco metodológico vigente (no reabrir sin evidencia nueva)
+
+**Principio rector:** el Juicio es **determinista y basado en evidencia**. No hay puntajes, pesos ni porcentajes de calidad, impresiones del consultor ni excepciones por cliente. Contrato en `tools/catalog/methodological_judgment/contract.py`.
+
+- **Pipeline:**
+  1. **Extracción y adquisición:** el extractor arma el cierre semántico del objeto raíz. Recorre el linaje upstream y busca productores: Replication Flows, Data Flows con la procedencia de sus fuentes, Transformation Flows y Task Chains.
+  2. **Perfil canónico** (`modeling_assessment/`): hechos, señales y evaluabilidad.
+  3. **Evidencia canónica** (`canonical-evidence/v5` desde #281).
+  4. **Juicio** (`methodological_judgment/engine.py`).
+- **Cuatro contratos o dimensiones:** Ingesta (adquisición y fuente), Armonización, Propagación y Contrato publicado.
+- **Clases de razón** (`contract.REASON_CLASSES`):
+
+  | Clase | Efecto en el nivel |
+  |---|---|
+  | `MATERIAL_DEVIATION` | Lleva a PARCIAL. |
+  | `RELEVANT_WEAKNESS` | Lleva a ADECUADA. |
+  | `LOCAL_WEAKNESS` | No baja el nivel. |
+  | `POSITIVE_EVIDENCE` | Evidencia afirmativa. |
+  | `QUALIFIER_ONLY` | Calificador; no decide. |
+
+  Las **fortalezas** (`*-STR-*`) son evidencia afirmativa por dimensión. Los **casos a revisar** (review) y las **observaciones** son patrones para el consultor y **no** deciden el nivel. Las **limitaciones de evidencia** hacen que una superficie quede no evaluada o parcial.
+- **Decisión de nivel** (`engine._decide`, función de la EXISTENCIA de razones, sin conteos):
+  - **LVL-02 → PARCIAL:** existe una desviación material viva.
+  - **LVL-01 → NO DETERMINABLE:** algún contrato no es evaluable.
+  - **LVL-05 → NO DETERMINABLE:** la clase de una fuente externa es decisión-crítica e indeterminada. Una **ratificación de gobierno** puede resolverla.
+  - **LVL-03 → ADECUADA:** hay una debilidad relevante.
+  - **LVL-04 → BUENA:** hay fortaleza en las 4 dimensiones.
+  - **LVL-06 → NO DETERMINABLE:** falta evidencia afirmativa.
+  - **v4:** resuelve algunos LVL-06 por el estado de cada dimensión, en **LVL-08 → ADECUADA**. Nunca da BUENA ni PARCIAL por resolución. `PLENA` está reservada y v1 no la emite.
+- **Versionado:**
+  - **Vigente para el Juicio persistido:** `CURRENT_RULESET_VERSION = judgment-rules/v4`.
+  - **Defecto del motor:** v2, para reproducibilidad.
+  - **Cambiar una regla definitiva exige subir el ruleset.** Los Juicios persistidos anteriores quedan `JDG_VERSION_STALE` hasta una migración explícita (`--backfill-judgment`). **Nunca se reescriben Assessments publicados en silencio.**
+- **Decisiones gobernadas** (`governed-decision/v1`):
+  - Son eventos RATIFIED/REVOKED append-only en Spaces (`governed_decisions_store.py`).
+  - El motor **nunca** lee el registro. Una instantánea explícita las inyecta (`judgment_decisions.py`).
+  - Si una decisión consumida deja de valer (revocada, evidencia STALE), el Juicio queda `PENDING_REEVALUATION` sin reescribirse.
+  - **Es el mecanismo a reutilizar** para las revisiones resolubles (§I.8).
+- **Assessment gobernado frente a diagnóstico ad hoc:**
+  - **Gobernado:** lo materializa la publicación (`governed-assessments/`), con vigencia por firma de dependencias (P1, `docs/REPUBLICATION_P1.md`).
+  - **Ad hoc** (Herramientas de Diagnóstico):
+    - El resultado se guarda en `assessment_cache/adhoc/results/`, es del usuario, dura 24 h y se borra al reiniciar el proceso.
+    - Su **clasificación es provisional**: mismo motor y reglas vigentes, **sin** las ratificaciones de gobierno.
+    - **Nunca** se convierte en gobernado ni se copia a la publicación.
+
+## I.4 Caso de referencia de regresión: Biogenesis · `AM_ANALISIS_VENCIMIENTO`
+
+- **Catálogo histórico, publicado el 28/10 con `space: PRODUCCION`:** PARCIAL, por una desviación material en Propagación (acceso directo a una frontera de adquisición).
+- **Diagnóstico actual en CALIDAD, provisional,** donde el patrón se eliminó y se corrigieron los defectos de interpretación del motor:
+
+  | Medida | Valor |
+  |---|---|
+  | Nivel | **BUENA (LVL-04)** |
+  | Cobertura estricta | 100 % |
+  | Confianza | ALTA |
+  | Artefactos en el cierre | 28 |
+  | Evidencias favorables | 5 |
+  | Puntos de atención | 0 |
+  | Casos a revisar | 3 |
+  | Preguntas abiertas | 4 |
+
+  Fortalezas:
+  - `SRC-STR-01`: contrato de adquisición gobernado.
+  - `SRC-STR-02`: carga incremental.
+  - `HAR-STR-02`: enriquecimiento reutilizable consumido aguas abajo.
+  - `PRO-STR-01`: composición de contratos resueltos.
+  - `PUB-STR-01`: contrato publicado intencional y autónomo.
+- **Correcciones metodológicas integradas** (todas en `main`; **no repetir**):
+
+  | Corrección | Commit | PR |
+  |---|---|---|
+  | Badge de clasificación en todo informe; Juicio provisional del ad hoc con sus dos límites | `37a6f9f`, `4bbd8a2` | #278 |
+  | La extracción ad hoc no depende de la conexión HTTP; toda operación termina en `done` | `54eda04`, `8ab677e` | #279 |
+  | Fuentes de vistas gráficas y procedencia de los Data Flows productores en el extractor; badge del Space de procedencia | `87928b5`, `71690a2` | #280 |
+  | Armonización resuelve el proveedor de columnas proyectadas desde subselects (`canonical-evidence/v5`, migración transicional) | `ee3d9af` | #281 |
+  | Una dimensión publicada por asociación de negocio cuenta como consumo válido del enriquecimiento de Armonización (`HAR-STR-02`) | `125871a` | #282 |
+  | El cambio de Juicio de la migración v5 entra al plan firmado | `096e354` | #282 |
+  | Continuidad Catálogo → Diagnóstico: «Evaluar la versión actual» | `910f896` | #283 |
+  | Hoja con varias fronteras **todas gobernadas** = contacto gobernado (clases mixtas); el detalle de NO DETERMINABLE nombra a los responsables | `495fb72` | #284 |
+  | Revisión Diagnóstico → Catálogo («Regenerar Catálogo»); un Catálogo ilegible no equivale a «modelo inexistente» | `0eb25d3`, `4d14812` | #285 |
+
+  **Atención:** en #287 (`eae1cf7`), el ícono «Regenerar Catálogo» **reemplazó** a «Evaluar la versión actual» en el informe del Catálogo. Ver la duda D3 en §I.10.
+- **Debate abierto, no es un error de scoring:** BUENA es lo que dan las reglas vigentes para el modelo individual, y **no se cambia el nivel** por una interpretación subjetiva. El caso dejó a la vista lo que el Assessment todavía no expresa; es material de §I.8:
+  - responsabilidades semánticas repetidas entre modelos (la derivación de dosis con `FACTORCONVERSION` aparece en unas 20 vistas de hecho de Biogenesis, pero **no** dentro de este cierre);
+  - materializaciones técnicas que cumplen legítimamente el contrato de Armonización;
+  - oportunidades de consolidar la transformación y la persistencia;
+  - la necesidad de que las observaciones se conviertan en decisiones que el consultor pueda resolver.
+
+## I.5 Continuidad Diagnóstico → Catálogo y publicación gobernada (estado real)
+
+- **Publicación** (`tools/catalog/DSP_CLI_Export_Lineage._publish_safe`), **único camino** desde #275:
+  - **Unidad transaccional:** preflight, `hold_publication`, candado de escritor, compuerta de lectores, journal con undo, intención en Spaces y `converge` verificado. Rollback ante cualquier falla. Runbook: `docs/PUBLICATION_SAFE_RUNBOOK.md`.
+  - **Siempre re-extrae** de Datasphere desde el Space indicado; **nunca** copia el perfil temporal del diagnóstico.
+  - Registra el Space del formulario en el manifiesto de linaje y en el ledger (`catalog_local/.publication_state/<cliente>.publication.json`). El tenant se registra desde el manifiesto v3; los v2 no lo tienen.
+  - El precheck valida el acceso al Space antes de extraer.
+- **«Regenerar Catálogo», todo integrado en `main`:**
+  - **Assessments recientes:** ícono junto a la papelera, que abre un diálogo del Hub con:
+    - la comparación entre el diagnóstico provisional y el Catálogo gobernado (badges);
+    - la operación disponible y la advertencia de conflictos;
+    - las acciones «Cancelar», «Ver en el Catálogo» (abre el flujo en `#catalog-detail-slot` y su «← Volver» regresa) y «Continuar a publicar».
+  - **Detalle del flujo e informe del Catálogo:** el mismo ícono, solo para quien puede publicar ese cliente.
+  - **Destino:** el formulario de publicación precargado con el cliente, el modelo y el Space del ledger. **Si no hay registro, el Space va vacío y lo elige el usuario; nunca se infiere.**
+  - **Informe ad hoc:** la nota de clasificación provisional enlaza «regeneres el catálogo» al mismo diálogo.
+  - Commits: `03a8cdd` en #286 y `eae1cf7` en #287. Lógica: `datasphere_assessment_service.catalog_continuity`, `catalog_assessment.regenerate_url`.
+- **`POOL_IDENTITY_CONFLICT` y el reemplazo gobernado:** la guarda **no se desactivó** y no existe un override global. Implementado en #286 (`ee0759f`, `tools/catalog/publication_replacement.py`):
+  - **Detección:** se recolectan todos los conflictos y se clasifican.
+    - Un objeto es **compartido** si lo reclama otro manifiesto, si figura en otra ficha del Catálogo o si un paquete legacy de la raíz del pool lo define embebido. Si no, es **exclusivo** del modelo.
+    - Reemplazo **seguro** solo si todos los conflictos son exclusivos y los reclama **una** publicación anterior del mismo modelo.
+  - **Autorización acotada:** `replace_token` es la huella del plan exacto (cliente, modelo, Space destino, sha del manifiesto desplazado y contenido planificado de cada conflicto). Se recalcula bajo el candado; si no coincide, `REPLACEMENT_PLAN_CHANGED` sin cambios.
+  - **Aplicación:**
+    - el manifiesto desplazado entra al undo y se retira dentro de la unidad;
+    - quedan `replaces` en el manifiesto y `replaced` en el ledger;
+    - el Catálogo y el Assessment se regeneran desde lo publicado.
+  - **UI:** diálogo de impacto, «¿Estás seguro de que querés continuar?» y reingreso del Client Secret.
+  - **Tests:** `tests/test_publication_replacement.py`.
+  - **Caso real:** Biogenesis CALIDAD frente a lo publicado **no es reemplazable**. Hay 3 objetos exclusivos (AM, DF, 3VF) y 4 compartidos: `VD_T001L` y `VT_T001W` con 3 modelos; `VT_0MATL_GRP_1/2` con 18 modelos y 7 paquetes legacy. Producción lo confirmó el 08/11 (`FAILED_NO_CHANGE`).
+  - **Hueco conocido, sin abordar:** la guarda base solo ve los objetos que reclama un manifiesto; un objeto de un modelo legacy sin manifiesto no la dispara. El análisis de reemplazo sí lo detecta.
+- **Lección de CI (#286, `3a3c0c7`):** el stream NDJSON de publicación **siempre** emite un `done` terminal. Un fake de `run` con la firma vieja mataba el hilo y colgaba la suite. El CI corre `pytest -q` completo **sin timeout**.
+
+## I.6 Pendientes y frentes abiertos
+
+1. **Migración de Biogenesis a CALIDAD, en curso, sin escribir en producción.**
+   - **Plan:** `_handoffs/BIOGENESIS_CALIDAD_MIGRATION_PLAN.md` (local).
+   - **Contexto:** según el owner, PRODUCCION es otro tenant sin OAuth y todo Biogenesis se trabajó en CALIDAD. La evidencia:
+     - el manifiesto del 28/10 tomó `PRODUCCION` del formulario, y el precheck validó el acceso a un Space con ese ID;
+     - la evidencia legacy del pool solo conoce los Spaces CALIDAD y DESARROLLO.
+
+     La hipótesis de trabajo: era un Space del tenant `-q`, y las diferencias son de **tiempo** (`VT_0MATL_GRP_1/2` pasaron a `1TD_…`).
+   - **Fase 1 (extracción de solo lectura de los 25 modelos):** script `_handoffs/biogenesis_migration/extract_calidad.py`, con su test y `run_extract_calidad.ps1`. Aplica la misma compuerta `assert_complete` que la publicación. **El owner la está corriendo**; esperar su `OUT=…` para la Fase 2.
+   - **Fases 2 a 5:** ensayo aislado e informe de impacto; decisión del owner; script de alcance cerrado (tipo `restore_biogenesis.py`, con cuarentena y unidad transaccional); verificación. Nada en producción sin GO.
+   - **Fase 0, sin respuesta del owner:** ¿existió un Space `PRODUCCION` en el tenant `-q`? ¿Qué se hace con las diferencias de alcance (26 modelos en CALIDAD frente a 25 en el Catálogo)?
+2. **Cambio local sin commitear:** formato Hub del diálogo de reemplazo en `webapp/static/datasphere_publication.js` y `tools.css`. Validado en el sandbox; necesita rama y PR nuevos.
+3. **Deploy de #287 (`ce0429b`) en DigitalOcean:** el 08/11 el build quedó trabado en «checking for cache from a previous build». La recomendación fue cancelar y hacer «Force rebuild and deploy» con «Clear build cache». **No está confirmado que #287 esté en producción**; #286 sí lo está, como confirman los Runtime Logs.
+4. **Diferidos, sin GO:**
+   - revisión de cartera de la conversión de dosis (`FACTORCONVERSION`), que es la §I.8.6;
+   - publicación multi-Space o identidad por Space (alternativa C de `_handoffs/BIOGENESIS_SPACE_DECISION.md`);
+   - ejecución en producción de la migración gobernada v5 (flujo seguro);
+   - firma canónica base64 en `auth_service` y `profile_document_service` (`jwt-canonical-signature`), que no se inicia sin GO.
+
+## I.7 Estado Git, servidores y producción (verificado el 2026-11-08)
+
+- **`origin/main` = `ce0429b`** (merge de #287). Merges recientes:
+
+  | Merge | PR |
+  |---|---|
+  | `5961cef` | #286 |
+  | `401269e` | #285 |
+  | `957f9f3` | #284 |
+  | `30835e4` | #283 |
+  | `eb78506` | #282 |
+  | `821e59a` | #281 |
+  | `459c086` | #280 |
+  | `b6435b1` | #279 |
+  | `2d86078` | #278 |
+  | `f1a2783` | #276 (restauración de Biogenesis del 06/11) |
+  | `c199424` | #275 (publicación transaccional como único camino) |
+
+- **Checkout local:** rama `docs/handoff-20261108`, creada desde `origin/main`. Tiene un commit documental **sin push**: este handoff. Queda sin commitear el punto 2 de §I.6. La rama `fix/diagnostic-catalog-icon` ya se mergeó en #286 y #287. Archivos sin seguimiento de runtime: `human-capital/` y `reporting_cache/`.
+- **No hay PRs abiertos** de estos frentes; #286 y #287 se mergearon.
+- **Ramas remotas sin mergear y viejas:** `release/republication-p1-20261027`, `feat/nd-explainability-v2`, `fix/hub-shell-flash`, `feat/cchh-cv-inbox` y otras. **No asumir** que su contenido falta en `main` sin comparar: P1 ya está en `main` por otra vía.
+- **`gh` no está instalado en esta máquina:** el owner abre los PRs desde el enlace de compare y reporta el CI.
+- **Servidores locales:** `danwor-webapp` en 8082 (en `.claude/launch.json`). Sandbox de reemplazo `replace-review` en 8083: tenant simulado, Catálogo temporal y sin Spaces (`scratchpad/replace/harness.py`, **no versionado**).
+- **Validación local:** se siembra un resultado ad hoc escribiendo directo en `assessment_cache/adhoc/results/`. El arranque los borra; sembrar después del primer acceso.
+- **Fallas de tests conocidas y ajenas a estos frentes:**
+  - en `main`: `test_form_fields_labels_placeholders_and_margins` y `test_next_steps_has_sixteen_rows`;
+  - **solo locales:** 4 de `test_modeling_assessment_invariants`, porque leen scripts de `_handoffs`.
+
+## I.8 PRÓXIMA INICIATIVA — Assessment accionable y revisiones contextuales
+
+> **ESPECIFICACIÓN APROBADA CONCEPTUALMENTE · PENDIENTE DE DISCOVERY TÉCNICO E IMPLEMENTACIÓN.** Es el punto de partida prioritario.
+
+### I.8.1 Problema
+
+El Assessment identifica casos a revisar y preguntas abiertas, pero el consultor **no puede resolverlos** de forma estructurada.
+
+Ejemplo real: `ROLE_LAYER_DIVERGENCE` sobre `2TR_ANALISIS_VENCIMIENTOS`.
+
+- El informe dice «La capa del nombre difiere de la posición estructural o del rol declarado».
+- Y pregunta «¿A qué capa debe servir este artefacto en este proyecto?».
+- Es genérico aunque haya evidencia técnica para interpretar mejor el patrón, y no se puede marcar como intencional, justificar ni hacer que lo consideren las evaluaciones futuras. Queda abierto para siempre.
+
+### I.8.2 Interpretación a incorporar
+
+El caso es `2VR_ANALISIS_VENCIMIENTOS` (vista SQL) → `DF_ANALISIS_VENCIMIENTOS` → `2TR_ANALISIS_VENCIMIENTOS` (tabla local) → `3VF_ANALISIS_VENCIMIENTO`.
+
+- La vista SQL desarrolla la transformación de Armonización.
+- El Data Flow la materializa sin transformación adicional.
+- La tabla es, potencialmente, el **contrato persistido de Armonización** que consume Propagación.
+
+Una tabla materializada puede ocupar una posición de frontera física y cumplir el rol de Armonización: **la posición estructural no equivale a la responsabilidad metodológica.**
+
+- **Comportamiento deseado,** cuando la evidencia lo permita: «La tabla parece representar una materialización deliberada del contrato de Armonización, cuya lógica está implementada en la vista SQL precedente».
+- **Distinguir:**
+  - patrón **demostrado**;
+  - intención **inferida**;
+  - contexto **por confirmar**.
+- **No** asumir que toda tabla producida por un Data Flow es de Armonización.
+- **Primera pregunta del discovery:** ¿`ROLE_LAYER_DIVERGENCE` se puede resolver automáticamente con esta evidencia, o tiene que formular una pregunta más específica?
+
+### I.8.3 Resolución estructurada
+
+**Estados conceptuales:**
+- Abierto.
+- Validado: diseño deliberado y aceptado.
+- Requiere corrección.
+- No aplica.
+- Reabierto por cambio de evidencia.
+
+Para oportunidades: aceptada, postergada o descartada con justificación.
+
+**Contrastar con los contratos de gobierno existentes antes de implementar.**
+
+**Mínimo de cada resolución:**
+- cliente, modelo y artefacto;
+- regla o tipo de observación;
+- evidencia relevante;
+- decisión y justificación;
+- autor y fecha;
+- firma o versión de la evidencia;
+- vigencia y motivo de reapertura.
+
+**No crear una persistencia paralela:** primero evaluar `governed-decision/v1`, que ya tiene eventos append-only, autor, `evidence_ref`, vigencia STALE y `PENDING_REEVALUATION`.
+
+### I.8.4 Reutilización de las decisiones
+
+- **Evidencia compatible:** «Diseño validado previamente. La evidencia técnica continúa siendo compatible con esa decisión».
+- **Fundamento cambiado:** «La definición del artefacto cambió desde la validación. Se requiere revisar nuevamente».
+- **Límites:**
+  - la resolución **no** altera la evidencia extraída ni borra desviaciones demostradas;
+  - la relación entre resolución y scoring tiene que ser explícita, versionada (ruleset) y justificada.
+
+### I.8.5 Segunda revisión: oportunidad de Transformation Flow
+
+**Patrón:** vista SQL → Data Flow → tabla local.
+
+Evidencia ya descubierta del caso:
+- la lógica está en la vista SQL;
+- el DF es una copia directa;
+- el destino es una tabla local, con escritura append/upsert y sin captura de cambios;
+- la vista consulta 4 tablas remotas;
+- no hay otros consumidores de la vista en el pool, aunque `consumo externo = true`.
+
+**Revisión propuesta:** «Se identificó una vista SQL cuya salida se materializa sin transformaciones adicionales mediante un Data Flow. Evaluar la consolidación mediante Transformation Flow», mostrando los 3 artefactos y la evidencia.
+
+**No afirmar la viabilidad ni el modo incremental.** La elegibilidad depende de:
+- restricciones del origen;
+- acceso a las tablas remotas;
+- capacidades delta y modos de carga;
+- consumidores;
+- SQL View Transform.
+
+**Diferenciar:**
+- oportunidad detectada;
+- viabilidad no verificada;
+- restricción demostrada;
+- decisión del consultor.
+
+Es independiente de `ROLE_LAYER_DIVERGENCE` y, al principio, **no modifica el scoring**.
+
+### I.8.6 Posterior: revisiones de cartera
+
+**Ejemplo:** la conversión de dosis con `FACTORCONVERSION`, repetida en unas 20 vistas de hecho de Biogenesis, que no aparece en el cierre de `AM_ANALISIS_VENCIMIENTO`. Es una oportunidad transversal para el Informe de Cliente, no una desviación del modelo.
+
+**Detectar:**
+- responsabilidades semánticas equivalentes entre modelos;
+- sus distintas implementaciones;
+- la posibilidad de un contrato corporativo reutilizable;
+- la decisión del consultor: centralizar, aceptar o postergar.
+
+**No** usar coincidencias superficiales de funciones SQL como prueba de semántica. Va **después** del MVP de revisiones resolubles.
+
+### I.8.7 Principios de implementación
+
+1. Inspeccionar y reutilizar antes de crear servicios, persistencias, reglas o componentes.
+2. No alterar el scoring sin evidencia causal: una oportunidad no es una debilidad.
+3. Distinguir evidencia, interpretación y decisión: el consultor aporta contexto y no reescribe hechos.
+4. Gobierno y trazabilidad: las decisiones se auditan, se revisan y se reabren.
+5. Compatibilidad histórica: no reescribir Assessments publicados.
+6. Sin umbrales arbitrarios.
+7. Validar en localhost antes de un PR: que pasen pruebas sintéticas no alcanza.
+8. Homogeneidad visual (§I.2).
+9. Pruebas focalizadas y recorridos representativos, no suites masivas.
+10. Sin merge ni deploy sin aprobación del owner.
+
+## I.9 Primer trabajo del próximo agente: discovery acotado (NO implementar)
+
+**A. Evidencia**
+- Dónde se detecta `ROLE_LAYER_DIVERGENCE`: `modeling_assessment/signals.py`, en la señal REVIEW de Ingesta; la superficie de evaluabilidad está en `assessability.py` (`rule.role_layer_divergence`) y el texto en `profile.py`.
+- Cómo se infiere el rol de la tabla: hechos `ingestion.inferred_layer_vs_lineage_depth`, naming y frontera.
+- Qué evidencia hay del Data Flow productor y de la vista SQL fuente: la procedencia de Data Flows existe desde #280.
+- Qué evidencia hay de los consumidores.
+
+**B. Gobierno**
+- `governed_decisions*.py`, `judgment_decisions.py` y `governed_ratification_link.py`.
+- Qué identifica una decisión, cómo se comprueba su vigencia y si `governed-decision/v1` admite resoluciones de revisión sin romper su contrato (D8: el motor no lee el registro).
+
+**C. Presentación**
+- La sección `asr-revision` de `catalog_assessment_report.html`: grupos de revisión y preguntas.
+- Qué acciones tiene hoy el usuario: solo navegar.
+- Qué diálogo, badge o tabla del Hub se puede reutilizar.
+
+**D. Optimización**
+- Cómo agregar una revisión independiente del patrón SQL View → DF → tabla local, sin confundir detección con elegibilidad.
+
+**Entregable:**
+- diagnóstico y causa;
+- componentes reutilizables;
+- diseño mínimo del contrato de resolución;
+- reglas de vigencia y reapertura;
+- tratamiento de `ROLE_LAYER_DIVERGENCE`;
+- propuesta de la revisión de Transformation Flow;
+- archivos concretos a modificar;
+- pruebas focalizadas y la validación funcional prevista.
+
+**Sin implementar ni tocar el scoring hasta que el owner apruebe.**
+
+## I.10 Dudas explícitas (no inventar; preguntar al owner)
+
+- **D1:** ¿existió un Space con ID `PRODUCCION` en el tenant `biogenesisbago-q`, y con qué credenciales se publicó el 28/10? Ver §I.6.1.
+- **D2:** alcance de la migración: ¿se incorpora el modelo de CALIDAD que no está en el Catálogo? ¿Qué se hace con un modelo del Catálogo ausente en CALIDAD?
+- **D3:** desde #287 el informe del Catálogo ya no enlaza al diagnóstico ad hoc («Evaluar la versión actual» fue reemplazado por el ícono de regenerar, a pedido del owner). La continuidad Catálogo → Diagnóstico queda hoy solo por la URL precargada `?tool=assessment&client=…&root=…` (`catalog_prefill_url`), sin enlace visible. ¿Se quiere recuperar un acceso visible?
+- **D4:** ¿quedó desplegado `ce0429b` (#287) en DigitalOcean tras el rebuild?
+
+---
+
+# PARTE II — ANEXO HISTÓRICO (bitácora por frente, hasta 2026-10-19)
+
+> Todo lo que sigue es **histórico**. Conserva el detalle de frentes cerrados (Juicio v1, evidencia v3, CCHH, Comercial, Staffing…) para consulta puntual. **No es la lista de prioridades:** los «START HERE», «PRÓXIMO AGENTE» y «pendientes» de abajo quedaron **superados** por la Parte I. Si algo de acá contradice a la Parte I, manda la Parte I.
+
+# [HISTÓRICO · superado por la Parte I] NEXT AGENT — START HERE (frente Juicio metodológico; bootstrap operativo)
 
 > Contexto y decisiones: ver la sección siguiente («METHODOLOGY JUDGMENT v1 + EVIDENCE v3»). **No codear al llegar**: primero la respuesta de §7.
 
