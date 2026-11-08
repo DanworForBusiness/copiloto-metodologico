@@ -194,14 +194,21 @@ def test_static_usage_audit_only_replication_and_data_flows_are_interpreted_as_p
     pkg = Path(__file__).resolve().parents[1] / "tools" / "catalog" / "modeling_assessment"
     pattern = re.compile(r"transformation[-_ ]?flows?|task[-_ ]?chains?|transformationflows|taskchains", re.I)
     allowed = {"render_md.py", "readers.py", "provenance.py", "facts_processing.py"}          # rótulos de alcance / conteo de archivos TF sin interpretar / documentación / LECTURA de propiedades de carga (no procedencia)
+    # signal-rules/v5: la revisión TRANSFORMATION_FLOW_CONSOLIDATION_OPPORTUNITY NOMBRA al Transformation Flow como una
+    # OPORTUNIDAD de optimización (se construye desde la materialización de un Data Flow, NO lee un TF como procedencia).
+    # Se eximen SOLO esas menciones por marcadores estables; los Task Chains siguen prohibidos (no portan estos marcadores)
+    # y la garantía dura (TF jamás se lee, solo se cuenta) permanece en readers.py, verificada abajo.
+    sanctioned = ("transformation_flow_consolidation_opportunity", "_rule_transformation_flow_opportunity",
+                  "_units_transformation_flow", "Transformation Flow")                            # identificadores estables de la oportunidad (id/surface_id, reglas, unidades y rótulo)
     code_hits = []
     for p in pkg.glob("*.py"):
         if p.name in allowed:
             continue
         for n, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
-            if pattern.search(line) and not line.lstrip().startswith("#") and "Task Chains y Transformation Flows" not in line:
+            if pattern.search(line) and not line.lstrip().startswith("#") and "Task Chains y Transformation Flows" not in line \
+                    and not any(mark.lower() in line.lower() for mark in sanctioned):
                 code_hits.append(f"{p.name}:{n}")
-    assert code_hits == [], code_hits                                                         # ningún hecho/regla interpreta TF/TC
+    assert code_hits == [], code_hits                                                         # ningún hecho/regla interpreta TF/TC (salvo la oportunidad sancionada)
     readers = (pkg / "readers.py").read_text(encoding="utf-8")
     assert '"replicationflows"' in readers and '"dataflows"' in readers
     assert "taskchains" not in readers.lower().replace("task-chains", "")                     # los Task Chains jamás se leen

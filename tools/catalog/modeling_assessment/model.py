@@ -169,6 +169,7 @@ class ReviewId(str, Enum):
     OPAQUE_FIELD_NAME = "OPAQUE_FIELD_NAME"
     LABEL_NOT_ENRICHING = "LABEL_NOT_ENRICHING"
     AM_SEMANTIC_UNDERUSE_REVIEW = "AM_SEMANTIC_UNDERUSE_REVIEW"
+    TRANSFORMATION_FLOW_CONSOLIDATION_OPPORTUNITY = "TRANSFORMATION_FLOW_CONSOLIDATION_OPPORTUNITY"
 
 
 # Identificadores HISTORICOS de senales: los perfiles gobernados persistidos con ellos siguen siendo legibles y presentables.

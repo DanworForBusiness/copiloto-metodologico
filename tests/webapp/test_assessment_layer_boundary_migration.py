@@ -32,7 +32,7 @@ from webapp.services import catalog_reads
 from webapp.services import migration_approval as ma
 
 MIG = "signals_layer_boundary_v4"
-V3, V4 = "signal-rules/v3", "signal-rules/v4"
+V3, V4, V5 = "signal-rules/v3", "signal-rules/v4", "signal-rules/v5"   # V5 = version vigente del motor (la migracion sigue identificandose por su nombre historico _v4)
 V = LB.view
 PHYS = {"leaves": {"SRC_TAB": LB.TABLE}, "views": [V("VR_TAB", ["SRC_TAB"]), V("VF_NODE", ["VR_TAB"], "filter", "ANALYTICAL_FACT")], "am_from": "VF_NODE"}
 GOV = {"leaves": {"SRC_CDS": LB.CDS}, "views": [V("VR_CDS", ["SRC_CDS"]), V("VF_NODE", ["VR_CDS"], "filter", "ANALYTICAL_FACT")], "am_from": "VF_NODE"}
@@ -142,7 +142,7 @@ def test_the_migration_is_registered_in_the_existing_framework_and_targets_only_
     assert m.target_keys == ("signals",) and m.eligible_old == {"signals": frozenset({V3})} and m.closure_policy == svc.CLOSURE_EQUAL and m.transitional is True
     assert svc.LAYER_BOUNDARY_MIGRATION == MIG and MIG in bf.CONFIRMATION_REQUIRED and MIG in bf.SECURED_MIGRATIONS and MIG in svc.JUDGMENT_REVALIDATING_MIGRATIONS
     cur = svc.current_assessment_versions()
-    assert cur["signals"] == V4 and svc.targeted_migration({**cur, "signals": V3}, cur) == MIG
+    assert cur["signals"] == V5 and svc.targeted_migration({**cur, "signals": V3}, cur) == MIG
     assert svc.targeted_migration({**cur, "signals": V3, "confidence": "confidence-cuts/v2"}, cur) is None                 # diferencias ajenas: no elegible, sin encadenamiento
     assert svc.targeted_migration({**cur, "signals": "signal-rules/v2"}, cur) is None                                      # v2 no salta a v4 por esta migracion
 
@@ -170,7 +170,7 @@ def test_the_dry_run_runs_the_real_engine_in_memory_reports_the_delta_and_writes
         r = _rec(out, client)
         assert r["action"] == bf.WOULD_REGENERATE and r["eligible"]
         d = r["delta"]
-        assert d["versions"] == {"signals": {"old": V3, "new": V4}} and d["closure"]["drift"] is False and d["coverage_strict"]["changed"] is False
+        assert d["versions"] == {"signals": {"old": V3, "new": V5}} and d["closure"]["drift"] is False and d["coverage_strict"]["changed"] is False
         assert d["judgment"]["judgment_action"] == svc.JDG_SIGNATURE_REBOUND and d["judgment"]["previous_judgment_level"] == d["judgment"]["new_judgment_level"]
     assert _rec(out, "Acme")["delta"]["review_occurrences"]["new"] == _rec(out, "Acme")["delta"]["review_occurrences"]["old"]                 # fisica: sigue una ocurrencia (con otro fundamento)
     assert _rec(out, "Bcme")["delta"]["review_occurrences"]["new"] == _rec(out, "Bcme")["delta"]["review_occurrences"]["old"] - 1               # gobernada: la ocurrencia desaparece
@@ -188,7 +188,7 @@ def test_apply_migrates_with_a_profile_identical_except_the_review_and_a_revalid
     assert out["counts"]["regenerated_local"] == 2 and out["counts"]["abstained"] == 0 and out["counts"]["failed"] == 0
     for client in ("Acme", "Bcme"):
         new = _env(_path(lworld, client))
-        assert new["assessment_versions"] == svc.current_assessment_versions() and new["assessment_versions"]["signals"] == V4
+        assert new["assessment_versions"] == svc.current_assessment_versions() and new["assessment_versions"]["signals"] == V5
         assert new["input_pool_signature"] == old[client]["input_pool_signature"]                                           # misma firma de pool
         assert svc._without_layer_boundary(new["profile_json"]) == svc._without_layer_boundary(old[client]["profile_json"])  # CLOSURE_EQUAL estricto: todo lo demas identico
         assert svc.closure_identity(new["profile_json"]) == svc.closure_identity(old[client]["profile_json"])

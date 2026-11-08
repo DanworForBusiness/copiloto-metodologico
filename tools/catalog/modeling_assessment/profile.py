@@ -139,7 +139,13 @@ _VALUE_MAP: dict[str, tuple[tuple[str, str, Callable[[Any], Any] | None], ...]] 
         ("adjacent", "adjacent", None), ("field_relations", "field_relations", None)),
     "ROLE_LAYER_DIVERGENCE": (
         ("artifact", "artifact", None), ("layer_encoded_in_name", "name_encoded_layer", None), ("is_boundary_leaf", "is_boundary_leaf", None),
-        ("layer_of_declared_role", "declared_role_layer", None), ("divergence_kinds", "divergence_kinds", None)),
+        ("layer_of_declared_role", "declared_role_layer", None), ("divergence_kinds", "divergence_kinds", None),
+        ("resolved_by_evidence", "resolved_by_evidence", None)),
+    "TRANSFORMATION_FLOW_CONSOLIDATION_OPPORTUNITY": (
+        ("materialized_table", "materialized_table", None), ("source_view", "source_view", None), ("data_flows", "data_flows", None),
+        ("mapping_counts", "mapping_counts", None), ("has_downstream_consumers", "has_downstream_consumers", None),
+        ("opportunity_detected", "opportunity_detected", None), ("viability_verified", "viability_verified", None),
+        ("viability_to_confirm", "viability_to_confirm", None)),
     "DUPLICATED_REMOTE_IMPORT": (
         ("remote_entity", "remote_entity", None), ("local_artifacts", "local_artifacts", None), ("in_closure", "in_closure", None),
         ("spans_outside_closure", "spans_outside_closure", None), ("duplicated_inside_closure", "duplicated_inside_closure", None)),
@@ -196,6 +202,8 @@ DISPLAY: dict[str, tuple[str, str]] = {
                           "Un nombre técnico de espacio de nombres propio tiene una etiqueta que no comparte ninguna palabra con él."),
     "LABEL_NOT_ENRICHING": ("Etiquetas que repiten los nombres técnicos", "Todos los campos expuestos del artefacto tienen una etiqueta idéntica a su nombre técnico."),
     "AM_SEMANTIC_UNDERUSE_REVIEW": ("Modelo analítico sin asociaciones", "El modelo analítico terminal no declara asociaciones."),
+    "TRANSFORMATION_FLOW_CONSOLIDATION_OPPORTUNITY": ("Oportunidad de consolidación con Transformation Flow",
+                                                      "Una vista SQL cuya salida se materializa, sin transformación adicional, mediante un Data Flow en una tabla local; podría evaluarse consolidarla con un Transformation Flow."),
 }
 
 # Orden de PRESENTACION (versionado; NO es puntaje, severidad ni penalidad: solo ordena el informe). Menor numero = antes. Registro unico, sin resultados de cliente:
@@ -204,6 +212,7 @@ PRESENTATION_ORDER_VERSION = "presentation-order/v1"
 PRESENTATION_PRIORITY: dict[str, int] = {
     "DIRECT_RAW_TABLE_ACCESS": 10,
     "REPEATED_DERIVATION_IN_LINEAGE": 20, "FLAT_CENTRAL_ASSEMBLY_REVIEW": 30, "DUPLICATED_REMOTE_IMPORT": 40, "ROLE_LAYER_DIVERGENCE": 50,
+    "TRANSFORMATION_FLOW_CONSOLIDATION_OPPORTUNITY": 55,
     "LAYER_BOUNDARY_REVIEW": 60, "PASS_THROUGH_REVIEW": 70, "AM_SEMANTIC_UNDERUSE_REVIEW": 80,
     "FIELD_VOCABULARY_MIX": 110, "OPAQUE_FIELD_NAME": 120, "LABEL_NOT_ENRICHING": 130,
     "SOURCE_FILTER_PRESENT": 200,
@@ -232,6 +241,7 @@ OCCURRENCE_UNIT: dict[str, str] = {
     "OPAQUE_FIELD_NAME": "campo con su etiqueta",
     "LABEL_NOT_ENRICHING": "artefacto",
     "AM_SEMANTIC_UNDERUSE_REVIEW": "modelo analítico",
+    "TRANSFORMATION_FLOW_CONSOLIDATION_OPPORTUNITY": "tabla materializada por un Data Flow",
 }
 
 WHY_SHOWN: dict[str, str] = {
@@ -248,6 +258,7 @@ WHY_SHOWN: dict[str, str] = {
     "OPAQUE_FIELD_NAME": "Se muestra porque un nombre técnico con prefijo propio tiene una etiqueta que no comparte ninguna palabra con él.",
     "LABEL_NOT_ENRICHING": "Se muestra porque todos los campos expuestos del artefacto tienen una etiqueta idéntica a su nombre técnico.",
     "AM_SEMANTIC_UNDERUSE_REVIEW": "Se muestra porque el modelo analítico terminal no declara asociaciones.",
+    "TRANSFORMATION_FLOW_CONSOLIDATION_OPPORTUNITY": "Se muestra porque una vista SQL candidata de Armonización se materializa, sin transformación adicional, mediante un Data Flow en una tabla local: es una oportunidad de optimización a evaluar, no un defecto.",
 }
 
 SIGNAL_QUESTIONS: dict[str, str] = {
@@ -262,6 +273,7 @@ SIGNAL_QUESTIONS: dict[str, str] = {
     "OPAQUE_FIELD_NAME": "¿Debe el nombre técnico ser autoexplicativo, o es la etiqueta el término de negocio gobernado?",
     "LABEL_NOT_ENRICHING": "¿Deben estos artefactos exponer etiquetas de negocio?",
     "AM_SEMANTIC_UNDERUSE_REVIEW": "¿Es el modelo analítico plano a propósito, sin asociaciones?",
+    "TRANSFORMATION_FLOW_CONSOLIDATION_OPPORTUNITY": "¿Conviene consolidar esta materialización (vista SQL → Data Flow → tabla) mediante un Transformation Flow?",
 }
 
 CONTEXT_NEEDED: dict[str, str] = {
@@ -276,6 +288,7 @@ CONTEXT_NEEDED: dict[str, str] = {
     "OPAQUE_FIELD_NAME": "Si el nombre técnico debe ser autoexplicativo o si la etiqueta es el término gobernado.",
     "LABEL_NOT_ENRICHING": "Si este artefacto debe exponer etiquetas de negocio.",
     "AM_SEMANTIC_UNDERUSE_REVIEW": "Si el modelo analítico es plano intencionalmente.",
+    "TRANSFORMATION_FLOW_CONSOLIDATION_OPPORTUNITY": "Si un Transformation Flow es elegible (acceso a las tablas remotas, capacidades delta y modos de carga, consumidores, SQL View Transform) y si se desea consolidar.",
 }
 
 # Traduccion POSICION POR POSICION de `SignalSpec.interpretation_limits` (cantidad verificada contra el registro por un test).
@@ -332,6 +345,11 @@ INTERPRETATION_LIMITS: dict[str, tuple[str, ...]] = {
     "AM_SEMANTIC_UNDERUSE_REVIEW": (
         "un modelo analítico sin asociaciones no es deficiente de manera universal",
         "los textos y jerarquías no son observables más allá de las asociaciones declaradas"),
+    "TRANSFORMATION_FLOW_CONSOLIDATION_OPPORTUNITY": (
+        "es una oportunidad de optimización, no un defecto, y nunca baja el nivel",
+        "no se afirma la viabilidad: que un Transformation Flow admita vistas sobre tablas remotas y su modo incremental deben verificarse por separado",
+        "no se penaliza el uso de un Data Flow",
+        "la decisión y su justificación son del consultor"),
 }
 
 # Traduccion POSICION POR POSICION de `SignalSpec.legitimate_reasons`.
@@ -359,6 +377,9 @@ LEGITIMATE_REASONS: dict[str, tuple[str, ...]] = {
     "LABEL_NOT_ENRICHING": ("estructura técnica intermedia no expuesta a consumidores", "etiquetas diferidas intencionalmente a la capa consumidora"),
     "AM_SEMANTIC_UNDERUSE_REVIEW": (
         "consumido por una herramienta que aporta sus propias dimensiones", "extracto plano para reportes por diseño", "semántica modelada en una capa posterior"),
+    "TRANSFORMATION_FLOW_CONSOLIDATION_OPPORTUNITY": (
+        "la materialización por Data Flow es deliberada y adecuada",
+        "un Transformation Flow puede no ser elegible para las fuentes involucradas"),
 }
 
 CONTEXT_QUESTION_TEXT: dict[str, str] = {

@@ -39,7 +39,7 @@ from .model import (
     Area, Assessability, Fact, Observation, ObservationId, ReviewId, ReviewItem, Signal, SignalKind, _ensure_jsonable,
 )
 
-SIGNALS_RULESET = "signal-rules/v4"                       # v2 (M8, parche 1): PASS_THROUGH_REVIEW solo evalua aristas internas modelado->modelado; v3 (G3): CROSS_LAYER_REDERIVATION -> REPEATED_DERIVATION_IN_LINEAGE + relacion estructural; v4 (LAYER_BOUNDARY_REVIEW): evalua el primer consumidor FUNCIONAL (atraviesa vistas de paso), solo con capa respaldada por evidencia (rol declarado / nomenclatura de capas) y sin fuentes de contrato gobernado
+SIGNALS_RULESET = "signal-rules/v5"                       # v2 (M8, parche 1): PASS_THROUGH_REVIEW solo evalua aristas internas modelado->modelado; v3 (G3): CROSS_LAYER_REDERIVATION -> REPEATED_DERIVATION_IN_LINEAGE + relacion estructural; v4 (LAYER_BOUNDARY_REVIEW): evalua el primer consumidor FUNCIONAL (atraviesa vistas de paso), solo con capa respaldada por evidencia (rol declarado / nomenclatura de capas) y sin fuentes de contrato gobernado; v5 (ROLE_LAYER_DIVERGENCE): el motivo NAME_LAYER_ABOVE_BOUNDARY_POSITION se suprime cuando la evidencia acredita una materializacion de Armonizacion (tabla producida por un Data Flow desde UNA vista candidata), conservando los demas motivos; + revision independiente TRANSFORMATION_FLOW_CONSOLIDATION_OPPORTUNITY (oportunidad, sin viabilidad ni scoring)
 
 _USABLE = (Assessability.ASSESSED, Assessability.PARTIALLY_ASSESSED)
 
@@ -198,6 +198,45 @@ def _declared_role_layer(role: dict) -> str | None:
     return None
 
 
+def _recognized_harmonization_materialization(idx: FactIndex, name: str) -> dict | None:
+    """Evidencia que acredita que `name` es una MATERIALIZACION de Armonizacion (no una hoja real de Ingesta),
+    sin inferir intencion ni crear fortaleza. Condiciones (signal-rules/v5), todas necesarias:
+      1) candidato de Armonizacion por el NOMBRE de seccion 28 (capa 2) — coherente con el motivo;
+      2) PRODUCTOR ADQUIRIDO: implementacion TABLE_PRODUCED_BY_FLOW con flujo productor (⇒ no es hoja de frontera);
+      3) materializacion PURA en la tabla: character TECHNICAL_MATERIALIZATION y proyeccion pura (sin derivacion
+         ni etiquetas propias; mapeo y etiquetas determinables);
+      4) RESPONSABILIDAD DE LA VISTA FUENTE: la fuente DIRECTA del Data Flow es UNA sola vista query-defined que
+         es candidata de Armonizacion (sus 4 fuentes remotas internas NO son entradas del Data Flow).
+    El consumo desde Propagacion es evidencia ADICIONAL (corroborante), NO una condicion: un productor adquirido
+    ya alcanza para reconocer que la tabla no es una hoja real de Ingesta. Devuelve el payload o None."""
+    hc = idx.usable_get("harmonization.contract_character", name)
+    if hc is None:
+        return None
+    v = hc.value
+    if "LAYER_2_BY_SECTION_28_NAME" not in (v.get("candidate_basis") or []):
+        return None
+    if v.get("implementation") != "TABLE_PRODUCED_BY_FLOW" or not v.get("producer_flows"):
+        return None
+    ch = v.get("character") or {}
+    dims = ch.get("dimensions") or {}
+    # "Sin transformacion adicional" = SIN derivacion (proyeccion pura), con mapeo y etiquetas determinables. NO se exige
+    # TECHNICAL_MATERIALIZATION: un renombrado de etiqueta (MIXED con proyeccion pura) sigue siendo una materializacion sin
+    # transformar los datos. SEMANTIC (hay derivacion) => pure_projection_only False => no califica.
+    if not (dims.get("pure_projection_only") and dims.get("mapping_determinable") and dims.get("labels_determinable")):
+        return None
+    sources = v.get("sources") or []
+    ds = v.get("direct_source")                             # naturaleza de la UNICA entrada directa del Data Flow (no las remotas de la vista)
+    if len(sources) != 1 or not ds or not ds.get("source"):
+        return None
+    if not ds.get("is_query_view") or not ds.get("layer2_by_section28_name") or ds.get("remote"):
+        return None                                        # responsabilidad respaldada: vista query-defined, capa 2 por nombre, no remota
+    # corroboracion OPCIONAL (no gatea): consumidores de linaje de la tabla, si el hecho existe
+    fc = idx.usable_get("ingestion.first_consumers", name)
+    consumers = ((fc.value.get("lineage_consumers") or []) if fc else [])
+    return {"source_view": ds["source"], "producer_flows": list(v.get("producer_flows") or []),
+            "character": ch.get("value"), "has_downstream_consumers": bool(consumers)}
+
+
 def _rule_role_layer_divergence(idx: FactIndex) -> list[Finding]:
     layer_fact = idx.usable_get("ingestion.inferred_layer_vs_lineage_depth", "closure")
     if layer_fact is None:
@@ -220,10 +259,40 @@ def _rule_role_layer_divergence(idx: FactIndex) -> list[Finding]:
         role_layer = _declared_role_layer(naming.value["declared_role"]) if naming else None
         if role_layer is not None and role_layer != layer:
             kinds.append("NAME_LAYER_DIFFERS_FROM_DECLARED_ROLE_LAYER")
+        # v5: suprimir UNICAMENTE el motivo de posicion de frontera cuando la evidencia acredita la materializacion
+        # de Armonizacion; se CONSERVAN los demas motivos (en especial la contradiccion de rol declarado).
+        resolved: list[str] = []
+        recognized = _recognized_harmonization_materialization(idx, name) if "NAME_LAYER_ABOVE_BOUNDARY_POSITION" in kinds else None
+        if recognized is not None:
+            kinds = [k for k in kinds if k != "NAME_LAYER_ABOVE_BOUNDARY_POSITION"]
+            resolved.append("NAME_LAYER_ABOVE_BOUNDARY_POSITION")
         if kinds:
-            out.append(Finding("ROLE_LAYER_DIVERGENCE", (name,), _keys(layer_fact, boundary_fact if leaves is not None else None, naming),
-                               {"artifact": name, "name_encoded_layer": layer, "is_boundary_leaf": (name in leaves) if leaves is not None else None,
-                                "declared_role_layer": role_layer, "divergence_kinds": kinds}))
+            detail = {"artifact": name, "name_encoded_layer": layer, "is_boundary_leaf": (name in leaves) if leaves is not None else None,
+                      "declared_role_layer": role_layer, "divergence_kinds": kinds}
+            if resolved:
+                detail["resolved_by_evidence"] = resolved          # trazabilidad: motivo resuelto por evidencia
+            out.append(Finding("ROLE_LAYER_DIVERGENCE", (name,), _keys(layer_fact, boundary_fact if leaves is not None else None, naming), detail))
+    return out
+
+
+def _rule_transformation_flow_opportunity(idx: FactIndex) -> list[Finding]:
+    """Revision INDEPENDIENTE (oportunidad de optimizacion): una vista SQL cuya salida se materializa, sin
+    transformacion adicional, por un Data Flow en una tabla local (topologia y mapeos reales verificados por
+    `harmonization.contract_character`). Sugiere EVALUAR una consolidacion con Transformation Flow. No infiere
+    viabilidad ni incrementalidad, no penaliza el uso de Data Flow y NO decide nivel (es REVIEW)."""
+    out = []
+    for f in idx.usable("harmonization.contract_character"):
+        name = f.value["artifact"]
+        rec = _recognized_harmonization_materialization(idx, name)
+        if rec is None:
+            continue
+        counts = f.value.get("mapping_counts") or {}
+        out.append(Finding("TRANSFORMATION_FLOW_CONSOLIDATION_OPPORTUNITY", (name,), _keys(f),
+                           {"materialized_table": name, "source_view": rec["source_view"], "data_flows": rec["producer_flows"],
+                            "mapping_counts": counts, "has_downstream_consumers": rec["has_downstream_consumers"],
+                            "opportunity_detected": True, "viability_verified": False,
+                            "viability_to_confirm": ["acceso a las tablas remotas", "capacidades delta y modos de carga",
+                                                      "consumidores", "soporte de SQL View Transform"]}))
     return out
 
 
@@ -483,6 +552,20 @@ SIGNAL_REGISTRY: tuple[SignalSpec, ...] = (
         legitimate_reasons=("materialized staging object named after a later layer", "layer digit follows a project convention",
                             "declared pattern reflects tool defaults"),
         missing_context="Which layer the artifact is meant to serve in this project."),
+    SignalSpec(
+        ReviewId.TRANSFORMATION_FLOW_CONSOLIDATION_OPPORTUNITY.value, SignalKind.REVIEW, Area.HARMONIZATION,
+        ("harmonization_table_materialized_by_a_single_candidate_view_data_flow",),
+        ("harmonization.contract_character",),
+        "a layer-2 harmonization table produced by a Data Flow whose single DIRECT source is a query-defined harmonization-candidate SQL view, "
+        "materialized as a pure projection (TECHNICAL_MATERIALIZATION) -> one review item suggesting to evaluate consolidation via a Transformation Flow",
+        ("it is an optimization opportunity, not a defect, and never lowers the level",
+         "viability is NOT asserted: a Transformation Flow over remote-table views and its incremental mode must be verified separately",
+         "using a Data Flow is not penalized",
+         "the decision and its justification belong to the consultant"),
+        _rule_transformation_flow_opportunity,
+        legitimate_reasons=("the Data Flow materialization is deliberate and adequate",
+                            "a Transformation Flow may be ineligible for the sources involved"),
+        missing_context="Whether a Transformation Flow is eligible (remote-table access, delta/load modes, consumers, SQL View Transform) and whether consolidation is desired."),
     SignalSpec(
         ReviewId.DUPLICATED_REMOTE_IMPORT.value, SignalKind.REVIEW, Area.INGESTION, ("remote_bearing_artifact",),
         ("ingestion.duplicate_remote_imports",),

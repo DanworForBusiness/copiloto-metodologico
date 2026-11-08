@@ -476,6 +476,13 @@ def _units_am_underuse(ctx: Ctx):
                  f.cause or None) for f in fs] if fs else None
 
 
+def _units_transformation_flow(ctx: Ctx):
+    # unidades = candidatos de Armonización con carácter de contrato; la oportunidad se evalúa sobre ellos (signal-rules/v5)
+    fs = ctx.idx.all("harmonization.contract_character")
+    return [Unit(f.subject, Assessability.ASSESSED if f.assessability is Assessability.ASSESSED else Assessability.NOT_ASSESSED,
+                 f.cause or None) for f in fs] if fs else None
+
+
 _RULE_SURFACES: tuple[SurfaceSpec, ...] = (
     SurfaceSpec("rule.direct_raw_table_access", _SRC, R, REQ, "can DIRECT_RAW_TABLE_ACCESS be evaluated? only remote boundary leaves can; a local leaf's provenance is not observable (Q1)",
                 units=_units_direct_raw, signal_id="DIRECT_RAW_TABLE_ACCESS"),
@@ -499,6 +506,11 @@ _RULE_SURFACES: tuple[SurfaceSpec, ...] = (
                 units=_units_opaque, signal_id="OPAQUE_FIELD_NAME"),
     SurfaceSpec("rule.label_not_enriching", _NAM, R, REQ, "LABEL_NOT_ENRICHING needs exposed fields with labels",
                 units=_units_label, signal_id="LABEL_NOT_ENRICHING"),
+    # signal-rules/v5: oportunidad de optimización (Transformation Flow). CONTEXT_ONLY: requiere resolución humana/arquitectónica y
+    # NO entra en la cobertura (no es una dimensión de calidad requerida ni modifica el nivel/scoring).
+    SurfaceSpec("rule.transformation_flow_consolidation_opportunity", _HAR, R, CTX,
+                "TRANSFORMATION_FLOW_CONSOLIDATION_OPPORTUNITY over harmonization materializations produced by a Data Flow from a single candidate view",
+                units=_units_transformation_flow, signal_id="TRANSFORMATION_FLOW_CONSOLIDATION_OPPORTUNITY"),
 )
 
 SURFACE_REGISTRY: tuple[SurfaceSpec, ...] = (*_FACT_SURFACES, *_RULE_SURFACES)

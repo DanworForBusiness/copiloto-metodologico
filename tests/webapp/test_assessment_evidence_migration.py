@@ -89,7 +89,7 @@ def test_the_registry_is_small_explicit_and_uses_the_real_constants_as_target():
     assert TARGET.eligible_old["closure"] == frozenset({None})
     v = _cur_versions()
     assert (v["assessability"], v["confidence"], v["canonical_evidence"], v["closure"]) == ("assessability-rules/v4", "confidence-cuts/v3", "canonical-evidence/v5", "closure-rules/v1")
-    assert v["signals"] == "signal-rules/v4" and v["finding_evidence"] == "finding-evidence/v2" and v["facts_profile"] == "modeling_assessment.profile/v1"     # lo no relacionado NO se subio
+    assert v["signals"] == "signal-rules/v5" and v["finding_evidence"] == "finding-evidence/v2" and v["facts_profile"] == "modeling_assessment.profile/v1"     # signals vigente = v5 (bump de ruleset); finding_evidence/facts_profile sin cambios
 
 
 # ═══════════════ 2. unidades con dobles (sin motor ni disco) ═══════════════
@@ -887,7 +887,7 @@ def test_the_old_migration_dry_run_writes_nothing_and_apply_lands_on_the_current
         dry = bf.migrate_stale_evidence([world.acme], OLD_MIG, apply=False, governed_state_present=ALWAYS)
     d = dry["records"][0]["delta"]
     assert dry["records"][0]["action"] == bf.WOULD_REGENERATE and _digest(path) == before
-    assert d["versions"]["canonical_evidence"] == {"old": None, "new": "canonical-evidence/v5"} and d["versions"]["signals"] == {"old": "signal-rules/v2", "new": "signal-rules/v4"}
+    assert d["versions"]["canonical_evidence"] == {"old": None, "new": "canonical-evidence/v5"} and d["versions"]["signals"] == {"old": "signal-rules/v2", "new": "signal-rules/v5"}
     assert d["closure"]["drift"] is False and d["closure"]["policy"] == "TARGETED_CLOSURE_EXPANSION"
     out = bf.migrate_stale_evidence([world.acme], OLD_MIG, apply=True, governed_state_present=ALWAYS)
     assert out["records"][0]["action"] == bf.REGENERATED and out["counts"]["failed"] == 0 and files(world) == [path]
