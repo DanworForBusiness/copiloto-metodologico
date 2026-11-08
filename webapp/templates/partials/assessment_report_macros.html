@@ -10,8 +10,10 @@
 {# ── Evidencia completa bajo demanda (reutilizable) ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
    Reemplaza el recorte opaco «… (+N)»: se muestran los primeros `limit` en línea y, si hay más, el UNIVERSO COMPLETO en un disclosure del Hub (`details.dashboard-section`, el mismo de CRM/Assessment)
    con su cantidad. Solo presenta lo que el perfil conserva; nada se recalcula ni se completa. El contenido pasa por el autoescape de Jinja. #}
+{# Universo completo de artefactos como TABLA del Hub (una fila por artefacto), nunca una lista concatenada. #}
+{% macro artifact_table(items, header="Artefacto") %}<table class="asr-artifact-table" data-block="artifact-table"><thead><tr><th>{{ header }}</th></tr></thead><tbody>{% for a in items %}<tr><td><code>{{ a }}</code></td></tr>{% endfor %}</tbody></table>{% endmacro %}
 {% macro artifact_list(items, limit=6, title="Ver todos los artefactos") %}{% for a in items[:limit] %}<code>{{ a }}</code> {% endfor %}{% if items|length > limit %}
-<details><summary>{{ title }} ({{ items|length }})</summary>{% for a in items %}<code>{{ a }}</code> {% endfor %}</details>{% endif %}{% endmacro %}
+<details><summary>{{ title }} ({{ items|length }})</summary>{{ artifact_table(items) }}</details>{% endif %}{% endmacro %}
 {# Igual que `artifact_list` pero para UNIDADES descriptivas (texto, no identificadores de artefactos): sin `<code>`. #}
 {% macro text_list(items, limit=8, title="Ver todas") %}{{ items[:limit]|join(", ") }}{% if items|length > limit %}
 <details><summary>{{ title }} ({{ items|length }})</summary>{{ items|join(", ") }}</details>{% endif %}{% endmacro %}
@@ -24,14 +26,14 @@
     <div class="dashboard-section__body">
       {% if f.meaning %}<p>{{ f.meaning }}</p>{% endif %}
       {% if f.reason %}<p class="catalog-note__ev">Regla evaluada por el Assessment: {{ f.reason }}</p>{% endif %}
-      {% if f.artifacts is not none %}<p>{% for a in f.artifacts %}<code>{{ a }}</code> {% endfor %}</p>
+      {% if f.artifacts is not none %}{{ artifact_table(f.artifacts) }}
       {% else %}<p class="catalog-note__ev">La evidencia conserva solo el conteo agregado de esta familia ({{ f.count }}); no permite identificar cuáles de los artefactos que no cumplen pertenecen a ella.</p>{% endif %}
     </div>
   </details>
   {% endfor %}
   {% if nv.unattributed %}<p class="catalog-note__ev">Sin atribución por familia (la evidencia solo guarda el agregado de su grupo): {{ artifact_list(nv.unattributed, 12, "Ver todos") }}</p>{% endif %}
   {% if nv.compliant_artifacts %}
-  <details class="dashboard-section"><summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Cumplen la convención</span><span class="dashboard-section__count">{{ nv.compliant_artifacts|length }}</span></summary><div class="dashboard-section__body"><p>{% for a in nv.compliant_artifacts %}<code>{{ a }}</code> {% endfor %}</p></div></details>
+  <details class="dashboard-section"><summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Cumplen la convención</span><span class="dashboard-section__count">{{ nv.compliant_artifacts|length }}</span></summary><div class="dashboard-section__body">{{ artifact_table(nv.compliant_artifacts) }}</div></details>
   {% endif %}
 {% endmacro %}
 {# Etiqueta de negocio compartida por varios nombres técnicos (evidencia por grupo: etiqueta, TODOS los nombres con su forma y dónde se observó la coincidencia). #}

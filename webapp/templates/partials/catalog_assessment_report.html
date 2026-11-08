@@ -62,17 +62,18 @@
 {# Controles del área en UNA tabla integrada: resultado + cantidad de hallazgos + acceso al detalle. El enlace sale de la identidad canónica regla↔grupo
    (presenter); sin grupo renderizado no hay acción. La acción es ICÓNICA (`table_action_link`, patrón CCHH). El detalle del grupo (en [06]) se cierra con su X (`panel_close`), que devuelve el foco a esta acción. #}
 {% macro rules_table(rules) %}
-  <table>
+  <table class="asr-rules-table">
     <thead><tr><th>Regla</th><th>Resultado</th><th>Hallazgos</th><th class="asr-col-action">Acciones</th></tr></thead>
     <tbody>{% for r in rules %}<tr id="{{ r.dom_id }}"><td>{{ r.title }}</td><td>{{ r.result_text }}{% if r.reason %} ({{ r.reason }}){% endif %}</td><td>{% if r.finding %}{{ n_occ(r.finding.count) }} ({{ r.finding.kind_text }}){% else %}—{% endif %}</td><td class="asr-col-action">{% if r.finding %}<span class="dw-row-actions">{{ table_action_link("#" ~ r.finding.dom_id, "Ver evidencia del hallazgo", "Ver evidencia del hallazgo «" ~ r.title ~ "»") }}</span>{% endif %}</td></tr>{% endfor %}</tbody>
   </table>
 {% endmacro %}
 {# Cuerpo de un área, en orden de lectura: contexto de evidencia → titulares (≤4 tiles KPI) → evidencia de apoyo (tablas compactas)
    → evaluación de reglas (tabla integrada con hallazgos y acceso al detalle) → otros hallazgos sin regla. `lvl`: nivel de los rótulos (h3 en sección propia, h4 dentro de un disclosure). #}
-{% macro area_body(a, lvl) %}
+{% macro area_body(a, lvl, accent=none) %}
   <p>Superficies de evidencia requeridas: {{ a.surfaces }}.{% if a.reason %} {{ a.reason }}.{% endif %}</p>
   {% if a.facts.headline %}
-  <div class="activity-kpi-grid asm-facts">
+  {# Cada agrupador con SU acento (paleta de `.activity-kpi`, uno por agrupador, sin significado de estado); el resumen de vistas del cierre sigue en dorado. #}
+  <div class="activity-kpi-grid asm-facts{% if accent is not none %} asm-facts--accent-{{ accent % 5 }}{% endif %}">
     {% for m in a.facts.headline %}{{ kpi_tile(m) }}{% endfor %}
   </div>
   {% endif %}
@@ -127,10 +128,13 @@
   {% if v.adhoc %}{# assessment ad-hoc (página propia): "Volver" regresa a la herramienta, sin HTMX ni flujo del Catálogo #}
   <a class="catalog-back" href="{{ v.flow_url }}">← Volver</a>
   {% else %}<a class="catalog-back" href="#" role="button" hx-get="{{ v.flow_url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>← Volver</a>{% endif %}
-  {% if v.has_profile or diagnostic_url %}
+  {% if v.has_profile or regenerate_url %}
   <div class="support-links catalog-actionbar__actions">
-    {# Mejora continua: evaluar la versión ACTUAL del modelo en Datasphere (cualquier Space) con el mismo motor, sin publicar ni tocar este registro gobernado. #}
-    {% if diagnostic_url and not v.adhoc %}<a class="support-link" href="{{ diagnostic_url }}" data-asr-diagnostic>Evaluar la versión actual<span>↗</span></a>{% endif %}
+    {# «Regenerar Catálogo» (MISMO ícono que el detalle del flujo y Assessments recientes): formulario de publicación precargado; no publica por sí mismo. Reemplaza a «Evaluar la versión actual». #}
+    {% if regenerate_url and not v.adhoc %}<a class="table-action-btn chart-tooltip-anchor" href="{{ regenerate_url }}" aria-label="Regenerar Catálogo" data-catalog-regenerate>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+      <span class="chart-tooltip" aria-hidden="true"><p>Regenerar Catálogo</p></span>
+    </a>{% endif %}
     {% if v.has_profile %}
     <a class="support-link" href="{{ v.md_url }}" download>Exportar Markdown<span>↗</span></a>
     <a class="support-link" href="{{ v.json_url }}" download>Exportar JSON<span>↗</span></a>
@@ -217,7 +221,7 @@
   {% for a in mg.areas %}
   <details class="dashboard-section" id="{{ a.dom_id }}">
     <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">{{ a.title }}</span>{% if a.state != "ASSESSED" %}<span class="dashboard-section__state">{% if a.findings %}<span class="dashboard-section__count">{{ a.findings|length }} hallazgo{{ "s" if a.findings|length != 1 }}&nbsp;&nbsp;·&nbsp;&nbsp;</span>{% endif %}{{ state_badge(a) }}</span>{% elif a.findings %}<span class="dashboard-section__count">{{ a.findings|length }} hallazgo{{ "s" if a.findings|length != 1 }}</span>{% endif %}</summary>
-    <div class="dashboard-section__body">{{ area_body(a, 4) }}</div>
+    <div class="dashboard-section__body">{{ area_body(a, 4, loop.index0) }}</div>
   </details>
   {% endfor %}
 {% endmacro %}
@@ -231,8 +235,8 @@
       <tr><td>Cobertura estricta</td><td>{{ s.coverage_strict }}</td><td>{{ s.coverage_meaning }} Superficies requeridas: {{ s.surfaces }}.</td></tr>
       <tr><td>Cobertura inclusiva</td><td>{{ s.coverage_inclusive }}</td><td>Incluye la evidencia parcialmente evaluada.</td></tr>
       <tr><td>Confianza</td><td>{{ s.confidence }}</td><td>{{ s.confidence_meaning }}{% if s.confidence_limitation %} Limitación principal: {{ s.confidence_limitation }}{% endif %}</td></tr>
-      <tr><td>Casos a revisar</td><td>{{ s.review_open }}</td><td>{{ s.review_reading }}</td></tr>
-      <tr><td>Preguntas abiertas</td><td>{{ s.context_open }}</td><td>{{ s.context_reading }}</td></tr>
+      <tr><td>Casos a revisar</td><td>{{ s.review_occurrences }}</td><td>{{ s.review_reading }}</td></tr>
+      <tr><td>Preguntas abiertas</td><td>{{ s.context_open_n }}</td><td>{{ s.context_reading }}</td></tr>
       <tr><td>Observaciones</td><td>{{ s.observation_occurrences }}</td><td>{{ s.observation_groups }} grupo{{ "s" if s.observation_groups != 1 }} de observación: patrones descriptivos para revisión técnica del consultor, sin juicio (detalle en «Casos a revisar y preguntas abiertas»).</td></tr>
     </tbody>
   </table>
@@ -245,9 +249,10 @@
 {% if v.judgment %}
 {% set j = v.judgment %}
 <section class="content-section" id="asr-juicio" aria-label="Adopción metodológica">
-  {% set ns.n = ns.n + 1 %}{{ heading(ns.n, "Adopción metodológica", "Qué tan cerca está el modelo de adoptar la metodología, como resultado determinista sobre los cuatro contratos. Es independiente del veredicto del catálogo (higiene de extracción) y no recalcula el Assessment.") }}
+  {% set ns.n = ns.n + 1 %}{{ heading(ns.n, "Adopción metodológica", "Qué tan cerca está el modelo de adoptar la metodología, como resultado determinista sobre los cuatro contratos. Es independiente del veredicto del catálogo.") }}
   {% if v.state == "STALE" %}{% call callout("note", "Corresponde al perfil evaluado") %}<p>El Assessment técnico está desactualizado; la Adopción refleja el último perfil evaluado.</p>{% endcall %}{% endif %}
-  {% if v.judgment_provisional %}{% call callout("note", "Clasificación provisional") %}<p>Corresponde a esta ejecución: el mismo motor del Catálogo sobre la evidencia que se acaba de evaluar. <strong>No incorpora las ratificaciones de gobierno</strong> registradas en el Catálogo, por lo que puede diferir de la clasificación publicada aunque el modelo no haya cambiado. Se calcula con las reglas vigentes al abrir este informe{% if v.judgment.ruleset_version %} (<code>{{ v.judgment.ruleset_version }}</code>){% endif %}. No modifica la clasificación publicada.</p>{% endcall %}{% endif %}
+  {% if v.judgment_provisional %}{% call callout("note", "Clasificación provisional") %}<p>Esta ejecución es local, aunque utiliza el mismo motor del Catálogo sobre la evidencia que se acaba de evaluar, no incorpora las ratificaciones de gobierno registradas hasta tanto no {% if catalog_review_url %}<a href="{{ catalog_review_url }}" data-asr-regenerate data-dialog-open="dsa-catalog-dialog" hx-get="{{ catalog_review_url }}" hx-target="#dsa-catalog-content" hx-swap="innerHTML"
+     hx-on::before-request="document.getElementById('dsa-catalog-content').replaceChildren(document.getElementById('dsa-catalog-loading').content.cloneNode(true))">regeneres el catálogo</a>{% else %}regeneres el catálogo{% endif %}.</p>{% endcall %}{% endif %}
   {# Contratos = 4 (una fila por dimensión); evidencias = ítems individuales (varios por contrato). #}
   {{ contracts_evaluated(j) }}
   {{ tile_grid(j.tiles) }}

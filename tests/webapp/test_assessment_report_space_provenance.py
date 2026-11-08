@@ -97,13 +97,16 @@ def test_catalog_space_never_changes_the_governed_result(world):  # noqa: F811
         assert level(html_with)["data-asr-level"] == level(html_without)["data-asr-level"]
 
 
-# ── «Evaluar la versión actual»: del Catálogo al Assessment ad hoc, sin publicar ────────────────────────────────────
-def test_catalog_report_links_to_the_adhoc_assessment_of_the_same_model(world, monkeypatch):  # noqa: F811
-    monkeypatch.setattr(dsvc, "can_execute", lambda request: True)
-    link = BeautifulSoup(_catalog_html(), "html.parser").select_one("[data-asr-diagnostic]")
-    assert link is not None and link["href"] == dsvc.catalog_prefill_url("04_Modelado_y_Desarrollo", "datasphere_core", "Acme", "4AM_ACME")
-    monkeypatch.setattr(dsvc, "can_execute", lambda request: False)                       # sin acceso a la herramienta: sin enlace
-    assert BeautifulSoup(_catalog_html(), "html.parser").select_one("[data-asr-diagnostic]") is None
+# ── «Regenerar Catálogo» en el informe del Catálogo (reemplaza a «Evaluar la versión actual») ────────────────────────
+def test_catalog_report_offers_regenerate_instead_of_evaluating_the_current_version(world, monkeypatch):  # noqa: F811
+    from webapp.services import datasphere_publication_service as pubsvc
+    monkeypatch.setattr(pubsvc, "can_execute", lambda request: True)
+    soup = BeautifulSoup(_catalog_html(), "html.parser")
+    assert soup.select_one("[data-asr-diagnostic]") is None and "Evaluar la versión actual" not in soup.get_text()
+    icon = soup.select_one(".catalog-actionbar [data-catalog-regenerate]")
+    assert icon is not None and icon["href"] == dsvc.publication_prefill_url("04_Modelado_y_Desarrollo", "datasphere_core", "Acme", "4AM_ACME", "")
+    monkeypatch.setattr(pubsvc, "can_execute", lambda request: False)                     # quien no puede publicar no lo ve
+    assert BeautifulSoup(_catalog_html(), "html.parser").select_one("[data-catalog-regenerate]") is None
 
 
 def test_the_tool_is_prefilled_with_the_model_and_never_with_a_space(owner, fake_export):  # noqa: F811

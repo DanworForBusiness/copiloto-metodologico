@@ -803,7 +803,20 @@ def _canonical_label(doc: dict | None) -> str | None:
 
 
 def _column_title(key: str) -> str:
-    return {"name": "Nombre", "count": "Cantidad"}.get(key) or P.row_key_text(key).capitalize()
+    return {"name": "Nombre", "count": "Cantidad", **_COLUMN_TEXT}.get(key) or P.row_key_text(key).capitalize()
+
+
+# Códigos del Copiloto (no de Datasphere) en tablas de hechos → texto para el lector del informe. SOLO presentación: el perfil y el Markdown conservan el código.
+_COLUMN_TEXT = {"membership_basis": "Reconocida como vista por", "view_type": "Tipo de vista", "view_type_basis": "Cómo se obtuvo el tipo"}
+_CELL_TEXT = {
+    "membership_basis": {"FAMILY_DIRECTORY": "Carpeta de vistas del export", "STRUCTURAL_MARKER": "Marcador de vista gráfica o SQL"},
+    "view_type": {"GRAPHICAL": "Gráfica", "SQL": "SQL", "UNKNOWN": "Sin clasificar"},
+    "view_type_basis": {"STORED": "Informado por la exportación", "DERIVED": "Deducido de la definición"},
+}
+
+
+def _cell_text(key: str, value: Any) -> Any:
+    return _CELL_TEXT.get(key, {}).get(value, value) if isinstance(value, str) else value
 
 
 # Jerarquía de lectura de los hechos descriptivos de cada área (SOLO presentación; no se quita ni se recalcula ningún hecho):
@@ -869,6 +882,10 @@ AREA_KPI_HELP: dict[str, tuple[str, ...]] = {
 }
 
 
+# Rótulos CORTOS de tiles cuyo texto canónico es largo (pedido del owner); el perfil y el Markdown conservan el rótulo completo y la ayuda (i) lo explica.
+HEADLINE_LABEL = {"section_28_applicable": "Evaluados", "section_28_compliant": "Cumplen", "section_28_non_compliant": "Incumplen"}
+
+
 def _kpi(key: str, label: str, value: Any) -> dict:
     return {"label": label, "value": value, "help": list(KPI_HELP[key])}
 
@@ -888,7 +905,7 @@ def _fact_into(group: dict, h: dict) -> None:
     elif isinstance(v, list) and v and all(isinstance(x, dict) for x in v):
         keys = sorted(dict.fromkeys(k for r in v for k in r), key=lambda k: k != "name")
         group["tables"].append({"title": label, "columns": [_column_title(k) for k in keys],
-                                "rows": [[(P.percent_text(r[k]) if k == "share" and k in r else (AL.cell(r.get(k, ""), generic_ok=h["id"] == "by_provenance") if k == "name" else r.get(k, ""))) for k in keys] for r in v]})   # `share` = proporción 0–1
+                                "rows": [[(P.percent_text(r[k]) if k == "share" and k in r else (AL.cell(r.get(k, ""), generic_ok=h["id"] == "by_provenance") if k == "name" else _cell_text(k, r.get(k, "")))) for k in keys] for r in v]})   # `share` = proporción 0–1
     elif isinstance(v, dict):
         group["tables"].append({"title": label, "columns": ["Concepto", "Valor"], "rows": [[P.row_key_text(k).capitalize(), x] for k, x in v.items()]})
     elif isinstance(v, list):
@@ -917,7 +934,8 @@ def _facts_view(area_id: str, highlights: list[dict], extras: dict | None = None
         numbers = [h for h in highlights if _is_number(h["value"]) and not h.get("breakdown")]
         layout = {"headline": [h["id"] for h in numbers[:3]], "groups": [("Hechos de apoyo", [h["id"] for h in highlights])]}
     head_ids = [i for i in layout["headline"] if i in by_id and _is_number(by_id[i]["value"])]
-    headline = [{"label": by_id[i]["label"], "value": by_id[i]["value"], **({"help": list(AREA_KPI_HELP[i])} if i in AREA_KPI_HELP else {})} for i in head_ids]
+    headline = [{"label": HEADLINE_LABEL.get(i, by_id[i]["label"]), "value": by_id[i]["value"], **({"help": list(AREA_KPI_HELP[i])} if i in AREA_KPI_HELP else
+                                                                                                   {"help": [by_id[i]["label"] + "."]} if i in HEADLINE_LABEL else {})} for i in head_ids]   # rótulo corto: el (i) conserva el texto completo
     shown = {i for i in head_ids if not by_id[i].get("breakdown")}                        # con composición: tile + su tabla en el grupo
     groups = []
     for title, ids in layout["groups"]:

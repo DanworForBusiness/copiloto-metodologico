@@ -231,7 +231,8 @@ def adhoc_report(request: Request, stem: str, result_id: str, pack: str = Query(
     academy = [a for a in list_academy(selected) if not a.nav_hidden]
     return templates.TemplateResponse(
         request=request, name="datasphere_assessment_result.html",
-        context={"v": view, "modules": list_modules(selected), "appendices": [a for a in list_appendices(selected) if not a.nav_hidden],
+        context={"v": view, "catalog_review_url": f"/modules/{stem}/datasphere-assessment/result/{result_id}/catalog?" + urlencode({"pack": selected}),
+                 "modules": list_modules(selected), "appendices": [a for a in list_appendices(selected) if not a.nav_hidden],
                  "academy": academy, "academy_assets": {a.stem: academy_asset_for(a.stem, selected) for a in academy},
                  "active_group": "core", "active_stem": stem, "readonly": False, "pack": selected,
                  "pack_label": content_pack_short_label(selected), "user": user, "current_workspace": workspaces.COPILOT,
