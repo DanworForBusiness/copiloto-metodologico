@@ -170,7 +170,7 @@ def test_the_judgment_and_the_signals_share_one_definition_of_pass_through_and_g
 
 
 def test_the_ruleset_is_versioned_and_the_signal_is_still_a_review_without_level_effect():
-    assert S.SIGNALS_RULESET == "signal-rules/v4"
+    assert S.SIGNALS_RULESET == "signal-rules/v5"
     spec = next(s for s in S.SIGNAL_REGISTRY if s.signal_id == "LAYER_BOUNDARY_REVIEW")
     assert spec.kind is m.SignalKind.REVIEW and "harmonization.view_complexity" in spec.required_fact_ids and "source.contract_class" in spec.required_fact_ids
 

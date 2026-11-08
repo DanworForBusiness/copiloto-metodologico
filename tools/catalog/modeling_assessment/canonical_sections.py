@@ -85,7 +85,10 @@ def _naming_section(idx: Any, published: dict | None, harmonization: dict) -> di
 
 def build_v2_sections(idx: Any) -> dict:
     published = _published_section(idx)
-    harm_facts = [f.value for f in idx.all("harmonization.contract_character") if f.value is not None]
+    # `direct_source` es evidencia INTERNA (reconocimiento de materialización / oportunidad Transformation Flow, signal-rules/v5):
+    # se lee del hecho en el FactIndex y NO se publica en canonical_evidence, para no alterar la forma de `canonical-evidence/v5`
+    # ni la firma de evidencia del Juicio (profile_signature).
+    harm_facts = [{k: v for k, v in f.value.items() if k != "direct_source"} for f in idx.all("harmonization.contract_character") if f.value is not None]
     harmonization = {"artifacts": harm_facts, "count": len(harm_facts)}
     views = [f.value for f in idx.all("harmonization.view_complexity") if f.value is not None]
     return {

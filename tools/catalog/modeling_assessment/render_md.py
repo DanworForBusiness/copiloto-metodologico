@@ -135,6 +135,13 @@ def _fmt_role_layer(o: dict) -> str:
         _DIVERGENCE_TEXT.get(k, str(k).lower().replace("_", " ")) for k in v.get("divergence_kinds") or [])
 
 
+def _fmt_transformation_flow(o: dict) -> str:
+    v = o["values"]
+    dfs = ", ".join(_code(x) for x in (v.get("data_flows") or [])) or "—"
+    return (f"{_code(v.get('source_view'))} → [{dfs}] → {_code(v.get('materialized_table'))} — materialización sin transformación adicional; "
+            f"oportunidad de evaluar un Transformation Flow (viabilidad por verificar; no modifica el nivel)")
+
+
 def _fmt_duplicate(o: dict) -> str:
     v = o["values"]
     return f"remota {_code(v.get('remote_entity'))} importada como {_names(v.get('local_artifacts') or [])}"
@@ -187,6 +194,7 @@ _FMT: dict[str, Callable[[dict], str]] = {
     "REPEATED_DERIVATION_IN_LINEAGE": _fmt_rederivation, "ROLE_LAYER_DIVERGENCE": _fmt_role_layer, "DUPLICATED_REMOTE_IMPORT": _fmt_duplicate,
     "LAYER_BOUNDARY_REVIEW": _fmt_layer_boundary, "FLAT_CENTRAL_ASSEMBLY_REVIEW": _fmt_flat_central, "FIELD_VOCABULARY_MIX": _fmt_vocab_mix,
     "OPAQUE_FIELD_NAME": _fmt_opaque, "LABEL_NOT_ENRICHING": _fmt_label, "AM_SEMANTIC_UNDERUSE_REVIEW": _fmt_underuse,
+    "TRANSFORMATION_FLOW_CONSOLIDATION_OPPORTUNITY": _fmt_transformation_flow,
 }
 
 

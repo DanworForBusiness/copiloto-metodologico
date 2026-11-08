@@ -18,6 +18,7 @@ from tools.catalog.modeling_assessment import model as m
 from tools.catalog.modeling_assessment import signals as S
 from tools.catalog.modeling_assessment.facts_am import am_facts
 from tools.catalog.modeling_assessment.facts_harmonization import harmonization_facts
+from tools.catalog.modeling_assessment.facts_harmonization_contract import harmonization_contract_facts
 from tools.catalog.modeling_assessment.facts_ingestion import ingestion_facts
 from tools.catalog.modeling_assessment.facts_naming import naming_facts
 from tools.catalog.modeling_assessment.facts_propagation import propagation_facts
@@ -34,7 +35,9 @@ def all_facts(ents, am, evidence=None):
     ident = classify_universe(ents)
     return [*source_facts(u, ents, am, evidence=evidence, identity=ident), *ingestion_facts(u, ents, am, evidence=evidence, identity=ident),
             *am_facts(u, ents, am, identity=ident), *propagation_facts(u, ents, am, identity=ident),
-            *harmonization_facts(u, ents, am, identity=ident), *naming_facts(u, ents, am, identity=ident)]
+            *harmonization_facts(u, ents, am, identity=ident),
+            *harmonization_contract_facts(u, ents, am, identity=ident, evidence=evidence),
+            *naming_facts(u, ents, am, identity=ident)]
 
 
 def run(ents, am, evidence=None):
@@ -66,7 +69,8 @@ def test_each_signal_belongs_to_its_canonical_area():
     expected = {"DIRECT_RAW_TABLE_ACCESS": A.SOURCE_EXTRACTION, "SOURCE_FILTER_PRESENT": A.SOURCE_EXTRACTION,
                 "PASS_THROUGH_REVIEW": A.PROPAGATION, "REPEATED_DERIVATION_IN_LINEAGE": A.PROPAGATION,
                 "ROLE_LAYER_DIVERGENCE": A.INGESTION, "DUPLICATED_REMOTE_IMPORT": A.INGESTION, "LAYER_BOUNDARY_REVIEW": A.INGESTION,
-                "FLAT_CENTRAL_ASSEMBLY_REVIEW": A.HARMONIZATION, "FIELD_VOCABULARY_MIX": A.NAMING, "OPAQUE_FIELD_NAME": A.NAMING,
+                "FLAT_CENTRAL_ASSEMBLY_REVIEW": A.HARMONIZATION, "TRANSFORMATION_FLOW_CONSOLIDATION_OPPORTUNITY": A.HARMONIZATION,
+                "FIELD_VOCABULARY_MIX": A.NAMING, "OPAQUE_FIELD_NAME": A.NAMING,
                 "LABEL_NOT_ENRICHING": A.NAMING, "AM_SEMANTIC_UNDERUSE_REVIEW": A.ANALYTIC_MODEL}
     assert {s.signal_id: s.area for s in S.SIGNAL_REGISTRY} == expected
 
@@ -512,7 +516,7 @@ def test_missing_or_not_applicable_facts_produce_nothing_and_never_crash():
 def test_no_signal_object_or_finding_carries_scoring_vocabulary_or_a_quality_judgment():
     for ents, am in ((m4_entities(), "AM_X"), (m3_entities(), "AM_M"), (_rl(), "4AM_RL")):
         _, ev = run(ents, am)
-        assert ev.ruleset_version == S.SIGNALS_RULESET == "signal-rules/v4"
+        assert ev.ruleset_version == S.SIGNALS_RULESET == "signal-rules/v5"
         for s in ev.signals:
             assert s.ruleset_version == S.SIGNALS_RULESET and not m.find_forbidden_tokens(s.signal_id)
         for f in ev.findings:

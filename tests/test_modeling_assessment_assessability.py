@@ -304,7 +304,10 @@ def test_scope_without_a_terminal_analytic_model_composes_everything_as_not_appl
 # ── confianza ────────────────────────────────────────────────────────────────
 def test_roles_context_derived_views_processing_and_optional_evidence_are_excluded_by_design():
     role = {s.surface_id: s.role for s in A.SURFACE_REGISTRY}
-    assert {k for k, v in role.items() if v is A.SurfaceRole.CONTEXT_ONLY} == {"naming.convention_context", "harmonization.reuse_context"}
+    # signal-rules/v5: la oportunidad Transformation Flow es la PRIMERA superficie de regla no requerida (CONTEXT_ONLY): es una
+    # oportunidad de optimización que requiere decisión del consultor y NO entra en la cobertura (no cambia el scoring ni el nivel).
+    assert {k for k, v in role.items() if v is A.SurfaceRole.CONTEXT_ONLY} == {
+        "naming.convention_context", "harmonization.reuse_context", "rule.transformation_flow_consolidation_opportunity"}
     assert {k for k, v in role.items() if v is A.SurfaceRole.CROSS_PLANE_COMPLEMENT} == {
         "ingestion.dataflow_boundary", "ingestion.processing_context_inventory", "ingestion.processing_reference", "source.replication_mode",
         "ingestion.flow_load_properties", "source.physical_boundary"}
@@ -323,7 +326,8 @@ def test_roles_context_derived_views_processing_and_optional_evidence_are_exclud
     from collections import Counter
     assert Counter((s.kind.value, s.role.value) for s in A.SURFACE_REGISTRY) == {
         ("FACT_EVIDENCE", "REQUIRED"): 30, ("RULE_EVALUATION", "REQUIRED"): 11, ("FACT_EVIDENCE", "DERIVED_VIEW"): 17,
-        ("FACT_EVIDENCE", "CROSS_PLANE_COMPLEMENT"): 6, ("FACT_EVIDENCE", "CONTEXT_ONLY"): 2, ("FACT_EVIDENCE", "OPTIONAL_DEEPER_EVIDENCE"): 1}
+        ("FACT_EVIDENCE", "CROSS_PLANE_COMPLEMENT"): 6, ("FACT_EVIDENCE", "CONTEXT_ONLY"): 2, ("FACT_EVIDENCE", "OPTIONAL_DEEPER_EVIDENCE"): 1,
+        ("RULE_EVALUATION", "CONTEXT_ONLY"): 1}                        # signal-rules/v5: oportunidad Transformation Flow (no requerida)
 
 
 def test_permanent_optional_c2_surfaces_do_not_reduce_required_coverage_but_stay_visible_as_limitations(tmp_path):
@@ -526,7 +530,7 @@ def test_the_composition_exposes_everything_m7_needs_to_render():
     assert comp.assessability_ruleset == A.ASSESSABILITY_RULESET == "assessability-rules/v4"
     assert comp.signals_ruleset == S.SIGNALS_RULESET and comp.confidence_ruleset == A.CONFIDENCE_RULESET
     rules = [s for s in comp.surfaces if s.kind is A.SurfaceKind.RULE_EVALUATION]
-    assert len(rules) == 11 and all(s.result is not None and s.finding_count is not None for s in rules)
+    assert len(rules) == 12 and all(s.result is not None and s.finding_count is not None for s in rules)
     for card in comp.areas:
         assert all(f.area is card.area for f in card.facts) and all(s.area is card.area for s in card.signals)
 

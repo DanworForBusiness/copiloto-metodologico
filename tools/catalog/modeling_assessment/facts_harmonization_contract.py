@@ -288,9 +288,24 @@ def harmonization_contract_facts(
             character, reason = CH_SEMANTIC, None
         else:
             character, reason = CH_MIXED, None
+        # Responsabilidad de la fuente DIRECTA (para tablas producidas por un flujo con UNA sola entrada): se describe la
+        # naturaleza de esa entrada desde su propia entidad (vista query-defined / capa 2 por nombre de seccion 28 / remota),
+        # SIN exigir que este en el cierre del AM. Es evidencia descriptiva; no clasifica ni puntua.
+        direct_source = None
+        if impl == IMPL_FLOW_TABLE and len(sources) == 1:
+            s = sources[0]
+            se = entities.get(s)
+            if se is not None:
+                sl = C.layer_inference(se)
+                sd = ev.derivation_evidence(s) if ev is not None else None
+                direct_source = {"source": s,
+                                 "is_query_view": bool(getattr(sd, "has_query", False)) or bool(getattr(se, "query", None)),
+                                 "layer2_by_section28_name": sl.get("inferred_layer") == "2" and sl.get("inferred_layer_basis") == "SECTION_28_NAME",
+                                 "remote": bool(getattr(se, "remote_entity", ""))}
         facts.append(make_fact(
             "harmonization.contract_character", H_, n,
             {"artifact": n, **layer, "candidate_basis": basis, "declared_role": role, "implementation": impl, "sources": sources, "producer_flows": producers,
+             "direct_source": direct_source,
              "target_field_count": len(names), "mapping_basis": mapping_basis, "mapping_determinable": mapping_determinable,
              "mapping_counts": counts, "mapping_count": n_mapped, "identity_mapping_ratio": _ratio(counts[MAP_IDENTITY], n_mapped) if n_mapped else None,
              "retained_source_fields": retained, "renamed_fields": renamed, "label_origin_counts": lo, "labels_differing_from_name_and_provider": lo[LO_DIFFERENT],
