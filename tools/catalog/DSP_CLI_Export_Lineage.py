@@ -1854,6 +1854,8 @@ class ExportRequest:
     allowed_root_types: str | Iterable[str] | None = None
     diagnostics: bool = False
     stage_hooks: Any = None           # etapas adicionales de la unidad de publicación (P1: el assessment gobernado); ver ``publication_txn.StageHooks``. Solo modo PUBLISH
+    replace_token: str = ""           # reemplazo EXPLÍCITO confirmado por el usuario: huella exacta del plan (``publication_replacement``). NO desactiva la guarda: solo
+                                      # autoriza ese reemplazo si, recalculado bajo el candado, sigue siendo idéntico y seguro
 
 
 @dataclass
@@ -1896,6 +1898,7 @@ class ExportResult:
     deferred_reasons: list[str] = field(default_factory=list)
     client_dir: str = ""              # directorio canónico del cliente con el que se publicó (una sola identidad por cliente)
     outcome: str = ""                 # CHANGED | NO_CHANGE (una republicación idéntica no escribe nada)
+    replacement: dict[str, Any] | None = None   # alcance de un POOL_IDENTITY_CONFLICT (o del reemplazo aplicado): exclusivos/compartidos y si es seguro
 
 
 _PRECHECK_CODES = (
@@ -2133,6 +2136,7 @@ def _apply_locked(req, exporter, *, base, txn, op_id, stages, planned, planned_s
     excluded = {manifest_path.resolve()} | ({migrated_from.resolve()} if migrated_from else set())
     other_owned: set[tuple[str, str]] = set()
     claims: dict[tuple[str, str], list[dict]] = {}
+    claim_paths: dict[int, Path] = {}
     unusable: list[str] = []
     if runs_root.exists():
         for mp in sorted(runs_root.rglob("lineage-manifest.json")):
@@ -2145,6 +2149,7 @@ def _apply_locked(req, exporter, *, base, txn, op_id, stages, planned, planned_s
             if not loaded.usable:
                 unusable.append(f"{mp.parent.name}:{loaded.state}")
                 continue
+            claim_paths[id(loaded.data)] = mp
             for key in _manifest_object_keys(loaded.data):
                 other_owned.add(key)
                 claims.setdefault(key, []).append(loaded.data)
@@ -2179,6 +2184,7 @@ def _apply_locked(req, exporter, *, base, txn, op_id, stages, planned, planned_s
 
     # guardia de identidad (red de seguridad transitoria): no pisar un objeto de OTRO Space/tenant con contenido distinto
     tenant = _tenant_id(req.host)
+    conflicts: dict[tuple[str, str], list[dict]] = {}
     for key in sorted(current_objects):
         path = _pool_path(client_cache_dir, key)
         if not path.exists():
@@ -2186,12 +2192,41 @@ def _apply_locked(req, exporter, *, base, txn, op_id, stages, planned, planned_s
         existing = txn.sha256_text_file(path)
         if existing == planned_sha[key]:
             continue
-        for claim in claims.get(key, []):
-            c_space, c_tenant = str(claim.get("space") or ""), str(claim.get("tenantId") or "")
-            if c_space != space or (c_tenant and tenant and c_tenant != tenant):
-                return _safe_failure(req, base, finish, txn.FAILED_NO_CHANGE, "POOL_IDENTITY_CONFLICT",
-                                     f"El objeto {key[0]}/{key[1]} ya está publicado desde otro Space/tenant con contenido distinto: no se modificó nada.",
-                                     operation_id=op_id, stages=stages)
+        foreign = [claim for claim in claims.get(key, [])
+                   if str(claim.get("space") or "") != space or (str(claim.get("tenantId") or "") and tenant and str(claim.get("tenantId") or "") != tenant)]
+        if foreign:
+            conflicts[key] = foreign
+    from tools.catalog import publication_replacement as replacement
+    replace_token = replacement.valid_token(getattr(req, "replace_token", ""))
+    displaced: dict[str, Any] | None = None
+    if conflicts:
+        analysis = replacement.analyze(client=req.client, client_dir=client_dir_name, root_type=exporter.root_type, root_object=exporter.root_object,
+                                       target_space=space, target_tenant=tenant, conflicts=conflicts, planned_sha=planned_sha, claims=claims,
+                                       claim_paths=claim_paths, unusable=unusable, catalog_root=catalog_root, client_cache_dir=client_cache_dir,
+                                       current_objects=current_objects)
+        base.replacement = analysis.as_dict()
+        first = sorted(conflicts)[0]
+        if not replace_token:
+            return _safe_failure(req, base, finish, txn.FAILED_NO_CHANGE, "POOL_IDENTITY_CONFLICT",
+                                 f"El objeto {first[0]}/{first[1]} ya está publicado desde otro Space/tenant con contenido distinto: no se modificó nada.",
+                                 operation_id=op_id, stages=stages)
+        if not analysis.safe or analysis.token != replace_token:
+            return _safe_failure(req, base, finish, txn.FAILED_NO_CHANGE, "REPLACEMENT_PLAN_CHANGED",
+                                 "El reemplazo confirmado ya no coincide con el estado actual (cambió la publicación anterior, el modelo o sus dependencias): no se modificó nada.",
+                                 operation_id=op_id, stages=stages)
+        displaced = analysis.displaced
+        _say(f"REEMPLAZO CONFIRMADO: la publicación de {exporter.root_object} desde {displaced['space']} se reemplaza por la de {space} "
+             f"({len(conflicts)} objeto(s) exclusivo(s) del modelo).")
+        # la publicación desplazada deja de reclamar objetos: lo que solo ella reclamaba y la nueva ya no incluye se limpia si es exclusivo del modelo
+        displaced_ids = {id(c) for cs_ in conflicts.values() for c in cs_ if replacement._same_root(c, exporter.root_type, exporter.root_object)}
+        other_owned = {k for k, cl in claims.items() if any(id(c) not in displaced_ids for c in cl)}
+        extra = [k for k in analysis.displaced_only_exclusive if k not in other_owned and _pool_path(client_cache_dir, k).exists()]
+        if deletes_allowed:
+            deletable = sorted(set(deletable) | set(extra))
+    elif replace_token:
+        return _safe_failure(req, base, finish, txn.FAILED_NO_CHANGE, "REPLACEMENT_PLAN_CHANGED",
+                             "El reemplazo confirmado ya no corresponde: no hay conflicto que reemplazar con el estado actual. No se modificó nada.",
+                             operation_id=op_id, stages=stages)
 
     writes = [(key, _pool_path(client_cache_dir, key), planned[key]) for key in sorted(current_objects)
               if not (_pool_path(client_cache_dir, key).exists() and txn.sha256_text_file(_pool_path(client_cache_dir, key)) == planned_sha[key])]
@@ -2207,10 +2242,11 @@ def _apply_locked(req, exporter, *, base, txn, op_id, stages, planned, planned_s
         "dataflowProvenance": exporter.dataflow_provenance,
         "cleanup": {"deletedStaleObjects": len(deletable), "retainedSharedObjects": len(retained_shared)},
         **({"pendingCleanup": [{"object_type": t, "technical_name": n} for t, n in pending_next]} if pending_next else {}),
+        **({"replaces": {"space": displaced["space"], "tenantId": displaced["tenant"], "manifest_sha256": displaced["manifest_sha256"]}} if displaced else {}),
     })
     if exporter.root_type == "analytic-model":
         new_manifest = txn.seal_manifest({**{k: v for k, v in new_manifest.items() if k != "integrity"}, "analyticModel": exporter.root_object})
-    same_manifest = own.usable and migrated_from is None and own.state == txn.M_OK and txn.semantic_signature(new_manifest) == txn.semantic_signature(own.data) and "integrity" in own.data
+    same_manifest = displaced is None and own.usable and migrated_from is None and own.state == txn.M_OK and txn.semantic_signature(new_manifest) == txn.semantic_signature(own.data) and "integrity" in own.data
     write_manifest = not same_manifest
     pool_changed = bool(writes or deletable or write_manifest)
     ctx.pool_changed = pool_changed
@@ -2262,7 +2298,8 @@ def _apply_locked(req, exporter, *, base, txn, op_id, stages, planned, planned_s
         "operation_id": op_id, "mode": "publish", "client_dir": client_dir_name, "space": space, "root_object": exporter.root_object,
         "root_type": exporter.root_type, "catalog_root": str(catalog_root), "csn_cache_root": str(csn_cache_root), "host_id": txn.host_id(),
         "started_at": txn.now_iso(), "planned_writes": [f"{k[0]}/{k[1]}" for k, _, _ in writes], "planned_deletes": [f"{k[0]}/{k[1]}" for k in deletable],
-        "touched_dirs": [str(client_cache_dir), str(client_catalog_dir), str(diag_dir), *([str(stage_dir)] if stage_dir else [])]})
+        "touched_dirs": [str(client_cache_dir), str(client_catalog_dir), str(diag_dir), *([str(stage_dir)] if stage_dir else [])],
+        **({"replaces": {"space": displaced["space"], "manifest": str(displaced["path"]), "manifest_sha256": displaced["manifest_sha256"]}} if displaced else {})})
     journal.update(txn.J_PLANNED)
     publication_gate.begin(op_id, client_dir_name, catalog_root)
     keep_closed = {"on": False}
@@ -2272,6 +2309,7 @@ def _apply_locked(req, exporter, *, base, txn, op_id, stages, planned, planned_s
                            diagnostics=diagnostics, hooks=hooks, ctx=ctx, journal=journal, writes=writes, deletable=deletable, retained_shared=retained_shared, reasons=reasons,
                            stale=stale, deletes_allowed=deletes_allowed, own_unknown=own_unknown, previous_objects=previous_objects, observations=observations,
                            manifest_path=manifest_path, new_manifest=new_manifest, write_manifest=write_manifest, migrated_from=migrated_from, diag_dir=diag_dir,
+                           displaced=displaced,
                            client_catalog_dir=client_catalog_dir, catalog_manifest=catalog_manifest, ledger_file=ledger_file, ledger=ledger, stage_dir=stage_dir, persisted=persisted,
                            want_remote=want_remote, dirs=dirs, markers=markers, prefix_keys=prefix_keys, listing=listing, keep_closed=keep_closed, atomic_io=atomic_io,
                            ledger_mod=ledger_mod, pr=pr, space=space, changed=changed, publication_gate=publication_gate)
@@ -2345,8 +2383,9 @@ def _finish_no_change(req, exporter, *, base, txn, op_id, stages, planned, clien
 def _apply_unit(req, exporter, *, base, txn, op_id, stages, planned, planned_sha, client_dir_name, catalog_root, csn_cache_root, client_cache_dir, remote_store, hold, finish,
                 diagnostics, hooks, ctx, journal, writes, deletable, retained_shared, reasons, stale, deletes_allowed, own_unknown, previous_objects, observations, manifest_path,
                 new_manifest, write_manifest, migrated_from, diag_dir, client_catalog_dir, catalog_manifest, ledger_file, ledger, stage_dir, persisted, want_remote, dirs, markers,
-                prefix_keys, listing, keep_closed, atomic_io, ledger_mod, pr, space, changed, publication_gate) -> "ExportResult":
+                prefix_keys, listing, keep_closed, atomic_io, ledger_mod, pr, space, changed, publication_gate, displaced=None) -> "ExportResult":
     undo = txn.UndoLog(txn.undo_dir(catalog_root, op_id))
+    displaced_path: Path | None = Path(displaced["path"]) if displaced else None
     stage = "snapshot"
     catalog_generated = False
     stage_summary: dict[str, Any] = {}
@@ -2361,6 +2400,8 @@ def _apply_unit(req, exporter, *, base, txn, op_id, stages, planned, planned_sha
         undo.capture(manifest_path)
         if migrated_from is not None:
             undo.capture(migrated_from)
+        if displaced_path is not None:
+            undo.capture(displaced_path)
         undo.capture(client_catalog_dir)
         undo.capture(catalog_manifest)
         undo.capture(ledger_file)
@@ -2394,6 +2435,11 @@ def _apply_unit(req, exporter, *, base, txn, op_id, stages, planned, planned_sha
                 migrated_from.parent.rmdir()
             except OSError:
                 pass
+        if displaced_path is not None and displaced_path != manifest_path:
+            if txn.sha256_text_file(displaced_path) != displaced["manifest_sha256"]:      # revalidación final: nadie tocó la publicación desplazada desde el análisis
+                raise RuntimeError("REPLACEMENT_PLAN_CHANGED: la publicación desplazada cambió durante la aplicación")
+            displaced_path.unlink()
+            txn.fault("after_displaced_removed")
         if req.generate_catalog:
             stage = "catalog"
             _say("\n==========================================")
@@ -2421,7 +2467,8 @@ def _apply_unit(req, exporter, *, base, txn, op_id, stages, planned, planned_sha
         unit = ledger_mod.unit_files(catalog_root, csn_cache_root, client_dir_name, stage_dir)
         new_ledger = ledger_mod.build(
             ledger, operation_id=op_id, activated_at=txn.now_iso(), client_dir=client_dir_name, space=space, root_object=exporter.root_object, root_type=exporter.root_type,
-            extra={"manifest_sha256": txn.sha256_text_file(manifest_path), "objects": {f"{t}/{n}": planned_sha[(t, n)] for (t, n) in sorted(planned_sha)}, **stage_summary},
+            extra={"manifest_sha256": txn.sha256_text_file(manifest_path), "objects": {f"{t}/{n}": planned_sha[(t, n)] for (t, n) in sorted(planned_sha)}, **stage_summary,
+                   **({"replaced": {"space": displaced["space"], "tenant": displaced["tenant"], "manifest_sha256": displaced["manifest_sha256"]}} if displaced else {})},
             file_digests=ledger_mod.digests(unit),
             counts={"written": len(writes), "removed": len(deletable), "assessment": {k: len(v) for k, v in (stage_summary.get("assessment") or {}).items()}})
         ledger_mod.write(catalog_root, client_dir_name, new_ledger)

@@ -1,0 +1,65 @@
+{# Contenido del diálogo «Regenerar Catálogo» (Herramientas de Diagnóstico → Assessments recientes). MISMO patrón que «Acciones masivas» de Solicitudes: `<dialog class="dw-confirm busqueda-dialog">`
+   + contenido traído por HTMX. Revisión de SOLO LECTURA: compara el diagnóstico con el Catálogo y muestra la operación gobernada realmente disponible (publicar desde el Space del resultado);
+   no publica nada ni convierte el diagnóstico provisional en gobernado. La confirmación definitiva —incluida la guarda de identidad del pool— la hace la publicación transaccional. #}
+{% set r = review %}
+{% set dlevel = (level_labels.get(r.diagnostic.level) if r.diagnostic.level else ("No determinable" if r.diagnostic.status else "Sin juicio")) %}
+<div class="dw-confirm__body busqueda-contact" data-dsa-catalog-review data-operation="{{ r.operation }}">
+  <h2 class="dw-confirm__title" id="dsa-catalog-title">Regenerar Catálogo</h2>
+  <p class="field-hint busqueda-contact__context"><strong>{{ r.model }}</strong>{% if r.client %} · {{ r.client }}{% endif %}</p>
+  <div class="matrix-scroll">
+    <table class="dashboard-table">
+      <thead><tr><th class="left"></th><th class="left">Diagnóstico</th><th class="left">Catálogo</th></tr></thead>
+      <tbody>
+        <tr><td class="left">Modelo</td><td class="left">{{ r.model }}</td><td class="left" data-review-catalog-model>{{ r.model if r.catalog else ("No verificable" if r.catalog_unavailable else "No está en el Catálogo") }}</td></tr>
+        <tr><td class="left">Space</td><td class="left" data-review-space>{{ r.space or "No registrado" }}</td><td class="left" data-review-published-space>{{ (r.catalog.published_space or "No registrado") if r.catalog else "—" }}</td></tr>
+        {# Mismo badge que el Catálogo (`catalog-card__verdict--{tono}`, tono canónico de status_tone): el cambio de nivel se lee igual que en el resto del Hub. #}
+        {% set clevel = (level_labels.get(r.catalog.level, r.catalog.level) if r.catalog.level else ("No determinable" if r.catalog.status else "Sin juicio")) if r.catalog else none %}
+        <tr><td class="left">Adopción metodológica</td>
+            <td class="left" data-review-diagnostic-level><span class="catalog-card__verdict catalog-card__verdict--{{ status_tone(dlevel) }}">{{ dlevel }}</span> <span class="field-hint">(provisional)</span></td>
+            <td class="left" data-review-catalog-level>{% if r.catalog %}<span class="catalog-card__verdict catalog-card__verdict--{{ status_tone(clevel) }}">{{ clevel }}</span> <span class="field-hint">(gobernado · {{ state_labels.get(r.catalog.state, r.catalog.state) }})</span>{% else %}—{% endif %}</td></tr>
+      </tbody>
+    </table>
+  </div>
+  {% for d in r.differences %}<p class="field-hint" data-review-difference>{{ d }}</p>{% endfor %}
+
+  <div data-review-operation>
+  {% if r.operation in ("UPDATE_FROM_SAME_SPACE", "INCORPORATE", "UPDATE_SPACE_NOT_RECORDED") %}
+    <p><strong>{% if r.operation == "INCORPORATE" %}Operación disponible: incorporar el modelo al Catálogo{% else %}Operación disponible: actualizar el modelo en el Catálogo{% endif %}</strong></p>
+    <p class="field-hint" data-review-available>Publicar desde el Space {{ r.space }}: vuelve a extraer de Datasphere la definición actual del modelo y de sus dependencias, regenera el Catálogo y registra su Assessment gobernado desde esa misma evidencia. Este diagnóstico no se copia y puede diferir si el modelo cambió.</p>
+    <div class="callout callout--punch callout--feedback"><div class="callout__body field-hint">
+      <p data-review-not-verified><strong>Conflictos no verificados.</strong> Esta revisión no verifica que la publicación esté libre de conflictos: la guarda de identidad del pool controla <strong>todos</strong> los objetos que se publican (el modelo y sus dependencias), y si alguno ya existe con otra definición publicada desde otro Space, la publicación se detiene.{% if r.operation == "UPDATE_SPACE_NOT_RECORDED" %} Además, el Catálogo no registra desde qué Space se publicó este modelo.{% endif %}</p>
+      <p data-review-confirmation><strong>Confirmación definitiva.</strong> La decide la publicación transaccional al ejecutarse: si detecta un conflicto de identidad, no modifica nada y lo informa.</p>
+    </div></div>
+    {% if not publish_url %}<p class="field-hint" data-review-no-permission>No tenés permiso para publicar este cliente en el Catálogo.</p>{% endif %}
+  {% elif r.operation == "REPLACE_PUBLISHED_FROM_OTHER_SPACE" %}
+    {% set pv = r.replacement_preview %}
+    <p><strong>Operación posible: reemplazar la publicación de {{ r.catalog.published_space }} por la de {{ r.space }}</strong></p>
+    <p class="field-hint" data-review-replace>Publicar desde {{ r.space }} choca con la publicación de {{ r.catalog.published_space }}. La publicación extrae el modelo, identifica exactamente qué objetos difieren y te muestra el impacto antes de escribir: solo podrás confirmar el reemplazo si todos los que difieren son exclusivos de este modelo.</p>
+    <div class="callout callout--punch callout--feedback"><div class="callout__body field-hint">
+      {% if pv %}<p data-review-replace-preview><strong>Publicación de {{ pv.space }}: {{ pv.objects }} objetos, {{ pv.exclusive }} exclusivos de este modelo{% if pv.shared %} y {{ pv.shared | length }} compartidos con otros modelos ({{ pv.shared[:4] | map(attribute="name") | join(", ") }}{% if pv.shared | length > 4 %} y {{ pv.shared | length - 4 }} más{% endif %}){% endif %}.</strong>{% if pv.shared %} Si alguno de los compartidos difiere en {{ r.space }}, el reemplazo no será posible: cambiaría modelos que no estás publicando.{% endif %}</p>
+      {% else %}<p data-review-replace-preview><strong>No se pudo anticipar el alcance.</strong> La publicación lo calcula con lo extraído antes de escribir.</p>{% endif %}
+      <p data-review-confirmation><strong>Confirmación definitiva.</strong> El reemplazo requiere tu confirmación explícita y se vuelve a verificar al ejecutarse: si algo cambió, no se modifica nada.</p>
+    </div></div>
+    {% if not publish_url %}<p class="field-hint" data-review-no-permission>No tenés permiso para publicar este cliente en el Catálogo.</p>{% endif %}
+  {% elif r.operation == "BLOCKED_CATALOG_NOT_VERIFIABLE" %}
+    <div class="callout callout--punch callout--feedback"><div class="callout__body field-hint">
+      <p><strong>No disponible: no se pudo verificar el Catálogo.</strong> No se pudo leer el Catálogo o resolver la identidad de sus modelos, así que no se puede afirmar si el modelo ya está publicado. Volvé a intentarlo más tarde.</p>
+    </div></div>
+  {% elif r.operation == "BLOCKED_AMBIGUOUS_CATALOG_IDENTITY" %}
+    <div class="callout callout--punch callout--feedback"><div class="callout__body field-hint">
+      <p><strong>No disponible: hay más de una entrada del Catálogo para este cliente y modelo.</strong> No se elige una por vos; resolvé la ambigüedad en el Catálogo antes de publicar.</p>
+    </div></div>
+  {% else %}
+    <div class="callout callout--punch callout--feedback"><div class="callout__body field-hint">
+      <p><strong>No disponible: este resultado no registra su Space de origen.</strong> Volvé a ejecutar el diagnóstico para registrar desde qué Space se evaluó el modelo.</p>
+    </div></div>
+  {% endif %}
+  </div>
+</div>
+<form method="dialog" class="dw-confirm__actions">
+  <button type="submit" class="btn-secondary" value="cancel" data-dsa-catalog-cancel>Cancelar</button>
+  {# Mismo mecanismo que los tiles del Catálogo: el flujo se abre en #catalog-detail-slot sobre esta página, así su «← Volver» (dwCatalogBack) cierra el detalle y deja la herramienta como estaba. El href queda como respaldo. #}
+  {% if catalog_url %}<a class="btn-secondary" href="{{ catalog_url }}" data-review-catalog hx-get="{{ catalog_url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML"
+     hx-on::before-request="this.closest('dialog').close()">Ver en el Catálogo</a>{% endif %}
+  {% if publish_url %}<a class="btn-primary" href="{{ publish_url }}" data-review-publish>Continuar a publicar</a>{% endif %}
+</form>

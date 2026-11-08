@@ -18,6 +18,7 @@ registra.
 from __future__ import annotations
 
 import json
+import logging
 import queue
 import threading
 from urllib.parse import urlencode
@@ -26,6 +27,7 @@ from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from core.content_registry import DEFAULT_PACK, resolve_pack
+from tools.catalog import publication_replacement as replacement
 from webapp import same_origin_guard
 from webapp.services import auth_service
 from webapp.services import datasphere_profiles as profiles
@@ -34,6 +36,7 @@ from webapp.services.activity_context import AREA_CATALOG, SCOPE_COPILOT
 from webapp.services.activity_service import log_activity
 from webapp.services.activity_catalog import outcome_of
 
+log = logging.getLogger("danwor.datasphere_publication")
 router = APIRouter()
 
 
@@ -64,7 +67,7 @@ def run_publication(
     client_id: str = Form("", alias="datasphere_client_id"), client_secret: str = Form("", alias="datasphere_client_secret"),
     space: str = Form(""), root_object: str = Form("", alias="datasphere_root_object"), client: str = Form(""),
     features: list[str] = Form([], alias="datasphere_features"), features_submitted: str = Form("", alias="datasphere_features_submitted"),
-    profile_id: str = Form(""), graph_token: str = Form(""),
+    profile_id: str = Form(""), graph_token: str = Form(""), replace_token: str = Form(""),
 ):
     """Publica y emite el avance EN TIEMPO REAL como NDJSON (una línea JSON por evento):
         {"t":"start"} · {"t":"line","v":"<línea del extractor>"}* · {"t":"phase","phase":"<id>","v":"<texto>"}* ·
@@ -96,11 +99,19 @@ def run_publication(
     def worker() -> None:
         nonlocal secret
         try:
-            outcome = svc.run(values, secret, user_email=svc.owner_email(request),
-                              on_line=lambda line: events.put({"t": "line", "v": line}),
-                              on_phase=lambda phase: events.put({"t": "phase", "phase": phase, "v": svc.PHASE_COPY[phase]}))
+            _work()
+        except Exception:                                                  # noqa: BLE001 — una falla inesperada NUNCA deja el stream sin evento terminal (colgaría al cliente)
+            log.exception("datasphere_publication: falla inesperada en el hilo de publicación")
+            events.put({"t": "done", "state": "FAILED", "error_code": "EXTRACTION_FAILED", "message": svc.asd.ERROR_MESSAGES["EXTRACTION_FAILED"],
+                        "title": svc.TITLE_PUBLISH, "errors": {}, "result_url": None})
         finally:
             secret = ""                                                    # el secreto no sobrevive a la ejecución
+            events.put(None)                                               # fin del stream SIEMPRE
+
+    def _work() -> None:
+        outcome = svc.run(values, secret, user_email=svc.owner_email(request), replace_token=replacement.valid_token(replace_token),
+                          on_line=lambda line: events.put({"t": "line", "v": line}),
+                          on_phase=lambda phase: events.put({"t": "phase", "phase": phase, "v": svc.PHASE_COPY[phase]}))
         log_activity("datasphere_publication_run", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG,
                      client=values.client, space=values.space, root_object=values.root_object,
                      state=outcome.state, error_code=outcome.error_code, stage=outcome.stage, duration_s=outcome.duration_s,
@@ -112,8 +123,8 @@ def run_publication(
                     "title": outcome.title, "errors": outcome.errors, "operation_id": outcome.operation_id,
                     "duration_s": outcome.duration_s, "result_url": result_url,
                     "status": getattr(outcome, "status", ""), "durability": getattr(outcome, "durability", ""), "stages": getattr(outcome, "stages", {}),
-                    "change": getattr(outcome, "change", ""), "assessment": {k: len(v) for k, v in (getattr(outcome, "assessment", None) or {}).items()}})
-        events.put(None)
+                    "change": getattr(outcome, "change", ""), "assessment": {k: len(v) for k, v in (getattr(outcome, "assessment", None) or {}).items()},
+                    "replacement": getattr(outcome, "replacement", None)})            # alcance del conflicto / reemplazo (solo nombres de objetos y modelos; sin rutas)
 
     threading.Thread(target=worker, name="datasphere-publication", daemon=True).start()
 
