@@ -14,6 +14,11 @@
 
   <main id="content" class="module-content">
     {% include "partials/catalog_assessment_report.html" %}
+    {# «Ver en el Catálogo» del diálogo abre el flujo ACÁ (mismo slot que el módulo): su «← Volver» cierra el detalle y vuelve al informe. #}
+    <div id="catalog-detail-slot"></div>
   </main>
+  {# «Regenerar Catálogo» desde la nota de clasificación provisional: el MISMO diálogo que el ícono de Assessments recientes. #}
+  <template id="dsa-catalog-loading"><div class="dw-confirm__body"><h2 class="dw-confirm__title" id="dsa-catalog-title">Regenerar Catálogo</h2><p class="field-hint" role="status">Consultando la revisión…</p></div><form method="dialog" class="dw-confirm__actions"><button type="submit" class="btn-secondary" value="cancel">Cancelar</button></form></template>
+  <dialog class="dw-confirm busqueda-dialog" id="dsa-catalog-dialog" aria-labelledby="dsa-catalog-title"><div id="dsa-catalog-content"></div></dialog>
 </div>
 {% endblock %}

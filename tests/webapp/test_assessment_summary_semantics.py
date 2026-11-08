@@ -49,8 +49,9 @@ def test_casos_and_preguntas_use_their_own_units_and_copy(doc, view):
     review_occ = sum(g["occurrence_count"] for g in doc["review_required"])
     ctx = doc["summary"]["context_required"]
     rev, ctxrow = rows["Casos a revisar"], rows["Preguntas abiertas"]
-    assert rev[1] == presenter._plural(review_occ, "caso")                                            # unidad: OCURRENCIAS de revisión
-    assert ctxrow[1] == presenter._plural(ctx["open_questions"], "pregunta")                          # unidad: tipos de pregunta
+    # Valor = solo el número: la medida («Casos a revisar» / «Preguntas abiertas») ya nombra la unidad (pedido del owner: sin redundancia).
+    assert rev[1] == str(review_occ)                                                                  # unidad: OCURRENCIAS de revisión
+    assert ctxrow[1] == str(ctx["open_questions"])                                                    # unidad: tipos de pregunta
     n_groups = len(doc["review_required"])
     assert f"identificó {presenter._plural(review_occ, 'caso concreto', 'casos concretos')}" in rev[2] and "criterio técnico del consultor" in rev[2]
     assert f"agrupados en {presenter._plural(n_groups, 'tipo de revisión', 'tipos de revisión')}" in rev[2]

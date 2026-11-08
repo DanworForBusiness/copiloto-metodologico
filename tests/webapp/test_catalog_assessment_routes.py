@@ -747,12 +747,12 @@ def test_facts_have_a_reading_hierarchy_headline_kpis_then_supporting_tables_and
         for g in v["groups"]:
             shown |= {p["label"] for p in g["properties"]} | {t["title"] for t in g["tables"]} | {g["title"]}
         moved = {"views_in_closure", "view_type_distribution"} if a["id"] == "ANALYTIC_MODEL" else set()           # la composición del cierre vive en el resumen de la sección
-        assert all(h["label"] in shown for h in a["highlights"] if h["id"] not in moved), a["id"]                # ningún otro hecho se pierde
+        assert all(presenter.HEADLINE_LABEL.get(h["id"], h["label"]) in shown for h in a["highlights"] if h["id"] not in moved), a["id"]   # ningún otro hecho se pierde (rótulo corto en tiles)
         assert (v["closure_views"] is not None) == (a["id"] == "ANALYTIC_MODEL" and any(h["id"] == "views_in_closure" for h in a["highlights"]))
         # los valores numéricos escalares siguen presentes (titular o tabla de propiedades)
         for h in a["highlights"]:
             if isinstance(h["value"], int) and not h.get("breakdown"):
-                assert any(m["label"] == h["label"] and m["value"] == h["value"] for m in v["headline"]) or \
+                assert any(m["label"] == presenter.HEADLINE_LABEL.get(h["id"], h["label"]) and m["value"] == h["value"] for m in v["headline"]) or \
                        any(p["label"] == h["label"] and p["value"] == h["value"] for g in v["groups"] for p in g["properties"])
     am = presenter._facts_view("ANALYTIC_MODEL", next(a for a in prof["areas"] if a["id"] == "ANALYTIC_MODEL")["highlights"])
     assert [m["label"] for m in am["headline"]] == ["Campos expuestos", "Medidas", "Asociaciones declaradas"]
@@ -862,7 +862,9 @@ def test_every_content_link_in_the_report_uses_the_one_hub_content_link_treatmen
     assert anchors
     kinds = {"content": 0, "support": 0, "back": 0, "action": 0}
     for attrs, inner in anchors:
-        if 'class="table-action-btn chart-tooltip-anchor"' in attrs:                                   # acción ICÓNICA de fila (patrón CCHH; ver test_assessment_contextual_navigation)
+        if "data-catalog-regenerate" in attrs:                                                         # acción ICÓNICA de cabecera «Regenerar Catálogo» (mismo ícono que el flujo)
+            assert 'aria-label="Regenerar Catálogo"' in attrs and inner.lstrip().startswith("<svg")
+        elif 'class="table-action-btn chart-tooltip-anchor"' in attrs:                                 # acción ICÓNICA de fila (patrón CCHH; ver test_assessment_contextual_navigation)
             assert 'aria-label="Ver evidencia del hallazgo «' in attrs and inner.lstrip().startswith("<svg")
             kinds["action"] += 1
         elif 'class="support-link"' in attrs:

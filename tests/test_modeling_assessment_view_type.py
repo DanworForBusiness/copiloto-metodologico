@@ -191,7 +191,8 @@ def test_markdown_and_html_view_show_the_same_metrics(doc):
     assert [t["value"] for t in group["view_overview"]["tiles"]] == [3, 1, 1, 1]
     from webapp.main import templates
     html = templates.get_template("partials/catalog_assessment_report.html").render(v=view)
-    assert 'data-block="view-overview"' in html and "3VF_SQL" in html and "GRAPHICAL" in html                 # el detalle por artefacto se conserva
+    assert 'data-block="view-overview"' in html and "3VF_SQL" in html and "Gráfica" in html                  # el detalle por artefacto se conserva, con el tipo legible
+    assert "GRAPHICAL" not in html and "FAMILY_DIRECTORY" not in html                                       # los códigos del Copiloto no llegan al lector
 
 
 # ── 18. perfiles anteriores (sin el hecho) siguen legibles ──────────────────

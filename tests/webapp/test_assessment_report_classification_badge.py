@@ -119,8 +119,9 @@ def test_adhoc_report_shows_its_own_provisional_judgment_from_the_canonical_engi
     assert level_label == official["level_label"] and f"catalog-card__verdict--{official['tone']}" in badge["class"]
     text = section.get_text(" ", strip=True)
     assert "Clasificación provisional" in text
-    assert "No incorpora las ratificaciones de gobierno" in text and "aunque el modelo no haya cambiado" in text   # puede diferir del materializado
-    assert "Se calcula con las reglas vigentes al abrir este informe" in text and official["ruleset_version"] in text   # limitación: ruleset vigente
+    assert "Esta ejecución es local" in text and "no incorpora las ratificaciones de gobierno registradas hasta tanto no regeneres el catálogo" in text
+    link = section.select_one("a[data-asr-regenerate]")                                               # MISMA acción que el ícono «Regenerar Catálogo»
+    assert link is not None and link["data-dialog-open"] == "dsa-catalog-dialog" and link["hx-get"].endswith("/catalog?pack=datasphere_core")
     assert "Lectura de la adopción provisional" in section.get_text(" ", strip=True)
 
 

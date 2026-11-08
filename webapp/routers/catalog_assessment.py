@@ -64,16 +64,6 @@ def _pack(request: Request, pack: str) -> str:
     return resolve_pack(pack) if access.is_diagnostic(request) else DEFAULT_PACK
 
 
-def _diagnostic_url(request: Request, status: svc.AssessmentStatus, pack: str) -> str | None:
-    """«Evaluar la versión actual»: el Assessment AD HOC (Herramientas de Diagnóstico) del MISMO modelo, precargado. Evalúa la versión de Datasphere que el consultor elija
-    (cualquier Space) con el MISMO motor, sin publicar ni tocar el Catálogo ni su registro gobernado. Solo para quien puede ejecutar esa herramienta."""
-    from webapp.services import datasphere_assessment_service as dsa
-    stem = next(iter(sorted(dsa.ASSESSMENT_MODULES)), None)
-    if not stem or not status.terminal_am or not dsa.tool_enabled(stem) or not dsa.can_execute(request):
-        return None
-    return dsa.catalog_prefill_url(stem, pack, status.client, status.terminal_am)
-
-
 def regenerate_url(request: Request, entry, pack: str) -> str | None:
     """«Regenerar Catálogo» desde el detalle del flujo: el formulario de PUBLICACIÓN (Herramientas de Diagnóstico → Catálogo) precargado con cliente, modelo y el Space de su última
     publicación registrada en el ledger (vacío si no hay: lo elige el usuario, nunca se infiere). No publica nada: la confirma el usuario con sus credenciales, bajo la publicación
@@ -104,7 +94,7 @@ def _report_response(request: Request, status: svc.AssessmentStatus, entry, pack
     return templates.TemplateResponse(
         request=request, name="partials/catalog_assessment_report.html",
         context={"v": presenter.report_view(status, entry, pack, space=_published_space(entry, status)), "pack": pack,
-                 "diagnostic_url": _diagnostic_url(request, status, pack),
+                 "regenerate_url": regenerate_url(request, entry, pack),
                  "governed_contracts": gd_presenter.governed_contract_links(status.profile, status.client, pack)})
 
 

@@ -560,7 +560,8 @@ def test_adhoc_report_is_the_same_template_and_presenter_without_lineage_or_cata
     assert "Ver en linaje" not in t and "/catalog/flow" not in t and "Actualizar catálogo" not in t                  # sin linaje, sin flujo, sin Catálogo
     assert re.search(r'<a class="catalog-back" href="/modules/04_Modelado_y_Desarrollo\?pack=datasphere_core&amp;tool=assessment">← Volver</a>', t)
     assert f"/datasphere-assessment/result/{rid}/export.json" in t and f"/datasphere-assessment/result/{rid}/export.md" in t
-    assert "Regenerar" not in t and "Generar informe" not in t                                                      # sin acciones de generación
+    # sin acciones de generación del INFORME; la única acción «Regenerar» es la del Catálogo (el diálogo de revisión, que no publica por sí mismo)
+    assert "Generar informe" not in t and t.replace("Regenerar Catálogo", "").count("Regenerar") == 0
     # misma plantilla: no existe una segunda plantilla de informe
     assert not list((REPO / "webapp/templates").rglob("*datasphere*report*")) and (REPO / "webapp/templates/partials/catalog_assessment_report.html").is_file()
     shell = (REPO / "webapp/templates/datasphere_assessment_result.html").read_text(encoding="utf-8")

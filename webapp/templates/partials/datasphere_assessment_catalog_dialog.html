@@ -15,8 +15,8 @@
         {# Mismo badge que el Catálogo (`catalog-card__verdict--{tono}`, tono canónico de status_tone): el cambio de nivel se lee igual que en el resto del Hub. #}
         {% set clevel = (level_labels.get(r.catalog.level, r.catalog.level) if r.catalog.level else ("No determinable" if r.catalog.status else "Sin juicio")) if r.catalog else none %}
         <tr><td class="left">Adopción metodológica</td>
-            <td class="left" data-review-diagnostic-level><span class="catalog-card__verdict catalog-card__verdict--{{ status_tone(dlevel) }}">{{ dlevel }}</span> <span class="field-hint">(provisional)</span></td>
-            <td class="left" data-review-catalog-level>{% if r.catalog %}<span class="catalog-card__verdict catalog-card__verdict--{{ status_tone(clevel) }}">{{ clevel }}</span> <span class="field-hint">(gobernado · {{ state_labels.get(r.catalog.state, r.catalog.state) }})</span>{% else %}—{% endif %}</td></tr>
+            <td class="left" data-review-diagnostic-level><span class="catalog-card__verdict catalog-card__verdict--{{ status_tone(dlevel) }}" title="Provisional (esta ejecución)">{{ dlevel }}</span></td>
+            <td class="left" data-review-catalog-level>{% if r.catalog %}<span class="catalog-card__verdict catalog-card__verdict--{{ status_tone(clevel) }}" title="Gobernado · {{ state_labels.get(r.catalog.state, r.catalog.state) }}">{{ clevel }}</span>{% else %}—{% endif %}</td></tr>
       </tbody>
     </table>
   </div>
