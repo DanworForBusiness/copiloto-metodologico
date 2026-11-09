@@ -32,8 +32,8 @@
     if (!el) return;
     TONES.forEach(function (t) { el.classList.remove("catalog-card__verdict--" + t); });
     // `.catalog-card__verdict` fija display y pisa [hidden]: se oculta por style.display (mismo criterio que showBtn).
-    if (!label || label === "—") { el.style.display = "none"; return; }
-    el.textContent = label; el.classList.add("catalog-card__verdict--" + (tone || "neutra")); el.style.display = "";
+    if (!label || label === "—") { el.hidden = true; el.style.display = "none"; return; }
+    el.textContent = label; el.classList.add("catalog-card__verdict--" + (tone || "neutra")); el.hidden = false; el.style.display = "";
   }
   function kvRows(tbody, rows) {
     tbody.textContent = "";

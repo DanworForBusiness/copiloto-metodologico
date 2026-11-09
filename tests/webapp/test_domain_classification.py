@@ -181,7 +181,7 @@ def test_suggestion_is_visible_non_destructive_and_uses_hub_primitives(world):
     html = _render(world, dc)
     sec = html[html.index('id="asr-dominio"'):]
     sec = sec[:sec.index("</details>")]
-    assert 'id="asr-dominio" open' in html                                                                            # con sugerencia, abierta
+    assert 'id="asr-dominio">' in html and 'id="asr-dominio" open' not in html                                      # cerrado por defecto aun con sugerencia (decisión del owner); la sugerencia vive en su cuerpo
     for text in ("Clasificación de negocio", "Dominio actual", "General", "Sugerencia", "Pedidos / Entregas", "Confianza", "Alta", "Evidencia", "4MA_PEDIDOS_ENTREGAS",
                  "La evidencia disponible sugiere una clasificación más específica.", "no mueve el modelo ni modifica el catálogo"):
         assert text in sec, text

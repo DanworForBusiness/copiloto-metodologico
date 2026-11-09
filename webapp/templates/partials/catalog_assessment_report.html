@@ -54,7 +54,7 @@
         {% for o in g.occurrences %}
         {% set r = o.resolution %}
         <tr><td>{{ artifact_list(o.artifacts, 6) }}</td><td>{{ o.text }}{{ occurrence_detail(o.detail) }}</td>
-          {% if g.resoluble %}<td>
+          {% if g.resoluble %}<td data-rr-cell>
             {% if r %}
               <span class="catalog-card__verdict catalog-card__verdict--{{ r.state_tone }}" title="{{ r.state_note }}">{{ r.state_label }}</span>
               {% if r.decision %}<br><span class="catalog-note__ev">{{ r.decision.disposition_label }}{% if r.decision.actor %} · {{ r.decision.actor }}{% endif %}</span>{% endif %}
@@ -494,10 +494,10 @@
 <dialog class="dw-confirm busqueda-dialog" id="rr-dialog" aria-labelledby="rr-dialog-title" data-rr-dialog>
   <form method="dialog" data-rr-form>
     <div class="dw-confirm__body busqueda-contact">
-      {# Cabecera: título a la izquierda y badges de estado en el margen superior derecho. Layout en línea (no en tools.css: esa zona está tomada por el stash protegido). #}
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
+      {# Cabecera: título a la izquierda y badges de estado en el margen superior derecho (`.rr-dialog__head`, tools.css). #}
+      <div class="rr-dialog__head">
         <h2 class="dw-confirm__title" id="rr-dialog-title" data-rr-dlg-title>Resolver revisión</h2>
-        <span data-rr-dlg-state-row style="display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;flex:none;max-width:50%"><span class="catalog-card__verdict" data-rr-dlg-state></span><span class="catalog-card__verdict" data-rr-dlg-evidence style="display:none"></span><span class="catalog-card__verdict" data-rr-dlg-review style="display:none"></span></span>
+        <span class="rr-dialog__badges" data-rr-dlg-state-row><span class="catalog-card__verdict" data-rr-dlg-state></span><span class="catalog-card__verdict" data-rr-dlg-evidence hidden></span><span class="catalog-card__verdict" data-rr-dlg-review hidden></span></span>
       </div>
       <p class="field-hint busqueda-contact__context" data-rr-dlg-kicker></p>
       <p class="dw-confirm__msg" data-rr-dlg-state-note></p>
@@ -521,7 +521,7 @@
         <select id="rr-dlg-disposition" data-rr-dlg-disposition></select>
         <p class="dw-confirm__hint" data-rr-dlg-disposition-hint></p>
       </div>
-      <div class="hc-profile-filters" data-rr-dlg-rationale-field hidden style="margin-top:16px">{# mismo aire (16px) que separa `.dw-confirm__select` del bloque anterior #}
+      <div class="hc-profile-filters rr-dialog__rationale" data-rr-dlg-rationale-field hidden>
         <div class="feedback-field feedback-field--wide">
           <label for="rr-dlg-rationale" data-rr-dlg-rationale-label>Justificación</label>
           <input type="text" id="rr-dlg-rationale" data-rr-dlg-rationale maxlength="500" autocomplete="off" placeholder="Motivo de la decisión (obligatorio)">
