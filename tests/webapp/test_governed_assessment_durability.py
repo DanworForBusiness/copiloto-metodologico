@@ -237,7 +237,7 @@ def test_no_credentials_or_request_data_are_serialized(world):
     env = json.loads(files(world)[0].read_text(encoding="utf-8"))
     assert set(env) == {"envelope_version", "client", "terminal_am", "generated_at", "assessment_schema_version", "assessment_versions",
                         "input_pool_signature", "assessment_artifact_signature", "status", "profile_json", "judgment", "domain_classification", "business_classification", "error_code",
-                        "input_closure_signature", "dependency_rule_version"}                  # P1: firma de dependencias del AM (aditiva, solo dato de vigencia; sin credenciales ni datos de la request)
+                        "input_closure_signature", "dependency_rule_version", "review_evidence"}   # P1: firma de dependencias del AM; review_evidence (Iteración II): sidecar de huellas de revisión (solo digests/firmas/nombres, sin credenciales ni datos de la request)
     text = files(world)[0].read_text(encoding="utf-8")
     assert not re.search(r"secret|password|token|authorization|bearer|api[_-]?key|credential|t@d\.com", text, re.I)
 

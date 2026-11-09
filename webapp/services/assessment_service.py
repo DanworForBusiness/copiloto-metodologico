@@ -456,7 +456,8 @@ def _derive_domain_classification(entry: Any, am: str | None) -> dict | None:
 def _envelope(client: str, am: str, *, status: str, profile: dict | None, pool_signature: str | None,
               versions: dict | None, error_code: str | None = None, generated_at: str | None = None,
               judgment: dict | None = _UNSET, domain_classification: dict | None = None,
-              business_classification: dict | None = None, closure_signature: str | None = None) -> dict:
+              business_classification: dict | None = None, closure_signature: str | None = None,
+              review_evidence: dict | None = None) -> dict:
     env = {
         "envelope_version": ENVELOPE_VERSION,
         "client": client,
@@ -473,6 +474,9 @@ def _envelope(client: str, am: str, *, status: str, profile: dict | None, pool_s
         "domain_classification": domain_classification,
         # Clasificación de negocio v2: derivado HERMANO (contrato/versión propios); la v1 de dominio se conserva sin cambios y no se confunde con ésta.
         "business_classification": business_classification,
+        # Iteración II — sidecar `review-evidence/v1`: huella material de las revisiones, HERMANO del perfil (mismo ciclo/ejecución,
+        # ligado por input_signature + firma exacta). FUERA de canonical-evidence/v5 y del perfil que firma el Juicio (no churn, D8).
+        "review_evidence": review_evidence,
         "error_code": error_code,
     }
     if closure_signature:                               # vigencia por dependencias (aditivo): sin ella el sobre se juzga solo por la firma del pool completo, como siempre
@@ -934,6 +938,7 @@ def _generate_locked(entry: Any, res: Resolution, versions: dict, *, force: bool
             durable = _store_envelope(_envelope(client, am, status="OK", profile=doc, pool_signature=sig, versions=dict(doc["versions"]),
                                                 domain_classification=_derive_domain_classification(entry, am),
                                                 business_classification=_derive_business_classification(entry, am),
+                                                review_evidence=meta.get("review_evidence"),   # Iteración II: sidecar del MISMO ciclo de evaluación
                                                 closure_signature=closure_signature(res) if sig == res.pool_signature else None))
             return replace(_status_from(entry, res, versions), durable=durable)
         if state == "NOT_APPLICABLE":
@@ -957,7 +962,8 @@ def _generate_locked(entry: Any, res: Resolution, versions: dict, *, force: bool
         pool_signature=retained.get("input_pool_signature") if retained else None,
         versions=retained.get("assessment_versions") if retained else None,
         error_code=code, generated_at=retained.get("generated_at") if retained else None,
-        domain_classification=(retained or {}).get("domain_classification"), business_classification=(retained or {}).get("business_classification")))
+        domain_classification=(retained or {}).get("domain_classification"), business_classification=(retained or {}).get("business_classification"),
+        review_evidence=(retained or {}).get("review_evidence")))      # conserva el sidecar del perfil retenido (no se descarta en FAILED)
     return replace(_status_from(entry, res, versions), durable=durable)
 
 
@@ -1039,6 +1045,7 @@ def prepare_regeneration(entry: Any, res: Resolution | None = None) -> PreparedA
         raise PrepareError("POOL_SIGNATURE_MISMATCH", am)
     env = _envelope(client, am, status="OK", profile=doc, pool_signature=sig, versions=dict(doc["versions"]),
                     domain_classification=_derive_domain_classification(entry, am), business_classification=_derive_business_classification(entry, am),
+                    review_evidence=(meta or {}).get("review_evidence"),      # sidecar del MISMO ciclo de evaluación (no se descarta al regenerar)
                     closure_signature=closure_signature(res))
     if not (env.get("assessment_versions") == current_assessment_versions() and _valid_profile(env)):
         raise PrepareError("WOULD_NOT_BE_CURRENT", am)
@@ -1148,10 +1155,12 @@ def _regenerate_core(entry: Any, *, precondition: Any, postcheck: Any, log_label
     notes: dict = {}
     if envelope_hook is None:
         env = _envelope(client, am, status="OK", profile=doc, pool_signature=sig, versions=dict(doc["versions"]),
-                        domain_classification=_derive_domain_classification(entry, am), business_classification=_derive_business_classification(entry, am))
+                        domain_classification=_derive_domain_classification(entry, am), business_classification=_derive_business_classification(entry, am),
+                        review_evidence=(meta or {}).get("review_evidence"))      # sidecar del MISMO ciclo (no se descarta al enriquecer/regenerar)
     else:                                                 # migracion estricta: el gancho decide el Juicio y los derivados hermanos (sin recalificar ni re-derivar a escondidas)
         overrides, notes = envelope_hook(doc, previous)
-        env = _envelope(client, am, status="OK", profile=doc, pool_signature=sig, versions=dict(doc["versions"]), **overrides)
+        env = _envelope(client, am, status="OK", profile=doc, pool_signature=sig, versions=dict(doc["versions"]),
+                        **{"review_evidence": (meta or {}).get("review_evidence"), **overrides})   # el gancho puede sobrescribir; por defecto, sidecar del mismo ciclo
     if not _envelope_resolves_current(env, res, versions):
         raise EnrichmentError("WOULD_NOT_BE_CURRENT")
     return RegeneratedAssessment(client, am, doc, env, (previous or {}).get("assessment_artifact_signature"), notes)

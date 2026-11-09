@@ -23,9 +23,11 @@ from typing import Any
 
 SCHEMA = "governed-decision/v1"
 
-# D3 — contrato extensible; en v1 SOLO este kind. Otros kind se rechazan explícitamente.
+# D3 — contrato extensible. v1 soporta CONTRACT_RATIFICATION (CDS/API, v4.B) y REVIEW_RESOLUTION (resolución gobernada de
+# revisiones metodológicas, Iteración II). Cualquier otro kind se rechaza explícitamente (fail-closed).
 KIND_CONTRACT_RATIFICATION = "CONTRACT_RATIFICATION"
-SUPPORTED_KINDS = frozenset({KIND_CONTRACT_RATIFICATION})
+KIND_REVIEW_RESOLUTION = "REVIEW_RESOLUTION"
+SUPPORTED_KINDS = frozenset({KIND_CONTRACT_RATIFICATION, KIND_REVIEW_RESOLUTION})
 
 EVENT_RATIFIED = "RATIFIED"
 EVENT_REVOKED = "REVOKED"
@@ -39,6 +41,43 @@ CONTRACT_DIGEST_FIELDS = ("published_contract", "source_contract_classes.leaves"
 # acredita la EVIDENCIA OBSERVADA de identidad+clasificación de la CDS, NO su contenido funcional completo ni aprobación corporativa previa.
 CDS_DIGEST_FIELDS = ("source_contract_classes.leaves[cds]",)
 LEAF_KIND_REMOTE_IMPORTED = "REMOTE_IMPORTED"
+
+# ─────────────────────────── REVIEW_RESOLUTION (Iteración II) ───────────────────────────
+# Resolución gobernada de revisiones metodológicas. La HUELLA material por revisión vive en el sidecar `review-evidence/v1`
+# (hermano del perfil) y/o en `canonical_evidence` publicado; el `evidence_ref` de una resolución solo acredita su DIGEST.
+# No toca CDS ni `canonical-evidence/v5`. La identidad de revisión viaja en `subject.technical_id` (JSON canónico, por familia).
+REVIEW_DIGEST_FIELDS = ("review-evidence/v1",)
+
+KLASS_MODEL_REVIEW = "MODEL_REVIEW"
+KLASS_CONTEXTUAL_OPPORTUNITY = "CONTEXTUAL_OPPORTUNITY"
+SUPPORTED_KLASSES = frozenset({KLASS_MODEL_REVIEW, KLASS_CONTEXTUAL_OPPORTUNITY})
+
+DISP_VALIDATED_DESIGN = "VALIDATED_DESIGN"
+DISP_NOT_APPLICABLE = "NOT_APPLICABLE"
+DISP_CORRECTION_REQUIRED = "CORRECTION_REQUIRED"
+DISP_DEFERRED = "DEFERRED"
+DISP_ACCEPTED = "ACCEPTED"
+DISP_DISCARDED = "DISCARDED"
+# Catálogo de disposiciones VÁLIDAS por familia (fail-closed): una disposición fuera de su familia se rechaza.
+DISPOSITIONS_BY_KLASS = {
+    KLASS_MODEL_REVIEW: frozenset({DISP_VALIDATED_DESIGN, DISP_NOT_APPLICABLE, DISP_CORRECTION_REQUIRED, DISP_DEFERRED}),
+    KLASS_CONTEXTUAL_OPPORTUNITY: frozenset({DISP_ACCEPTED, DISP_DISCARDED, DISP_DEFERRED}),
+}
+# Estado de GESTIÓN derivado de la disposición (plano independiente; NO colapsa con evidencia/vigencia/presencia).
+# CORRECTION_REQUIRED y DEFERRED permanecen PENDIENTES: registran una resolución sin cerrar la revisión.
+MGMT_OPEN, MGMT_RESOLVED_SETTLED, MGMT_RESOLVED_PENDING_ACTION, MGMT_CONTESTED = "OPEN", "RESOLVED_SETTLED", "RESOLVED_PENDING_ACTION", "CONTESTED"
+_SETTLED_DISPOSITIONS = frozenset({DISP_VALIDATED_DESIGN, DISP_NOT_APPLICABLE, DISP_ACCEPTED, DISP_DISCARDED})
+_PENDING_DISPOSITIONS = frozenset({DISP_CORRECTION_REQUIRED, DISP_DEFERRED})
+
+
+def management_state_of(disposition: str) -> str:
+    """Estado de gestión de UNA disposición vigente (sin bifurcación): SETTLED vs PENDING_ACTION. Fail-closed si desconocida."""
+    if disposition in _SETTLED_DISPOSITIONS:
+        return MGMT_RESOLVED_SETTLED
+    if disposition in _PENDING_DISPOSITIONS:
+        return MGMT_RESOLVED_PENDING_ACTION
+    raise ValidationError(f"disposición desconocida: {disposition!r}")
+
 
 REVIEW_DEFAULT_MONTHS = 12
 REVIEW_MAX_MONTHS = 24
@@ -266,6 +305,19 @@ def _validate_evidence_ref(ref: Any) -> None:
         raise ValidationError("evidence_ref.fields debe ser los campos contractuales de perfil (D7) o per-CDS (D4/B3)")
 
 
+def _validate_review_evidence_ref(ref: Any) -> None:
+    """`evidence_ref` de una resolución de revisión: mismo algo/digest, pero `fields` == REVIEW_DIGEST_FIELDS (huella por revisión)."""
+    if not isinstance(ref, dict):
+        raise ValidationError("evidence_ref debe ser objeto")
+    if ref.get("algo") != DIGEST_ALGO:
+        raise ValidationError(f"evidence_ref.algo debe ser {DIGEST_ALGO!r}")
+    digest = ref.get("digest")
+    if not isinstance(digest, str) or len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
+        raise ValidationError("evidence_ref.digest debe ser sha256 hex (64)")
+    if list(ref.get("fields") or ()) != list(REVIEW_DIGEST_FIELDS):
+        raise ValidationError(f"evidence_ref.fields de una resolución debe ser {list(REVIEW_DIGEST_FIELDS)}")
+
+
 def assert_is_governed_decision(obj: Any) -> None:
     """Rechaza objetos de OTRO plano (invariante 1). En particular una `migration-approval/v1` nunca es una decisión de gobierno."""
     if not isinstance(obj, dict):
@@ -295,6 +347,14 @@ def validate_event(event: Any) -> None:
     if "request_id" in event and event.get("request_id") is not None:
         _require_exact_text(event.get("request_id"), "request_id")  # idempotencia A: token opaco, exacto, sin comodines (opcional por compat B1/B2)
 
+    if kind == KIND_REVIEW_RESOLUTION:
+        _validate_review_specifics(event, etype, decided_at)        # Iteración II — plano separado; NO altera CONTRACT_RATIFICATION
+    else:
+        _validate_contract_specifics(event, etype, decided_at)      # v4.B — comportamiento CDS EXACTO (sin cambios)
+
+
+def _validate_contract_specifics(event: dict, etype: str, decided_at: Any) -> None:
+    """Validación específica de CONTRACT_RATIFICATION (CDS/API). Idéntica al comportamiento v4.B."""
     if etype == EVENT_RATIFIED:
         _validate_evidence_ref(event.get("evidence_ref"))
         review_by = event.get("review_by")
@@ -308,6 +368,49 @@ def validate_event(event: Any) -> None:
         _require_exact_text(event.get("revokes_event_id"), "revokes_event_id")
         if "evidence_ref" in event or "review_by" in event:
             raise ValidationError("un REVOKED no lleva evidence_ref ni review_by")
+
+
+def _validate_review_specifics(event: dict, etype: str, decided_at: Any) -> None:
+    """Validación específica de REVIEW_RESOLUTION (Iteración II): identidad con klass + disposición por familia (en RATIFIED) +
+    tokens de concurrencia (base_event_id) / reconciliación (supersedes_event_ids). Fail-closed.
+
+    La identidad (technical_id) es JSON canónico y SIEMPRE declara una klass soportada (vale para RATIFIED y REVOKED). El campo
+    `klass`/`disposition` solo existe en RATIFIED (una revocación no lleva semántica de disposición)."""
+    try:
+        ident = json.loads(event["subject"]["technical_id"])
+    except (ValueError, TypeError, KeyError) as exc:
+        raise ValidationError("technical_id de una revisión debe ser JSON canónico de la identidad") from exc
+    if not isinstance(ident, dict) or ident.get("klass") not in SUPPORTED_KLASSES:
+        raise ValidationError("identidad de revisión sin klass soportada en technical_id")
+    if event.get("base_event_id") is not None:
+        _require_exact_text(event.get("base_event_id"), "base_event_id")       # concurrencia optimista: cabeza vista
+    sup = event.get("supersedes_event_ids")
+    if sup is not None:
+        if not isinstance(sup, list) or not sup:
+            raise ValidationError("supersedes_event_ids debe ser lista no vacía")
+        for s in sup:
+            _require_exact_text(s, "supersedes_event_ids[]")                     # reconciliación: todas las decisiones en conflicto
+
+    if etype == EVENT_RATIFIED:
+        klass = event.get("klass")
+        if klass not in SUPPORTED_KLASSES:
+            raise ValidationError(f"klass {klass!r} no soportada (se exige {sorted(SUPPORTED_KLASSES)})")
+        if klass != ident.get("klass"):
+            raise ValidationError("klass del evento no coincide con la identidad (technical_id)")
+        disp = event.get("disposition")
+        if not isinstance(disp, str) or disp not in DISPOSITIONS_BY_KLASS[klass]:
+            raise ValidationError(f"disposition {disp!r} inválida para klass {klass} (válidas: {sorted(DISPOSITIONS_BY_KLASS[klass])})")
+        _validate_review_evidence_ref(event.get("evidence_ref"))
+        rb = parse_utc(event.get("review_by"))
+        da = parse_utc(decided_at)
+        if rb < da:
+            raise ValidationError("review_by anterior a decided_at")
+        if rb > max_review_by(decided_at):
+            raise ValidationError(f"review_by excede el máximo (+{REVIEW_MAX_MONTHS} meses)")
+    elif etype == EVENT_REVOKED:
+        _require_exact_text(event.get("revokes_event_id"), "revokes_event_id")
+        if any(k in event for k in ("evidence_ref", "review_by", "disposition", "klass")):
+            raise ValidationError("un REVOKED de revisión no lleva evidence_ref/review_by/disposition/klass")
 
 
 # ─────────────────────────── constructores puros (sin I/O/reloj/azar) ───────────────────────────
@@ -353,6 +456,63 @@ def build_revocation(*, event_id: str, subject: dict, revokes_event_id: str, rat
         "actor": actor,
         "decided_at": decided_at,
     }
+    if request_id is not None:
+        event["request_id"] = request_id
+    validate_event(event)
+    return event
+
+
+# ─────────────────────────── constructores REVIEW_RESOLUTION (Iteración II) ───────────────────────────
+
+def build_review_resolution(*, event_id: str, subject: dict, klass: str, disposition: str, digest: str, rationale: str,
+                            actor: str, decided_at: str, review_by: str | None = None, base_event_id: str | None = None,
+                            supersedes_event_ids: list | None = None, traceability: dict | None = None,
+                            request_id: str | None = None) -> dict:
+    """Arma (y valida) una resolución de revisión (RATIFIED/REVIEW_RESOLUTION). `digest` = huella material por revisión
+    (sha256 hex) que calcula la capa de evidencia/ops; aquí solo se referencia. `base_event_id` = cabeza vista (concurrencia);
+    `supersedes_event_ids` = decisiones que reconcilia (append-only). `event_id`/`decided_at`/`actor` los impone el backend."""
+    event = {
+        "schema": SCHEMA,
+        "event_id": event_id,
+        "event": EVENT_RATIFIED,
+        "kind": KIND_REVIEW_RESOLUTION,
+        "subject": dict(subject) if isinstance(subject, dict) else subject,
+        "klass": klass,
+        "disposition": disposition,
+        "evidence_ref": {"algo": DIGEST_ALGO, "fields": list(REVIEW_DIGEST_FIELDS), "digest": digest},
+        "rationale": rationale,
+        "actor": actor,
+        "decided_at": decided_at,
+        "review_by": review_by or default_review_by(decided_at),
+    }
+    if base_event_id is not None:
+        event["base_event_id"] = base_event_id
+    if supersedes_event_ids is not None:
+        event["supersedes_event_ids"] = list(supersedes_event_ids)
+    if traceability is not None:
+        event["traceability"] = traceability
+    if request_id is not None:
+        event["request_id"] = request_id
+    validate_event(event)
+    return event
+
+
+def build_review_revocation(*, event_id: str, subject: dict, revokes_event_id: str, rationale: str, actor: str,
+                            decided_at: str, base_event_id: str | None = None, request_id: str | None = None) -> dict:
+    """Arma (y valida) una revocación de resolución de revisión (REVOKED/REVIEW_RESOLUTION, append-only): nunca edita el original."""
+    event = {
+        "schema": SCHEMA,
+        "event_id": event_id,
+        "event": EVENT_REVOKED,
+        "kind": KIND_REVIEW_RESOLUTION,
+        "subject": dict(subject) if isinstance(subject, dict) else subject,
+        "revokes_event_id": revokes_event_id,
+        "rationale": rationale,
+        "actor": actor,
+        "decided_at": decided_at,
+    }
+    if base_event_id is not None:
+        event["base_event_id"] = base_event_id
     if request_id is not None:
         event["request_id"] = request_id
     validate_event(event)

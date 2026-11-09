@@ -210,6 +210,14 @@ def assess(inbound: Path, client: str, am: str | None, domain: str | None = None
                            materialization_evidence=lambda ce: collect_materialization_evidence(group["jsons"], inbound, ce, signature))      # v4.A: referencias recuperables al pool (solo lectura)
     validate_assessment(doc)
     meta["terminal_analytic_models_in_pool"] = len(universe.terminal_ams)
+    # Iteración II — sidecar `review-evidence/v1`: huella material de las revisiones desde los HECHOS COMPLETOS de ESTA misma
+    # ejecución (con `direct_source`), ligado por `input_signature` + firma EXACTA del perfil. Extensión COMPATIBLE del retorno
+    # (viaja en `meta`, NO en `canonical_evidence`); su fallo nunca rompe el Assessment (es complementario).
+    try:
+        from .review_evidence import build_sidecar as _build_review_evidence_sidecar
+        meta["review_evidence"] = _build_review_evidence_sidecar(doc, facts, scope.root)
+    except Exception as exc:  # noqa: BLE001
+        meta.setdefault("errors", []).append(f"review_evidence_sidecar: {type(exc).__name__}")
     return doc, meta
 
 
