@@ -3,7 +3,7 @@ motor de assessment REALES (frontera simulada: el tenant de Datasphere). Todo ba
 
 Contrato:
   * la guarda NO cambia: sin autorización, el conflicto sigue siendo ``POOL_IDENTITY_CONFLICT`` sin cambios, ahora con su ALCANCE (exclusivos / compartidos);
-  * el reemplazo solo es posible (``safe`` + ``token``) si todos los conflictos los reclama UNA publicación anterior del MISMO modelo y ninguno lo usa otro modelo
+  * el reemplazo solo es posible (``safe`` + ``token``) si todos los conflictos los reclama UNA publicación anterior del MISMO modelo y ninguna publicación de otro modelo los reclama (lo compartido con otras fichas/paquetes legacy se informa y se confirma)
     (otro manifiesto, otra ficha del Catálogo o un paquete legacy);
   * la autorización es la huella exacta del plan: si cambió algo entre la confirmación y la ejecución (la publicación anterior, el modelo, sus dependencias),
     ``REPLACEMENT_PLAN_CHANGED`` sin cambios; un token sin conflicto que reemplazar tampoco autoriza nada;
@@ -89,7 +89,7 @@ def test_confirmed_replacement_moves_the_model_to_the_new_space_atomically(world
     assert pub(world, space=QA).status == txn.COMPLETED                                                    # y desde ahora QA republica sin conflicto
 
 
-def test_a_dependency_shared_with_another_model_is_never_replaceable(world):
+def test_a_dependency_claimed_by_another_published_model_is_never_replaceable(world):
     assert pub(world).status == txn.COMPLETED and pub(world, AM_B).status == txn.COMPLETED                 # 1VR_DIM_PROD: AM_A y AM_B desde PROD
     world.tenant.put(QA, "views", "1VR_DIM_PROD", view("1VR_DIM_PROD", ["RAW_PROD"], cols=("A", "B", "SOLO_QA")))
     before = world.digest()
@@ -98,7 +98,7 @@ def test_a_dependency_shared_with_another_model_is_never_replaceable(world):
     assert res.error_code == "POOL_IDENTITY_CONFLICT" and not r["safe"] and r["token"] == ""
     shared = {c["technical_name"]: c for c in r["shared"]}
     assert "1VR_DIM_PROD" in shared and shared["1VR_DIM_PROD"]["used_by_models"]
-    assert "CLAIMED_BY_OTHER_MODEL" in r["reasons"] and "SHARED_DEPENDENCY" in r["reasons"]
+    assert "CLAIMED_BY_OTHER_MODEL" in r["reasons"]                                                       # otra PUBLICACIÓN gobernada lo reclama: sigue bloqueando
     req = world.request(AM_A, space=QA, stage=True)
     req.replace_token = "f" * 64                                                                          # un token inventado no autoriza nada
     from tools.catalog import DSP_CLI_Export_Lineage as dsp
@@ -107,12 +107,13 @@ def test_a_dependency_shared_with_another_model_is_never_replaceable(world):
     assert forced.error_code == "REPLACEMENT_PLAN_CHANGED" and world.digest() == before
 
 
-def test_an_object_defined_inside_a_legacy_package_is_shared(world):
+def test_an_object_shared_only_with_a_legacy_package_is_listed_and_replaceable_with_confirmation(world):
+    # decisión del owner (2026-11-09): el Space gobernado no es inmutable; lo compartido con fichas/paquetes legacy del cliente se informa y se reemplaza al confirmar
     assert pub(world).status == txn.COMPLETED
     qa_changes_exclusive(world)
     (world.pool / CLIENT / "PAQUETE_LEGACY.json").write_text(json.dumps({"definitions": {"3VF_LP": {"kind": "entity"}}}), encoding="utf-8")
     r = pub(world, space=QA).replacement
-    assert not r["safe"] and r["shared"][0]["legacy_packages"] == ["PAQUETE_LEGACY"]
+    assert r["safe"] and len(r["token"]) == 64 and r["shared"][0]["legacy_packages"] == ["PAQUETE_LEGACY"]
 
 
 def test_a_change_after_the_confirmation_invalidates_it_without_changes(world):

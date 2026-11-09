@@ -24,7 +24,7 @@
   let replaceToken = "";                                       // huella del plan confirmado (no es un secreto); se consume en la próxima publicación
   const IDENTITY_FIELDS = new Set(["host", "token_url", "space", "datasphere_root_object", "client"]);
   const REASONS = {
-    SHARED_DEPENDENCY: "Hay dependencias compartidas con otros modelos: reemplazarlas cambiaría modelos que no estás publicando.",
+    SHARED_DEPENDENCY: "Hay dependencias compartidas con otros modelos.",
     CLAIMED_BY_OTHER_MODEL: "Algún objeto en conflicto lo publicó otro modelo.",
     MULTIPLE_PREVIOUS_PUBLICATIONS: "El modelo tiene publicaciones desde más de un Space: no hay una única publicación que reemplazar.",
     UNCLAIMED_CONFLICT: "Algún objeto en conflicto no pertenece a ninguna publicación registrada.",
@@ -77,21 +77,20 @@
     const confirm = el(dlg, "[data-dsp-replace-confirm]");
     const verdict = el(dlg, "[data-dsp-replace-verdict]");
     if (r.safe && r.token) {
-      verdict.textContent = "Todos son exclusivos de este modelo: se puede reemplazar la publicación de " + from + " por la de " + r.target_space +
-        ". El Catálogo y el Assessment gobernado se regeneran con la evidencia que se publique; si algo cambia antes de ejecutar, no se modifica nada.";
+      const shared = (r.shared || []).length;
+      // Decisión del owner: el Space gobernado no es inmutable. UNA sola confirmación (este diálogo) reemplaza el origen vigente por el nuevo.
+      verdict.textContent = "Se reemplazará el origen gobernado vigente (" + from + ") por " + r.target_space + " para " + r.root_object + "." +
+        (shared ? " " + shared + (shared === 1 ? " objeto compartido con otras fichas del cliente pasa" : " objetos compartidos con otras fichas del cliente pasan") +
+          " a la versión de " + r.target_space + "; esas fichas no se modifican." : "") +
+        " El Catálogo y el Assessment gobernado se regeneran con la evidencia que se publique; la publicación anterior queda registrada como reemplazada. Si algo cambia antes de ejecutar, no se modifica nada.";
       setHidden(confirm, false);
       confirm.onclick = () => {
         dlg.close();
-        dwConfirmChoice({ title: "Reemplazar publicación", confirmLabel: "Continuar", okClass: "btn-primary",
-          message: "Vas a reemplazar la publicación de " + r.root_object + " desde " + from + " por la de " + r.target_space + ". ¿Estás seguro de que querés continuar?" })
-          .then((res) => {
-            if (!res || !res.ok) return;
-            replaceToken = r.token;
-            setReplacePending(form, true, "Reemplazo confirmado. Volvé a ingresar el Client Secret y presioná «Reemplazar y publicar»: antes de escribir se vuelve a verificar todo.");
-          });
+        replaceToken = r.token;
+        setReplacePending(form, true, "Reemplazo confirmado (" + from + " → " + r.target_space + "). Volvé a ingresar el Client Secret y presioná «Reemplazar y publicar»: antes de escribir se vuelve a verificar todo.");
       };
     } else {
-      verdict.textContent = (r.reasons || []).map((code) => REASONS[code] || code).join(" ") + " No se puede reemplazar sin afectar otros modelos: no se modificó nada.";
+      verdict.textContent = (r.reasons || []).map((code) => REASONS[code] || code).join(" ") + " No se puede reemplazar: no se modificó nada.";
       setHidden(confirm, true);
       confirm.onclick = null;
     }

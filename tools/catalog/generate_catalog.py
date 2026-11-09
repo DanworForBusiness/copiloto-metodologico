@@ -516,6 +516,12 @@ def _extract_elements(defn: dict, ent: Entity) -> None:
             seen.add(ename)
 
 
+class CatalogAuthorityError(Exception):
+    """Definición AUTORITATIVA de un objeto con reemplazo de Space confirmado que no se puede acreditar: falta el archivo tipado esperado
+    (`<object_type>/<technical_name>.json`) o su contenido no coincide con el sha256 del manifiesto vigente. La generación se detiene (la publicación
+    hace rollback): nunca se elige otra definición por nombre ni por orden de recorrido."""
+
+
 class CatalogCollisionError(Exception):
     """Mixed-mode: la MISMA identidad lógica (nombre de entidad) aparece en dos
     archivos de carpetas FÍSICAS distintas del mismo pool (cliente/dominio) con
@@ -547,7 +553,8 @@ def _semantic_definition_signature(definition: dict) -> str:
     return json.dumps(normalized, sort_keys=True, ensure_ascii=False, default=str)
 
 
-def load_folder(folder: Path | None = None, *, json_files=None, txt_files=None, dataflow_lineage: bool = True) -> tuple[dict, dict]:
+def load_folder(folder: Path | None = None, *, json_files=None, txt_files=None, dataflow_lineage: bool = True,
+                governed_names: dict[str, tuple[str, str]] | None = None) -> tuple[dict, dict]:
     """Devuelve (entities_by_name, sql_by_name).
 
     Legacy: `load_folder(folder)` recorre PLANO `folder.glob("*.json"/"*.txt")`.
@@ -561,7 +568,14 @@ def load_folder(folder: Path | None = None, *, json_files=None, txt_files=None, 
 
     `dataflow_lineage`: los Data Flows del export CLI (`data-flows/DF_*.json`, sección `dataflows` con `sources`/`targets`) aportan al linaje de la tabla local que
     producen (target <- sources) con la MISMA regla que los `DF_*` legacy. El catálogo lo necesita (continuidad fuente → modelo terminal); el assessment lo desactiva
-    (`False`): su cierre trata la tabla producida por un flujo como HOJA y modela el flujo como procedencia, no como linaje semántico."""
+    (`False`): su cierre trata la tabla producida por un flujo como HOJA y modela el flujo como procedencia, no como linaje semántico.
+
+    `governed_names`: {technical_name: (object_type, sha256)} de una publicación del cliente que REEMPLAZÓ con confirmación a otra de otro Space (manifiesto
+    con `replaces`). La definición autoritativa es EXACTAMENTE `<object_type>/<technical_name>.json` (carpeta tipada real, nunca solo el nombre de archivo) y
+    su contenido tiene que coincidir con el sha256 del manifiesto; si falta o no coincide → `CatalogAuthorityError`. Para ellos el archivo del export
+    CLI con su mismo nombre (`<carpeta-tipo>/<objeto>.json`) es la definición AUTORITATIVA: una copia embebida en un paquete legacy no la pisa ni colisiona
+    (tras un reemplazo gobernado de Space la copia legacy queda con el contenido del Space anterior). Los paquetes legacy no se modifican; el resto de las
+    entidades conserva la regla de colisión de siempre."""
     entities: dict[str, Entity] = {}
     export_df_membership: dict[str, dict] = {}   # DF del export CLI → {targets, sources} (solo nombres declarados por el propio DF)
     sql_by_name: dict[str, str] = {}
@@ -578,6 +592,19 @@ def load_folder(folder: Path | None = None, *, json_files=None, txt_files=None, 
 
     _txts = list(txt_files) if txt_files is not None else sorted((folder or Path()).glob("*.txt"))
     _jsons = list(json_files) if json_files is not None else sorted((folder or Path()).glob("*.json"))
+    # Definición autoritativa de cada objeto con reemplazo confirmado: `<object_type>/<technical_name>.json` acreditado por el sha256 del manifiesto. Se
+    # resuelve ANTES de recorrer y sin depender del orden: un homónimo en otra carpeta (p. ej. un paquete legacy `VD_Material.json` en la raíz) nunca la sustituye.
+    _authoritative: dict[str, Path] = {}
+    if governed_names:
+        from tools.catalog.publication_txn import sha256_text_file
+        _by_type = {(jf.parent.name, jf.stem): jf for jf in _jsons}
+        for _name, (_otype, _sha) in sorted(governed_names.items()):
+            _jf = _by_type.get((_otype, _name))
+            if _jf is None:
+                raise CatalogAuthorityError(f"'{_name}': falta su definición autoritativa {_otype}/{_name}.json (publicación con reemplazo confirmado)")
+            if sha256_text_file(_jf) != _sha:
+                raise CatalogAuthorityError(f"'{_name}': {_otype}/{_name}.json no coincide con el sha256 del manifiesto vigente (integridad no acreditada)")
+            _authoritative[_name] = _jf
 
     # SQL preview de vistas gráficas: <nombre>.txt
     for txt in _txts:
@@ -620,6 +647,8 @@ def load_folder(folder: Path | None = None, *, json_files=None, txt_files=None, 
             # considera colisión si además proviene de OTRA carpeta física (el
             # merge intra-carpeta legacy queda idéntico — dos archivos de la misma
             # carpeta que aportan a una entidad no cambian de comportamiento).
+            if name in _authoritative and jf != _authoritative[name]:
+                continue                                   # copia NO autoritativa (paquete legacy) de un objeto gobernado: prevalece la publicación
             _sig = _semantic_definition_signature(defn)
             _prev = _defn_origin.get(name)
             if _prev is None:
@@ -1257,7 +1286,7 @@ def _write_flow(out_dir: Path, cliente: str, dom: str, sub: dict, folder: str) -
 
 
 def process_folder(src: Path, out_root: Path, cliente: str | None = None,
-                   dominio: str | None = None, *, json_files=None, txt_files=None) -> str:
+                   dominio: str | None = None, *, json_files=None, txt_files=None, governed_names: dict[str, tuple[str, str]] | None = None) -> str:
     """Procesa una carpeta de artefactos → escribe flujo + vistas, preservando
     el bloque `manual:` de los .md existentes (no pisa la curaduría del senior).
     cliente/dominio se pueden pasar explícitos (los calcula generate_all según la
@@ -1285,7 +1314,7 @@ def process_folder(src: Path, out_root: Path, cliente: str | None = None,
     if dominio is None:
         dominio = src.name
     if json_files is not None:
-        entities, _ = load_folder(json_files=json_files, txt_files=txt_files or [])
+        entities, _ = load_folder(json_files=json_files, txt_files=txt_files or [], governed_names=governed_names)
     else:
         entities, _ = load_folder(src)
     if not entities:
@@ -1788,6 +1817,25 @@ def _sync_apis(inbound_root: Path, out_root: Path, *, folder: str | None = None,
     return count
 
 
+def _governed_names(out_root: Path, client_dir: str) -> dict[str, tuple[str, str]]:
+    """Objetos de las publicaciones del cliente que REEMPLAZARON, con confirmación del usuario, una publicación anterior desde otro Space (manifiestos de
+    `.lineage_runs/<cliente>` con `replaces`). Solo ahí el export prevalece sobre una copia legacy divergente: una publicación nueva SIN reemplazo
+    confirmado conserva la regla de colisión de siempre (rollback). Devuelve {technical_name: (object_type, sha256)}. Un manifiesto ilegible no aporta nada."""
+    runs = Path(out_root) / ".lineage_runs" / client_dir
+    names: dict[str, tuple[str, str]] = {}
+    for mp in sorted(runs.rglob("lineage-manifest.json")) if runs.exists() else []:
+        try:
+            data = json.loads(mp.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            continue
+        if not (isinstance(data, dict) and isinstance(data.get("replaces"), dict)):
+            continue                                   # sin reemplazo confirmado: no cambia la regla de colisión
+        for o in data.get("objects") or []:
+            if isinstance(o, dict) and o.get("technical_name") and o.get("object_type") and o.get("sha256"):
+                names[str(o["technical_name"])] = (str(o["object_type"]), str(o["sha256"]))
+    return names
+
+
 def generate_all(inbound_root, out_root, *, only_clients: set[str] | None = None) -> str:
     """Procesa las carpetas hoja con .json bajo inbound_root.
 
@@ -1872,7 +1920,7 @@ def generate_all(inbound_root, out_root, *, only_clients: set[str] | None = None
         # `src` es sólo referencia de mensajes; cliente/dominio van explícitos y el
         # pool se arma con la lista de archivos del grupo (todas sus carpetas-tipo).
         src = inbound_root / cliente_dir / dominio_dir
-        lines.append(process_folder(src, out_root, cliente, dominio,
+        lines.append(process_folder(src, out_root, cliente, dominio, governed_names=_governed_names(out_root, client_dir_key),
                                     json_files=sorted(g["jsons"]), txt_files=sorted(g["txts"])))
         generated += 1
         next_entries[key] = {

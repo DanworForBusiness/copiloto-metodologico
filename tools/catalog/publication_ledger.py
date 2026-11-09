@@ -113,7 +113,7 @@ def build(ledger: dict, *, operation_id: str, activated_at: str, client_dir: str
     active = {"operation_id": operation_id, "previous_operation_id": previous, "activated_at": activated_at, "client_dir": client_dir, "space": space,
               "root_object": root_object, "root_type": root_type, **extra, "files": file_digests}
     entry = {"operation_id": operation_id, "previous_operation_id": previous, "activated_at": activated_at, "space": space, "root_object": root_object,
-             "outcome": outcome, **counts}
+             "outcome": outcome, **counts, **({"replaced": extra["replaced"]} if extra.get("replaced") else {})}   # el reemplazo de Space queda en la BITÁCORA, no solo en `active`
     history = [*(ledger.get("history") or []), entry][-HISTORY_KEEP:]
     return {"schema": LEDGER_SCHEMA, "client_dir": client_dir, "active": active, "history": history}
 

@@ -7,8 +7,10 @@ publicación sin cambios. Este módulo NO la apaga ni agrega un interruptor glob
   * si cada uno es EXCLUSIVO del modelo o una DEPENDENCIA COMPARTIDA. Es compartido si lo reclama otro manifiesto (otro modelo), si aparece en los artefactos
     de otra ficha del Catálogo del cliente (cubre los modelos sin manifiesto: exportes previos y paquetes legacy) o si un paquete legacy de la raíz del pool
     lo define embebido;
-  * si el reemplazo es DEMOSTRABLEMENTE seguro. Lo es solo si todos los conflictos los reclama UNA única publicación anterior del MISMO modelo (mismo cliente,
-    tipo y objeto raíz, otro Space/tenant), todos son exclusivos y la evidencia es legible (manifiestos utilizables y Catálogo del cliente con la ficha del modelo).
+  * si el reemplazo es autorizable. Lo es si todos los conflictos los reclama UNA única publicación anterior del MISMO modelo (mismo cliente, tipo y objeto
+    raíz, otro Space/tenant), ningún otro manifiesto (otro modelo publicado) los reclama y la evidencia es legible (manifiestos utilizables y Catálogo del
+    cliente con la ficha del modelo). Las dependencias compartidas con otras fichas del cliente o con paquetes legacy NO bloquean (decisión del owner: el
+    Space gobernado no es inmutable): se listan en el plan, el usuario las confirma y se reemplazan junto con el modelo, sin tocar las fichas ajenas.
 
 La autorización (``token``) es la huella de ESE plan: cliente, modelo, Space destino, el manifiesto desplazado (sha256 exacto) y el contenido planificado de cada
 objeto en conflicto. Se recalcula bajo el candado al ejecutar; si algo cambió (otra publicación, el modelo en Datasphere, el Catálogo), no coincide y no se
@@ -163,8 +165,12 @@ def analyze(*, client: str, client_dir: str, root_type: str, root_object: str, t
                 displaced_claims[id(x)] = x
             else:
                 reasons.append(R_OTHER_ROOT)
-        if not c.exclusive:
-            reasons.append(R_SHARED)
+        # Decisión del owner (2026-11-09): el Space gobernado NO es inmutable. Una dependencia compartida con OTRAS FICHAS del mismo cliente (o embebida
+        # en un paquete legacy) se reemplaza con el modelo cuando el usuario confirma: si no, el modelo quedaría mitad en un Space y mitad en otro. Se
+        # informa en el plan (`shared`) y entra en el token. Lo que sigue bloqueando: que otra PUBLICACIÓN gobernada (manifiesto de otro modelo) reclame
+        # el objeto — eso no lo decide la regeneración de este modelo.
+        if c.other_manifests:
+            reasons.append(R_OTHER_ROOT)
 
     displaced: dict[str, Any] | None = None
     displaced_only: list[Key] = []
