@@ -114,6 +114,7 @@ class AssessmentStatus:
     judgment: dict | None = field(default=None, compare=False)   # Juicio metodológico DERIVADO y PERSISTIDO del perfil (nunca recalculado por la UI)
     business_classification: dict | None = field(default=None, compare=False)   # Clasificación de NEGOCIO v2 PERSISTIDA (línea de negocio + dominio; hermana del Juicio)
     domain_classification: dict | None = field(default=None, compare=False)   # Clasificación de dominio PERSISTIDA (hermana del Juicio; sugerencia, jamás insumo de calidad)
+    review_evidence: dict | None = field(default=None, compare=False)   # Iteración II: sidecar review-evidence/v1 (huella de revisiones, hermano del perfil; proyecta resoluciones sin tocar el perfil ni el Juicio)
     previous_profile_retained: bool = False
     durable: str | None = field(default=None, compare=False)   # solo tras ``generate``: "remote" | "local" | "memory" (ver ``_store_envelope``)
     stale_reason: str | None = field(default=None, compare=False)       # solo STALE: VERSION_ONLY | INPUT_CHANGED | VERSION_AND_INPUT
@@ -766,10 +767,11 @@ def _status_from(entry: Any, res: Resolution, versions: dict) -> AssessmentStatu
     jdg = _persisted_judgment(env)
     dcl = env.get("domain_classification")
     bcl = env.get("business_classification")
+    rev_ev = env.get("review_evidence")                 # sidecar review-evidence/v1 (Iteración II); None en Assessments históricos ⇒ resoluciones con evidencia UNKNOWN
     if env.get("status") == "FAILED":
         code = env.get("error_code")
         return AssessmentStatus(FAILED, eid, client, am, reason=_failed_message(code), error_code=code,
-                                generated_at=env.get("generated_at"), profile=prof, judgment=jdg, domain_classification=dcl, business_classification=bcl, previous_profile_retained=prof is not None)
+                                generated_at=env.get("generated_at"), profile=prof, judgment=jdg, domain_classification=dcl, business_classification=bcl, review_evidence=rev_ev, previous_profile_retained=prof is not None)
     if env.get("assessment_schema_version") != ma_profile.ASSESSMENT_SCHEMA_VERSION or not _valid_profile(env):
         # La clasificación de negocio v2 es un eje INDEPENDIENTE del esquema del perfil/Juicio: una incompatibilidad del perfil no la invalida
         # (el consumidor igual valida su propio contrato). El perfil y el Juicio SÍ siguen sin exponerse.
@@ -779,9 +781,9 @@ def _status_from(entry: Any, res: Resolution, versions: dict) -> AssessmentStatu
     cur, drift, dependency = resolve_currentness(env.get("input_pool_signature"), env.get("assessment_versions"), res.pool_signature, versions,
                                                  lambda: dependency_verdict(env, res))
     if cur.state == CURRENT:
-        return AssessmentStatus(CURRENT, eid, client, am, generated_at=env.get("generated_at"), profile=prof, judgment=jdg, domain_classification=dcl, business_classification=bcl,
+        return AssessmentStatus(CURRENT, eid, client, am, generated_at=env.get("generated_at"), profile=prof, judgment=jdg, domain_classification=dcl, business_classification=bcl, review_evidence=rev_ev,
                                 pending_migration=cur.pending_migration, pool_drift=drift)
-    return AssessmentStatus(STALE, eid, client, am, generated_at=env.get("generated_at"), profile=prof, judgment=jdg, domain_classification=dcl, business_classification=bcl, stale_reason=cur.reason, stale_targeted=cur.targeted,
+    return AssessmentStatus(STALE, eid, client, am, generated_at=env.get("generated_at"), profile=prof, judgment=jdg, domain_classification=dcl, business_classification=bcl, review_evidence=rev_ev, stale_reason=cur.reason, stale_targeted=cur.targeted,
                             stale_version_diff=cur.version_diff, pool_drift=drift, stale_dependency=dependency)
 
 

@@ -122,7 +122,7 @@ def test_one_container_one_table_one_title_in_the_rendered_report(doc):
 def test_the_existing_report_container_is_reused_with_no_new_css(doc):
     html = _html(_view(doc))
     block = _block(html)
-    head = re.search(r'<details class="dashboard-section" id="asr-preguntas" open>\s*<summary class="dashboard-section__head"><span class="dashboard-section__caret"></span>'
+    head = re.search(r'<details class="dashboard-section" id="asr-preguntas">\s*<summary class="dashboard-section__head"><span class="dashboard-section__caret"></span>'
                      r'<span class="dashboard-section__title">Preguntas que solo el proyecto puede responder</span><span class="dashboard-section__count">([^<]+)</span></summary>', html)
     assert head and head.group(1) == _view(doc)["summary"]["context_summary"]                          # título = cabecera del contenedor; a la derecha, el resumen canónico
     assert re.fullmatch(r"\d+ abiertas? · \d+ con hallazgo · \d+ contexto de proyecto", head.group(1))

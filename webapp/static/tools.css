@@ -3061,6 +3061,11 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 .panel-close:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
 .panel-close svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .panel-close .chart-tooltip { bottom: auto; top: calc(100% + 7px); left: auto; right: 0; transform: none; min-width: 0; width: max-content; max-width: 240px; }
+.dashboard-section__head .panel-close.chart-tooltip-anchor { display: grid; }
+/* Diálogo de resolución de revisiones (#rr-dialog): título + badges de estado arriba a la derecha; aire de 16px (el de `.dw-confirm__select`) antes de la justificación. */
+.rr-dialog__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.rr-dialog__badges { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; flex: none; max-width: 50%; }
+.rr-dialog__rationale { margin-top: 16px; }   /* la X con tooltip conserva la caja del primitivo (la regla genérica del ancla la volvía inline-flex) */
 details:not([open]) > summary > .panel-close[data-asr-close] { display: none; }
 
 /* TOOLTIP DE LA ACCIÓN DE FILA — mismo primitivo (`.chart-tooltip`), pero tematizado: el negro fijo (#1f1f24) sobre tarjeta blanca/oscura rompía el

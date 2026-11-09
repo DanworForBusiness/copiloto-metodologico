@@ -60,6 +60,7 @@ SANCTIONED_WEB_INTEGRATION = {
     Path("webapp/services/assessment_service.py"),
     Path("webapp/services/assessment_presenter.py"),
     Path("webapp/services/review_resolution_ops.py"),   # Iteración II: ops de resolución de revisiones (importa review_evidence; identidad/huella)
+    Path("webapp/services/review_resolution_presenter.py"),  # Iteración III: proyección de resoluciones sobre el informe (solo lectura: identidad/huella)
 }
 # Simulación de reassessment (#259): ÚNICO consumidor externo de SOLO LECTURA fuera de la capa web, nombrado y con su propia superficie, más
 # chica que la de la integración web. No escribe ni importa persistencia/publicación/servicios web (lo fija `test_reassessment_baseline`).

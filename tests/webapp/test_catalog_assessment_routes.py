@@ -728,7 +728,9 @@ def test_findings_are_hub_disclosure_rows_with_business_metadata_not_raw_inline_
         assert re.fullmatch(r"[^·]+ · \d+ ocurrencias? · \d+ artefactos?", meta), meta                                           # categoría · N ocurrencias · N artefactos
         body = row[row.index("</summary>"):]
         assert "Pregunta para el proyecto" not in head and "Razones legítimas" not in head                                         # la historia completa va bajo demanda
-        assert "catalog-card__verdict" not in row                                                                                  # sin etiquetas sueltas (CASO A REVISAR, N OCURRENCIAS…)
+        loose = re.sub(r'<span class="catalog-card__verdict[^"]*" title="Tipo de caso">[^<]*</span>', "", row)                         # tipo de caso (resoluciones, Iteración III)
+        loose = re.sub(r"<td data-rr-cell>.*?</td>", "", loose, flags=re.S)                                                       # estado de resolución de la ocurrencia
+        assert "catalog-card__verdict" not in loose                                                                                # sin etiquetas sueltas (CASO A REVISAR, N OCURRENCIAS…)
     sec = html[html.index('id="asr-revision"'):html.index('id="asr-limitaciones"')]
     visible = re.sub(r"<(script|style)\b.*?</\1>", " ", sec, flags=re.S)
     for rule_id in re.findall(r'asr-g-([A-Z_]+)"', sec):
@@ -832,7 +834,7 @@ def test_finding_detail_uses_structured_tables_with_a_stable_occurrence_schema(w
     for row in rows:
         det = row[row.index("</summary>"):]
         assert re.search(r"<h[345]>Ocurrencias \(\d+\)</h[345]>", det)                                       # subtítulo semántico dentro del detalle
-        assert "<thead><tr><th>Aspecto</th><th>Detalle</th></tr></thead>" in det and "<th>Artefactos</th><th>Detalle</th><th>Acción</th>" in det
+        assert "<thead><tr><th>Aspecto</th><th>Detalle</th></tr></thead>" in det and re.search(r"<th>Artefactos</th><th>Detalle</th>(<th>Resolución</th>)?<th>Acciones</th>", det)
         assert "<strong>Pregunta para el proyecto" not in det                                      # sin narrativa suelta
         assert "<td>Descripción</td>" in det and "<td>Unidad de cada ocurrencia</td>" in det
         assert 'class="catalog-card__verdict' not in det                                           # sin badges por fila en el detalle
@@ -865,7 +867,7 @@ def test_every_content_link_in_the_report_uses_the_one_hub_content_link_treatmen
         if "data-catalog-regenerate" in attrs:                                                         # acción ICÓNICA de cabecera «Regenerar Catálogo» (mismo ícono que el flujo)
             assert 'aria-label="Regenerar Catálogo"' in attrs and inner.lstrip().startswith("<svg")
         elif 'class="table-action-btn chart-tooltip-anchor"' in attrs:                                 # acción ICÓNICA de fila (patrón CCHH; ver test_assessment_contextual_navigation)
-            assert 'aria-label="Ver evidencia del hallazgo «' in attrs and inner.lstrip().startswith("<svg")
+            assert ('aria-label="Ver evidencia del hallazgo «' in attrs or 'aria-label="Ver en linaje' in attrs) and inner.lstrip().startswith("<svg")
             kinds["action"] += 1
         elif 'class="support-link"' in attrs:
             kinds["support"] += 1

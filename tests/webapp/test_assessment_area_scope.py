@@ -325,7 +325,7 @@ def test_collapsed_areas_keep_their_content_badges_and_the_overview_stays_visibl
 def test_other_sections_keep_their_own_default_state_and_no_accordion_or_js_was_added(doc):
     html, sec = _architecture_section(doc)
     assert re.search(r'<details class="dashboard-section" open>\s*<summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Indicadores del assessment', html)
-    assert "<details class=\"dashboard-section\" id=\"asr-preguntas\" open>" in html or "asr-preguntas" not in html
+    assert "<details class=\"dashboard-section\" id=\"asr-preguntas\">" in html or "asr-preguntas" not in html   # decisión del owner: cerrado por defecto (solo Indicadores abre)
     tpl = TEMPLATE_PATH.read_text(encoding="utf-8")
     area_loop = tpl[tpl.index("{% for a in mg.areas %}\n  <details"):tpl.index("{% endfor %}", tpl.index("{% for a in mg.areas %}\n  <details"))]
     assert "<script" not in area_loop and "x-data" not in area_loop and "@click" not in area_loop and "name=" not in area_loop    # sin JS ni acordeón (`name` agruparía los <details>)

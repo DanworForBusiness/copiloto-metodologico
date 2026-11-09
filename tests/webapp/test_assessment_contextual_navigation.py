@@ -154,7 +154,7 @@ def test_catalog_report_has_one_integrated_table_per_area_and_no_redundant_findi
     for m in re.finditer(r'<tr id="asr-r-[^"]+">(.*?)</tr>', html, re.S):
         if "table-action-btn" in m.group(1):
             assert re.search(r'<td class="asr-col-action"><span class="dw-row-actions"><a href="#asr-g-', m.group(1))   # la acción vive en SU celda, no pegada al texto de ocurrencias
-    actions = len(re.findall(r'class="table-action-btn chart-tooltip-anchor"', html)) - html.count("data-catalog-regenerate")   # solo acciones de FILA (sin el ícono de cabecera)
+    actions = len(re.findall(r'<a href="#asr-g-[^"]+" class="table-action-btn chart-tooltip-anchor"', html))   # acciones de FILA hacia un hallazgo («Ver en linaje»/resolución son otras acciones icónicas)
     assert actions == sum(1 for a in v["areas"] for r in a["rules"] if r["finding"])                            # cardinalidad: una acción por regla con hallazgo
     assert "<code>Ver detalle</code>" not in html and ">Ver detalle<" not in html
 

@@ -8,7 +8,8 @@
    Un ícono por SEMÁNTICA: no reutilizar `view` para acciones distintas de «ver el detalle/evidencia de esta fila».
    Solo para etiquetas genéricas de acción («Ver detalle», «Ver más», «Abrir»…). Un enlace cuyo texto ES el objeto (nombre de vista, tabla, modelo,
    Data Product, documento…) conserva su texto: ver `<a><code>nombre</code></a>`. #}
-{% macro table_action_icon(name) %}{% if name == "view" %}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>{% endif %}{% endmacro %}
+{# `review` = portapapeles con check de CCHH (Búsquedas → «Ir al Onboarding», human_capital_busqueda_detail_body.html): MISMO trazo, centralizado acá para reutilizarlo sin copiarlo. #}
+{% macro table_action_icon(name) %}{% if name == "view" %}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>{% elif name == "review" %}<svg viewBox="0 0 24 24" aria-hidden="true"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/></svg>{% endif %}{% endmacro %}
 {% macro table_action_link(href, tooltip, label, icon="view") %}<a href="{{ href }}" class="table-action-btn chart-tooltip-anchor" aria-label="{{ label }}">{{ table_action_icon(icon) }}<span class="chart-tooltip" aria-hidden="true"><p>{{ tooltip }}</p></span></a>{% endmacro %}
 {# Cierre de un contenedor colapsable (X): MISMO `.panel-close` de Comercial (ahora compartido en tools.css) como último ítem flex del `<summary class="dashboard-section__head">`,
    con la X en SVG (mismo trazo que `.table-action-btn svg`) y el tooltip del primitivo `.chart-tooltip` (debajo del encabezado: el `<details>` recorta lo que sale por arriba).
