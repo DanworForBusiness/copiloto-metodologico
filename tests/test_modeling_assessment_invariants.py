@@ -59,6 +59,7 @@ def _imports(tree: ast.AST):
 SANCTIONED_WEB_INTEGRATION = {
     Path("webapp/services/assessment_service.py"),
     Path("webapp/services/assessment_presenter.py"),
+    Path("webapp/services/review_resolution_ops.py"),   # Iteración II: ops de resolución de revisiones (importa review_evidence; identidad/huella)
 }
 # Simulación de reassessment (#259): ÚNICO consumidor externo de SOLO LECTURA fuera de la capa web, nombrado y con su propia superficie, más
 # chica que la de la integración web. No escribe ni importa persistencia/publicación/servicios web (lo fija `test_reassessment_baseline`).
@@ -106,7 +107,7 @@ def test_ri2_only_the_sanctioned_web_integration_imports_the_package_outside_it(
 # ── R-I2b: la integración web usa SOLO la superficie pública del paquete ─────
 # Superficie soportada para consumidores externos: módulos públicos y, dentro de ellos, nombres sin guion bajo. El vocabulario
 # y el formato humano compartidos con el Markdown se consumen por `presentation` (API pública), jamás por privados de `render_md`.
-SUPPORTED_INTEGRATION_MODULES = {"presentation", "profile", "shadow", "scope", "paths", "render_md", "dependency_signature"}   # dependency_signature: firma de vigencia por dependencias (P1), sin tocar reglas
+SUPPORTED_INTEGRATION_MODULES = {"presentation", "profile", "shadow", "scope", "paths", "render_md", "dependency_signature", "review_evidence"}   # dependency_signature: vigencia por dependencias (P1); review_evidence: identidad/huella de revisiones (Iteración II), sin tocar reglas
 
 
 def _private_package_accesses(tree: ast.AST) -> list[str]:
@@ -360,7 +361,8 @@ def test_package_layout_is_the_approved_one():
     evidence_materialization = {"evidence_contract_v4.py", "materialization_evidence.py"}
     dependency_validity = {"dependency_signature.py"}      # granularidad de la vigencia del assessment (P1): firma de dependencias de un AM; dato de vigencia aparte, no entra al perfil ni a reglas
     layer_boundary = {"layer_evidence.py"}      # LAYER_BOUNDARY_REVIEW (signal-rules/v4): definiciones neutras de capa/contrato compartidas con el Juicio (la logica vive en tools/catalog/layer_semantics)
-    approved = m0 | m1 | m2 | m3 | m4 | m5 | m6 | m7 | view_type | public_api | evidence_g1_g3 | evidence_release | evidence_field_lineage | evidence_materialization | layer_boundary | dependency_validity
+    review_resolution = {"review_evidence.py"}  # Iteración II (review-evidence/v1): identidad + huella material de revisiones para el sidecar; construido en shadow, leído por la capa de ops gobernada
+    approved = m0 | m1 | m2 | m3 | m4 | m5 | m6 | m7 | view_type | public_api | evidence_g1_g3 | evidence_release | evidence_field_lineage | evidence_materialization | layer_boundary | dependency_validity | review_resolution
     assert approved <= present, sorted(approved - present)
     # Hito actual = M7: NO se adelantan milestones posteriores (M8: informe de validacion shadow contra el legacy) ni aparecen archivos no aprobados.
     assert present == approved, sorted(present - approved)
