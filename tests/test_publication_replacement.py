@@ -116,6 +116,32 @@ def test_an_object_shared_only_with_a_legacy_package_is_listed_and_replaceable_w
     assert r["safe"] and len(r["token"]) == 64 and r["shared"][0]["legacy_packages"] == ["PAQUETE_LEGACY"]
 
 
+def test_confirmed_replacement_with_divergent_legacy_copy_completes_with_the_assessment_stage(world):
+    """Regresión (Biogénesis en DigitalOcean): con la etapa de Assessment REAL (`stage=True`, como la web) y una copia legacy de la era anterior del
+    objeto reemplazado, el reemplazo confirmado y la republicación siguiente completan. Antes: el Catálogo pasaba, pero el cargador del pool del
+    Assessment chocaba con la copia legacy (POOL_LOAD_ERROR → ASSESSMENT_FAILED → rollback)."""
+    assert pub(world).status == txn.COMPLETED
+    typed = world.pool / CLIENT / "views" / "3VF_LP.json"
+    legacy_def = json.loads(typed.read_text(encoding="utf-8"))["definitions"]["3VF_LP"]
+    (world.pool / CLIENT / "PAQUETE_LEGACY.json").write_text(json.dumps({"definitions": {"3VF_LP": legacy_def}}), encoding="utf-8")   # copia legacy de PROD
+    assess.invalidate_pool_index()
+    qa_changes_exclusive(world)
+    plan = pub(world, space=QA).replacement
+    assert plan["safe"] and plan["shared"][0]["legacy_packages"] == ["PAQUETE_LEGACY"]
+    req = world.request(AM_A, space=QA, stage=True)
+    req.replace_token = plan["token"]
+    from tools.catalog import DSP_CLI_Export_Lineage as dsp
+    with dsp.capture_output():
+        res = dsp.run_export(req)
+    assert res.status == txn.COMPLETED and res.stages.get("assessment") == "OK", (res.error_code, res.failures)
+    assert json.loads((world.pool / CLIENT / "PAQUETE_LEGACY.json").read_text(encoding="utf-8"))["definitions"]["3VF_LP"] == legacy_def   # el legacy no se toca
+    assess.reset_memory_cache()
+    entry = next(e for e in __import__("tools.catalog.catalog_service", fromlist=["x"]).load_catalog(world.catalog / CLIENT) if AM_A in e.artefactos)
+    assert assess.status_for_entry(entry).state == "CURRENT"
+    again = pub(world, space=QA)
+    assert again.status == txn.COMPLETED and not again.replacement, (again.error_code, again.failures)                # sin nuevo conflicto
+
+
 def test_a_change_after_the_confirmation_invalidates_it_without_changes(world):
     assert pub(world).status == txn.COMPLETED
     qa_changes_exclusive(world)
