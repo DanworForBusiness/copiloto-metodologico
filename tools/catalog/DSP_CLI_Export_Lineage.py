@@ -2216,7 +2216,7 @@ def _apply_locked(req, exporter, *, base, txn, op_id, stages, planned, planned_s
                                  operation_id=op_id, stages=stages)
         displaced = analysis.displaced
         _say(f"REEMPLAZO CONFIRMADO: la publicación de {exporter.root_object} desde {displaced['space']} se reemplaza por la de {space} "
-             f"({len(conflicts)} objeto(s) exclusivo(s) del modelo).")
+             f"({len(conflicts)} objeto(s) en conflicto; {sum(1 for c in analysis.conflicts if not c.exclusive)} compartido(s) con otras fichas del cliente).")
         # la publicación desplazada deja de reclamar objetos: lo que solo ella reclamaba y la nueva ya no incluye se limpia si es exclusivo del modelo
         displaced_ids = {id(c) for cs_ in conflicts.values() for c in cs_ if replacement._same_root(c, exporter.root_type, exporter.root_object)}
         other_owned = {k for k, cl in claims.items() if any(id(c) not in displaced_ids for c in cl)}
@@ -2242,7 +2242,9 @@ def _apply_locked(req, exporter, *, base, txn, op_id, stages, planned, planned_s
         "dataflowProvenance": exporter.dataflow_provenance,
         "cleanup": {"deletedStaleObjects": len(deletable), "retainedSharedObjects": len(retained_shared)},
         **({"pendingCleanup": [{"object_type": t, "technical_name": n} for t, n in pending_next]} if pending_next else {}),
-        **({"replaces": {"space": displaced["space"], "tenantId": displaced["tenant"], "manifest_sha256": displaced["manifest_sha256"]}} if displaced else {}),
+        **({"replaces": {"space": displaced["space"], "tenantId": displaced["tenant"], "manifest_sha256": displaced["manifest_sha256"]}} if displaced
+           # trazabilidad: una republicación desde el MISMO Space conserva el reemplazo de origen que ya registra su manifiesto (no se pierde al regenerar)
+           else ({"replaces": own.data["replaces"]} if own.usable and isinstance(own.data.get("replaces"), dict) and str(own.data.get("space") or "") == space else {})),
     })
     if exporter.root_type == "analytic-model":
         new_manifest = txn.seal_manifest({**{k: v for k, v in new_manifest.items() if k != "integrity"}, "analyticModel": exporter.root_object})

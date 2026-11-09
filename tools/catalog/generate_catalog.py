@@ -547,7 +547,8 @@ def _semantic_definition_signature(definition: dict) -> str:
     return json.dumps(normalized, sort_keys=True, ensure_ascii=False, default=str)
 
 
-def load_folder(folder: Path | None = None, *, json_files=None, txt_files=None, dataflow_lineage: bool = True) -> tuple[dict, dict]:
+def load_folder(folder: Path | None = None, *, json_files=None, txt_files=None, dataflow_lineage: bool = True,
+                governed_names: set[str] | None = None) -> tuple[dict, dict]:
     """Devuelve (entities_by_name, sql_by_name).
 
     Legacy: `load_folder(folder)` recorre PLANO `folder.glob("*.json"/"*.txt")`.
@@ -561,7 +562,12 @@ def load_folder(folder: Path | None = None, *, json_files=None, txt_files=None, 
 
     `dataflow_lineage`: los Data Flows del export CLI (`data-flows/DF_*.json`, sección `dataflows` con `sources`/`targets`) aportan al linaje de la tabla local que
     producen (target <- sources) con la MISMA regla que los `DF_*` legacy. El catálogo lo necesita (continuidad fuente → modelo terminal); el assessment lo desactiva
-    (`False`): su cierre trata la tabla producida por un flujo como HOJA y modela el flujo como procedencia, no como linaje semántico."""
+    (`False`): su cierre trata la tabla producida por un flujo como HOJA y modela el flujo como procedencia, no como linaje semántico.
+
+    `governed_names`: objetos que reclama una PUBLICACIÓN gobernada del cliente (manifiestos de `.lineage_runs/<cliente>`). Para ellos el archivo del export
+    CLI con su mismo nombre (`<carpeta-tipo>/<objeto>.json`) es la definición AUTORITATIVA: una copia embebida en un paquete legacy no la pisa ni colisiona
+    (tras un reemplazo gobernado de Space la copia legacy queda con el contenido del Space anterior). Los paquetes legacy no se modifican; el resto de las
+    entidades conserva la regla de colisión de siempre."""
     entities: dict[str, Entity] = {}
     export_df_membership: dict[str, dict] = {}   # DF del export CLI → {targets, sources} (solo nombres declarados por el propio DF)
     sql_by_name: dict[str, str] = {}
@@ -578,6 +584,8 @@ def load_folder(folder: Path | None = None, *, json_files=None, txt_files=None, 
 
     _txts = list(txt_files) if txt_files is not None else sorted((folder or Path()).glob("*.txt"))
     _jsons = list(json_files) if json_files is not None else sorted((folder or Path()).glob("*.json"))
+    # Definición autoritativa de cada objeto gobernado: el archivo del export CLI que lleva su nombre (ver `governed_names`).
+    _authoritative = {jf.stem: jf for jf in _jsons if governed_names and jf.stem in governed_names}
 
     # SQL preview de vistas gráficas: <nombre>.txt
     for txt in _txts:
@@ -620,6 +628,8 @@ def load_folder(folder: Path | None = None, *, json_files=None, txt_files=None, 
             # considera colisión si además proviene de OTRA carpeta física (el
             # merge intra-carpeta legacy queda idéntico — dos archivos de la misma
             # carpeta que aportan a una entidad no cambian de comportamiento).
+            if name in _authoritative and jf != _authoritative[name]:
+                continue                                   # copia NO autoritativa (paquete legacy) de un objeto gobernado: prevalece la publicación
             _sig = _semantic_definition_signature(defn)
             _prev = _defn_origin.get(name)
             if _prev is None:
@@ -1257,7 +1267,7 @@ def _write_flow(out_dir: Path, cliente: str, dom: str, sub: dict, folder: str) -
 
 
 def process_folder(src: Path, out_root: Path, cliente: str | None = None,
-                   dominio: str | None = None, *, json_files=None, txt_files=None) -> str:
+                   dominio: str | None = None, *, json_files=None, txt_files=None, governed_names: set[str] | None = None) -> str:
     """Procesa una carpeta de artefactos → escribe flujo + vistas, preservando
     el bloque `manual:` de los .md existentes (no pisa la curaduría del senior).
     cliente/dominio se pueden pasar explícitos (los calcula generate_all según la
@@ -1285,7 +1295,7 @@ def process_folder(src: Path, out_root: Path, cliente: str | None = None,
     if dominio is None:
         dominio = src.name
     if json_files is not None:
-        entities, _ = load_folder(json_files=json_files, txt_files=txt_files or [])
+        entities, _ = load_folder(json_files=json_files, txt_files=txt_files or [], governed_names=governed_names)
     else:
         entities, _ = load_folder(src)
     if not entities:
@@ -1788,6 +1798,22 @@ def _sync_apis(inbound_root: Path, out_root: Path, *, folder: str | None = None,
     return count
 
 
+def _governed_names(out_root: Path, client_dir: str) -> set[str]:
+    """Objetos que reclaman las publicaciones gobernadas del cliente (manifiestos de linaje de `.lineage_runs/<cliente>`). Un manifiesto ilegible no aporta
+    nada (sin evidencia, vale la regla de colisión de siempre)."""
+    runs = Path(out_root) / ".lineage_runs" / client_dir
+    names: set[str] = set()
+    for mp in sorted(runs.rglob("lineage-manifest.json")) if runs.exists() else []:
+        try:
+            data = json.loads(mp.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            continue
+        for o in (data.get("objects") or []) if isinstance(data, dict) else []:
+            if isinstance(o, dict) and o.get("technical_name"):
+                names.add(str(o["technical_name"]))
+    return names
+
+
 def generate_all(inbound_root, out_root, *, only_clients: set[str] | None = None) -> str:
     """Procesa las carpetas hoja con .json bajo inbound_root.
 
@@ -1872,7 +1898,7 @@ def generate_all(inbound_root, out_root, *, only_clients: set[str] | None = None
         # `src` es sólo referencia de mensajes; cliente/dominio van explícitos y el
         # pool se arma con la lista de archivos del grupo (todas sus carpetas-tipo).
         src = inbound_root / cliente_dir / dominio_dir
-        lines.append(process_folder(src, out_root, cliente, dominio,
+        lines.append(process_folder(src, out_root, cliente, dominio, governed_names=_governed_names(out_root, client_dir_key),
                                     json_files=sorted(g["jsons"]), txt_files=sorted(g["txts"])))
         generated += 1
         next_entries[key] = {

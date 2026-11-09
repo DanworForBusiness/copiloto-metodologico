@@ -89,7 +89,7 @@ def test_pool_groups_parity_with_generate_all(tmp_path, monkeypatch):
 
     calls = []
 
-    def fake_process_folder(src, out_root, cliente=None, dominio=None, *, json_files=None, txt_files=None):
+    def fake_process_folder(src, out_root, cliente=None, dominio=None, *, json_files=None, txt_files=None, governed_names=None):
         rel = Path(src).relative_to(inbound).parts          # generate_all pasa src = inbound/cliente_dir/dominio_dir
         calls.append(((rel[0], rel[1]), sorted(json_files), sorted(txt_files)))
         return "ok"
