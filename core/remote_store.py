@@ -1025,11 +1025,35 @@ def _decision_key(rel: str) -> str:
     return _key(rel)
 
 
+def _governed_decisions_local() -> bool:
+    """Backend LOCAL de las decisiones gobernadas (dev sin Spaces): el MISMO store con disco local, no una persistencia paralela.
+    OPT-IN explícito (``config.governed_decisions_local_enabled`` ⇒ ``DANWOR_GOVERNED_DECISIONS_LOCAL`` en modo ``local``); por
+    defecto APAGADO ⇒ el fail-closed de producción se conserva. En ``remote``/``read-only`` se usa el bucket Spaces."""
+    return config.governed_decisions_local_enabled()
+
+
+def _governed_decision_local_path(rel: str) -> Path:
+    """Ruta local de un evento de gobierno, conservando el layout ``<client>/<subject_hash>/<file>.json`` bajo el dir local."""
+    rel = str(rel).replace("\\", "/")
+    if not rel.startswith(GOVERNED_DECISIONS_NAMESPACE + "/") or ".." in rel.split("/") or rel.endswith("/") or "//" in rel:
+        raise RemoteReadError(f"clave fuera del namespace {GOVERNED_DECISIONS_NAMESPACE}/: '{rel}'")
+    return config.governed_decisions_dir() / rel[len(GOVERNED_DECISIONS_NAMESPACE) + 1:]
+
+
 def put_governed_decision_object(rel: str, data: bytes) -> None:
     """PUT create-only de UN evento de gobierno (``GovernedDecisionObjectExists`` si la clave ya existe). Requiere ESCRITURA remota y que el namespace no
     colisione con ``PERSIST_PATHS``. **Concurrencia:** check-then-PUT — DigitalOcean Spaces NO documenta ``If-None-Match`` en PutObject, así que **NO es
     create-only atómico y NO impide una sobrescritura concurrente** (si dos escritores ven la clave ausente, el 2º PUT sobrescribe). Solo ACOTA la carrera por
     la UNICIDAD de la clave por evento; el llamador confirma por bytes y el replay detecta contradicciones. No hay update ni delete."""
+    if _governed_decisions_local():
+        path = _governed_decision_local_path(rel)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with open(path, "xb") as fh:                 # create-only ATÓMICO en local (más fuerte que el bucket)
+                fh.write(bytes(data))
+        except FileExistsError as exc:
+            raise GovernedDecisionObjectExists(rel) from exc
+        return
     if not write_enabled():
         raise RemoteReadError("escritura remota no autorizada (DANWOR_PERSISTENCE != remote)")
     collision = governed_decisions_namespace_collision()
@@ -1044,6 +1068,9 @@ def put_governed_decision_object(rel: str, data: bytes) -> None:
 
 def get_governed_decision_object(rel: str) -> bytes | None:
     """Bytes EXACTOS de un evento de gobierno; ``None`` si no existe; ``RemoteReadError`` si no se puede determinar."""
+    if _governed_decisions_local():
+        path = _governed_decision_local_path(rel)
+        return path.read_bytes() if path.is_file() else None
     if not read_enabled():
         raise RemoteReadError("lectura remota no autorizada")
     key = _decision_key(rel)
@@ -1062,6 +1089,12 @@ def get_governed_decision_object(rel: str) -> bytes | None:
 
 def list_governed_decision_keys(prefix_rel: str) -> list[str]:
     """Claves (sin el prefijo de ambiente) bajo ``prefix_rel`` dentro del namespace de decisiones. ``RemoteReadError`` si no se puede listar."""
+    if _governed_decisions_local():
+        root = config.governed_decisions_dir()
+        subdir = _governed_decision_local_path(prefix_rel.rstrip("/") + "/_").parent
+        if not subdir.is_dir():
+            return []
+        return sorted(GOVERNED_DECISIONS_NAMESPACE + "/" + p.relative_to(root).as_posix() for p in subdir.rglob("*.json"))
     if not read_enabled():
         raise RemoteReadError("lectura remota no autorizada")
     base = _decision_key(prefix_rel.rstrip("/") + "/x")[:-1]

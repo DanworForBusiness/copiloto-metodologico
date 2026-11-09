@@ -10,7 +10,7 @@
                         de contenido (`.methodology code`, p. ej. "Contenido en SAC"); NO hay clase ni color de enlace propios del assessment
      · acciones ........ `.support-links` / `.support-link`;  etiquetas: badge `.catalog-card__verdict`
      · avisos .......... `.callout` SOLO para estados excepcionales (sin informe, desactualizado, falla, dimensión sin evidencia) #}
-{% macro lineage_link(url) %}{% if url %}<a href="#" role="button" hx-get="{{ url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent><code>Ver en linaje</code></a>{% endif %}{% endmacro %}
+{% from "partials/table_action_macros.html" import table_action_icon %}{% macro lineage_link(url, target="") %}{% if url %}<a class="table-action-btn chart-tooltip-anchor" href="#" role="button" hx-get="{{ url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent aria-label="Ver en linaje{% if target %}: {{ target }}{% endif %}">{{ table_action_icon("view") }}<span class="chart-tooltip" aria-hidden="true"><p>Ver en linaje</p></span></a>{% endif %}{% endmacro %}
 {# Acción de generación/regeneración: botón del Hub con estado de carga INTEGRADO. El elemento que dispara la request
    recibe `.htmx-request` por sí solo (no hace falta hx-indicator): con `.asr-generate.htmx-request` se muestra el spinner
    y se oculta el label. `hx-disabled-elt="this"` lo deshabilita (anti doble envío) conservando sus dimensiones. #}
@@ -22,15 +22,15 @@
   </button>
 </div>{% endif %}{% endmacro %}
 {% from "partials/assessment_report_macros.html" import heading, callout, kpi_tile, contracts_evaluated, tile_grid, evaluation_table, compatibility_block, artifact_list, text_list, naming_families, occurrence_detail, info_parts %}
-{% from "partials/table_action_macros.html" import table_action_link, panel_close %}
+{% from "partials/table_action_macros.html" import table_action_link, table_action_icon, panel_close %}
 {% macro n_occ(n) %}{{ n }} ocurrencia{{ "s" if n != 1 }}{% endmacro %}
 {% macro table(columns, rows) %}<table><thead><tr>{% for c in columns %}<th>{{ c }}</th>{% endfor %}</tr></thead><tbody>{% for r in rows %}<tr>{% for cell in r %}<td>{% if cell is mapping %}<span title="Código técnico: {{ cell.code }}">{{ cell.text }}</span>{% else %}{{ cell }}{% endif %}</td>{% endfor %}</tr>{% endfor %}</tbody></table>{% endmacro %}
 {# Hallazgo = FILA de disclosure del Hub (la misma gramática que las subáreas de Arquitectura): izquierda el título de negocio; derecha la metadata legible
    (categoría · ocurrencias · artefactos); el cuerpo abre el «por qué aparece» y el detalle como TABLAS. El id interno de la regla (`g.id`) NO se muestra en la
    lectura funcional: queda en el detalle técnico del cuerpo. Presentación únicamente: ningún dato se recalcula. #}
-{% macro group(g, level) %}
+{% macro group(g, level, v=none) %}
 <details class="dashboard-section" id="{{ g.dom_id }}">
-  <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">{{ g.title }}</span><span class="dashboard-section__count">{{ g.area_title }} · {{ n_occ(g.occurrence_count) }} · {{ g.artifacts|length }} artefacto{{ "s" if g.artifacts|length != 1 }}</span>{{ panel_close("Cerrar el detalle del hallazgo «" ~ g.title ~ "»") }}</summary>
+  <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">{{ g.title }}</span>{% if g.resoluble and g.klass_label %} <span class="catalog-card__verdict catalog-card__verdict--neutra" title="Tipo de caso">{{ g.klass_label }}</span>{% endif %}<span class="dashboard-section__count">{{ g.area_title }} · {{ n_occ(g.occurrence_count) }} · {{ g.artifacts|length }} artefacto{{ "s" if g.artifacts|length != 1 }}</span>{{ panel_close("Cerrar el detalle del hallazgo «" ~ g.title ~ "»") }}</summary>
   <div class="dashboard-section__body">
     <p>{{ g.why_shown }}</p>
     {% if g.scope_note %}<p class="catalog-note__ev" data-block="evidence-scope">{{ g.scope_note }}</p>{% endif %}
@@ -49,10 +49,34 @@
     </table>
     <h{{ level }}>Ocurrencias ({{ g.occurrences|length }})</h{{ level }}>
     <table>
-      <thead><tr><th>Artefactos</th><th>Detalle</th><th>Acción</th></tr></thead>
+      <thead><tr><th>Artefactos</th><th>Detalle</th>{% if g.resoluble %}<th>Resolución</th>{% endif %}<th>Acciones</th></tr></thead>
       <tbody>
         {% for o in g.occurrences %}
-        <tr><td>{{ artifact_list(o.artifacts, 6) }}</td><td>{{ o.text }}{{ occurrence_detail(o.detail) }}</td><td>{{ lineage_link(o.lineage_url) }}</td></tr>
+        {% set r = o.resolution %}
+        <tr><td>{{ artifact_list(o.artifacts, 6) }}</td><td>{{ o.text }}{{ occurrence_detail(o.detail) }}</td>
+          {% if g.resoluble %}<td>
+            {% if r %}
+              <span class="catalog-card__verdict catalog-card__verdict--{{ r.state_tone }}" title="{{ r.state_note }}">{{ r.state_label }}</span>
+              {% if r.decision %}<br><span class="catalog-note__ev">{{ r.decision.disposition_label }}{% if r.decision.actor %} · {{ r.decision.actor }}{% endif %}</span>{% endif %}
+              {% if r.dormant %}<br><span class="catalog-note__ev">resolución sin hallazgo vigente</span>{% endif %}
+            {% else %}<span class="catalog-note__ev">—</span>{% endif %}
+          </td>{% endif %}
+          <td><div class="dw-row-actions">
+            {% if g.resoluble and r and v and v.is_owner %}
+            {% set rr_action = "Resolver" if r.state in ("OPEN", "REOPENED") else ("Reconciliar" if r.state == "CONTESTED" else "Consultar decisión") %}
+            {% set rr_payload = {"tid": r.technical_id, "klass": r.klass, "klass_label": r.klass_label, "finding": g.title, "explanation": g.explanation or g.why_shown,
+                                 "artifact": o.artifacts|join(", "), "context": o.text, "state": r.state, "state_label": r.state_label, "state_tone": r.state_tone,
+                                 "state_note": r.state_note, "evidence_label": r.evidence_label, "evidence_tone": r.evidence_tone, "review_label": r.review_label,
+                                 "review_tone": r.review_tone, "review_by": r.review_by, "decision": r.decision, "contested": r.contested_decisions,
+                                 "allowed": r.allowed_dispositions, "active": r.active_event_id or "", "noun": r.noun or "revisión", "hints": r.disposition_hints or {}} %}
+            <button type="button" class="table-action-btn chart-tooltip-anchor" data-rr-open data-rr="{{ rr_payload|tojson|forceescape }}"
+                    data-rr-flow="{{ v.entry_id }}" data-rr-client="{{ v.client }}" data-rr-report-url="{{ v.report_url }}"
+                    aria-haspopup="dialog" aria-label="{{ rr_action }}: {{ g.title }} en {{ o.artifacts|first }}">
+              {{ table_action_icon("review") }}<span class="chart-tooltip" aria-hidden="true"><p>{{ rr_action }}</p></span>
+            </button>
+            {% endif %}
+            {{ lineage_link(o.lineage_url, o.artifacts|first) }}
+          </div></td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -187,7 +211,7 @@
 
 {% if v.has_profile and v.state in ("CURRENT", "STALE", "FAILED") %}
 {% set s = v.summary %}
-{# Lo primero bajo el título: indicadores del assessment (tiles KPI compartidos) dentro del disclosure del CRM, abierto. #}
+{# Lo primero bajo el título: indicadores del assessment (tiles KPI compartidos) dentro del disclosure del CRM. Criterio del informe: TODO contenedor arranca cerrado y se abre a demanda, SALVO este de indicadores, que abre al inicio (y la navegación explícita a un ancla, que revela su contenedor). #}
 <details class="dashboard-section" open>
   <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Indicadores del assessment</span></summary>
   <div class="dashboard-section__body">
@@ -297,7 +321,7 @@
   {% set ns.n = ns.n + 1 %}{{ heading(ns.n, "Gobierno & estándares", "Estándares y convenciones que el activo debe respetar: observaciones de gobierno (convención de nombres y señales asociadas) y clasificación de negocio (línea de negocio y dominio). Son lecturas factuales para revisión técnica; no se consolidan en una nota global ni se mezclan con la adopción metodológica.") }}
   {% if gov %}
   {{ tile_grid(gov.tiles) }}
-  <details class="dashboard-section" id="asr-gobierno-hallazgos"{% if gov.rows %} open{% endif %}>
+  <details class="dashboard-section" id="asr-gobierno-hallazgos">
     <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Observaciones de gobierno</span><span class="dashboard-section__count">{{ gov.summary }}</span></summary>
     <div class="dashboard-section__body">{% if gov.rows %}{{ evaluation_table(gov.rows, ["Tipo", "Observación", "Evidencia"], true) }}{% else %}{{ not_detected("El Assessment no detectó observaciones de gobierno.") }}{% endif %}</div>
   </details>
@@ -305,7 +329,7 @@
   {% if gma %}{{ area_rows(gma) }}{% endif %}
   {# Clasificación de dominio: SUGERENCIA derivada de la evidencia (hermana del Juicio; no afecta la adopción ni mueve nada). Abierta solo si hay sugerencia. #}
   {% if dcl %}
-  <details class="dashboard-section" id="asr-dominio"{% if dcl.suggested %} open{% endif %}>
+  <details class="dashboard-section" id="asr-dominio">
     <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Clasificación de negocio</span><span class="dashboard-section__count">{{ dcl.summary }}</span></summary>
     <div class="dashboard-section__body">
       <p>{{ dcl.headline }}</p>
@@ -341,11 +365,11 @@
 <section class="content-section" id="asr-revision">
   {% set ns.n = ns.n + 1 %}{{ heading(ns.n, "Casos a revisar y preguntas abiertas", "Casos que requieren criterio técnico o contexto del proyecto para poder interpretarse o cerrarse.") }}
   <h3>Casos a revisar · {{ s.review_occurrences }}</h3>
-  {% for g in v.review_required %}{{ group(g, 4) }}{% else %}
+  {% for g in v.review_required %}{{ group(g, 4, v) }}{% else %}
   {{ not_detected("Las reglas que pudieron evaluarse no levantaron casos a revisar. Ver «Cierre» para la evidencia que no pudo evaluarse.") }}
   {% endfor %}
   {% if s.context_rows %}
-  <details class="dashboard-section" id="asr-preguntas" open>
+  <details class="dashboard-section" id="asr-preguntas">
     <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Preguntas que solo el proyecto puede responder</span><span class="dashboard-section__count">{{ s.context_summary }}</span></summary>
     <div class="dashboard-section__body">
       <table data-block="open-questions">
@@ -360,7 +384,7 @@
   {% endif %}
   <div id="asr-observaciones">
   <h3>Observaciones · {{ s.observation_occurrences }}</h3>
-  {% for g in v.observations %}{{ group(g, 4) }}{% else %}
+  {% for g in v.observations %}{{ group(g, 4, v) }}{% else %}
   {{ not_detected("No se detectaron patrones de nivel observación en la evidencia que pudo evaluarse. Ver «Cierre» para la evidencia que no pudo evaluarse.") }}
   {% endfor %}
   {% if v.descriptive %}
@@ -434,26 +458,89 @@
     </div>
   </details>
   </div>
+  {% if governed_contracts %}
+  {# Contratos de origen gobernados: colapsable del Hub (`dashboard-section`, cerrado) + tabla compacta `matrix-scroll`, como el resto del informe. #}
+  <details class="dashboard-section" data-governed-contracts>
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Contratos de origen gobernados</span><span class="dashboard-section__count">{{ governed_contracts|length }}</span></summary>
+    <div class="dashboard-section__body">
+      <p class="catalog-note__ev">CDS/API externas de origen de este modelo. La ratificación pertenece a la CDS/API: no aprueba este Assessment ni su Judgment.</p>
+      <div class="matrix-scroll"><table>
+        <thead><tr><th>Contrato de origen (entidad)</th><th>Conexión</th></tr></thead>
+        <tbody>
+          {% for g in governed_contracts %}
+          <tr>
+            <td><a href="{{ g.url }}" title="Ver el contrato de origen"><code>{{ g.remote_entity }}</code></a></td>
+            <td><span class="catalog-note__ev"><code>{{ g.remote_connection or '—' }}</code></span></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table></div>
+    </div>
+  </details>
+  {% endif %}
 </section>
-{% if governed_contracts %}
-{# Contratos de origen gobernados: colapsable del Hub (`dashboard-section`, cerrado) + tabla compacta `matrix-scroll`, como el resto del informe. #}
-<details class="dashboard-section" data-governed-contracts>
-  <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Contratos de origen gobernados</span><span class="dashboard-section__count">{{ governed_contracts|length }}</span></summary>
-  <div class="dashboard-section__body">
-    <p class="catalog-note__ev">CDS/API externas de origen de este modelo. La ratificación pertenece a la CDS/API: no aprueba este Assessment ni su Judgment.</p>
-    <div class="matrix-scroll"><table>
-      <thead><tr><th>Contrato de origen (entidad)</th><th>Conexión</th></tr></thead>
-      <tbody>
-        {% for g in governed_contracts %}
-        <tr>
-          <td><a href="{{ g.url }}" title="Ver el contrato de origen"><code>{{ g.remote_entity }}</code></a></td>
-          <td><span class="catalog-note__ev"><code>{{ g.remote_connection or '—' }}</code></span></td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table></div>
-  </div>
-</details>
-{% endif %}
 </article>
+{# Cierre del assessment: MISMO partial de cierre del Catálogo (`catalog_feedback.html`, botonera 👍/👎 del copiloto de fin de módulo) con su eyebrow propio. FUERA del `<article class="methodology">` (como en los demás detalles del Catálogo) para no heredar la tipografía del informe. #}
+{% with catalog_kind="assessment", catalog_ref=v.entry_id, fb_eyebrow="Fin del assessment", fb_prompt="¿Qué te pareció este contenido?" %}{% include "partials/catalog_feedback.html" %}{% endwith %}
+{% endif %}
+{% if v.is_owner and v.resolutions_enabled %}
+{# Diálogo ÚNICO y CONTEXTUAL de resolución de revisiones (review_resolutions.js lo adapta al estado de la ocurrencia; el contenido dinámico entra con textContent).
+   Primitivos del Hub, sin estilos nuevos: `dw-confirm busqueda-dialog` + `.busqueda-contact` (Reemplazar publicación / Cancelar búsqueda), tabla clave-valor `.dashboard-table`
+   en `.matrix-scroll` (Reemplazar publicación), badges `.catalog-card__verdict--{tono}`, selector `.dw-confirm__select` (Reclasificar del Catálogo), justificación
+   `.hc-profile-filters` + `.feedback-field` (Ratificar/Revocar de Contratos), acciones `.asr-generate` con spinner y `.feedback-error`.
+     resolve   → 1) hallazgo · artefacto · contexto técnico  2) disposición + justificación  → Registrar decisión
+     consult   → 1) decisión registrada · actor · fecha · fundamento · vigencia · evidencia  2) hallazgo  → Revocar (dos pasos: pide el motivo antes de confirmar)
+     reconcile → 1) decisiones en conflicto  2) hallazgo  3) disposición + justificación → Reconciliar #}
+<dialog class="dw-confirm busqueda-dialog" id="rr-dialog" aria-labelledby="rr-dialog-title" data-rr-dialog>
+  <form method="dialog" data-rr-form>
+    <div class="dw-confirm__body busqueda-contact">
+      {# Cabecera: título a la izquierda y badges de estado en el margen superior derecho. Layout en línea (no en tools.css: esa zona está tomada por el stash protegido). #}
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
+        <h2 class="dw-confirm__title" id="rr-dialog-title" data-rr-dlg-title>Resolver revisión</h2>
+        <span data-rr-dlg-state-row style="display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;flex:none;max-width:50%"><span class="catalog-card__verdict" data-rr-dlg-state></span><span class="catalog-card__verdict" data-rr-dlg-evidence style="display:none"></span><span class="catalog-card__verdict" data-rr-dlg-review style="display:none"></span></span>
+      </div>
+      <p class="field-hint busqueda-contact__context" data-rr-dlg-kicker></p>
+      <p class="dw-confirm__msg" data-rr-dlg-state-note></p>
+    </div>
+    <div class="busqueda-picker">
+      <div data-rr-dlg-decision hidden>
+        <p class="field-hint busqueda-contact__context">Decisión registrada</p>
+        <div class="matrix-scroll"><table class="dashboard-table"><tbody data-rr-dlg-decision-rows></tbody></table></div>
+      </div>
+      <div data-rr-dlg-contested hidden>
+        <p class="field-hint busqueda-contact__context">Decisiones vigentes en conflicto</p>
+        <div class="matrix-scroll"><table class="dashboard-table">
+          <thead><tr><th class="left">Disposición</th><th class="left">Registrada por</th><th class="left">Fecha</th><th class="left">Fundamento</th></tr></thead>
+          <tbody data-rr-dlg-contested-rows></tbody>
+        </table></div>
+      </div>
+      <p class="field-hint busqueda-contact__context">Contexto del hallazgo</p>
+      <div class="matrix-scroll"><table class="dashboard-table"><tbody data-rr-dlg-finding-rows></tbody></table></div>
+      <div class="dw-confirm__select" data-rr-dlg-disposition-field hidden>
+        <label for="rr-dlg-disposition">Disposición</label>
+        <select id="rr-dlg-disposition" data-rr-dlg-disposition></select>
+        <p class="dw-confirm__hint" data-rr-dlg-disposition-hint></p>
+      </div>
+      <div class="hc-profile-filters" data-rr-dlg-rationale-field hidden style="margin-top:16px">{# mismo aire (16px) que separa `.dw-confirm__select` del bloque anterior #}
+        <div class="feedback-field feedback-field--wide">
+          <label for="rr-dlg-rationale" data-rr-dlg-rationale-label>Justificación</label>
+          <input type="text" id="rr-dlg-rationale" data-rr-dlg-rationale maxlength="500" autocomplete="off" placeholder="Motivo de la decisión (obligatorio)">
+        </div>
+      </div>
+      <p class="catalog-note__ev" data-rr-dlg-append-note hidden>La decisión y su justificación no modifican el perfil, el scoring ni el Juicio.</p>
+      <p class="feedback-error" role="alert" data-rr-dlg-error hidden></p>
+    </div>
+    <div class="dw-confirm__actions">
+      <button type="submit" class="btn-secondary" value="cancel" formnovalidate data-rr-dlg-cancel>Cancelar</button>
+      <button type="button" class="btn-danger asr-generate" data-rr-dlg-revoke aria-live="polite">
+        <span class="asr-generate__busy htmx-indicator" role="status"><span class="asr-generate__spinner" aria-hidden="true"></span>Revocando…</span>
+        <span class="asr-generate__label" data-rr-dlg-revoke-label>Revocar decisión</span>
+      </button>
+      <button type="button" class="btn-primary asr-generate" data-rr-dlg-submit aria-live="polite">
+        <span class="asr-generate__busy htmx-indicator" role="status"><span class="asr-generate__spinner" aria-hidden="true"></span>Registrando…</span>
+        <span class="asr-generate__label" data-rr-dlg-submit-label>Registrar decisión</span>
+      </button>
+    </div>
+  </form>
+</dialog>
 {% endif %}

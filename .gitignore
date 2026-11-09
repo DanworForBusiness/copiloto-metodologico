@@ -52,6 +52,8 @@ commercial_strategy_runtime/
 assessment_cache/
 # Assessment gobernado del Catálogo: DATO durable (vive en Spaces vía PERSIST_PATHS); acá solo staging local.
 governed-assessments/
+# Decisiones gobernadas en dev local (opt-in DANWOR_GOVERNED_DECISIONS_LOCAL, ver config.governed_decisions_dir): nunca se versionan.
+governed-decisions-local/
 # Clasificación de prioridad del Perfil de licenciamiento: DATO DE NEGOCIO
 # real, no cache — vive en Spaces (PERSIST_PATHS) y se materializa acá sólo
 # como staging local. Un `git add -A` tras usar la feature lo commitearía.

@@ -77,6 +77,27 @@ def governed_assessments_dir() -> Path:
     return Path(override) if override else Path(BASE_DIR) / GOVERNED_ASSESSMENTS_NAME
 
 
+# Registro de DECISIONES gobernadas (governed-decision/v1: ratificaciones CDS y resoluciones de revisión REVIEW_RESOLUTION).
+# En producción (DANWOR_PERSISTENCE=remote) viven SOLO en el namespace Spaces `governed-decisions/` (fuera de PERSIST_PATHS).
+# En dev local (DANWOR_PERSISTENCE=local, sin Spaces) `core.remote_store` usa ESTE directorio como backend local del MISMO store
+# (no es persistencia paralela: es el equivalente local, como `governed_assessments_dir`). Override: DANWOR_GOVERNED_DECISIONS_DIR.
+GOVERNED_DECISIONS_NAME = "governed-decisions-local"
+
+
+def governed_decisions_dir() -> Path:
+    override = _env("DANWOR_GOVERNED_DECISIONS_DIR", "").strip()
+    return Path(override) if override else Path(BASE_DIR) / GOVERNED_DECISIONS_NAME
+
+
+def governed_decisions_local_enabled() -> bool:
+    """Backend LOCAL de decisiones gobernadas: OPT-IN explícito (``DANWOR_GOVERNED_DECISIONS_LOCAL``), SOLO en modo ``local``.
+    Por defecto está APAGADO: en modo ``local`` sin opt-in, escribir una decisión gobernada sigue fallando-cerrado (nunca se
+    persiste en silencio). Lo activan el harness de validación y la config de arranque de revisión; producción usa ``remote``."""
+    if PERSISTENCE_MODE != "local":
+        return False
+    return _env("DANWOR_GOVERNED_DECISIONS_LOCAL", "").strip().lower() in ("1", "true", "yes", "on")
+
+
 # ── Persistencia en DO Spaces ────────────────────────────────────────────────
 # App Platform corre sobre un FS efímero: en cada deploy/reciclado se borra todo
 # lo que el copiloto genera (catálogo, casos, feedback, adopción, analítica). Este

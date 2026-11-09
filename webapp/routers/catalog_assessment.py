@@ -35,6 +35,7 @@ from core.content_registry import DEFAULT_PACK, resolve_pack
 from webapp import access, nav, same_origin_guard
 from webapp.services import assessment_presenter as presenter
 from webapp.services import governed_decisions_presenter as gd_presenter
+from webapp.services import review_resolution_presenter
 from webapp.services import assessment_service as svc
 from webapp.services import auth_service, catalog_reads
 from webapp.services import client_assessment_portfolio as portfolio
@@ -91,9 +92,13 @@ def _published_space(entry, status: svc.AssessmentStatus) -> str | None:
 
 
 def _report_response(request: Request, status: svc.AssessmentStatus, entry, pack: str) -> HTMLResponse:
+    user = auth_service.session_user(request)
+    is_owner = bool(user and access.is_owner_user(user))
+    view = presenter.report_view(status, entry, pack, space=_published_space(entry, status))
+    review_resolution_presenter.enrich(view, status, is_owner=is_owner)     # Iteración III: proyecta resoluciones sobre las revisiones (no toca perfil/Juicio)
     return templates.TemplateResponse(
         request=request, name="partials/catalog_assessment_report.html",
-        context={"v": presenter.report_view(status, entry, pack, space=_published_space(entry, status)), "pack": pack,
+        context={"v": view, "pack": pack,
                  "regenerate_url": regenerate_url(request, entry, pack),
                  "governed_contracts": gd_presenter.governed_contract_links(status.profile, status.client, pack)})
 
