@@ -564,7 +564,7 @@ def load_folder(folder: Path | None = None, *, json_files=None, txt_files=None, 
     producen (target <- sources) con la MISMA regla que los `DF_*` legacy. El catálogo lo necesita (continuidad fuente → modelo terminal); el assessment lo desactiva
     (`False`): su cierre trata la tabla producida por un flujo como HOJA y modela el flujo como procedencia, no como linaje semántico.
 
-    `governed_names`: objetos que reclama una PUBLICACIÓN gobernada del cliente (manifiestos de `.lineage_runs/<cliente>`). Para ellos el archivo del export
+    `governed_names`: objetos de una publicación del cliente que REEMPLAZÓ con confirmación a otra de otro Space (manifiesto con `replaces`). Para ellos el archivo del export
     CLI con su mismo nombre (`<carpeta-tipo>/<objeto>.json`) es la definición AUTORITATIVA: una copia embebida en un paquete legacy no la pisa ni colisiona
     (tras un reemplazo gobernado de Space la copia legacy queda con el contenido del Space anterior). Los paquetes legacy no se modifican; el resto de las
     entidades conserva la regla de colisión de siempre."""
@@ -1799,8 +1799,9 @@ def _sync_apis(inbound_root: Path, out_root: Path, *, folder: str | None = None,
 
 
 def _governed_names(out_root: Path, client_dir: str) -> set[str]:
-    """Objetos que reclaman las publicaciones gobernadas del cliente (manifiestos de linaje de `.lineage_runs/<cliente>`). Un manifiesto ilegible no aporta
-    nada (sin evidencia, vale la regla de colisión de siempre)."""
+    """Objetos de las publicaciones del cliente que REEMPLAZARON, con confirmación del usuario, una publicación anterior desde otro Space (manifiestos de
+    `.lineage_runs/<cliente>` con `replaces`). Solo ahí el export prevalece sobre una copia legacy divergente: una publicación nueva SIN reemplazo
+    confirmado conserva la regla de colisión de siempre (rollback). Un manifiesto ilegible no aporta nada."""
     runs = Path(out_root) / ".lineage_runs" / client_dir
     names: set[str] = set()
     for mp in sorted(runs.rglob("lineage-manifest.json")) if runs.exists() else []:
@@ -1808,7 +1809,9 @@ def _governed_names(out_root: Path, client_dir: str) -> set[str]:
             data = json.loads(mp.read_text(encoding="utf-8"))
         except Exception:  # noqa: BLE001
             continue
-        for o in (data.get("objects") or []) if isinstance(data, dict) else []:
+        if not (isinstance(data, dict) and isinstance(data.get("replaces"), dict)):
+            continue                                   # sin reemplazo confirmado: no cambia la regla de colisión
+        for o in data.get("objects") or []:
             if isinstance(o, dict) and o.get("technical_name"):
                 names.add(str(o["technical_name"]))
     return names
