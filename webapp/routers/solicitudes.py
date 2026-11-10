@@ -167,7 +167,8 @@ async def solicitudes_create(request: Request, graph_token: str = Form("")):
         if key in submitted:
             submitted[key] = service.normalize_narrative(submitted[key])
     try:
-        item_id = await run_in_threadpool(creation.create, user["sub"], str(form.get("submission_id", "")), graph_token, submitted)
+        origin = request.headers.get("origin") or f"{request.url.scheme}://{request.url.netloc}"   # ya validado por same_origin_guard (solo para el enlace del aviso)
+        item_id = await run_in_threadpool(lambda: creation.create(user["sub"], str(form.get("submission_id", "")), graph_token, submitted, origin=origin))
     except creation.UncertainCreation:
         return _creation_feedback(request, "uncertain", "No pudimos confirmar el resultado. Revisá el listado antes de iniciar otra alta. Este envío no se repetirá para evitar duplicados.")
     except creation.SubmissionError as exc:
