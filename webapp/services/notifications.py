@@ -57,22 +57,16 @@ RESUMABLE = frozenset({"pending", "retry"})
 _EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+'-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
 _lock = threading.Lock()                # serializa las transiciones de estado de los registros (un proceso)
 
-# Identidad INSTITUCIONAL (común a todas las verticales): logo corporativo del Hub (versión para fondo oscuro, servida públicamente en `/static`,
-# la misma del landing), negro y acento institucionales (tokens del Hub: `--content-accent` en content.css / `--gold` en brand-hero.css) y la
-# identificación secundaria. La identidad de cada VERTICAL (título/acento) no vive acá: sale de `webapp.workspaces.brand_identity`.
+# Identidad INSTITUCIONAL (común a todas las verticales): la marca «Danwor Hub» del lockup canónico del Hub (`hub_brand_lockup()` /
+# `hub_icon()` en partials/platform_topbar.html: ícono de 4 cuadrados + «Danwor Hub»; en el correo el ícono se dibuja con una tabla 2×2, porque
+# los clientes de correo no muestran SVG en línea), negro, tinta y acento institucionales (tokens del Hub: `--content-accent` en content.css /
+# `--gold` e `--ink` en brand-hero.css). La identidad de cada VERTICAL (título/acento) no vive acá: sale de `webapp.workspaces.brand_identity`.
 INSTITUTIONAL = {
-    "logo_path": "/static/brand/danwor-logo.png",
-    "logo_alt": "Danwor",
+    "hub_name": "Danwor Hub",
     "accent": "#e7b008",
     "ink": "#e4e4ec",                    # texto principal sobre negro (`--ink` de brand-hero.css: la 1ª línea del título de las tarjetas del Hub)
     "dark": "#0c0c0d",
-    # Tarjeta de vertical del selector del Hub (brand-hero.css `.workspace-tile` / `.access-*`), en valores SÓLIDOS equivalentes (Outlook no soporta
-    # rgba ni backdrop-filter): superficie rgba(20,20,22,.62) sobre #0c0c0d, borde 1px rgba(231,176,8,.16), descripción `--ink-soft`, capacidades
-    # rgba(228,228,236,.92).
-    "surface": "#141416",
-    "line": "#2c2510",
-    "muted": "#8b8b96",
-    "feature_ink": "#d3d3da",
+    "muted": "#8b8b96",                  # `--ink-soft` de brand-hero.css (separador «·»)
     # Pila tipográfica del Hub (`--sans` de brand-hero.css) + fallbacks de sistema para correo: Outlook de escritorio no carga fuentes web, así
     # que cae en Segoe UI (Windows) / SF (Apple) / Helvetica-Arial; nada se incrusta.
     "font": "Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif",
@@ -376,7 +370,7 @@ def build_message(event: str, data: dict, recipients: list[str], *, hub_base: st
     from webapp import workspaces                             # imports diferidos: el servicio no depende de la app web para importarse
     from webapp.templating import templates
     spec = EVENTS[event]
-    brand = {**INSTITUTIONAL, "logo_url": f"{hub_base}{INSTITUTIONAL['logo_path']}" if hub_base else ""}
+    brand = dict(INSTITUTIONAL)
     html = templates.env.get_template(spec.template).render(title=spec.title, d=data, brand=brand,
                                                              vertical=workspaces.brand_identity(spec.workspace))
     return {"message": {"subject": spec.subject(data)[:255],
@@ -386,7 +380,7 @@ def build_message(event: str, data: dict, recipients: list[str], *, hub_base: st
 
 def hub_base(origin: str | None = None) -> str:
     """Base absoluta del Hub para los correos: `NOTIFICATIONS_HUB_BASE_URL` si está configurada; si no, el origen ya validado del request que
-    originó el evento. Vacía si ninguna es una URL http(s) (el correo omite entonces el logo y deja el enlace relativo)."""
+    originó el evento. Vacía si ninguna es una URL http(s) (el enlace del correo queda entonces relativo)."""
     base = str(getattr(config, "NOTIFICATIONS_HUB_BASE_URL", "") or "").rstrip("/") or (origin or "").rstrip("/")
     return base if base.startswith(("https://", "http://")) else ""
 

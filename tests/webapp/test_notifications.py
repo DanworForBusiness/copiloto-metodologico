@@ -266,20 +266,23 @@ def _render(event="operations.architecture_request.created", data=None, base="ht
     return notifications.build_message(event, data or {"id": "7", "title": "T", "url": "/x"}, ["a@danwor.com"], hub_base=base)["message"]["body"]["content"]
 
 
-def test_header_uses_the_shared_logo_and_the_vertical_identity_from_the_hub_registry():
+def test_header_is_the_hub_lockup_plus_the_vertical_identity_from_the_hub_registry():
     from webapp import workspaces
     html = _render()
     ident = workspaces.brand_identity("operations")
-    assert 'src="https://hub.danwor.com/static/brand/danwor-logo.png"' in html and 'alt="Danwor"' in html   # HTTPS público del propio Hub
-    assert ident["title"] in html and ident["accent"] in html and ident["title"] == workspaces.WORKSPACE_CARD_COPY["operations"]["title"]
+    assert ident["title"] == workspaces.WORKSPACE_CARD_COPY["operations"]["title"]
+    assert f'>{notifications.INSTITUTIONAL["hub_name"]}<' in html                                       # marca institucional «Danwor Hub»
+    assert f'{ident["title"]}</span><span' in html and f'>{ident["accent"]}</span>' in html and "&middot;" in html   # «título · acento» en una línea
+    assert html.index(ident["accent"]) < html.index("Nueva solicitud de arquitectura</h1>")             # la cabecera termina antes del contenido
+
+
+def test_header_does_not_recreate_the_landing_tile_nor_depend_on_images():
+    from webapp import workspaces
     card = workspaces.WORKSPACE_CARD_COPY["operations"]
-    assert card["description"] in html and all(feature in html for feature in card["features"])          # hero = la tarjeta de la vertical
-    assert html.index(card["features"][-1]) < html.index("Nueva solicitud de arquitectura</h1>")          # el hero termina antes del contenido del evento
-
-
-def test_without_an_absolute_base_the_logo_is_omitted_and_the_header_stays_readable():
-    html = _render(base="")
-    assert "<img" not in html and ">Danwor<" in html                                                   # nunca una ruta relativa ni localhost implícito
+    for base in ("https://hub.danwor.com", ""):
+        html = _render(base=base)
+        assert "<img" not in html                                                                        # el ícono del Hub es una tabla: se ve con imágenes bloqueadas
+        assert card["description"] not in html and not any(feature in html for feature in card["features"])
 
 
 def test_shared_layout_knows_no_vertical_by_name():
