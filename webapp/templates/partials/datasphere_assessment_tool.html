@@ -34,6 +34,8 @@
     <div class="section-analysis-loading" role="status">
       <span class="section-analysis-spinner" data-dsa-spinner hidden></span><span class="section-analysis-loading-copy" data-dsa-status data-running-text="Ejecutando extracción..." data-resuming-text="La conexión se interrumpió; seguimos la extracción en curso en el servidor..."></span>
     </div>
+    {# Éxito: sin navegación automática; el informe se abre SOLO con clic explícito (también queda en «Assessments recientes»). #}
+    <p class="admin-help" role="status" data-dsa-done hidden>Assessment completado. <a class="whatsnew-banner__cta" data-dsa-done-link href="#">Abrir Assessment</a></p>
     <div class="feedback-error" role="alert" data-dsa-failed hidden>
       <strong data-dsa-title></strong>
       <span data-dsa-message></span>

@@ -46,7 +46,8 @@
   }
 
   function banner(op, onClose) {
-    const box = node("div", "whatsnew-banner copilot-op");
+    const tone = op.state === "RUNNING" ? "" : op.state === "SUCCESS" ? " copilot-op--success" : " copilot-op--failed";
+    const box = node("div", "whatsnew-banner copilot-op" + tone);
     box.setAttribute("role", "status");
     box.dataset.runId = op.run_id;
     box.dataset.state = op.state;
@@ -57,10 +58,10 @@
       msg.appendChild(node("span", "whatsnew-banner__mark", op.state === "SUCCESS" ? "✓" : "!")).setAttribute("aria-hidden", "true");
     }
     const text = node("span");
-    const head = op.state === "RUNNING" ? op.kind_label + " en curso" : op.state === "SUCCESS" ? op.kind_label + " completada" : op.kind_label + ": " + (op.title || op.state_label);
+    const head = op.state === "RUNNING" ? op.kind_label + " en curso" : op.state === "SUCCESS" ? op.done_label : op.kind_label + ": " + (op.title || op.state_label);
     text.appendChild(document.createTextNode(head + (subject(op) ? " · " + subject(op) : "") + (op.state === "RUNNING" ? ". Podés seguir navegando. " : ". ")));
     if (op.state === "SUCCESS" && op.result_url) {
-      text.appendChild(link(op.result_url, op.kind === "publication" ? "Abrir el Catálogo" : "Abrir assessment"));
+      text.appendChild(link(op.result_url, op.result_label));
       text.appendChild(document.createTextNode(" · "));
     }
     text.appendChild(link(op.log_url, op.state === "RUNNING" || op.state === "SUCCESS" ? "Ver ejecución" : "Ver detalle"));
@@ -160,7 +161,7 @@
         ok.hidden = false;
         if (done.result_url && !ok.querySelector("a")) {
           ok.appendChild(document.createTextNode(" "));
-          const a = link(done.result_url, page.dataset.opKind === "publication" ? "Abrir el Catálogo" : "Abrir assessment");
+          const a = link(done.result_url, page.dataset.opResultLabel || "Abrir resultado");
           a.className = "";
           ok.appendChild(a);
         }

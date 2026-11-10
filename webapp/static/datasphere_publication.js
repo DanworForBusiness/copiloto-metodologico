@@ -121,6 +121,7 @@
     // Estado inicial limpio de la corrida
     form.querySelectorAll("[data-dsp-error]").forEach((p) => { p.textContent = ""; p.hidden = true; });
     setHidden(el(panel, "[data-dsp-failed]"), true);
+    setHidden(el(panel, "[data-dsp-done]"), true);
     log.textContent = "";
     detail.open = true;
 
@@ -182,9 +183,11 @@
       done = { state: "FAILED", error_code: "CONNECTION_INTERRUPTED", title: "No se pudo publicar el modelo", message: "Se interrumpió la conexión con el servidor. Revisá el detalle técnico e intentá nuevamente.", errors: {} };
     }
 
-    if (done && done.state === "SUCCESS" && done.result_url) {
-      window.location.assign(done.result_url);                // la pestaña Catálogo se abre sola; el botón queda deshabilitado hasta salir
-      return;
+    // Éxito: NUNCA se navega solo (el usuario puede estar en otra sección); el panel ofrece «Abrir Catálogo» y el aviso global también.
+    const doneBox = el(panel, "[data-dsp-done]");
+    if (done && done.state === "SUCCESS" && done.result_url && doneBox) {
+      el(doneBox, "[data-dsp-done-link]").href = done.result_url;
+      setHidden(doneBox, false);
     }
 
     submit.disabled = false;
@@ -192,7 +195,7 @@
     setReplacePending(form, false);                            // el resultado (éxito o error) lo informa el panel; el aviso de la corrida se retira
     status.textContent = "";
     setHidden(spinner, true);                                  // la falla detiene el estado de procesamiento
-    if (!done) return;
+    if (!done || done.state === "SUCCESS") return;
 
     if (done.state === "INVALID") {
       Object.entries(done.errors || {}).forEach(([field, message]) => {

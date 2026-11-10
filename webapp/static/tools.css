@@ -2391,6 +2391,15 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 .copilot-ops > .whatsnew-banner { margin-bottom: 10px; }
 .copilot-ops:not([hidden]) { margin-bottom: 16px; }
 .copilot-op .section-analysis-spinner { flex: none; }
+/* Estado final del aviso: tonos ya usados por el Hub (verde de `.catalog-pill--ok`, rojo de `.feedback-error`). */
+.copilot-op--success { border-color: rgba(46,158,91,.35); background: rgba(46,158,91,.08); }
+.copilot-op--success .whatsnew-banner__mark, .copilot-op--success .whatsnew-banner__cta { color: #16784a; }
+.content-theme-dark .copilot-op--success .whatsnew-banner__mark, .content-theme-dark .copilot-op--success .whatsnew-banner__cta { color: #70d394; }
+.copilot-op--failed { border-color: rgba(201,93,93,.4); background: #c95d5d17; }
+.copilot-op--failed .whatsnew-banner__mark, .copilot-op--failed .whatsnew-banner__cta { color: #b34b4b; }
+.content-theme-dark .copilot-op--failed .whatsnew-banner__mark, .content-theme-dark .copilot-op--failed .whatsnew-banner__cta { color: #e08a8a; }
+/* «Detalle de ejecución» (panel CENTRAL): rigen los tokens semánticos del contenido por tema, no los del panel lateral (mismo patrón que .sap-types-view). */
+.execution-log-view { --card: var(--content-tile); --ink: var(--content-ink); --soft: var(--content-ink-soft); --dim: var(--content-ink-dim); --line: var(--content-line); }
 /* Landing inmersivo (módulo 00): cuando hay banner adentro, el stage pasa a columna
    flex y el iframe llena el resto. Vía :has() → no cambia la clase base (academy-stage
    queda intacta para el resto/los tests); solo aplica si contiene el banner. */

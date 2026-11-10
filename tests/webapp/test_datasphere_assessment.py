@@ -617,7 +617,8 @@ def test_progress_panel_is_local_has_no_global_loader_and_no_actualizar_catalogo
     assert "data-dsa" not in app_js and "#dsa-" not in app_js and "datasphere_assessment" not in app_js
     assert 'data-running-text="Ejecutando extracción..."' in tpl and "data-dsa-progress" in tpl and "data-dsa-log" in tpl
     assert not re.search(r"Actualizar cat|refresh-catalog|data-dsa-refresh|Extracción completada|solo la <strong>adquisición", tpl + js)   # ya no se expone
-    assert "window.location.assign(done.result_url)" in js and "event.v" in js and "textContent" in js     # navega solo al informe; fases/logs como texto
+    assert "window.location.assign" not in js and "[data-dsa-done-link]" in js and "data-dsa-done" in tpl   # nunca navega solo: el informe se abre con clic explícito
+    assert "event.v" in js and "textContent" in js                                                           # fases/logs como texto
     assert not re.search(r"innerHTML|outerHTML|insertAdjacentHTML|document\.write|\beval\(", js)
     assert not re.search(r"\d+\s*%|<progress|role=\"progressbar\"", tpl + js)
     html = owner.get(f"/modules/{STEM}?pack=datasphere_core").text

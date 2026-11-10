@@ -28,6 +28,8 @@ from webapp.templating import templates
 router = APIRouter()
 _NO_STORE = {"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"}
 KIND_LABELS = {"assessment": "Assessment", "publication": "Publicación"}
+DONE_LABELS = {"assessment": "Assessment completado", "publication": "Publicación completada"}
+RESULT_LABELS = {"assessment": "Abrir Assessment", "publication": "Abrir Catálogo"}
 STATE_LABELS = {"RUNNING": "En curso", "SUCCESS": "Completada", "FAILED": "Falló", "INVALID": "Datos inválidos", "UNKNOWN": "Resultado sin confirmar"}
 
 
@@ -47,6 +49,7 @@ def _public(op: dict) -> dict:
     return {"run_id": op["run_id"], "kind": meta.get("kind", ""), "kind_label": KIND_LABELS.get(meta.get("kind", ""), "Operación"),
             "client": meta.get("client", ""), "root_object": meta.get("root_object", ""), "space": meta.get("space", ""),
             "state": op["state"], "state_label": STATE_LABELS.get(op["state"], op["state"]), "finished": op["finished"],
+            "done_label": DONE_LABELS.get(meta.get("kind", ""), "Operación completada"), "result_label": RESULT_LABELS.get(meta.get("kind", ""), "Abrir resultado"),
             "title": op["title"], "message": op["message"], "result_url": op["result_url"],
             "log_url": _log_url(op["run_id"], meta.get("pack") or DEFAULT_PACK), "created_at": op["created_at"]}
 
@@ -77,7 +80,7 @@ def operation_log(request: Request, run_id: str, pack: str = Query(DEFAULT_PACK)
     selected = resolve_pack(pack)
     op = _public(detail)
     back_url = op["result_url"] or ("/modules/" + detail["meta"].get("stem", "") + "?" + urlencode({"pack": selected}) if detail["meta"].get("stem") else "/?" + urlencode({"pack": selected}))
-    back_label = ("← Abrir el Catálogo" if op["kind"] == "publication" else "← Volver al assessment") if op["result_url"] else "← Volver al módulo"
+    back_label = ("← " + op["result_label"]) if op["result_url"] else "← Volver al módulo"
     academy = [a for a in list_academy(selected) if not a.nav_hidden]
     return templates.TemplateResponse(
         request=request, name="datasphere_assessment_log.html",
