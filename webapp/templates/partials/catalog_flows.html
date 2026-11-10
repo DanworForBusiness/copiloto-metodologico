@@ -12,7 +12,9 @@
   {% for e in flows %}
   {# Grado PRIMARIO = Adopción metodológica persistida (`grades`, vía status_tone). El veredicto/guía LEGACY del catálogo (`veredicto`/`apto`) ya no se muestra. #}
   {% set g = (grades or {}).get(e.entry_id) or {"tone": "neutra", "label": "Assessment no disponible", "freshness": none} %}
+  {# data-op-*: identidad del modelo (cliente + modelos de consumo) que copilot_operations.js cruza con las publicaciones EN CURSO del registro de operaciones. #}
   <li class="catalog-card catalog-card--{{ g.tone }}"
+      data-op-client="{{ e.cliente }}" data-op-roots="{% for a in e.artefactos %}{% if a.startswith('AM_') or a.startswith('4AM_') %}{{ a }} {% endif %}{% endfor %}"
       role="link" tabindex="0" title="Ver detalle del flujo"
       hx-get="/catalog/flow?cliente={{ e.cliente|urlencode }}&dominio={{ e.dominio|urlencode }}&flow={{ e.entry_id|urlencode }}&pack={{ pack|default('datasphere_core') }}"
       hx-target="#catalog-detail-slot" hx-swap="innerHTML" hx-trigger="click, keyup[key=='Enter']">

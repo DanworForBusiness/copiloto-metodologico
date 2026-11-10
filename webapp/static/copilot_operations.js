@@ -12,6 +12,7 @@
   const MAX_SHOWN = 3;
   const DISMISSED_KEY = "dw-copilot-ops-dismissed";
   const attached = new Set();       // operaciones que su PROPIO panel sigue en esta página (el aviso no las duplica)
+  let lastOps = [];                 // última lectura del registro (misma consulta del aviso): la usan también las superficies del Catálogo
 
   function readDismissed() {
     try { return new Set(JSON.parse(localStorage.getItem(DISMISSED_KEY) || "[]")); } catch (e) { return new Set(); }
@@ -24,8 +25,16 @@
 
   // API mínima para los paneles de las herramientas: «esta operación la sigo yo acá» y «ya la vio terminar acá».
   window.dwCopilotOps = {
-    attach(runId) { if (runId) attached.add(runId); },
-    seen(runId) { if (runId) dismiss(runId); },
+    attach(runId, notice) {
+      if (!runId) return;
+      attached.add(runId);
+      if (notice) {                                              // aviso compacto del panel: «Ver ejecución» abre el log de ESTA operación (nunca navega solo)
+        const a = notice.querySelector("a");
+        if (a) a.href = "/copilot/operations/" + encodeURIComponent(runId) + "/log?pack=" + encodeURIComponent(notice.dataset.pack || "datasphere_core");
+        notice.hidden = false;
+      }
+    },
+    seen(runId) { if (runId) dismiss(runId); if (window.dwCopilotOps.refresh) window.dwCopilotOps.refresh(); },
   };
 
   function node(tag, cls, text) {
@@ -101,6 +110,66 @@
     });
   }
 
+  // ── Superficies del Catálogo: mientras una publicación PROPIA de ese modelo (cliente + objeto raíz) está en curso, sus acciones de modificación
+  // se reemplazan por el loader estándar del Hub (no ejecuta nada). Al terminar o fallar, vuelven las acciones y el contenido se refresca en el
+  // lugar. Solo UX complementaria: el backend sigue siendo la autoridad (candados de la publicación). Misma fuente y misma consulta que el aviso.
+  function opKey(client, root) { return String(client || "").trim().toLowerCase() + "|" + String(root || "").trim().toLowerCase(); }
+
+  function surfaceLoader() {
+    const s = node("span", "section-analysis-spinner op-surface-loader");
+    s.dataset.opLoader = "1";
+    s.setAttribute("role", "status");
+    s.setAttribute("aria-label", "Publicación en curso");
+    s.title = "Publicación en curso";
+    return s;
+  }
+
+  function setLocked(owner, actions, on) {
+    if (!actions.length) return false;
+    const was = !!owner.dataset.opLocked;
+    if (on && !was) {
+      owner.dataset.opLocked = "1";
+      actions.forEach((a) => { a.dataset.opHidden = "1"; a.style.display = "none"; a.setAttribute("aria-hidden", "true"); });
+      actions[actions.length - 1].after(surfaceLoader());
+    } else if (!on && was) {
+      delete owner.dataset.opLocked;
+      actions.forEach((a) => { if (a.dataset.opHidden) { delete a.dataset.opHidden; a.style.display = ""; a.removeAttribute("aria-hidden"); } });
+      const loader = actions[actions.length - 1].parentElement.querySelector("[data-op-loader]");
+      if (loader) loader.remove();
+      return true;                                              // se liberó: la publicación de ese modelo terminó o falló
+    }
+    return false;
+  }
+
+  function refreshSurface(el) {
+    if (!window.htmx) return;
+    const detail = el.closest("[data-op-detail-url]") || document.querySelector("#catalog-detail-slot [data-op-detail-url]");
+    if (el.matches("[data-catalog-regenerate]") && detail) {
+      window.htmx.ajax("GET", detail.dataset.opDetailUrl, { target: "#catalog-detail-slot", swap: "innerHTML" });   // versión vigente (o la última válida si hubo rollback)
+      return;
+    }
+    const list = el.closest("[id]");                             // la lista de tiles se recarga con el MISMO control que la cargó
+    const source = list && document.querySelector('[hx-target="#' + list.id + '"][hx-trigger~="change"], [hx-target="#' + list.id + '"][hx-trigger="change"]');
+    if (source) window.htmx.trigger(source, "change");
+  }
+
+  function applySurfaces(ops) {
+    const running = new Set(ops.filter((op) => op.kind === "publication" && op.state === "RUNNING").map((op) => opKey(op.client, op.root_object)));
+    const released = [];
+    document.querySelectorAll("[data-catalog-regenerate]").forEach((a) => {
+      let url;
+      try { url = new URL(a.getAttribute("href"), window.location.origin); } catch (e) { return; }
+      const on = running.has(opKey(url.searchParams.get("client"), url.searchParams.get("root")));
+      if (setLocked(a, [a], on)) released.push(a);
+    });
+    document.querySelectorAll("li[data-op-client][data-op-roots]").forEach((li) => {
+      const roots = (li.dataset.opRoots || "").split(/\s+/).filter(Boolean);
+      const on = roots.some((root) => running.has(opKey(li.dataset.opClient, root)));
+      if (setLocked(li, Array.from(li.querySelectorAll(".catalog-card__action")), on)) released.push(li);
+    });
+    released.forEach(refreshSurface);
+  }
+
   function initNotice() {
     const host = document.querySelector("[data-copilot-operations]");
     if (!host) return;
@@ -115,7 +184,9 @@
       } catch (e) {
         return;
       }
+      lastOps = ops;
       lockForms(ops);
+      applySurfaces(ops);
       const dismissed = readDismissed();
       const shown = ops.filter((op) => !dismissed.has(op.run_id) && !attached.has(op.run_id)).slice(0, MAX_SHOWN);
       const signature = shown.map((op) => op.run_id + ":" + op.state).join("|");
@@ -127,6 +198,8 @@
       if (ops.some((op) => op.state === "RUNNING")) timer = setTimeout(refresh, POLL_MS);
     }
     window.dwCopilotOps.refresh = () => { if (timer) clearTimeout(timer); refresh(); };
+    // El Catálogo carga tiles y detalle por HTMX: se aplica el estado YA leído (sin otra consulta ni otro polling).
+    document.body.addEventListener("htmx:afterSettle", () => applySurfaces(lastOps));
     refresh();
   }
 

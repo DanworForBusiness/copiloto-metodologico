@@ -2399,6 +2399,9 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 .copilot-op--failed .whatsnew-banner__mark, .copilot-op--failed .whatsnew-banner__cta { color: #b34b4b; }
 .content-theme-dark .copilot-op--failed .whatsnew-banner__mark, .content-theme-dark .copilot-op--failed .whatsnew-banner__cta { color: #e08a8a; }
 /* «Detalle de ejecución» (panel CENTRAL): rigen los tokens semánticos del contenido por tema, no los del panel lateral (mismo patrón que .sap-types-view). */
+/* Loader estándar del Hub en el lugar de una acción del Catálogo mientras su modelo se publica (copilot_operations.js). */
+.catalog-card__head .op-surface-loader { margin: 0 4px 0 auto; align-self: center; }
+.catalog-actionbar__actions .op-surface-loader { margin: 0 6px; align-self: center; }
 .execution-log-view { --card: var(--content-tile); --ink: var(--content-ink); --soft: var(--content-ink-soft); --dim: var(--content-ink-dim); --line: var(--content-line); }
 /* Landing inmersivo (módulo 00): cuando hay banner adentro, el stage pasa a columna
    flex y el iframe llena el resto. Vía :has() → no cambia la clase base (academy-stage
