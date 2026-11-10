@@ -11,7 +11,7 @@
     if (!host) return;
     if (!title && !text) { host.replaceChildren(); return; }
     var box = document.createElement("div");
-    box.className = "callout callout--" + (tone || "success");
+    box.className = "callout callout--feedback callout--" + (tone || "success");   // aviso compacto (contrato común de notificaciones)
     box.setAttribute("role", "status");
     var head = document.createElement("div");
     head.className = "callout__head";
