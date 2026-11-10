@@ -67,3 +67,28 @@ def test_lineage_css_is_responsive():
     text = css.read_text(encoding="utf-8")
     m = re.search(r"\.lineage-svg\s*\{([^}]*)\}", text)
     assert m and "max-width" in m.group(1) and "100%" in m.group(1)
+
+
+def _rects(svg):
+    """{nombre: (x, y)} del rect de cada nodo (el <title> precede al rect dentro del ancla)."""
+    return {m.group(1): (float(m.group(2)), float(m.group(3)))
+            for m in re.finditer(r'<title>([^<]+)</title><rect class="ln-node[^"]*" x="([\d.]+)" y="([\d.]+)"', svg)}
+
+
+def test_ingestion_source_goes_to_first_column_with_free_lane():
+    # Ingesta (capa 0) consumida directo por una capa posterior: primera columna, sin nodos ni aristas ficticias, y la fila que
+    # atraviesa su arista queda libre en las columnas intermedias (la flecha no pasa por detrás de otros nodos).
+    nodes = [_node("1TR_A", 0), _node("2VR", 1, ["1TR_A"]), _node("2TR", 1, ["2VR"]),
+             _node("1LT_I", 0), _node("3VF", 2, ["2TR", "1LT_I"]), _node("AM", 3, ["3VF"])]
+    svg = _catalog_lineage_svg(nodes, False, {n["name"] for n in nodes})
+    pos = _rects(svg)
+    assert pos["1LT_I"][0] == pos["1TR_A"][0] == 0                     # primera columna
+    assert svg.count('class="ln-edge') == 5                           # mismas aristas reales
+    ly = pos["1LT_I"][1]
+    assert pos["2VR"][1] != ly and pos["2TR"][1] != ly                  # carril libre en las columnas que cruza
+
+
+def test_layout_without_long_ingestion_edge_is_unchanged():
+    nodes = [_node("1TR_A", 0), _node("2VR", 1, ["1TR_A"]), _node("3VF", 2, ["2VR"])]
+    pos = _rects(_catalog_lineage_svg(nodes, False, {n["name"] for n in nodes}))
+    assert len({y for _x, y in pos.values()}) == 1                     # cadena simple: una sola fila, como siempre

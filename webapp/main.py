@@ -2368,9 +2368,37 @@ def _catalog_lineage_svg(nodes: list, show_assoc: bool, keep: set, focus=None, *
     for n in shown:
         _to_sink(n["name"], frozenset())
     maxlevel = max(tosink_cache.values(), default=0)
+    col_of = {n["name"]: maxlevel - tosink_cache[n["name"]] for n in shown}   # columna = distancia al sink invertida
+    # Ingesta (capa 0) a la IZQUIERDA, consuma quien la consuma: en diagramas de flujo (no Data Product ni pipeline) sus nodos van por distancia
+    # a la FUENTE (una fuente de ingesta cae en la primera columna; la arista atraviesa las columnas intermedias). Solo layout: nodos y aristas
+    # son los mismos. Esa columna nunca supera la ALAP, así que el orden fuente → consumo se conserva.
+    if not any(n.get("role") or n.get("subtext") for n in shown):
+        up_of = defaultdict(set)
+        for up, tgt in edges_layout:
+            if up in shown_names and tgt in shown_names:
+                up_of[tgt].add(up)
+        layer_of = {n["name"]: n.get("layer") for n in shown}
+        final_cache = {}
+
+        def _final_col(n, seen):
+            if n in final_cache:
+                return final_cache[n]
+            if layer_of.get(n) != 0:
+                r = col_of[n]                                   # el resto conserva la ALAP de siempre
+            else:
+                ups = [u for u in up_of.get(n, ()) if u not in seen]
+                r = min(col_of[n], 0 if not ups else 1 + max(_final_col(u, seen | {n}) for u in ups))
+            final_cache[n] = r
+            return r
+
+        alap = col_of
+        col_of = {n["name"]: _final_col(n["name"], frozenset()) for n in shown}
+        moved_ingest = {name for name in col_of if col_of[name] < alap[name]}
+    else:
+        moved_ingest = set()
     by_col = defaultdict(list)
     for n in shown:
-        by_col[maxlevel - tosink_cache[n["name"]]].append(n)   # columna = distancia al sink invertida
+        by_col[col_of[n["name"]]].append(n)
     cols = sorted(by_col)
     # H mayor en flujos normales para alojar labels de ≤2 líneas (nombres largos se
     # envuelven en vez de forzar ancho → evita overflow horizontal). COLGAP más chico
@@ -2459,10 +2487,20 @@ def _catalog_lineage_svg(nodes: list, show_assoc: bool, keep: set, focus=None, *
         height = object_top + band_label_h + max(1, object_rows) * (H + VGAP) - VGAP + 18
     else:
         rows_by_col = _lineage_row_order(by_col, cols, [(u, t) for u, t in edges_layout if u in shown_names and t in shown_names])   # solo el orden vertical, alineado con vecinos
+        if moved_ingest:
+            # Carril libre para la arista larga de una ingesta reubicada: en las columnas que atraviesa, su fila queda vacía (esos nodos bajan una fila),
+            # así la flecha cruza sin pasar por detrás de otros nodos. Sin nodos ni aristas ficticias: solo posiciones (None = hueco).
+            rows_by_col = {d: list(rows_by_col[d]) for d in cols}
+            for up, tgt in sorted(e for e in edges_layout if e[0] in moved_ingest and e[1] in col_of):
+                r = next(i for i, n in enumerate(rows_by_col[col_of[up]]) if n is not None and n["name"] == up)
+                for d in cols:
+                    if col_of[up] < d < col_of[tgt] and len(rows_by_col[d]) > r and rows_by_col[d][r] is not None:
+                        rows_by_col[d].insert(r, None)
         for d in cols:
             for r, n in enumerate(rows_by_col[d]):
-                pos[n["name"]] = (col_x[d], HEAD + r * (H + VGAP))
-            max_rows = max(max_rows, len(by_col[d]))
+                if n is not None:
+                    pos[n["name"]] = (col_x[d], HEAD + r * (H + VGAP))
+            max_rows = max(max_rows, len(rows_by_col[d]))
         width = (acc - COLGAP) if cols else 0
         height = HEAD + max_rows * (H + VGAP) - VGAP + 4
     # La punta al inicio lleva un id ÚNICO por diagrama: varios SVG conviven en la página y `url(#id)` resuelve al PRIMERO del documento; si ese vive en un <details> cerrado (display:none) no se dibuja.
