@@ -159,6 +159,8 @@ def _announce_created(actor, item_id, observed, options, origin):
     """Evento de negocio `operations.architecture_request.created`: SOLO tras la confirmación durable en SharePoint (la relectura coincidió) y
     solo en la PRIMERA confirmación del ticket (un reenvío del mismo formulario devuelve el id antes de llegar acá). Operaciones solo describe
     la solicitud con sus datos reales; el envío, los destinatarios y los reintentos son del servicio de notificaciones. Nunca afecta el alta."""
+    if not notifications.enabled():                                # apagadas: el alta se comporta exactamente como siempre (ni siquiera se arman datos)
+        return
     try:
         fields = observed.get("fields") or {}
         description = notifications.readable_text(fields.get(service.DESCRIPTION), DESCRIPTION_EXCERPT)   # texto legible: párrafos y saltos conservados

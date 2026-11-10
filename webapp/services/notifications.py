@@ -133,6 +133,17 @@ def startup_check() -> None:
         log.error("notificaciones por correo: HABILITADAS pero con configuración incompleta (%s): no se enviará ningún correo", ", ".join(missing))
     else:
         log.info("notificaciones por correo: habilitadas")
+    if not registry_persisted():
+        log.error("notificaciones por correo: el registro durable (%s) NO está bajo SPACES_PERSIST_PATHS con persistencia remota activa: "
+                  "agregá 'notifications' a SPACES_PERSIST_PATHS (sin eso un redeploy pierde el registro y no puede evitar reenvíos)", _dir().name)
+
+
+def registry_persisted() -> bool:
+    """True si el registro durable sobrevive a un redeploy: persistencia remota apagada (modo local: el disco es la fuente) o directorio bajo un
+    path persistido (`SPACES_PERSIST_PATHS`). Mismo criterio que usan los demás almacenes durables del Hub."""
+    if not remote_store.write_enabled():
+        return True
+    return remote_store._is_persisted_path(_dir())
 
 
 # ── registro durable ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────

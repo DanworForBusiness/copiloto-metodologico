@@ -39,9 +39,9 @@ def graph(monkeypatch, tmp_path):
     """Notificaciones habilitadas con configuración completa + Graph simulado. `graph.responses` define la respuesta de cada intento."""
     for name, value in {"NOTIFICATIONS_ENABLED": True, "NOTIFICATIONS_TENANT_ID": "tenant-x", "NOTIFICATIONS_CLIENT_ID": "client-x",
                         "NOTIFICATIONS_CLIENT_SECRET": SECRET, "NOTIFICATIONS_SENDER": "hub-notifications@danwor.com",
-                        "NOTIFICATIONS_OPERATIONS_RECIPIENTS": "arquitectura@danwor.com; operaciones@danwor.com",
+                        "NOTIFICATIONS_OPERATIONS_RECIPIENTS": "arquitectura@example.com; operaciones@example.com",
                         "NOTIFICATIONS_HUB_BASE_URL": "", "NOTIFICATIONS_DIR": tmp_path / "notifications",
-                        "ALLOWED_USERS": "intruso@danwor.com", "APP_OWNER": "owner@danwor.com"}.items():
+                        "ALLOWED_USERS": "intruso@example.com", "APP_OWNER": "owner@example.com"}.items():
         monkeypatch.setattr(config, name, value, raising=False)
     monkeypatch.setattr(notifications.threading, "Thread", _InlineThread)
     monkeypatch.setattr(notifications.time, "sleep", lambda s: None)
@@ -101,7 +101,7 @@ def test_confirmed_creation_sends_one_governed_notification(client, submitted, g
     call = graph.calls[0]
     assert call["url"] == "https://graph.microsoft.com/v1.0/users/hub-notifications@danwor.com/sendMail"
     message = call["body"]["message"]
-    assert [r["emailAddress"]["address"] for r in message["toRecipients"]] == ["arquitectura@danwor.com", "operaciones@danwor.com"]
+    assert [r["emailAddress"]["address"] for r in message["toRecipients"]] == ["arquitectura@example.com", "operaciones@example.com"]
     assert message["subject"] == "Nueva solicitud de arquitectura | Operaciones | Solicitud #7"
     html = message["body"]["content"]
     assert message["body"]["contentType"] == "HTML"
@@ -116,7 +116,7 @@ def test_confirmed_creation_sends_one_governed_notification(client, submitted, g
 def test_recipients_never_come_from_access_lists_or_the_frontend(client, submitted, graph, sharepoint):  # noqa: F811
     _create(client, {**submitted})
     addresses = json.dumps(graph.calls[0]["body"])
-    assert "intruso@danwor.com" not in addresses and "owner@danwor.com" not in addresses and "create-test" not in json.dumps(graph.calls[0]["body"]["message"]["toRecipients"])
+    assert "intruso@example.com" not in addresses and "owner@example.com" not in addresses and "create-test" not in json.dumps(graph.calls[0]["body"]["message"]["toRecipients"])
 
 
 def test_configured_base_url_wins_for_the_link(client, submitted, graph, sharepoint, monkeypatch):  # noqa: F811
@@ -126,7 +126,7 @@ def test_configured_base_url_wins_for_the_link(client, submitted, graph, sharepo
 
 
 def test_dynamic_values_are_escaped():
-    html = notifications.build_message("operations.architecture_request.created", {"id": "9", "title": "<script>x</script>", "url": "/x"}, ["a@danwor.com"])
+    html = notifications.build_message("operations.architecture_request.created", {"id": "9", "title": "<script>x</script>", "url": "/x"}, ["a@example.com"])
     assert "<script>x</script>" not in html["message"]["body"]["content"] and "&lt;script&gt;" in html["message"]["body"]["content"]
 
 
@@ -263,7 +263,7 @@ def test_app_token_errors_are_classified_and_never_echo_the_secret(monkeypatch, 
 
 # Identidad visual: institucional (logo) → vertical (workspaces) → evento → datos
 def _render(event="operations.architecture_request.created", data=None, base="https://hub.danwor.com"):
-    return notifications.build_message(event, data or {"id": "7", "title": "T", "url": "/x"}, ["a@danwor.com"], hub_base=base)["message"]["body"]["content"]
+    return notifications.build_message(event, data or {"id": "7", "title": "T", "url": "/x"}, ["a@example.com"], hub_base=base)["message"]["body"]["content"]
 
 
 def test_header_is_the_hub_lockup_plus_the_vertical_identity_from_the_hub_registry():
@@ -317,3 +317,21 @@ def test_rich_description_becomes_readable_plain_text(raw, expected):
 def test_rich_description_is_rendered_escaped_with_line_breaks():
     html = _render(data={"id": "7", "url": "/x", "description": notifications.readable_text("<p>Uno &lt; dos</p><p><b>Tres</b> & <i>cuatro</i></p>")})
     assert "Uno &lt; dos\n\nTres &amp; cuatro" in html and "<b>" not in html and "white-space:pre-line" in html
+
+
+def test_disabled_flag_does_not_even_build_notification_data(client, submitted, graph, sharepoint, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(config, "NOTIFICATIONS_ENABLED", False)
+    monkeypatch.setattr(notifications, "readable_text", lambda *a, **k: pytest.fail("con el flag apagado no se arma el aviso"))
+    response, _ = _create(client, submitted)
+    assert "Solicitud creada y confirmada en SharePoint." in response.text and graph.calls == []
+
+
+def test_startup_flags_a_registry_outside_the_persisted_paths(graph, monkeypatch, caplog):
+    from core import remote_store
+    monkeypatch.setattr(remote_store, "write_enabled", lambda: True)
+    monkeypatch.setattr(remote_store, "_is_persisted_path", lambda path: False)
+    with caplog.at_level(logging.ERROR, logger="danwor.notifications"):
+        notifications.startup_check()
+    assert "SPACES_PERSIST_PATHS" in caplog.text and not notifications.registry_persisted()
+    monkeypatch.setattr(remote_store, "_is_persisted_path", lambda path: True)
+    assert notifications.registry_persisted()
