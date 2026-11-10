@@ -10,6 +10,7 @@ import json
 import logging
 import socket
 import urllib.error
+from pathlib import Path
 
 import pytest
 
@@ -318,7 +319,7 @@ def test_rich_description_becomes_readable_plain_text(raw, expected):
 
 def test_rich_description_is_rendered_escaped_with_line_breaks():
     html = _render(data={"id": "7", "url": "/x", "description": notifications.readable_text("<p>Uno &lt; dos</p><p><b>Tres</b> & <i>cuatro</i></p>")})
-    assert "Uno &lt; dos\n\nTres &amp; cuatro" in html and "<b>" not in html and "white-space:pre-line" in html
+    assert "Uno &lt; dos<br><br>Tres &amp; cuatro" in html and "<b>" not in html and "white-space:pre-line" not in html    # saltos como <br> explícitos (Outlook Web)
 
 
 def test_disabled_flag_does_not_even_build_notification_data(client, submitted, graph, sharepoint, monkeypatch):  # noqa: F811
@@ -337,3 +338,33 @@ def test_startup_flags_a_registry_outside_the_persisted_paths(graph, monkeypatch
     assert "SPACES_PERSIST_PATHS" in caplog.text and not notifications.registry_persisted()
     monkeypatch.setattr(remote_store, "_is_persisted_path", lambda path: True)
     assert notifications.registry_persisted()
+
+
+
+# ── saltos de línea compatibles con Outlook Web: `email_lines` escapa primero y después convierte cada salto en <br> ───────────────────────
+@pytest.mark.parametrize("raw,expected", [
+    ("Una línea", "Una línea"),
+    ("Uno\nDos", "Uno<br>Dos"),
+    ("Uno\r\nDos\rTres", "Uno<br>Dos<br>Tres"),                                      # CRLF y CR normalizados
+    ("Párrafo 1\n\nPárrafo 2", "Párrafo 1<br><br>Párrafo 2"),                        # línea en blanco preservada
+    ("A\n\n\nB", "A<br><br><br>B"),                                                  # saltos múltiples, sin colapsar ni duplicar
+    ("<script>alert(1)</script>\n<b>x</b> & \"q\" 'a'", "&lt;script&gt;alert(1)&lt;/script&gt;<br>&lt;b&gt;x&lt;/b&gt; &amp; &#34;q&#34; &#39;a&#39;"),
+    ("<br>literal", "&lt;br&gt;literal"),                                              # un <br> escrito por el usuario NO es un salto
+    ("", ""),
+    (None, ""),
+])
+def test_email_lines_escapes_first_and_keeps_line_breaks(raw, expected):
+    from webapp.templating import templates
+    assert str(templates.env.filters["email_lines"](raw)) == expected
+
+
+def test_free_text_blocks_no_longer_depend_on_pre_line():
+    root = Path(__file__).resolve().parents[2] / "webapp/templates/notifications"
+    for name in ("_blocks.html", "profiles_shared.html"):
+        code = "\n".join(l for l in (root / name).read_text(encoding="utf-8").splitlines() if "style=" in l)
+        assert "white-space:pre-line" not in code, name
+
+
+def test_rejection_reason_with_line_breaks_and_html_is_safe():
+    html = _render("operations.architecture_request.rejected", data={"id": "9", "url": "/x", "reason": "No aplica.\n\n<b>Derivar</b> a Operaciones & revisar"})
+    assert "No aplica.<br><br>&lt;b&gt;Derivar&lt;/b&gt; a Operaciones &amp; revisar" in html and "<b>Derivar" not in html

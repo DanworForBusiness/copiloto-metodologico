@@ -9,7 +9,7 @@
 {{ blocks.intro(title, "") }}
 {% if d.message %}
       <tr><td style="padding:0 24px 8px;">
-        <p style="margin:0;font-size:14px;line-height:1.5;color:#202124;white-space:pre-line;">{{ d.message }}</p>
+        <p style="margin:0;font-size:14px;line-height:1.5;color:#202124;">{{ d.message | email_lines }}</p>
       </td></tr>
 {% endif %}
       <tr><td style="padding:12px 24px;">
@@ -22,7 +22,7 @@
           {%- endfor %}
         </table>
         {%- if d.closing %}
-        <p style="margin:16px 0 0;font-size:14px;line-height:1.5;color:#202124;white-space:pre-line;">{{ d.closing }}</p>
+        <p style="margin:16px 0 0;font-size:14px;line-height:1.5;color:#202124;">{{ d.closing | email_lines }}</p>
         {%- endif %}
         <p style="margin:14px 0 0;font-size:12px;color:#7a7a82;">{{ d.note }}</p>
       </td></tr>

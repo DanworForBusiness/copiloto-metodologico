@@ -564,3 +564,15 @@ def test_default_text_is_singular_or_plural_by_candidate_count(graph):
     two = client().post("/cchh/candidatos/compartir", data={"profile_ids": [candidate("Ana", "A"), candidate("Beto", "B")]}, headers=ORIGIN).text
     assert "te comparto el siguiente perfil de candidato (el enlace abre" in one
     assert "te comparto los siguientes perfiles de candidatos (los enlaces abren" in two
+
+
+
+# ── saltos de línea del cuerpo y del cierre como <br> explícitos (Outlook Web descarta white-space:pre-line) ─────────────────────────────────
+def test_body_and_closing_line_breaks_are_explicit_and_escaped(allowlist):
+    a = candidate("Ana", "Saltos", web_url=SP + "ana.pdf")
+    send(client(), [a], [HC], graph_token="", message="Hola Helena,\n\nTe comparto <b>esto</b> & más.", closing="Quedo atento/a.\r\nSaludos.\n\n\nJosé")
+    html = html_of(allowlist)
+    assert "Hola Helena,<br><br>Te comparto &lt;b&gt;esto&lt;/b&gt; &amp; más." in html
+    assert "Quedo atento/a.<br>Saludos.<br><br><br>José" in html
+    assert "<b>esto" not in html and "white-space:pre-line" not in html
+    assert html.count("Abrir CV en SharePoint") == 1 and f'href="{SP}ana.pdf"' in html          # la lista estructurada no cambia

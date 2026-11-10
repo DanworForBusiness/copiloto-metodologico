@@ -158,3 +158,16 @@ def _connections_retirable(request, conns) -> bool:
 
 
 templates.env.globals["connections_retirable"] = _connections_retirable
+
+
+def _email_lines(value) -> "Markup":
+    """Saltos de línea de un texto libre como `<br>` EXPLÍCITOS para correos (Outlook Web descarta `white-space:pre-line`). Primero se ESCAPA todo
+    el texto (nada del usuario se interpreta como HTML) y recién después se insertan los `<br>`; `\r\n`/`\r` se normalizan, cada salto es un
+    `<br>` (dos saltos seguidos = una línea en blanco, igual que con `pre-line`) y no se agregan espacios extra."""
+    from markupsafe import Markup, escape
+    text = "" if value is None else str(value)
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    return Markup("<br>".join(str(escape(line)) for line in text.split("\n")))
+
+
+templates.env.filters["email_lines"] = _email_lines

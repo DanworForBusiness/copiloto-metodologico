@@ -12,7 +12,7 @@
 {%- endmacro %}
 
 {#- `rows`: lista de (rótulo, valor); los valores vacíos no se muestran. `notes`: lista de (rótulo, texto plano) mostrados como párrafos
-    (saltos conservados con `white-space:pre-line`). -#}
+    (saltos convertidos en `<br>` explícitos por el filtro `email_lines`, que escapa antes: Outlook Web descarta `white-space:pre-line`). -#}
 {% macro details(rows, notes=()) -%}
       <tr><td style="padding:12px 24px;">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;line-height:1.5;border-collapse:collapse;">
@@ -25,7 +25,7 @@
         </table>
         {%- for label, text in notes if text %}
         <p style="margin:16px 0 4px;font-size:13px;color:#55555c;">{{ label }}</p>
-        <p style="margin:0;font-size:14px;line-height:1.5;color:#202124;white-space:pre-line;">{{ text }}</p>
+        <p style="margin:0;font-size:14px;line-height:1.5;color:#202124;">{{ text | email_lines }}</p>
         {%- endfor %}
       </td></tr>
 {%- endmacro %}
