@@ -3065,7 +3065,14 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 /* Diálogo de resolución de revisiones (#rr-dialog): título + badges de estado arriba a la derecha; aire de 16px (el de `.dw-confirm__select`) antes de la justificación. */
 .rr-dialog__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .rr-dialog__badges { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; flex: none; max-width: 50%; }
-.rr-dialog__rationale { margin-top: 16px; }   /* la X con tooltip conserva la caja del primitivo (la regla genérica del ancla la volvía inline-flex) */
+.rr-dialog__rationale { margin-top: 16px; }
+/* Diálogo «Reemplazar publicación» (#dsp-replace-dialog): misma escala que los demás diálogos del Hub (.dw-confirm__msg), aire entre bloques y
+   nombres técnicos completos (la celda ajusta en varias líneas en vez de truncar; el valor también queda en el title). */
+#dsp-replace-dialog .dw-confirm__msg { margin: 0 0 12px; }
+#dsp-replace-dialog .rr-dialog__lead { font-weight: 650; color: inherit; }
+#dsp-replace-dialog .matrix-scroll { margin: 0 0 12px; }
+#dsp-replace-dialog .dashboard-table { font-size: .78rem; }
+#dsp-replace-dialog .dashboard-table td.left { white-space: normal; overflow-wrap: anywhere; }
 details:not([open]) > summary > .panel-close[data-asr-close] { display: none; }
 
 /* TOOLTIP DE LA ACCIÓN DE FILA — mismo primitivo (`.chart-tooltip`), pero tematizado: el negro fijo (#1f1f24) sobre tarjeta blanca/oscura rompía el

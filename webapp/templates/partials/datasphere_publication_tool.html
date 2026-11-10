@@ -19,28 +19,28 @@
     <input type="hidden" name="pack" value="{{ pack }}">
     {% if pub.allowed_clients %}<p class="field-hint" data-dsp-allowed-clients>Podés publicar en estos clientes: {{ pub.allowed_clients | join(", ") }}. Usás tus propias credenciales de Datasphere.</p>{% endif %}
     {{ datasphere_form_fields("dsp", pub.form, pub.feature_options, "Seleccioná qué tipos de evidencia incluir en la extracción. Excluirlos puede reducir el tiempo de procesamiento, pero limita el alcance publicado.", pub.owner_profiles_url) }}
-    <p class="field-hint" data-dsp-replace-pending hidden></p>
+    <p class="catalog-note__ev" data-dsp-replace-pending hidden></p>
     <div class="admin-actions">
-      <button type="submit" class="btn-primary tool-primary" data-dsp-submit data-label="Publicar modelo" data-replace-label="Reemplazar y publicar">Publicar modelo</button>
+      <button type="submit" class="btn-primary tool-primary" data-dsp-submit>Publicar modelo</button>
     </div>
   </form>
 
   {# Reemplazo GOBERNADO tras un conflicto de identidad (POOL_IDENTITY_CONFLICT): MISMO patrón de diálogo del Hub que «Regenerar Catálogo». Muestra el impacto real que calculó
-     la publicación con lo extraído (objetos exclusivos del modelo vs. dependencias compartidas). «Reemplazar» existe solo si el backend demostró que es seguro; pide la
-     confirmación explícita y no ejecuta nada por sí mismo: la próxima publicación lleva la huella del plan y el servidor la vuelve a validar bajo el candado.
-     Contenido dinámico con textContent (datasphere_publication.js). #}
+     la publicación con lo extraído (objetos exclusivos del modelo vs. dependencias compartidas). «Confirmar reemplazo» existe solo si el backend lo autoriza y es el PASO
+     FINAL: reenvía la MISMA publicación (con las credenciales ya ingresadas en el formulario, solo en memoria) más la huella del plan, y el servidor la vuelve a
+     validar bajo el candado. Cancelar descarta esa operación: no se publica ni se reemplaza nada. Contenido dinámico con textContent (datasphere_publication.js). #}
   <dialog class="dw-confirm busqueda-dialog" id="dsp-replace-dialog" aria-labelledby="dsp-replace-title" data-dsp-replace>
     <div class="dw-confirm__body busqueda-contact">
       <h2 class="dw-confirm__title" id="dsp-replace-title">Reemplazar publicación</h2>
-      <p class="field-hint busqueda-contact__context" data-dsp-replace-context></p>
-      <p data-dsp-replace-summary></p>
+      <p class="dw-confirm__msg rr-dialog__lead" data-dsp-replace-context></p>
+      <p class="dw-confirm__msg" data-dsp-replace-summary></p>
       <div class="matrix-scroll">
         <table class="dashboard-table">
           <thead><tr><th class="left">Objeto</th><th class="left">Alcance</th><th class="left">Usado también por</th></tr></thead>
           <tbody data-dsp-replace-rows></tbody>
         </table>
       </div>
-      <p class="field-hint" data-dsp-replace-verdict></p>
+      <p class="dw-confirm__msg" data-dsp-replace-verdict></p>
     </div>
     <form method="dialog" class="dw-confirm__actions">
       <button type="submit" class="btn-secondary" value="cancel">Cancelar</button>

@@ -21,7 +21,8 @@
   function setHidden(node, hidden) { if (node) node.hidden = !!hidden; }
 
   // ── reemplazo gobernado ──
-  let replaceToken = "";                                       // huella del plan confirmado (no es un secreto); se consume en la próxima publicación
+  let replaceToken = "";                                       // huella del plan confirmado (no es un secreto); se consume en la publicación que lanza el diálogo
+  let replaceLabel = "";                                       // «PRODUCCION → CALIDAD» para el aviso compacto durante esa publicación
   const IDENTITY_FIELDS = new Set(["host", "token_url", "space", "datasphere_root_object", "client"]);
   const REASONS = {
     SHARED_DEPENDENCY: "Hay dependencias compartidas con otros modelos.",
@@ -39,8 +40,6 @@
   }
 
   function setReplacePending(form, pending, text) {
-    const submit = el(form, "[data-dsp-submit]");
-    submit.textContent = pending ? submit.dataset.replaceLabel : submit.dataset.label;
     const hint = el(form, "[data-dsp-replace-pending]");
     hint.textContent = pending ? text : "";
     setHidden(hint, !pending);
@@ -48,15 +47,18 @@
 
   function clearReplacement(form) {
     replaceToken = "";
+    replaceLabel = "";
     setReplacePending(form, false);
   }
 
-  function showReplacement(form, r) {
+  // `sent`: el MISMO cuerpo del POST que acaba de fallar por el conflicto (credenciales originales incluidas, solo en memoria). Confirmar lo reenvía con la
+  // huella del plan; cancelar lo descarta. No hay una segunda captura del Client Secret ni copia del valor: nunca vuelve al DOM, al token ni a mensajes.
+  function showReplacement(form, r, sent) {
     const dlg = document.getElementById("dsp-replace-dialog");
     if (!dlg || !r || typeof dlg.showModal !== "function") return;
     const from = (r.displaced && r.displaced.space) || "otro Space";
     el(dlg, "[data-dsp-replace-context]").textContent = (r.root_object || "") + " · " + from + " → " + (r.target_space || "");
-    el(dlg, "[data-dsp-replace-summary]").textContent = "El modelo ya está publicado en el Catálogo desde " + from + ". Estos objetos difieren entre ambos Spaces:";
+    el(dlg, "[data-dsp-replace-summary]").textContent = "Está publicado en el Catálogo desde " + from + ". Estos objetos difieren entre ambos Spaces:";
     const rows = el(dlg, "[data-dsp-replace-rows]");
     rows.replaceChildren();
     (r.exclusive || []).concat(r.shared || []).forEach((c) => {
@@ -70,24 +72,34 @@
         const td = document.createElement("td");
         td.className = "left";
         td.textContent = text;
+        td.title = text;                                       // valor completo siempre accesible (la celda además puede ajustar en varias líneas)
         tr.appendChild(td);
       });
       rows.appendChild(tr);
     });
     const confirm = el(dlg, "[data-dsp-replace-confirm]");
     const verdict = el(dlg, "[data-dsp-replace-verdict]");
+    let pending = sent;                                        // se consume al confirmar; al cancelar/cerrar se descarta
+    dlg.onclose = () => {
+      if (pending) pending.delete("datasphere_client_secret");  // Cancelar: no se publica ni se reemplaza nada y el secreto deja de estar en memoria
+      pending = null;
+      confirm.onclick = null;
+    };
     if (r.safe && r.token) {
       const shared = (r.shared || []).length;
-      // Decisión del owner: el Space gobernado no es inmutable. UNA sola confirmación (este diálogo) reemplaza el origen vigente por el nuevo.
-      verdict.textContent = "Se reemplazará el origen gobernado vigente (" + from + ") por " + r.target_space + " para " + r.root_object + "." +
-        (shared ? " " + shared + (shared === 1 ? " objeto compartido con otras fichas del cliente pasa" : " objetos compartidos con otras fichas del cliente pasan") +
-          " a la versión de " + r.target_space + "; esas fichas no se modifican." : "") +
-        " El Catálogo y el Assessment gobernado se regeneran con la evidencia que se publique; la publicación anterior queda registrada como reemplazada. Si algo cambia antes de ejecutar, no se modifica nada.";
+      // Decisión del owner: el Space gobernado no es inmutable. Este diálogo es el PASO FINAL: confirma el reemplazo y lanza la publicación.
+      verdict.textContent = "Se reemplaza el origen gobernado " + from + " por " + r.target_space + "." +
+        (shared ? " " + shared + (shared === 1 ? " objeto compartido pasa" : " objetos compartidos pasan") + " a la versión de " + r.target_space +
+          ": pueden actualizarse fichas de flujo de otros modelos del cliente." : "") +
+        " La publicación anterior queda registrada como reemplazada; si algo cambió, no se modifica nada.";
       setHidden(confirm, false);
       confirm.onclick = () => {
-        dlg.close();
+        const resend = pending;
+        pending = null;                                        // un solo uso: el cierre posterior ya no lo toca
         replaceToken = r.token;
-        setReplacePending(form, true, "Reemplazo confirmado (" + from + " → " + r.target_space + "). Volvé a ingresar el Client Secret y presioná «Reemplazar y publicar»: antes de escribir se vuelve a verificar todo.");
+        replaceLabel = from + " → " + r.target_space;
+        dlg.close();
+        run(form, resend);                                     // misma operación, mismas credenciales + huella del plan (el servidor la revalida bajo el candado)
       };
     } else {
       verdict.textContent = (r.reasons || []).map((code) => REASONS[code] || code).join(" ") + " No se puede reemplazar: no se modificó nada.";
@@ -97,7 +109,7 @@
     dlg.showModal();
   }
 
-  async function run(form) {
+  async function run(form, resend) {
     const panel = form.closest("#dsp-panel");
     const progress = el(panel, "[data-dsp-progress]");
     const status = el(panel, "[data-dsp-status]");
@@ -112,11 +124,15 @@
     log.textContent = "";
     detail.open = true;
 
-    // El cuerpo se arma ahora y el secreto se borra del campo YA: no queda en el DOM durante la corrida ni para reintentar.
-    const body = new URLSearchParams(new FormData(form));
+    // El cuerpo se arma ahora y el secreto se borra del campo YA: no queda en el DOM durante la corrida ni para reintentar. Un reemplazo confirmado
+    // reenvía el cuerpo de la publicación que lo originó (`resend`), con sus mismas credenciales: el diálogo es modal, nada del formulario cambió.
+    const body = resend || new URLSearchParams(new FormData(form));
     form.querySelectorAll('input[type="password"]').forEach((i) => { i.value = ""; });
+    body.delete("replace_token");
+    const authorized = replaceToken ? replaceLabel : "";
     if (replaceToken) body.set("replace_token", replaceToken);  // reemplazo confirmado: un solo uso
     clearReplacement(form);
+    if (authorized) setReplacePending(form, true, "Reemplazo autorizado · " + authorized + " · la publicación está en curso y todavía no terminó.");
 
     submit.disabled = true;
     submit.setAttribute("aria-busy", "true");
@@ -168,6 +184,7 @@
 
     submit.disabled = false;
     submit.removeAttribute("aria-busy");
+    setReplacePending(form, false);                            // el resultado (éxito o error) lo informa el panel; el aviso de la corrida se retira
     status.textContent = "";
     setHidden(spinner, true);                                  // la falla detiene el estado de procesamiento
     if (!done) return;
@@ -184,7 +201,7 @@
       if (done.error_code) log.textContent += "[" + done.error_code + "]" + String.fromCharCode(10);   // el código técnico vive en "Detalle técnico"
       setHidden(el(panel, "[data-dsp-failed]"), false);
       if (done.replacement && (done.error_code === "POOL_IDENTITY_CONFLICT" || done.error_code === "REPLACEMENT_PLAN_CHANGED")) {
-        showReplacement(form, done.replacement);              // impacto real del conflicto (y, si es seguro, el reemplazo explícito)
+        showReplacement(form, done.replacement, body);        // impacto real del conflicto (y, si es seguro, el reemplazo explícito con la misma operación)
       }
     }
   }
