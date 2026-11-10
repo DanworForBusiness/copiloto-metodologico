@@ -52,7 +52,7 @@ function dialog(opts) {
   const f = {
     root: node("div", { "data-share-root": "", "data-default-subject": "Perfiles", "data-intro": "Hola", "data-outro": "Saludos",
                         "data-directory-enabled": o.directory ? "1" : "", "data-max-recipients": String(o.maxRecipients),
-                        "data-recipient-provider": o.provider || "directory" }),
+                        "data-recipient-provider": o.provider || "directory", "data-send-enabled": o.sendEnabled === false ? "" : "1" }),
     subject: node("input"), intro: node("textarea"), outro: node("textarea"), list: node("ul"), pending: node("p"), note: node("p"), status: node("p"),
     chips: node("ul"), search: node("input"), results: node("div"), resultsList: node("div"), hint: node("p"), blocked: node("p"),
     sendStatus: node("p"), send: node("button"), copy: node("button", { "data-share-copy": "mensaje" }),
@@ -229,22 +229,22 @@ const params = body => { const out = {}; for (const kv of body.split("&")) { con
     api.initShare(doc, store(), makeWin(() => ({ status: 200, data: {} })));
     const greet = () => f.intro.value.split(",")[0] + ",";
     eq(greet(), "Hola,", "saludo: sin destinatarios, genérico");
-    api.addRecipient(doc, { email: "bjawor@danwor.com", name: "Brian Jawor" });
-    eq(f.intro.value, "Hola Brian, te comparto los siguientes perfiles:", "saludo: un destinatario identificado → solo el nombre de pila; el resto intacto");
+    api.addRecipient(doc, { email: "bjurado@danwor.com", name: "Bruno Jurado" });
+    eq(f.intro.value, "Hola Bruno, te comparto los siguientes perfiles:", "saludo: un destinatario identificado → solo el nombre de pila; el resto intacto");
     api.addRecipient(doc, { email: "otra@danwor.com", name: "Otra Persona" });
     eq(greet(), "Hola,", "saludo: dos destinatarios → genérico");
     api.removeRecipient(doc, "otra@danwor.com");
-    eq(greet(), "Hola Brian,", "saludo: al quitar uno se recupera el saludo de la persona restante");
-    api.removeRecipient(doc, "bjawor@danwor.com");
+    eq(greet(), "Hola Bruno,", "saludo: al quitar uno se recupera el saludo de la persona restante");
+    api.removeRecipient(doc, "bjurado@danwor.com");
     eq(greet(), "Hola,", "saludo: sin destinatarios vuelve al genérico");
-    api.addRecipient(doc, { email: "joconnor@danwor.com", name: "joconnor@danwor.com" });
+    api.addRecipient(doc, { email: "sin.padron@danwor.com", name: "sin.padron@danwor.com" });
     eq(greet(), "Hola,", "saludo: sin nombre verificado (solo correo) → genérico; nunca se deduce del alias");
-    api.removeRecipient(doc, "joconnor@danwor.com");
+    api.removeRecipient(doc, "sin.padron@danwor.com");
     // el usuario edita el saludo → se respeta
     f.intro.value = "Estimado equipo, te comparto los siguientes perfiles:";
-    api.addRecipient(doc, { email: "bjawor@danwor.com", name: "Brian Jawor" });
+    api.addRecipient(doc, { email: "bjurado@danwor.com", name: "Bruno Jurado" });
     eq(f.intro.value, "Estimado equipo, te comparto los siguientes perfiles:", "saludo: editado a mano → no se sobrescribe");
-    api.removeRecipient(doc, "bjawor@danwor.com");
+    api.removeRecipient(doc, "bjurado@danwor.com");
     eq(f.intro.value, "Estimado equipo, te comparto los siguientes perfiles:", "saludo: sigue respetado al cambiar destinatarios");
   }
   {
@@ -252,8 +252,8 @@ const params = body => { const out = {}; for (const kv of body.split("&")) { con
     f.root.attrs["data-intro"] = "Hola, te comparto los siguientes perfiles:";
     api.initShare(doc, store(), makeWin(() => ({ status: 200, data: {} })));
     f.intro.value = "Hola, te comparto estos perfiles que vimos ayer:";                          // edita el cuerpo, no el saludo
-    api.addRecipient(doc, { email: "bjawor@danwor.com", name: "Brian Jawor" });
-    eq(f.intro.value, "Hola Brian, te comparto estos perfiles que vimos ayer:", "saludo: con el cuerpo editado solo cambia el saludo; el texto del usuario se conserva");
+    api.addRecipient(doc, { email: "bjurado@danwor.com", name: "Bruno Jurado" });
+    eq(f.intro.value, "Hola Bruno, te comparto estos perfiles que vimos ayer:", "saludo: con el cuerpo editado solo cambia el saludo; el texto del usuario se conserva");
   }
 
   // ── proveedor transitorio «allowlist»: catálogo UNA vez por apertura (token base de lectura), filtro en memoria, mismo envío ──
@@ -293,6 +293,28 @@ const params = body => { const out = {}; for (const kv of body.split("&")) { con
     api.initShare(doc, store(), win); for (let i = 0; i < 6; i++) await drain();
     f.search.value = "abc"; api.runSearch(doc, win);
     ok(api._state().catalog !== null && f.resultsList.children.length === 0 && /Sin coincidencias/.test(f.hint.textContent), "allowlist: si el catálogo falla no se cuelga (sin resultados, se puede reabrir)");
+  }
+
+  // ── interruptor global apagado: «Enviar» deshabilitado, «Copiar mensaje» disponible; el estado «disabled» del servidor bloquea el reenvío ──
+  {
+    const { doc, f } = dialog({ sendEnabled: false });
+    const win = makeWin(() => ({ status: 200, data: { status: "accepted" } }));
+    api.initShare(doc, store(), win);
+    api.addRecipient(doc, { email: "ana@danwor.com", name: "Ana" });
+    ok(f.send.disabled === true && f.copy.disabled === false, "interruptor: apagado → «Enviar» deshabilitado y «Copiar mensaje» disponible");
+    api.doSend(doc, win); await drain();
+    ok(win.fetches.length === 0, "interruptor: apagado → no se intenta enviar");
+  }
+  {
+    const { doc, f } = dialog();
+    const win = makeWin(() => ({ status: 503, data: { status: "disabled", reason: "disabled", message: "El envío por correo institucional está deshabilitado. Podés usar «Copiar mensaje»." } }));
+    api.initShare(doc, store(), win);
+    api.addRecipient(doc, { email: "ana@danwor.com", name: "Ana" });
+    api.doSend(doc, win); for (let i = 0; i < 6; i++) await drain();
+    ok(f.dialog.open === true && f.send.disabled === true && /deshabilitado/.test(f.sendStatus.textContent) && f.copy.disabled === false,
+       "interruptor: cambio de estado durante la operación → diálogo abierto, «Enviar» bloqueado, «Copiar mensaje» sigue");
+    api.doSend(doc, win); await drain();
+    ok(win.fetches.length === 1, "interruptor: sin reintentos después de «disabled»");
   }
 
   if (failures) { console.log(`${failures} PROFILE SEND DIALOG CHECK(S) FAILED`); process.exit(1); }

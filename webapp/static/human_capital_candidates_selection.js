@@ -258,6 +258,7 @@
     var maxR = parseInt(root.getAttribute("data-max-recipients"), 10);
     shareState = { items: items, choice: {}, recipients: [], directoryEnabled: !!root.getAttribute("data-directory-enabled"),
                    provider: root.getAttribute("data-recipient-provider") === "allowlist" ? "allowlist" : "directory", catalog: null, greeting: null,
+                   sendEnabled: root.getAttribute("data-send-enabled") === "1",
                    maxRecipients: isNaN(maxR) ? 20 : maxR, operationId: newOperationId(win), sending: false, sent: false, _searchSeq: 0 };
     shareField(doc, "data-share-subject").value = root.getAttribute("data-default-subject") || "";
     shareField(doc, "data-share-intro").value = root.getAttribute("data-intro") || "";
@@ -434,7 +435,7 @@
   // Habilita «Enviar» solo con: proveedor de destinatarios disponible, mensaje listo (CVs elegidos) y ≥1 destinatario; nunca mientras hay un envío en curso o ya se envió.
   function sendReady() {
     var model = resolveShare(shareState.items, shareState.choice);
-    return shareState.directoryEnabled && !shareState.sending && !shareState.sent && shareReady(model) && shareState.recipients.length > 0;
+    return shareState.sendEnabled && shareState.directoryEnabled && !shareState.sending && !shareState.sent && shareReady(model) && shareState.recipients.length > 0;
   }
 
   function refreshSend(doc) {
@@ -494,6 +495,7 @@
     shareState.sending = false;
     var st = data.status;
     if (st === "accepted") { closeAfterAccepted(doc, (data.recipients || shareState.recipients).length); return; }
+    else if (st === "disabled") { shareState.sendEnabled = false; sendStatus(doc, data.message || "El envío por correo institucional está deshabilitado.", true); }   // interruptor global: Graph no se llamó; «Copiar mensaje» sigue
     else if (st === "duplicate") { shareState.sent = true; sendStatus(doc, "Este envío ya se había registrado; no se reenvió.", true); }
     else if (st === "uncertain") { shareState.sent = true; sendStatus(doc, "El envío quedó sin confirmación de Microsoft. No se reenvía automáticamente: verificá tu bandeja antes de reintentar.", true); }
     else if (st === "config_incomplete" || (data.reason === "audit_unavailable")) { sendStatus(doc, data.message || "No se pudo enviar por un problema de configuración. Nada fue enviado.", true); }      // nada enviado: se puede reintentar con el mismo operation_id

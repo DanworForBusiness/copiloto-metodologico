@@ -368,3 +368,32 @@ def test_free_text_blocks_no_longer_depend_on_pre_line():
 def test_rejection_reason_with_line_breaks_and_html_is_safe():
     html = _render("operations.architecture_request.rejected", data={"id": "9", "url": "/x", "reason": "No aplica.\n\n<b>Derivar</b> a Operaciones & revisar"})
     assert "No aplica.<br><br>&lt;b&gt;Derivar&lt;/b&gt; a Operaciones &amp; revisar" in html and "<b>Derivar" not in html
+
+
+
+# ── interruptor global: segunda comprobación inmediatamente antes de Graph en el envío automático ──────────────────────────────────────────
+def test_switch_off_after_the_intent_leaves_it_resumable_without_calling_graph(client, submitted, graph, sharepoint, monkeypatch):  # noqa: F811
+    real_create = notifications._create_exclusive
+
+    def create_then_switch_off(path, record):              # la intención se registra habilitada; el interruptor se apaga antes del envío
+        created = real_create(path, record)
+        monkeypatch.setattr(config, "NOTIFICATIONS_ENABLED", False)
+        return created
+    monkeypatch.setattr(notifications, "_create_exclusive", create_then_switch_off)
+    response, _ = _create(client, submitted)
+    assert "Solicitud creada y confirmada en SharePoint." in response.text and graph.calls == []
+    record = _record()
+    assert record["state"] == "pending" and record["attempts"] == 0 and record["error"] == "disabled_before_send"
+    monkeypatch.setattr(config, "NOTIFICATIONS_ENABLED", True)                                        # se reactiva: se reanuda y se envía UNA vez
+    assert notifications.resume_pending() >= 0
+    assert len(graph.calls) == 1 and _record()["state"] == "accepted"
+
+
+def test_resume_does_nothing_while_the_switch_is_off(graph, monkeypatch, tmp_path):
+    path = notifications.record_path("operations.architecture_request.created", "77")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"event": "operations.architecture_request.created", "key": "77", "data": {"id": "77"}, "hub_base": "",
+                                "state": "retry", "attempts": 1}), encoding="utf-8")
+    monkeypatch.setattr(config, "NOTIFICATIONS_ENABLED", False)
+    notifications.resume_pending()
+    assert graph.calls == [] and json.loads(path.read_text(encoding="utf-8"))["state"] == "retry"     # se conserva tal cual

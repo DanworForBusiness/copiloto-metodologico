@@ -44,6 +44,7 @@ TEMPLATE = "notifications/profiles_shared.html"
 TITLE = "Perfiles de candidatos"
 SHAREPOINT_NOTE = "El acceso a los CVs está sujeto a los permisos de SharePoint del destinatario."
 DEFAULT_SUBJECT = human_capital_share.DEFAULT_SUBJECT
+DISABLED_MESSAGE = "El envío por correo institucional está deshabilitado. Podés usar «Copiar mensaje»."
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _SEARCH_SAFE = re.compile(r'[\\"]')                                  # se quitan comillas/backslash del término $search
 OPERATION_ID_RE = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
@@ -281,7 +282,9 @@ def build_graph_message(included: list[dict], recipients: list[dict], subject: s
 
 def send_graph_message(message: dict, *, token_fn=microsoft365_app.acquire_app_token, post=microsoft365.graph_post_accepted) -> tuple[str, str]:
     """Envía por el buzón institucional (client credentials). Devuelve (estado, detalle). 202 = `accepted` (NO prueba entrega); 4xx≠429 = `failed`;
-    429/5xx/timeout/red = `uncertain` (no se reenvía automáticamente)."""
+    429/5xx/timeout/red = `uncertain` (no se reenvía automáticamente); interruptor global apagado = `disabled` (Graph NO se llamó)."""
+    if not notifications.enabled():
+        return "disabled", "envío institucional deshabilitado (NOTIFICATIONS_ENABLED=false)"
     if notifications.missing_settings():
         return "config_incomplete", "configuración de correo incompleta"
     try:
@@ -289,6 +292,8 @@ def send_graph_message(message: dict, *, token_fn=microsoft365_app.acquire_app_t
     except Exception as exc:                                         # noqa: BLE001 — token de app no disponible
         return "uncertain", f"no se obtuvo el token de aplicación ({type(exc).__name__})"
     url = GRAPH_SEND_MAIL.format(sender=quote(config.NOTIFICATIONS_SENDER, safe="@"))
+    if not notifications.enabled():                                  # segunda comprobación INMEDIATAMENTE antes de la llamada a Graph
+        return "disabled", "envío institucional deshabilitado antes de enviar (NOTIFICATIONS_ENABLED=false)"
     try:
         status = post(url, token, message)
     except HTTPError as exc:
@@ -354,6 +359,9 @@ def send_profiles(*, operation_id: str, actor: str, profile_ids: list[str], reci
     (create-only) → armar + enviar → auditar resultado. Devuelve un dict de estado para la UI. Nunca lanza por errores esperados."""
     if not OPERATION_ID_RE.match(operation_id or ""):
         return {"status": "error", "reason": "bad_operation", "message": "La operación venció o es inválida. Reabrí el diálogo e intentá de nuevo."}
+    if not notifications.enabled():
+        # Interruptor GLOBAL del envío institucional: rechazo explícito ANTES de validar, auditar o tocar Graph (sin intención nueva).
+        return {"status": "disabled", "reason": "disabled", "message": DISABLED_MESSAGE}
     selection = human_capital_share.resolve(profile_ids, get_profile, list_documents)
     if not selection.ok:
         return {"status": "error", "reason": selection.reason, "message": selection.message}

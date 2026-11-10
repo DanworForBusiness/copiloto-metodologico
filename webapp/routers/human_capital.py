@@ -128,6 +128,7 @@ from webapp.services import (
 from webapp.services import cv_history_acceptance, cv_history_drafts, cv_history_import, cv_history_import_exec, cv_history_inventory, cv_history_manifest, cv_history_pilot, cv_history_review
 from webapp.services import cv_inbox
 from webapp.services import human_capital_contact, human_capital_export, human_capital_profile_send as profile_send, human_capital_share, profile_consolidation_service
+from webapp.services import notifications
 from webapp.services import scoring_engine, scoring_evaluation_repository, scoring_grid_repository, scoring_service
 from webapp.services.activity_catalog import (
     AREA_CCHH, OUTCOME_FAILED, OUTCOME_PARTIAL, OUTCOME_REJECTED, OUTCOME_SUCCESS, SCOPE_HUMAN_CAPITAL,
@@ -1334,7 +1335,8 @@ def human_capital_profiles_share_dialog(request: Request, profile_ids: list[str]
         request=request, name="partials/human_capital_share_dialog_content.html",
         context={"selection": selection, "subject": human_capital_share.DEFAULT_SUBJECT, "intro": human_capital_share.intro_for(len(selection.items)), "outro": human_capital_share.OUTRO,
                  "max_profiles": human_capital_share.MAX_SHARE_PROFILES, "directory_enabled": profile_send.recipients_enabled(),
-                 "recipient_provider": profile_send.recipient_provider(), "max_recipients": profile_send.MAX_RECIPIENTS},
+                 "recipient_provider": profile_send.recipient_provider(), "max_recipients": profile_send.MAX_RECIPIENTS,
+                 "send_enabled": notifications.enabled(), "send_disabled_message": profile_send.DISABLED_MESSAGE},
         headers=_NO_STORE,
     )
 
@@ -1407,7 +1409,7 @@ def human_capital_share_send(request: Request, profile_ids: list[str] = Form([])
     except profile_send.DirectorySearchUnavailable:
         return JSONResponse({"status": "error", "message": "No se pudieron validar los destinatarios (permiso de directorio no concedido)."}, status_code=503, headers=_NO_STORE)
     st = out.get("status")
-    code = 200 if st in ("accepted", "uncertain", "duplicate") else (503 if st in ("config_incomplete",) or out.get("reason") == "audit_unavailable" else 422)
+    code = 200 if st in ("accepted", "uncertain", "duplicate") else (503 if st in ("config_incomplete", "disabled") or out.get("reason") == "audit_unavailable" else 422)
     return JSONResponse(out, status_code=code, headers=_NO_STORE)
 
 

@@ -346,6 +346,13 @@ def _deliver(path: Path) -> None:
     message = build_message(record["event"], record.get("data") or {}, to, cc=cc, hub_base=record.get("hub_base") or "")
     attempts = int(record.get("attempts", 0))
     for inline in range(INLINE_ATTEMPTS):
+        if not enabled():
+            # Interruptor global apagado entre la intención y el envío: NO se llama a Graph. La intención se conserva reanudable (`pending` si
+            # nunca hubo intento, `retry` si ya hubo alguno) y vuelve a procesarse cuando el servicio se reactive; nunca se marca como enviada.
+            _finish(path, record, state="retry" if attempts else "pending", attempts=attempts, error="disabled_before_send")
+            log.info("notificación %s clave=%s no enviada: servicio deshabilitado (NOTIFICATIONS_ENABLED=false); queda reanudable",
+                     record["event"], _short(record["key"]))
+            return
         attempts += 1
         outcome, detail, retry_after = _send_once(message)
         if outcome == "accepted":

@@ -87,7 +87,7 @@ def graph(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "PERSISTENCE_MODE", "local")
     for name, value in {"NOTIFICATIONS_TENANT_ID": "tenant-x", "NOTIFICATIONS_CLIENT_ID": "client-x", "NOTIFICATIONS_CLIENT_SECRET": SECRET,
                         "NOTIFICATIONS_SENDER": "hub-notifications@danwor.com", "HC_DIRECTORY_SEARCH_SCOPE": "User.ReadBasic.All",
-                        "HC_SHARE_RECIPIENTS_PROVIDER": "directory"}.items():                                  # explícito: nunca hereda el .env local
+                        "HC_SHARE_RECIPIENTS_PROVIDER": "directory", "NOTIFICATIONS_ENABLED": True}.items():                                  # explícito: nunca hereda el .env local
         monkeypatch.setattr(config, name, value, raising=False)
     g = _Graph()
     monkeypatch.setitem(profile_send.search_directory.__kwdefaults__, "fetch", g.fetch)
@@ -523,7 +523,7 @@ def test_reporting_map_is_unchanged_by_the_user_info_fallback(roster):
 
 def test_user_info_identity_rule_is_shared_and_email_field_only_for_presentation():
     from webapp.services.reporting_repository import user_info_identity
-    assert user_info_identity({"Name": "i:0#.f|membership|CCosta@Danwor.com"}) == "ccosta@danwor.com"
+    assert user_info_identity({"Name": "i:0#.f|membership|MSintetica@Danwor.com"}) == "msintetica@danwor.com"
     assert user_info_identity({"Name": "c:0(.s|true", "EMail": "x@danwor.com"}) == ""                       # Reporting: solo Name
     assert user_info_identity({"Name": "c:0(.s|true", "EMail": " X@Danwor.com "}, allow_email_field=True) == "x@danwor.com"
     assert user_info_identity({}) == "" and user_info_identity(None, allow_email_field=True) == ""
@@ -619,3 +619,49 @@ def test_body_and_closing_line_breaks_are_explicit_and_escaped(allowlist):
     assert "Quedo atento/a.<br>Saludos.<br><br><br>José" in html
     assert "<b>esto" not in html and "white-space:pre-line" not in html
     assert html.count("Abrir CV en SharePoint") == 1 and f'href="{SP}ana.pdf"' in html          # la lista estructurada no cambia
+
+
+
+# ── interruptor GLOBAL `NOTIFICATIONS_ENABLED` también para el envío manual (misma identidad institucional) ──────────────────────────────────
+def test_disabled_switch_rejects_the_manual_send_explicitly_without_intent_or_graph(graph, monkeypatch):
+    monkeypatch.setattr(config, "NOTIFICATIONS_ENABLED", False)
+    r = send(client(), [candidate()], ["ana.directorio@danwor.com"])
+    assert r.status_code == 503 and r.json() == {"status": "disabled", "reason": "disabled", "message": profile_send.DISABLED_MESSAGE}
+    assert not graph.sends and not graph.tokens and not graph.get_calls                              # ni Graph ni el directorio
+    assert audit() == {"intent": None, "result": None}                                                # sin intención nueva
+
+
+def test_disabled_switch_keeps_copy_and_disables_send_in_the_dialog(graph, monkeypatch):
+    monkeypatch.setattr(config, "NOTIFICATIONS_ENABLED", False)
+    html = client().post("/cchh/candidatos/compartir", data={"profile_ids": [candidate()]}, headers=ORIGIN).text
+    assert 'data-send-enabled=""' in html and "data-share-send-disabled" in html and profile_send.DISABLED_MESSAGE.split("«")[0] in html
+    assert 'data-share-copy="mensaje"' in html and "data-share-send disabled" in html                # «Copiar mensaje» disponible, «Enviar» no
+    monkeypatch.setattr(config, "NOTIFICATIONS_ENABLED", True)
+    html = client().post("/cchh/candidatos/compartir", data={"profile_ids": [candidate("Otra", "Persona")]}, headers=ORIGIN).text
+    assert 'data-send-enabled="1"' in html and "data-share-send-disabled" not in html                # habilitado: igual que siempre
+
+
+def test_switch_turned_off_between_validation_and_graph_never_calls_graph(graph, monkeypatch):
+    calls = {"n": 0}
+
+    def flipping():                                       # habilitado en la validación inicial; deshabilitado justo antes de enviar
+        calls["n"] += 1
+        return calls["n"] == 1
+    monkeypatch.setattr(profile_send.notifications, "enabled", flipping)
+    r = send(client(), [candidate()], ["ana.directorio@danwor.com"])
+    assert r.status_code == 503 and r.json()["status"] == "disabled"
+    assert not graph.sends                                                                            # Graph nunca se llamó
+    rec = audit()
+    assert rec["intent"] is not None and rec["result"]["outcome"] == "disabled"                      # resultado explícito, sin ambigüedad
+    again = send(client(), [candidate("Otro", "Mas")], ["ana.directorio@danwor.com"])                # sigue apagado: rechazo explícito
+    assert again.json()["status"] == "disabled" and not graph.sends
+    monkeypatch.setattr(profile_send.notifications, "enabled", lambda: True)                          # reactivado: la MISMA operación no reenvía
+    third = send(client(), [candidate("Tercer", "Caso")], ["ana.directorio@danwor.com"])
+    assert third.json()["status"] == "duplicate" and third.json()["prior_outcome"] == "disabled" and not graph.sends
+
+
+def test_send_graph_message_checks_the_switch_again_right_before_posting(graph, monkeypatch):
+    seq = iter([True, False])
+    monkeypatch.setattr(profile_send.notifications, "enabled", lambda: next(seq))
+    state, detail = profile_send.send_graph_message({"message": {}})
+    assert state == "disabled" and graph.tokens and not graph.sends                                  # se pidió token, pero NO se posteó
