@@ -258,6 +258,7 @@
     if (unavailable.length) { store.remove(unavailable); syncUI(doc, store); }                    // un perfil dado de baja se saca de la selección: el contador no miente
     var maxR = parseInt(root.getAttribute("data-max-recipients"), 10);
     shareState = { items: items, choice: {}, recipients: [], directoryEnabled: !!root.getAttribute("data-directory-enabled"),
+                   provider: root.getAttribute("data-recipient-provider") === "allowlist" ? "allowlist" : "directory",
                    maxRecipients: isNaN(maxR) ? 20 : maxR, operationId: newOperationId(win), sending: false, sent: false, _searchSeq: 0 };
     shareField(doc, "data-share-subject").value = root.getAttribute("data-default-subject") || "";
     shareField(doc, "data-share-intro").value = root.getAttribute("data-intro") || "";
@@ -347,6 +348,14 @@
     if (hint) { hint.textContent = rows.length ? "" : "Sin coincidencias en el directorio."; hint.hidden = rows.length > 0; }
   }
 
+  // Proveedor «allowlist» (catálogo gobernado transitorio): el servidor resuelve y valida sin Microsoft → no se pide token delegado.
+  function directoryToken(win) {
+    if (shareState.provider === "allowlist") return Promise.resolve("");
+    var tokenFn = win.dwHumanCapitalDirectoryToken;
+    return Promise.resolve(tokenFn ? tokenFn() : "");
+  }
+  function needsToken() { return shareState.provider !== "allowlist"; }
+
   // Búsqueda con rebote: pide un token DELEGADO (`dwHumanCapitalDirectoryToken`) y consulta el directorio. 503 = bloqueado por permiso; se muestra el aviso y se deshabilita.
   function runSearch(doc, win) {
     var input = shareField(doc, "data-share-search");
@@ -357,10 +366,9 @@
     if (hint) { hint.textContent = "Buscando…"; hint.hidden = false; }
     showResults(doc, true);
     var seq = ++shareState._searchSeq;
-    var tokenFn = win.dwHumanCapitalDirectoryToken;
-    Promise.resolve(tokenFn ? tokenFn() : "").then(function (token) {
+    directoryToken(win).then(function (token) {
       if (seq !== shareState._searchSeq) return;                                                  // llegó tarde: hay una búsqueda más nueva
-      if (!token) { blockDirectory(doc, "No se pudo obtener autorización de Microsoft para buscar en el directorio."); return; }
+      if (!token && needsToken()) { blockDirectory(doc, "No se pudo obtener autorización de Microsoft para buscar en el directorio."); return; }
       var body = "q=" + encodeURIComponent(q) + "&graph_token=" + encodeURIComponent(token);
       return win.fetch(DIRECTORY_URL, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: body })
         .then(function (res) { return res.json().then(function (data) { return { res: res, data: data }; }, function () { return { res: res, data: {} }; }); })
@@ -412,9 +420,8 @@
     hideConfirm(doc);
     sendStatus(doc, "Enviando…", false);
     var model = resolveShare(shareState.items, shareState.choice);
-    var tokenFn = win.dwHumanCapitalDirectoryToken;
-    Promise.resolve(tokenFn ? tokenFn() : "").then(function (token) {
-      if (!token) { shareState.sending = false; sendStatus(doc, "No se pudo obtener autorización de Microsoft para validar los destinatarios.", true); refreshSend(doc); return; }
+    directoryToken(win).then(function (token) {
+      if (!token && needsToken()) { shareState.sending = false; sendStatus(doc, "No se pudo obtener autorización de Microsoft para validar los destinatarios.", true); refreshSend(doc); return; }
       var parts = ["operation_id=" + encodeURIComponent(shareState.operationId),
                    "subject=" + encodeURIComponent(fieldValue(doc, "data-share-subject")),
                    "message=" + encodeURIComponent(buildPlain(model, fieldValue(doc, "data-share-intro"), fieldValue(doc, "data-share-outro"))),

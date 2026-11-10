@@ -48,6 +48,52 @@ _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _SEARCH_SAFE = re.compile(r'[\\"]')                                  # se quitan comillas/backslash del término $search
 OPERATION_ID_RE = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
 
+PROVIDER_DIRECTORY = "directory"
+PROVIDER_ALLOWLIST = "allowlist"
+
+
+def recipient_provider() -> str:
+    """Proveedor de destinatarios EXPLÍCITO (`HC_SHARE_RECIPIENTS_PROVIDER`). Cualquier valor distinto de "allowlist" es el directorio: el
+    catálogo local nunca se activa por un error de Graph ni por omisión."""
+    value = str(getattr(config, "HC_SHARE_RECIPIENTS_PROVIDER", "") or "").strip().lower()
+    return PROVIDER_ALLOWLIST if value == PROVIDER_ALLOWLIST else PROVIDER_DIRECTORY
+
+
+def allowlist_recipients() -> list[dict]:
+    """Catálogo gobernado TRANSITORIO: los usuarios de `HUMAN_CAPITAL_ALLOWED_USERS` (mismo parser/normalización que la admisión a Capital
+    Humano). Solo direcciones válidas del dominio corporativo (`AUTH_DEFAULT_DOMAIN`): nada externo. Sin nombres gobernados en el Hub → el
+    nombre visible es el correo."""
+    from webapp.services import auth_service
+    domain = str(getattr(config, "AUTH_DEFAULT_DOMAIN", "") or "danwor.com").strip().lower().lstrip("@")
+    # «ALL» es un valor especial del parser compartido (solo se rechaza cuando es la lista entera): mezclado en la lista se normalizaría a
+    # `all@<dominio>`, que nunca es un destinatario legítimo → se excluye.
+    emails = sorted(e for e in auth_service._human_capital_set()
+                    if _EMAIL_RE.match(e) and e.rsplit("@", 1)[1] == domain and e.rsplit("@", 1)[0] != "all")
+    return [{"name": e, "email": e} for e in emails]
+
+
+def recipients_enabled() -> bool:
+    """¿Hay un proveedor de destinatarios utilizable? Directorio: scope delegado configurado. Catálogo: al menos una dirección corporativa."""
+    if recipient_provider() == PROVIDER_ALLOWLIST:
+        return bool(allowlist_recipients())
+    return bool(directory_scope())
+
+
+def needs_delegated_token() -> bool:
+    """Solo el directorio consulta Microsoft con la identidad delegada; el catálogo gobernado se resuelve en el servidor."""
+    return recipient_provider() == PROVIDER_DIRECTORY
+
+
+def search_recipients(query: str, token: str) -> list[dict]:
+    """Búsqueda del selector según el proveedor explícito. Misma forma de resultado ([{name, email}]) y mismo mínimo de caracteres."""
+    if recipient_provider() == PROVIDER_ALLOWLIST:
+        q = (query or "").strip().lower()
+        if len(q) < MIN_QUERY:
+            return []
+        return [r for r in allowlist_recipients() if q in r["email"]][:MAX_RESULTS]
+    return search_directory(query, token)
+
+
 def directory_scope() -> str:
     """Scope delegado para buscar el directorio (`/users?$search`), leído en cada llamada. No es secreto; se expone vía la config de auth para
     que el frontend lo pida al token delegado. Vacío = búsqueda DESHABILITADA (prerequisito `User.ReadBasic.All` sin conceder)."""
@@ -112,8 +158,11 @@ def search_directory(query: str, token: str, *, fetch=microsoft365.graph_get_jso
 
 
 def validate_recipients(emails: list[str], token: str, *, fetch=microsoft365.graph_get_json) -> tuple[list[dict], list[str]]:
-    """Valida CADA destinatario contra el directorio (el backend no confía en el autocomplete): resuelve `/users/{email}` con el token DELEGADO.
-    Devuelve (válidos [{name,email}] resueltos, inválidos [email]). Un 403/401 → `DirectorySearchUnavailable` (no se puede validar ⇒ no se envía)."""
+    """Valida CADA destinatario contra el proveedor explícito (el backend no confía en el autocomplete). Directorio: resuelve `/users/{email}`
+    con el token DELEGADO; un 403/401 → `DirectorySearchUnavailable` (no se puede validar ⇒ no se envía). Catálogo: la dirección tiene que estar
+    en el catálogo gobernado. Devuelve (válidos [{name,email}], inválidos [email])."""
+    if recipient_provider() == PROVIDER_ALLOWLIST:
+        return _validate_allowlist(emails)
     valid: list[dict] = []
     invalid: list[str] = []
     seen: set[str] = set()
@@ -139,6 +188,24 @@ def validate_recipients(emails: list[str], token: str, *, fetch=microsoft365.gra
         row = _row(u)
         valid.append(row if row is not None else {"name": email, "email": email})
     return _dedup(valid), invalid
+
+
+def _validate_allowlist(emails: list[str]) -> tuple[list[dict], list[str]]:
+    catalog = {r["email"]: r for r in allowlist_recipients()}
+    valid: list[dict] = []
+    invalid: list[str] = []
+    seen: set[str] = set()
+    for raw in emails or []:
+        email = str(raw or "").strip()
+        key = email.lower()
+        if not email or key in seen:
+            continue
+        seen.add(key)
+        if key in catalog:
+            valid.append(catalog[key])
+        else:
+            invalid.append(email)
+    return valid, invalid
 
 
 # ───────────────────────── armado del correo ─────────────────────────

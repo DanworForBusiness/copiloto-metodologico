@@ -13,7 +13,7 @@
 </div>
 {% else %}
 <div class="dw-confirm__body busqueda-contact" data-share-root data-default-subject="{{ subject }}" data-intro="{{ intro }}" data-outro="{{ outro }}"
-     data-directory-enabled="{{ '1' if directory_enabled else '' }}" data-max-recipients="{{ max_recipients }}">
+     data-directory-enabled="{{ '1' if directory_enabled else '' }}" data-recipient-provider="{{ recipient_provider or 'directory' }}" data-max-recipients="{{ max_recipients }}">
   <h2 class="dw-confirm__title" id="hc-share-title">Compartir {{ selection.items | length }} perfil{{ '' if selection.items | length == 1 else 'es' }}</h2>
   <p class="field-hint busqueda-contact__context">Cada nombre enlaza al CV en SharePoint. Quien lo reciba lo abre con sus propios permisos de SharePoint: no se crean enlaces nuevos ni se cambian permisos. No se incluyen datos de contacto.</p>
   {% if selection.unavailable %}<p class="field-hint field-hint--warn" data-share-unavailable-note>{{ selection.unavailable | length }} candidato{{ ' ya no está disponible y se quitó' if selection.unavailable | length == 1 else 's ya no están disponibles y se quitaron' }} de la selección.</p>{% endif %}
@@ -32,6 +32,7 @@
       </div>
     </div>
     <p class="field-hint field-hint--warn" data-share-dir-blocked{% if directory_enabled %} hidden{% endif %}>La búsqueda de destinatarios corporativos todavía no está habilitada (permiso de directorio pendiente). Podés usar «Copiar mensaje» o «Abrir Outlook».</p>
+    {% if recipient_provider == 'allowlist' and directory_enabled %}<p class="field-hint" data-share-provider-note>Modo transitorio: los destinatarios disponibles son los usuarios habilitados de Capital Humano.</p>{% endif %}
     <p class="field-hint">El acceso a los CVs está sujeto a los permisos de SharePoint del destinatario.</p>
   </div>
   <div class="feedback-field">

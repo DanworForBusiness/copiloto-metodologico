@@ -376,6 +376,11 @@ HC_DOCUMENT_WRITE_SCOPE = _env("HC_DOCUMENT_WRITE_SCOPE", "")
 # secreto: se expone vía `/api/auth/microsoft/config` para que `hub_auth.js` pida ESTE scope adicional, igual que `HC_DOCUMENT_WRITE_SCOPE`.
 # NUNCA se concede a la identidad técnica de notificaciones (client credentials, solo `Mail.Send`): la búsqueda usa el token DELEGADO del usuario.
 HC_DIRECTORY_SEARCH_SCOPE = _env("HC_DIRECTORY_SEARCH_SCOPE", "")
+# Proveedor de destinatarios de «Enviar por correo» — modalidad EXPLÍCITA (nunca un fallback automático ante errores de Graph):
+#   "directory" (default, definitivo): directorio Microsoft Entra con el token delegado (requiere HC_DIRECTORY_SEARCH_SCOPE consentido).
+#   "allowlist" (TRANSITORIO, retirable sin tocar la UI): catálogo gobernado = HUMAN_CAPITAL_ALLOWED_USERS (mismo parser y normalización
+#   que la admisión a Capital Humano: alias compacto + AUTH_DEFAULT_DOMAIN), solo direcciones del dominio corporativo. Sin destinatarios externos.
+HC_SHARE_RECIPIENTS_PROVIDER = _env("HC_SHARE_RECIPIENTS_PROVIDER", "directory").strip().lower()
 # Carga masiva de CVs — Excel modelo descargable (owner, paridad con la app
 # vigente). A diferencia de HC_SHAREPOINT_SITE_ID/DRIVE_ID/HC_CV_ROOT_ITEM_ID
 # arriba, esto NO es identidad Graph (site_id/drive_id/item_id) -- es

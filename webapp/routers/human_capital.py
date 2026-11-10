@@ -1333,8 +1333,8 @@ def human_capital_profiles_share_dialog(request: Request, profile_ids: list[str]
     return templates.TemplateResponse(
         request=request, name="partials/human_capital_share_dialog_content.html",
         context={"selection": selection, "subject": human_capital_share.DEFAULT_SUBJECT, "intro": human_capital_share.INTRO, "outro": human_capital_share.OUTRO,
-                 "max_profiles": human_capital_share.MAX_SHARE_PROFILES, "directory_enabled": bool(profile_send.directory_scope()),
-                 "max_recipients": profile_send.MAX_RECIPIENTS},
+                 "max_profiles": human_capital_share.MAX_SHARE_PROFILES, "directory_enabled": profile_send.recipients_enabled(),
+                 "recipient_provider": profile_send.recipient_provider(), "max_recipients": profile_send.MAX_RECIPIENTS},
         headers=_NO_STORE,
     )
 
@@ -1349,12 +1349,12 @@ def human_capital_share_recipients(request: Request, q: str = Form(""), graph_to
         return JSONResponse({"error": "No autorizado"}, status_code=403)
     if not same_origin_guard.is_same_origin_write(request):
         return JSONResponse({"error": "Origen no permitido"}, status_code=403)
-    if not profile_send.directory_scope():
+    if not profile_send.recipients_enabled():
         return JSONResponse({"blocked": True, "message": "La búsqueda de destinatarios corporativos todavía no está habilitada (permiso de directorio pendiente)."}, status_code=503, headers=_NO_STORE)
-    if not graph_token:
+    if profile_send.needs_delegated_token() and not graph_token:
         return JSONResponse({"error": "Sin autorización de Microsoft"}, status_code=401, headers=_NO_STORE)
     try:
-        results = profile_send.search_directory(q, graph_token)
+        results = profile_send.search_recipients(q, graph_token)
     except profile_send.DirectorySearchUnavailable:
         return JSONResponse({"blocked": True, "message": "El Hub todavía no tiene permiso para buscar en el directorio corporativo."}, status_code=503, headers=_NO_STORE)
     except profile_send.DirectoryError:
@@ -1375,7 +1375,7 @@ def human_capital_share_send(request: Request, profile_ids: list[str] = Form([])
         return JSONResponse({"status": "error", "message": "No autorizado"}, status_code=403)
     if not same_origin_guard.is_same_origin_write(request):
         return JSONResponse({"status": "error", "message": "Origen no permitido"}, status_code=403)
-    if not graph_token:
+    if profile_send.needs_delegated_token() and not graph_token:
         return JSONResponse({"status": "error", "message": "Sin autorización de Microsoft para validar destinatarios."}, status_code=401, headers=_NO_STORE)
     try:
         choice_map = json.loads(choice) if choice else {}

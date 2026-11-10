@@ -374,3 +374,72 @@ def test_dialog_recipient_selector_confirmation_and_double_click_in_the_browser_
     out = subprocess.run([node, str(_HARNESS)], capture_output=True, text=True, timeout=60)
     assert out.returncode == 0, out.stdout + out.stderr
     assert "ALL PROFILE SEND DIALOG CHECKS PASSED" in out.stdout
+
+
+# ── proveedor TRANSITORIO «allowlist» (catálogo gobernado = HUMAN_CAPITAL_ALLOWED_USERS), explícito y retirable ──────────────────────────
+@pytest.fixture
+def allowlist(graph, monkeypatch):
+    monkeypatch.setattr(config, "HC_SHARE_RECIPIENTS_PROVIDER", "allowlist", raising=False)
+    monkeypatch.setattr(config, "HC_DIRECTORY_SEARCH_SCOPE", "")                                     # sin permiso de directorio: el caso real de hoy
+    monkeypatch.setattr(config, "AUTH_DEFAULT_DOMAIN", "danwor.com", raising=False)
+    monkeypatch.setattr(auth_service, "HUMAN_CAPITAL_ALLOWED_USERS", f"{HC}, Compacto.Usuario , externo@gmail.com")
+    return graph
+
+
+def test_allowlist_catalog_derives_corporate_addresses_only():
+    from webapp.services import auth_service as a  # noqa: F401 — mismo parser que la admisión
+    import config as c
+    old = (a.HUMAN_CAPITAL_ALLOWED_USERS, getattr(c, "AUTH_DEFAULT_DOMAIN", "danwor.com"))
+    try:
+        a.HUMAN_CAPITAL_ALLOWED_USERS = "Ana.Uno, bruno@danwor.com, externo@gmail.com, ALL"
+        c.AUTH_DEFAULT_DOMAIN = "danwor.com"
+        emails = [r["email"] for r in profile_send.allowlist_recipients()]
+        assert emails == ["ana.uno@danwor.com", "bruno@danwor.com"]                                  # compacto normalizado; sin externos ni el especial «ALL»
+        assert all(r["name"] == r["email"] for r in profile_send.allowlist_recipients())             # sin nombres gobernados: el correo es el nombre visible
+    finally:
+        a.HUMAN_CAPITAL_ALLOWED_USERS, c.AUTH_DEFAULT_DOMAIN = old
+
+
+def test_provider_is_explicit_and_never_a_fallback_for_graph_errors(graph, monkeypatch):
+    for value in ("", "directory", "ALLOW", "otro"):
+        monkeypatch.setattr(config, "HC_SHARE_RECIPIENTS_PROVIDER", value, raising=False)
+        assert profile_send.recipient_provider() == "directory"
+    monkeypatch.setattr(config, "HC_SHARE_RECIPIENTS_PROVIDER", "directory", raising=False)
+    graph.search_error = urllib.error.HTTPError("u", 403, "Forbidden", {}, None)
+    assert search(client(), "hc-").status_code == 503                                               # el directorio bloqueado NO cae al catálogo
+    graph.search_error = urllib.error.HTTPError("u", 503, "Unavailable", {}, None)
+    assert search(client(), "hc-").status_code == 502
+
+
+def test_allowlist_search_uses_the_catalog_without_microsoft_or_token(allowlist):
+    r = search(client(), "hc-send", graph_token="")
+    assert r.status_code == 200 and r.json()["results"] == [{"name": HC, "email": HC}]
+    assert search(client(), "compacto", graph_token="").json()["results"] == [{"name": "compacto.usuario@danwor.com", "email": "compacto.usuario@danwor.com"}]
+    assert search(client(), "gmail", graph_token="").json()["results"] == []                        # el externo no existe para el selector
+    assert search(client(), "hc", graph_token="").json()["results"] == []                           # mismo mínimo de 3 caracteres
+    assert not allowlist.search_calls and not allowlist.get_calls
+
+
+def test_allowlist_send_validates_against_the_catalog_and_uses_the_institutional_mailbox(allowlist):
+    a = candidate()
+    r = send(client(), [a], [HC.upper(), "externo@gmail.com", "otro@danwor.com"], graph_token="")
+    body = r.json()
+    assert r.status_code == 200 and body["status"] == "accepted" and to_of(allowlist) == [HC]
+    assert set(body["invalid"]) == {"externo@gmail.com", "otro@danwor.com"}                         # ni externos ni corporativos fuera del catálogo
+    assert allowlist.sends[0]["token"] == APP_TOKEN and not allowlist.get_calls                     # sin consultas a Microsoft con identidad delegada
+    assert audit()["intent"]["recipients"] == [HC] and audit()["result"]["outcome"] == "accepted"
+
+
+def test_allowlist_without_catalog_entries_stays_blocked(allowlist, monkeypatch):
+    monkeypatch.setattr(auth_service, "HUMAN_CAPITAL_ALLOWED_USERS", "externo@gmail.com")
+    owner = client("owner-send@danwor.com")                                                          # el owner entra a CCHH sin estar en la lista
+    assert search(owner, "externo", graph_token="").status_code == 503
+    html = owner.post("/cchh/candidatos/compartir", data={"profile_ids": [candidate()]}, headers=ORIGIN).text
+    assert 'data-directory-enabled=""' in html and "data-share-dir-blocked hidden" not in html
+
+
+def test_allowlist_dialog_announces_the_transitional_mode_and_keeps_the_same_ui(allowlist):
+    html = client().post("/cchh/candidatos/compartir", data={"profile_ids": [candidate()]}, headers=ORIGIN).text
+    assert 'data-recipient-provider="allowlist"' in html and 'data-directory-enabled="1"' in html and "data-share-provider-note" in html
+    for marker in ("data-share-search", "data-share-chips", "data-share-send", 'data-share-copy="mensaje"', "data-share-open"):
+        assert marker in html

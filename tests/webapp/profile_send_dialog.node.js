@@ -50,7 +50,8 @@ function dialog(opts) {
   const o = Object.assign({ directory: true, maxRecipients: 20, items: [{ id: "p1", name: "Ana Candidata", docs: [{ id: "d1", label: "cv.pdf", url: SP + "cv.pdf" }] }] }, opts || {});
   const f = {
     root: node("div", { "data-share-root": "", "data-default-subject": "Perfiles", "data-intro": "Hola", "data-outro": "Saludos",
-                        "data-directory-enabled": o.directory ? "1" : "", "data-max-recipients": String(o.maxRecipients) }),
+                        "data-directory-enabled": o.directory ? "1" : "", "data-max-recipients": String(o.maxRecipients),
+                        "data-recipient-provider": o.provider || "directory" }),
     subject: node("input"), intro: node("textarea"), outro: node("textarea"), list: node("ul"), pending: node("p"), note: node("p"), status: node("p"),
     chips: node("ul"), search: node("input"), results: node("div"), resultsList: node("div"), hint: node("p"), blocked: node("p"),
     sendStatus: node("p"), confirm: node("div"), confirmMsg: node("p"), send: node("button"), open: node("a", { href: "#" }), copy: node("button", { "data-share-copy": "mensaje" }),
@@ -197,6 +198,21 @@ const params = body => { const out = {}; for (const kv of body.split("&")) { con
        "18: «Abrir Outlook» sigue armado con el mensaje");
     api.addRecipient(doc, { email: "ana@danwor.com", name: "Ana" });
     ok(f.send.disabled === true, "18: «Enviar por correo» no se habilita sin directorio");
+  }
+
+  // ── proveedor transitorio «allowlist»: sin token delegado, mismo selector y mismo envío ──
+  {
+    const { doc, f } = dialog({ provider: "allowlist" });
+    const win = makeWin(url => ({ status: 200, data: url === api.DIRECTORY_URL ? { results: [{ name: "hc@danwor.com", email: "hc@danwor.com" }] } : { status: "accepted" } }));
+    let asked = 0;
+    win.dwHumanCapitalDirectoryToken = () => { asked++; return Promise.resolve(""); };
+    api.initShare(doc, store(), win);
+    f.search.value = "hc@"; api.runSearch(doc, win); for (let i = 0; i < 5; i++) await drain();
+    ok(asked === 0 && win.fetches.length === 1 && params(win.fetches[0].body).graph_token[0] === "", "allowlist: busca sin pedir token delegado");
+    ok(f.resultsList.children.length === 1 && f.search.disabled === false, "allowlist: resultados del catálogo en el mismo selector");
+    api.addRecipient(doc, { email: "hc@danwor.com", name: "hc@danwor.com" });
+    api.doSend(doc, win); for (let i = 0; i < 6; i++) await drain();
+    ok(asked === 0 && win.fetches.length === 2 && win.fetches[1].url === api.SEND_URL && api._state().sent === true, "allowlist: envía sin token delegado (el servidor valida contra el catálogo)");
   }
 
   if (failures) { console.log(`${failures} PROFILE SEND DIALOG CHECK(S) FAILED`); process.exit(1); }
