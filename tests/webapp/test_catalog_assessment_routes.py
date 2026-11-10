@@ -864,8 +864,8 @@ def test_every_content_link_in_the_report_uses_the_one_hub_content_link_treatmen
     assert anchors
     kinds = {"content": 0, "support": 0, "back": 0, "action": 0}
     for attrs, inner in anchors:
-        if "data-catalog-regenerate" in attrs:                                                         # acción ICÓNICA de cabecera «Regenerar Catálogo» (mismo ícono que el flujo)
-            assert 'aria-label="Regenerar Catálogo"' in attrs and inner.lstrip().startswith("<svg")
+        if "data-asr-evaluate" in attrs:                                                               # acción ICÓNICA de cabecera «Evaluar la versión actual» (ad hoc)
+            assert 'aria-label="Evaluar la versión actual"' in attrs and inner.lstrip().startswith("<svg")
         elif 'class="table-action-btn chart-tooltip-anchor"' in attrs:                                 # acción ICÓNICA de fila (patrón CCHH; ver test_assessment_contextual_navigation)
             assert ('aria-label="Ver evidencia del hallazgo «' in attrs or 'aria-label="Ver en linaje' in attrs) and inner.lstrip().startswith("<svg")
             kinds["action"] += 1

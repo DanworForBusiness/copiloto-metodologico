@@ -83,6 +83,20 @@ def regenerate_url(request: Request, entry, pack: str) -> str | None:
         return None
 
 
+def evaluate_url(request: Request, status: svc.AssessmentStatus, pack: str, space: str | None) -> str | None:
+    """«Evaluar la versión actual» desde el informe del Assessment: el Assessment AD HOC (Herramientas de Diagnóstico) del MISMO modelo, con cliente, modelo y el Space de su
+    última publicación registrada precargados (editables). Evalúa con el mismo motor SIN publicar ni modificar el Catálogo ni su registro gobernado (regenerar el Catálogo es
+    la acción del detalle del flujo). Solo para quien puede ejecutar esa herramienta; ante cualquier duda, no se ofrece."""
+    from webapp.services import datasphere_assessment_service as dsa
+    stem = next(iter(sorted(dsa.ASSESSMENT_MODULES)), None)
+    try:
+        if not stem or not status.terminal_am or not dsa.tool_enabled(stem) or not dsa.can_execute(request):
+            return None
+        return dsa.catalog_prefill_url(stem, pack, status.client, status.terminal_am, space or "")
+    except Exception:                                    # noqa: BLE001 — acción opcional: nunca rompe el informe
+        return None
+
+
 def _published_space(entry, status: svc.AssessmentStatus) -> str | None:
     """Space de publicación del modelo, SOLO desde el ledger de publicación (evidencia persistida); si no hay, no se muestra."""
     try:
@@ -94,12 +108,13 @@ def _published_space(entry, status: svc.AssessmentStatus) -> str | None:
 def _report_response(request: Request, status: svc.AssessmentStatus, entry, pack: str) -> HTMLResponse:
     user = auth_service.session_user(request)
     is_owner = bool(user and access.is_owner_user(user))
-    view = presenter.report_view(status, entry, pack, space=_published_space(entry, status))
+    space = _published_space(entry, status)
+    view = presenter.report_view(status, entry, pack, space=space)
     review_resolution_presenter.enrich(view, status, is_owner=is_owner)     # Iteración III: proyecta resoluciones sobre las revisiones (no toca perfil/Juicio)
     return templates.TemplateResponse(
         request=request, name="partials/catalog_assessment_report.html",
         context={"v": view, "pack": pack,
-                 "regenerate_url": regenerate_url(request, entry, pack),
+                 "evaluate_url": evaluate_url(request, status, pack, space),
                  "governed_contracts": gd_presenter.governed_contract_links(status.profile, status.client, pack)})
 
 
