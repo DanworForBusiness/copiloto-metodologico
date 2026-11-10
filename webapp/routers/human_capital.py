@@ -1362,6 +1362,22 @@ def human_capital_share_recipients(request: Request, q: str = Form(""), graph_to
     return JSONResponse({"results": results}, headers=_NO_STORE)
 
 
+@router.post("/cchh/candidatos/compartir/catalogo", include_in_schema=False)
+def human_capital_share_catalog(request: Request, graph_token: str = Form("")):
+    """Proveedor TRANSITORIO «allowlist»: catálogo de destinatarios (solo `HUMAN_CAPITAL_ALLOWED_USERS`) con nombres del padrón de personal,
+    UNA vez por apertura del selector (el navegador filtra en memoria). El token DELEGADO base de lectura es opcional: sin él, o si SharePoint
+    falla, los nombres quedan como el correo. Con el proveedor del directorio esta ruta no aplica."""
+    if not auth_service.session_user(request):
+        return JSONResponse({"error": "Sin sesión"}, status_code=401)
+    if not human_capital_access.is_human_capital_authorized(request):
+        return JSONResponse({"error": "No autorizado"}, status_code=403)
+    if not same_origin_guard.is_same_origin_write(request):
+        return JSONResponse({"error": "Origen no permitido"}, status_code=403)
+    if profile_send.recipient_provider() != profile_send.PROVIDER_ALLOWLIST:
+        return JSONResponse({"error": "No disponible con el proveedor de directorio"}, status_code=404, headers=_NO_STORE)
+    return JSONResponse(profile_send.allowlist_catalog(graph_token), headers=_NO_STORE)
+
+
 @router.post("/cchh/candidatos/compartir/enviar", include_in_schema=False)
 def human_capital_share_send(request: Request, profile_ids: list[str] = Form([]), recipients: list[str] = Form([]),
                              subject: str = Form(""), message: str = Form(""), choice: str = Form("{}"),

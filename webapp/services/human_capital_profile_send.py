@@ -72,6 +72,30 @@ def allowlist_recipients() -> list[dict]:
     return [{"name": e, "email": e} for e in emails]
 
 
+def roster_names(token: str) -> dict[str, str]:
+    """correo (minúsculas) → nombre del padrón de personal: lista Colaboradores + User Information List del sitio Gestión, leídas con el token
+    DELEGADO base de lectura (`Sites.Read.All`, ya concedido). Reutiliza la resolución existente y validada en vivo de
+    `ReportingRepository.get_colaboradores_email_map` (la capa de REPOSITORIO, no el servicio funcional de Reporting) sin duplicarla.
+    Solo presentación: ante cualquier falla devuelve {} y el selector usa el correo. No persiste nada."""
+    if not token:
+        return {}
+    try:
+        from webapp.services.reporting_repository import ReportingRepository
+        return dict(ReportingRepository().get_colaboradores_email_map(token) or {})
+    except Exception as exc:                                         # noqa: BLE001 — presentación accesoria: nunca bloquea la selección
+        _logger.info("operation=cv_share roster_names_unavailable error=%s", type(exc).__name__)
+        return {}
+
+
+def allowlist_catalog(token: str, *, names=roster_names) -> dict:
+    """Catálogo del proveedor «allowlist» para UNA apertura del selector: SOLO las identidades de `HUMAN_CAPITAL_ALLOWED_USERS` (el padrón
+    nunca agrega destinatarios), con su nombre del padrón cuando existe; si no, el correo. Se pide una vez por apertura y se filtra en memoria."""
+    rows = allowlist_recipients()
+    roster = names(token) if rows else {}
+    out = [{"name": (roster.get(r["email"]) or "").strip() or r["email"], "email": r["email"]} for r in rows]
+    return {"recipients": out, "names_resolved": sum(1 for r in out if r["name"] != r["email"])}
+
+
 def recipients_enabled() -> bool:
     """¿Hay un proveedor de destinatarios utilizable? Directorio: scope delegado configurado. Catálogo: al menos una dirección corporativa."""
     if recipient_provider() == PROVIDER_ALLOWLIST:

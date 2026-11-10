@@ -26,6 +26,7 @@
   var SHARE_URL = "/cchh/candidatos/compartir";
   var DIRECTORY_URL = "/cchh/candidatos/compartir/destinatarios";       // búsqueda EN VIVO del directorio (token delegado)
   var SEND_URL = "/cchh/candidatos/compartir/enviar";                   // envío MANUAL por el buzón institucional
+  var CATALOG_URL = "/cchh/candidatos/compartir/catalogo";              // proveedor transitorio «allowlist»: catálogo una vez por apertura
   var MIN_QUERY = 3;
   var SEARCH_DEBOUNCE = 250;
 
@@ -258,7 +259,7 @@
     if (unavailable.length) { store.remove(unavailable); syncUI(doc, store); }                    // un perfil dado de baja se saca de la selección: el contador no miente
     var maxR = parseInt(root.getAttribute("data-max-recipients"), 10);
     shareState = { items: items, choice: {}, recipients: [], directoryEnabled: !!root.getAttribute("data-directory-enabled"),
-                   provider: root.getAttribute("data-recipient-provider") === "allowlist" ? "allowlist" : "directory",
+                   provider: root.getAttribute("data-recipient-provider") === "allowlist" ? "allowlist" : "directory", catalog: null,
                    maxRecipients: isNaN(maxR) ? 20 : maxR, operationId: newOperationId(win), sending: false, sent: false, _searchSeq: 0 };
     shareField(doc, "data-share-subject").value = root.getAttribute("data-default-subject") || "";
     shareField(doc, "data-share-intro").value = root.getAttribute("data-intro") || "";
@@ -269,6 +270,34 @@
     if (search && !shareState.directoryEnabled) search.disabled = true;                            // sin permiso de directorio: el selector queda inerte (el aviso ya está en el partial)
     renderChips(doc);
     refreshShare(doc);
+    if (shareState.provider === "allowlist" && shareState.directoryEnabled) loadCatalog(doc, win);
+  }
+
+  // «allowlist»: UNA lectura por apertura (catálogo = HUMAN_CAPITAL_ALLOWED_USERS + nombres del padrón con el token base de lectura). Si el
+  // token o SharePoint fallan, el servidor devuelve igual los correos; si la ruta misma falla, la búsqueda informa y se puede reabrir.
+  function loadCatalog(doc, win) {
+    var opened = shareState;
+    var tokenFn = win.dwGraphToken;
+    return Promise.resolve(tokenFn ? tokenFn() : "").catch(function () { return ""; }).then(function (token) {
+      return win.fetch(CATALOG_URL, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                                      body: "graph_token=" + encodeURIComponent(token || "") });
+    }).then(function (res) { return res.ok ? res.json() : { recipients: [] }; }).then(function (data) {
+      if (shareState !== opened) return;                                                         // el diálogo se reabrió mientras cargaba
+      shareState.catalog = (data && data.recipients) || [];
+      var input = shareField(doc, "data-share-search");
+      if (input && (input.value || "").trim().length >= MIN_QUERY) runSearch(doc, win);
+    }).catch(function () { if (shareState === opened) shareState.catalog = []; });
+  }
+
+  function fold(text) { return String(text || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase(); }
+
+  // Coincidencia en memoria: nombre, apellido (cualquier palabra del nombre), alias (parte local) o correo; sin distinguir acentos.
+  function catalogMatches(q) {
+    var needle = fold(q);
+    return (shareState.catalog || []).filter(function (p) {
+      var email = fold(p.email), alias = email.split("@")[0];
+      return fold(p.name).indexOf(needle) !== -1 || email.indexOf(needle) !== -1 || alias.indexOf(needle) !== -1;
+    });
   }
 
   // ───────────────────────── destinatarios: directorio en vivo + chips + envío ─────────────────────────
@@ -342,7 +371,13 @@
       opt.setAttribute("data-share-pick", p.email);
       opt.setAttribute("data-share-pick-name", p.name || p.email);
       opt.setAttribute("aria-selected", hasRecipient(p.email) ? "true" : "false");
-      opt.textContent = p.name && p.name !== p.email ? (p.name + " · " + p.email) : p.email;
+      if (p.name && p.name !== p.email) {                                                         // «Nombre Apellido» y debajo el correo
+        var nameEl = doc.createElement("span"); nameEl.className = "hc-share-option__name"; nameEl.textContent = p.name;
+        var mailEl = doc.createElement("span"); mailEl.className = "hc-share-option__email"; mailEl.textContent = p.email;
+        opt.appendChild(nameEl); opt.appendChild(mailEl);
+      } else {
+        opt.textContent = p.email;
+      }
       listEl.appendChild(opt);
     });
     if (hint) { hint.textContent = rows.length ? "" : "Sin coincidencias en el directorio."; hint.hidden = rows.length > 0; }
@@ -363,6 +398,10 @@
     var q = (input.value || "").trim();
     var hint = shareField(doc, "data-share-results-hint");
     if (q.length < MIN_QUERY) { renderResults(doc, []); if (hint) { hint.textContent = "Escribí al menos " + MIN_QUERY + " caracteres para buscar."; hint.hidden = false; } showResults(doc, true); return; }
+    if (shareState.provider === "allowlist") {                                                  // filtro en memoria: sin consultas por tecla
+      if (shareState.catalog === null) { renderResults(doc, []); if (hint) { hint.textContent = "Cargando destinatarios…"; hint.hidden = false; } showResults(doc, true); return; }
+      renderResults(doc, catalogMatches(q)); showResults(doc, true); return;
+    }
     if (hint) { hint.textContent = "Buscando…"; hint.hidden = false; }
     showResults(doc, true);
     var seq = ++shareState._searchSeq;
@@ -606,7 +645,7 @@
   var api = { STORAGE_KEY: STORAGE_KEY, MAX_SHARE: MAX_SHARE, MAILTO_MAX: MAILTO_MAX, SKIP: SKIP, createStore: createStore, escapeHtml: escapeHtml, safeCvUrl: safeCvUrl, rowsModel: rowsModel, resolveShare: resolveShare, autosize: autosize,
               buildPlain: buildPlain, buildHtml: buildHtml, copyRich: copyRich, refreshShare: refreshShare, renderList: renderList, mailtoUrl: mailtoUrl,
               mailtoFits: mailtoFits, syncUI: syncUI, keepInPlace: keepInPlace, refreshMailto: refreshMailto, initShare: initShare, openShare: openShare, wire: wire,
-              MIN_QUERY: MIN_QUERY, DIRECTORY_URL: DIRECTORY_URL, SEND_URL: SEND_URL, newOperationId: newOperationId, renderChips: renderChips, addRecipient: addRecipient,
+              MIN_QUERY: MIN_QUERY, DIRECTORY_URL: DIRECTORY_URL, SEND_URL: SEND_URL, CATALOG_URL: CATALOG_URL, loadCatalog: loadCatalog, catalogMatches: catalogMatches, newOperationId: newOperationId, renderChips: renderChips, addRecipient: addRecipient,
               removeRecipient: removeRecipient, renderResults: renderResults, runSearch: runSearch, blockDirectory: blockDirectory, sendReady: sendReady, refreshSend: refreshSend,
               showConfirm: showConfirm, hideConfirm: hideConfirm, doSend: doSend, applySendOutcome: applySendOutcome,
               _state: function () { return shareState; } };

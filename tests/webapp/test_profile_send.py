@@ -86,7 +86,8 @@ def graph(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "BASE_DIR", tmp_path)
     monkeypatch.setattr(config, "PERSISTENCE_MODE", "local")
     for name, value in {"NOTIFICATIONS_TENANT_ID": "tenant-x", "NOTIFICATIONS_CLIENT_ID": "client-x", "NOTIFICATIONS_CLIENT_SECRET": SECRET,
-                        "NOTIFICATIONS_SENDER": "hub-notifications@danwor.com", "HC_DIRECTORY_SEARCH_SCOPE": "User.ReadBasic.All"}.items():
+                        "NOTIFICATIONS_SENDER": "hub-notifications@danwor.com", "HC_DIRECTORY_SEARCH_SCOPE": "User.ReadBasic.All",
+                        "HC_SHARE_RECIPIENTS_PROVIDER": "directory"}.items():                                  # explícito: nunca hereda el .env local
         monkeypatch.setattr(config, name, value, raising=False)
     g = _Graph()
     monkeypatch.setitem(profile_send.search_directory.__kwdefaults__, "fetch", g.fetch)
@@ -443,3 +444,63 @@ def test_allowlist_dialog_announces_the_transitional_mode_and_keeps_the_same_ui(
     assert 'data-recipient-provider="allowlist"' in html and 'data-directory-enabled="1"' in html and "data-share-provider-note" in html
     for marker in ("data-share-search", "data-share-chips", "data-share-send", 'data-share-copy="mensaje"', "data-share-open"):
         assert marker in html
+
+
+# ── «allowlist» con nombres del padrón (Colaboradores + User Information List, vía ReportingRepository) ─────────────────────────────────
+ROSTER = {HC: "Helena Castro Ruiz", "colaborador.ajeno@danwor.com": "Persona Fuera De La Lista", "otro.ajeno@danwor.com": "Otra Persona"}
+
+
+@pytest.fixture
+def roster(allowlist, monkeypatch):
+    from webapp.services import reporting_repository
+    calls = []
+
+    def email_map(self, token):
+        calls.append(token)
+        if token == "boom":
+            raise reporting_repository.ReportingGraphError("user_information", 503)
+        return dict(ROSTER)
+    monkeypatch.setattr(reporting_repository.ReportingRepository, "get_colaboradores_email_map", email_map)
+    return calls
+
+
+def catalog(c, token="base-read-token", headers=ORIGIN):
+    return c.post("/cchh/candidatos/compartir/catalogo", data={"graph_token": token}, headers=headers)
+
+
+def test_catalog_enriches_only_allowlisted_identities_with_roster_names(roster):
+    r = catalog(client())
+    body = r.json()
+    assert r.status_code == 200 and r.headers.get("cache-control", "").startswith("no-store")
+    assert body["recipients"] == [{"name": "compacto.usuario@danwor.com", "email": "compacto.usuario@danwor.com"},   # fuera del padrón → correo
+                                  {"name": "Helena Castro Ruiz", "email": HC}]                                        # del padrón → Nombre Apellido
+    assert body["names_resolved"] == 1
+    emails = [x["email"] for x in body["recipients"]]
+    assert "colaborador.ajeno@danwor.com" not in emails and "otro.ajeno@danwor.com" not in emails                   # el padrón NUNCA amplía destinatarios
+    assert "externo@gmail.com" not in emails
+    assert roster == ["base-read-token"]                                                                              # una lectura por apertura, con el token base
+
+
+def test_catalog_falls_back_to_email_when_sharepoint_fails_or_there_is_no_token(roster):
+    for token in ("boom", ""):
+        body = catalog(client(), token=token).json()
+        assert [x["name"] for x in body["recipients"]] == [x["email"] for x in body["recipients"]] and body["names_resolved"] == 0
+    assert roster == ["boom"]                                                                                         # sin token ni se consulta SharePoint
+
+
+def test_catalog_requires_session_authorization_origin_and_the_allowlist_provider(roster, monkeypatch):
+    assert catalog(TestClient(app)).status_code == 401
+    assert catalog(client("otro@danwor.com")).status_code == 403
+    assert catalog(client(), headers={"Origin": "https://evil.example"}).status_code == 403
+    monkeypatch.setattr(config, "HC_SHARE_RECIPIENTS_PROVIDER", "directory", raising=False)
+    assert catalog(client()).status_code == 404                                                                       # el proveedor definitivo no cambia
+    assert roster == []
+
+
+def test_names_are_presentation_only_send_still_validates_allowlist_membership(roster):
+    a = candidate()
+    r = send(client(), [a], [HC, "colaborador.ajeno@danwor.com"], graph_token="")
+    body = r.json()
+    assert body["status"] == "accepted"
+    assert body["recipients"] == [HC] and body["invalid"] == ["colaborador.ajeno@danwor.com"]                        # estar en el padrón no habilita
+    assert roster == []                                                                                               # el envío no consulta el padrón

@@ -200,19 +200,43 @@ const params = body => { const out = {}; for (const kv of body.split("&")) { con
     ok(f.send.disabled === true, "18: «Enviar por correo» no se habilita sin directorio");
   }
 
-  // ── proveedor transitorio «allowlist»: sin token delegado, mismo selector y mismo envío ──
+  // ── proveedor transitorio «allowlist»: catálogo UNA vez por apertura (token base de lectura), filtro en memoria, mismo envío ──
   {
     const { doc, f } = dialog({ provider: "allowlist" });
-    const win = makeWin(url => ({ status: 200, data: url === api.DIRECTORY_URL ? { results: [{ name: "hc@danwor.com", email: "hc@danwor.com" }] } : { status: "accepted" } }));
-    let asked = 0;
-    win.dwHumanCapitalDirectoryToken = () => { asked++; return Promise.resolve(""); };
-    api.initShare(doc, store(), win);
-    f.search.value = "hc@"; api.runSearch(doc, win); for (let i = 0; i < 5; i++) await drain();
-    ok(asked === 0 && win.fetches.length === 1 && params(win.fetches[0].body).graph_token[0] === "", "allowlist: busca sin pedir token delegado");
-    ok(f.resultsList.children.length === 1 && f.search.disabled === false, "allowlist: resultados del catálogo en el mismo selector");
-    api.addRecipient(doc, { email: "hc@danwor.com", name: "hc@danwor.com" });
+    const CATALOG = [{ name: "José Pérez Núñez", email: "jperez@danwor.com" }, { name: "sinnombre@danwor.com", email: "sinnombre@danwor.com" }];
+    const win = makeWin(url => ({ status: 200, data: url === api.CATALOG_URL ? { recipients: CATALOG, names_resolved: 1 } : { status: "accepted" } }));
+    let directoryAsked = 0, baseAsked = 0;
+    win.dwHumanCapitalDirectoryToken = () => { directoryAsked++; return Promise.resolve("x"); };
+    win.dwGraphToken = () => { baseAsked++; return Promise.resolve("base-read-token"); };
+    api.initShare(doc, store(), win); for (let i = 0; i < 5; i++) await drain();
+    ok(win.fetches.length === 1 && win.fetches[0].url === api.CATALOG_URL && params(win.fetches[0].body).graph_token[0] === "base-read-token" && baseAsked === 1 && directoryAsked === 0,
+       "allowlist: UNA carga del catálogo al abrir, con el token BASE de lectura (nunca el de directorio)");
+    const pick = q => { f.search.value = q; api.runSearch(doc, win); return f.resultsList.children.map(o => o.getAttribute("data-share-pick")); };
+    eq(pick("jose"), ["jperez@danwor.com"], "allowlist: busca por nombre sin distinguir acentos");
+    eq(pick("NUÑEZ"), ["jperez@danwor.com"], "allowlist: busca por apellido");
+    eq(pick("jpere"), ["jperez@danwor.com"], "allowlist: busca por alias");
+    eq(pick("sinnombre@dan"), ["sinnombre@danwor.com"], "allowlist: busca por correo; sin nombre resuelto queda el correo");
+    eq(pick("zzz"), [], "allowlist: sin coincidencias");
+    ok(win.fetches.length === 1, "allowlist: escribir no consulta al servidor (filtro en memoria)");
+    pick("pérez");
+    const opt = f.resultsList.children[0];
+    ok(opt.children.length === 2 && opt.children[0].textContent === "José Pérez Núñez" && opt.children[1].textContent === "jperez@danwor.com"
+       && opt.children[1].className === "hc-share-option__email", "allowlist: «Nombre Apellido» y debajo el correo");
+    pick("sinnombre");
+    ok(f.resultsList.children[0].children.length === 0 && f.resultsList.children[0].textContent === "sinnombre@danwor.com", "allowlist: sin nombre, una sola línea con el correo");
+    api.addRecipient(doc, { email: "jperez@danwor.com", name: "José Pérez Núñez" });
     api.doSend(doc, win); for (let i = 0; i < 6; i++) await drain();
-    ok(asked === 0 && win.fetches.length === 2 && win.fetches[1].url === api.SEND_URL && api._state().sent === true, "allowlist: envía sin token delegado (el servidor valida contra el catálogo)");
+    const sent = params(win.fetches[1].body);
+    ok(win.fetches.length === 2 && win.fetches[1].url === api.SEND_URL && sent.recipients[0] === "jperez@danwor.com" && directoryAsked === 0 && api._state().sent === true,
+       "allowlist: envía solo el correo (el nombre es presentación) y sin token de directorio");
+  }
+  {
+    const { doc, f } = dialog({ provider: "allowlist" });
+    const win = makeWin(() => ({ status: 500, data: {} }));
+    win.dwGraphToken = () => Promise.reject(new Error("sin cuenta"));
+    api.initShare(doc, store(), win); for (let i = 0; i < 6; i++) await drain();
+    f.search.value = "abc"; api.runSearch(doc, win);
+    ok(api._state().catalog !== null && f.resultsList.children.length === 0 && /Sin coincidencias/.test(f.hint.textContent), "allowlist: si el catálogo falla no se cuelga (sin resultados, se puede reabrir)");
   }
 
   if (failures) { console.log(`${failures} PROFILE SEND DIALOG CHECK(S) FAILED`); process.exit(1); }
