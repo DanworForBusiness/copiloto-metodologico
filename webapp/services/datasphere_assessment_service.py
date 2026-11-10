@@ -46,6 +46,7 @@ from urllib.parse import urlparse
 
 import config
 from webapp.services import assessment_service as asvc
+from webapp.services import operation_registry as _registry
 
 log = logging.getLogger("danwor.datasphere_assessment")
 
@@ -657,90 +658,26 @@ def load_form_context(key: str) -> dict[str, str]:
 # (esperado: WEB_CONCURRENCY sin definir o 1, y un único proceso uvicorn). Un reinicio o deploy durante la corrida pierde la operación
 # igual que hoy pierde la extracción en curso; un resultado ya guardado no se pierde.
 HEARTBEAT_S = 15.0
-OPERATION_TTL_S = 24 * 3600          # = vida del resultado ad hoc
+OPERATION_TTL_S = _registry.OPERATION_TTL_S          # = vida del resultado ad hoc
 # Plazo máximo de ESPERA del navegador: pasado este tiempo sin `done`, la operación se cierra con OPERATION_TIMEOUT (terminal y visible).
 # No mata la extracción (el CLI es compartido con la publicación y no tiene timeout por lectura): si termina después, su resultado se
 # guarda igual y aparece en «Assessments recientes». Evita el único camino de espera indefinida: una lectura del CLI que nunca vuelve.
 OPERATION_MAX_S = 3 * 3600
-_OPERATION_MAX_EVENTS = 20000
+_OPERATION_MAX_EVENTS = _registry._OPERATION_MAX_EVENTS
 OPERATION_TIMEOUT_MESSAGE = ("La extracción superó el tiempo máximo de seguimiento. Si termina, su resultado aparecerá en «Assessments "
                              "recientes»; revisá en el detalle técnico el último objeto que se estaba leyendo.")
+# El registro vive en `operation_registry` (compartido con la publicación); estos nombres siguen siendo los de siempre.
+_OPERATIONS = _registry._OPERATIONS
+publish_event = _registry.publish_event
+wait_events = _registry.wait_events
+operation_events = _registry.operation_events
 
 
-@dataclass
-class _Operation:
-    owner: str
-    created_at: float
-    events: list = field(default_factory=list)
-    finished_at: float | None = None
-    dropped: int = 0
-
-
-_OPERATIONS: dict[str, _Operation] = {}
-_OPERATIONS_COND = threading.Condition()
-
-
-def start_operation(owner: str, *, now: float | None = None) -> str:
-    now = time.time() if now is None else now
-    run_id = uuid.uuid4().hex
-    with _OPERATIONS_COND:
-        for key in [k for k, op in _OPERATIONS.items() if now - op.created_at > OPERATION_TTL_S]:
-            del _OPERATIONS[key]
-        _OPERATIONS[run_id] = _Operation(owner=owner, created_at=now)
-    return run_id
-
-
-def publish_event(run_id: str, event: dict) -> None:
-    """Agrega un evento ya saneado. ``done`` cierra la operación. Un exceso de líneas se descarta (contado), nunca el ``done``."""
-    with _OPERATIONS_COND:
-        op = _OPERATIONS.get(run_id)
-        if op is None or op.finished_at is not None:
-            return
-        if event.get("t") == "line" and len(op.events) >= _OPERATION_MAX_EVENTS:
-            op.dropped += 1
-            return
-        op.events.append(event)
-        if event.get("t") == "done":
-            op.finished_at = time.time()
-        _OPERATIONS_COND.notify_all()
-
-
-def _close_if_overdue(op: _Operation, now: float) -> None:
-    """Bajo ``_OPERATIONS_COND``: cierra con un `done` terminal la operación que superó ``OPERATION_MAX_S`` sin terminar."""
-    if op.finished_at is None and now - op.created_at > OPERATION_MAX_S:
-        op.events.append({"t": "done", "state": "FAILED", "error_code": "OPERATION_TIMEOUT", "message": OPERATION_TIMEOUT_MESSAGE,
-                          "title": TITLE_EXTRACTION, "errors": {}, "operation_id": None, "duration_s": None, "result_url": None})
-        op.finished_at = now
-        _OPERATIONS_COND.notify_all()
-
-
-def wait_events(run_id: str, cursor: int, timeout: float) -> tuple[list[dict], int, bool]:
-    """Eventos desde ``cursor`` (espera hasta ``timeout`` si no hay nuevos): ``(eventos, cursor nuevo, terminada)``."""
-    with _OPERATIONS_COND:
-        op = _OPERATIONS.get(run_id)
-        if op is None:
-            return [], cursor, True
-        _close_if_overdue(op, time.time())
-        if cursor >= len(op.events) and op.finished_at is None:
-            _OPERATIONS_COND.wait(timeout)
-            op = _OPERATIONS.get(run_id)
-            if op is None:
-                return [], cursor, True
-            _close_if_overdue(op, time.time())
-        new = op.events[cursor:]
-        return list(new), cursor + len(new), op.finished_at is not None
-
-
-def operation_events(run_id: str, owner: str, since: int = 0) -> dict | None:
-    """Recuperación tras un corte: eventos desde ``since`` de una operación PROPIA. La de otro usuario o una vencida es ``None`` (404)."""
-    with _OPERATIONS_COND:
-        op = _OPERATIONS.get(str(run_id or ""))
-        if op is None or not owner or op.owner != owner or time.time() - op.created_at > OPERATION_TTL_S:
-            return None
-        _close_if_overdue(op, time.time())
-        since = max(0, int(since))
-        new = op.events[since:]
-        return {"events": list(new), "next": since + len(new), "finished": op.finished_at is not None}
+def start_operation(owner: str, *, now: float | None = None, meta: dict | None = None) -> str:
+    """Operación de DIAGNÓSTICO en el registro compartido: su cierre por plazo de seguimiento es el OPERATION_TIMEOUT de siempre (no reabre)."""
+    return _registry.start_operation(owner, now=now, meta={"kind": "assessment", **(meta or {})}, max_s=OPERATION_MAX_S, max_events=_OPERATION_MAX_EVENTS,
+                                     timeout_event={"t": "done", "state": "FAILED", "error_code": "OPERATION_TIMEOUT", "message": OPERATION_TIMEOUT_MESSAGE,
+                                                    "title": TITLE_EXTRACTION, "errors": {}, "operation_id": None, "duration_s": None, "result_url": None})
 
 
 # ───────────────────────────── ejecución ─────────────────────────────

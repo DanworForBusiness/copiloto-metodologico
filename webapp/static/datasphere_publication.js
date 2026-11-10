@@ -141,6 +141,7 @@
     setHidden(spinner, false);                                 // extracción en curso: misma fila de procesamiento, spinner visible
 
     let done = null;
+    let opRun = null;                                          // run_id del registro del servidor (aviso global / «Ver ejecución»)
     try {
       const response = await fetch(form.getAttribute("action"), {
         method: "POST", body, credentials: "same-origin", cache: "no-store",
@@ -162,7 +163,10 @@
           buffer = buffer.slice(index + 1);
           if (!raw.trim()) continue;
           const event = JSON.parse(raw);
-          if (event.t === "line") {
+          if (event.t === "start") {
+            opRun = event.run_id || null;
+            if (window.dwCopilotOps) window.dwCopilotOps.attach(opRun);   // el aviso global no la duplica mientras este panel la sigue
+          } else if (event.t === "line") {
             log.textContent += event.v + "\n";
             log.scrollTop = log.scrollHeight;
           } else if (event.t === "phase") {
@@ -170,6 +174,7 @@
             setHidden(spinner, !WORKING.has(event.phase));   // presentación: el spinner solo gira en fases con trabajo en curso
           } else if (event.t === "done") {
             done = event;
+            if (window.dwCopilotOps) window.dwCopilotOps.seen(opRun);     // la vio terminar acá: el aviso global no la repite
           }
         }
       }

@@ -132,7 +132,8 @@ def run_assessment(
         secret = profile.secret
         del profile
     owner = svc.owner_email(request)
-    run_id = svc.start_operation(owner)        # la operación vive en el servidor: el corte de ESTA conexión no la detiene ni la pierde
+    run_id = svc.start_operation(owner, meta={"stem": stem, "pack": selected, "client": values.client, "space": values.space,
+                                             "root_object": values.root_object})   # vive en el servidor: el corte de ESTA conexión (o navegar) no la detiene ni la pierde
 
     failed_done = {"t": "done", "state": "FAILED", "error_code": "EXTRACTION_FAILED", "message": svc.ERROR_MESSAGES["EXTRACTION_FAILED"],
                    "title": svc.TITLE_EXTRACTION, "errors": {}, "operation_id": None, "duration_s": None, "result_url": None}

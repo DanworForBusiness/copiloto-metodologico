@@ -2386,6 +2386,11 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
   font-size: .9rem; line-height: 1; cursor: pointer; padding: 4px 7px; border-radius: 6px; }
 .content-theme-dark .whatsnew-banner__close { color: #9a9aa2; }
 .whatsnew-banner__close:hover { color: inherit; background: rgba(128,128,128,.16); }
+/* Aviso de operaciones del Copiloto (copilot_operations.js): el MISMO banner de Novedades, apilado; el spinner de «procesando» del Hub va en
+   lugar de la marca. Sin estilos nuevos de componente. */
+.copilot-ops > .whatsnew-banner { margin-bottom: 10px; }
+.copilot-ops:not([hidden]) { margin-bottom: 16px; }
+.copilot-op .section-analysis-spinner { flex: none; }
 /* Landing inmersivo (módulo 00): cuando hay banner adentro, el stage pasa a columna
    flex y el iframe llena el resto. Vía :has() → no cambia la clase base (academy-stage
    queda intacta para el resto/los tests); solo aplica si contiene el banner. */

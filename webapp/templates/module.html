@@ -35,11 +35,13 @@
   {% if immersive %}
   <main id="content" class="academy-stage">
     {% if whatsnew_unseen %}{% include "partials/whats_new_banner.html" %}{% endif %}
+    {% include "partials/copilot_operations_notice.html" %}
     <iframe class="content-embed academy-embed" src="{{ iframe_src }}" title="{{ document.summary.title }}" loading="lazy"></iframe>
   </main>
   {% else %}
   <main id="content" class="module-content">
     {% if whatsnew_unseen %}{% include "partials/whats_new_banner.html" %}{% endif %}
+    {% include "partials/copilot_operations_notice.html" %}
     {% set decision_trees = trees | rejectattr("kind", "equalto", "assessment") | list %}
     {% set diagnostic_trees = trees | selectattr("kind", "equalto", "assessment") | list %}
     {# La pestaña Catálogo se muestra cuando hay catálogo generado, EXCEPTO en el

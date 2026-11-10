@@ -54,6 +54,7 @@
     function handle(event) {
       if (event.t === "start") {
         runId = event.run_id || null;                         // cómo retomar la operación del servidor si esta conexión se corta
+        if (window.dwCopilotOps) window.dwCopilotOps.attach(runId);   // el aviso global no la duplica mientras este panel la sigue
       } else if (event.t === "line") {
         log.textContent += event.v + "\n";
         log.scrollTop = log.scrollHeight;
@@ -62,6 +63,7 @@
         setHidden(spinner, !WORKING.has(event.phase));       // presentación: el spinner solo gira en fases con trabajo en curso
       } else if (event.t === "done") {
         done = event;
+        if (window.dwCopilotOps) window.dwCopilotOps.seen(runId);     // la vio terminar acá: el aviso global no la repite
       }                                                        // "ping": latido del servidor, sin efecto visible
     }
     let received = 0;                                          // eventos de la operación ya mostrados (= cursor del servidor; start y ping no cuentan)
