@@ -64,7 +64,11 @@ INSTITUTIONAL = {
     "logo_path": "/static/brand/danwor-logo.png",
     "logo_alt": "Danwor",
     "accent": "#e7b008",
+    "ink": "#e4e4ec",                    # texto principal sobre negro (`--ink` de brand-hero.css: la 1ª línea del título de las tarjetas del Hub)
     "dark": "#0c0c0d",
+    # Pila tipográfica del Hub (`--sans` de brand-hero.css) + fallbacks de sistema para correo: Outlook de escritorio no carga fuentes web, así
+    # que cae en Segoe UI (Windows) / SF (Apple) / Helvetica-Arial; nada se incrusta.
+    "font": "Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif",
     "tagline": "Hub Danwor · Notificaciones automáticas",
 }
 

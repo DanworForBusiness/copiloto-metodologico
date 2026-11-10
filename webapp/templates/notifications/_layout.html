@@ -21,10 +21,16 @@
               <span style="color:#ffffff;font-family:{{ font }};font-size:16px;font-weight:800;letter-spacing:.24em;text-transform:uppercase;">{{ brand.logo_alt }}</span>
               {%- endif %}
             </td>
-            <td valign="middle" align="right" style="text-align:right;">
-              <div style="font-family:{{ font }};font-size:17px;line-height:1.1;font-weight:800;letter-spacing:-.01em;color:#ffffff;">{{ vertical.title }}</div>
-              <div style="font-family:{{ font }};font-size:17px;line-height:1.1;font-weight:800;letter-spacing:-.01em;color:{{ brand.accent }};">{{ vertical.accent }}</div>
-              <div style="margin-top:5px;font-family:{{ font }};font-size:9px;line-height:1.2;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:#8b8b96;">{{ brand.tagline }}</div>
+            <td valign="middle" align="right">
+              {#- Título de la vertical = UNA unidad de dos líneas, como el `h2` de las tarjetas del selector del Hub (brand-hero.css:
+                  `.workspace-tile .access-brand h2`: 1.32rem/21px, peso 800, letter-spacing -.02em, line-height 1.1; 2ª línea en el acento).
+                  El bloque queda a la derecha del logo, pero su texto se alinea a la IZQUIERDA. `<br>` (no `display:block`, que Outlook ignora). -#}
+              <table role="presentation" align="right" cellpadding="0" cellspacing="0">
+                <tr><td align="left" style="text-align:left;">
+                  <div style="margin:0;font-family:{{ brand.font }};font-size:21px;line-height:23px;mso-line-height-rule:exactly;font-weight:800;letter-spacing:-0.42px;color:{{ brand.ink }};">{{ vertical.title }}<br><span style="color:{{ brand.accent }};">{{ vertical.accent }}</span></div>
+                  <div style="margin-top:6px;font-family:{{ brand.font }};font-size:9px;line-height:12px;mso-line-height-rule:exactly;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:#8b8b96;">{{ brand.tagline }}</div>
+                </td></tr>
+              </table>
             </td>
           </tr>
         </table>
