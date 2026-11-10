@@ -97,24 +97,31 @@ def test_catalog_space_never_changes_the_governed_result(world):  # noqa: F811
         assert level(html_with)["data-asr-level"] == level(html_without)["data-asr-level"]
 
 
-# ── «Regenerar Catálogo» en el informe del Catálogo (reemplaza a «Evaluar la versión actual») ────────────────────────
-def test_catalog_report_offers_regenerate_instead_of_evaluating_the_current_version(world, monkeypatch):  # noqa: F811
+# ── Informe del Assessment: «Evaluar la versión actual» (ad hoc); «Regenerar Catálogo» queda en el detalle del flujo ────────
+def test_assessment_report_offers_evaluating_the_current_version_not_regenerating(world, monkeypatch):  # noqa: F811
     from webapp.services import datasphere_publication_service as pubsvc
-    monkeypatch.setattr(pubsvc, "can_execute", lambda request: True)
+    monkeypatch.setattr(pubsvc, "can_execute", lambda request: True)                       # aunque pueda publicar, el informe NO regenera el Catálogo
+    monkeypatch.setattr(dsvc, "can_execute", lambda request: True)
     soup = BeautifulSoup(_catalog_html(), "html.parser")
-    assert soup.select_one("[data-asr-diagnostic]") is None and "Evaluar la versión actual" not in soup.get_text()
-    icon = soup.select_one(".catalog-actionbar [data-catalog-regenerate]")
-    assert icon is not None and icon["href"] == dsvc.publication_prefill_url("04_Modelado_y_Desarrollo", "datasphere_core", "Acme", "4AM_ACME", "")
-    monkeypatch.setattr(pubsvc, "can_execute", lambda request: False)                     # quien no puede publicar no lo ve
-    assert BeautifulSoup(_catalog_html(), "html.parser").select_one("[data-catalog-regenerate]") is None
+    assert soup.select_one("[data-catalog-regenerate]") is None
+    icon = soup.select_one(".catalog-actionbar [data-asr-evaluate]")
+    assert icon is not None and icon["aria-label"] == "Evaluar la versión actual"
+    assert icon["href"] == dsvc.catalog_prefill_url("04_Modelado_y_Desarrollo", "datasphere_core", "Acme", "4AM_ACME")   # sin ledger: Space vacío
+    _write_ledger(("CALIDAD", "4AM_ACME"))
+    icon = BeautifulSoup(_catalog_html(), "html.parser").select_one("[data-asr-evaluate]")
+    assert icon["href"] == dsvc.catalog_prefill_url("04_Modelado_y_Desarrollo", "datasphere_core", "Acme", "4AM_ACME", "CALIDAD")   # Space de la última publicación
+    monkeypatch.setattr(dsvc, "can_execute", lambda request: False)                       # quien no puede ejecutar el ad hoc no lo ve
+    assert BeautifulSoup(_catalog_html(), "html.parser").select_one("[data-asr-evaluate]") is None
 
 
-def test_the_tool_is_prefilled_with_the_model_and_never_with_a_space(owner, fake_export):  # noqa: F811
+def test_the_tool_is_prefilled_with_the_model_and_the_published_space_only(owner, fake_export):  # noqa: F811
     ds._post(owner, data={**ds.VALID, "space": "CALIDAD"})                               # contexto previo de la sesión con un Space
     html = owner.get(f"/modules/{ds.STEM}?pack=datasphere_core&tool=assessment&client=Acme&root=4AM_OTRO").text
     soup = BeautifulSoup(html, "html.parser")
     form = soup.select_one("#dsa-form")
     assert form.select_one('[name="datasphere_root_object"]')["value"] == "4AM_OTRO" and form.select_one('[name="client"]')["value"] == "Acme"
-    assert (form.select_one('[name="space"]').get("value") or "") == ""                 # el Space lo elige el consultor
+    assert (form.select_one('[name="space"]').get("value") or "") == ""                 # sin Space registrado: lo elige el consultor (nunca el de la sesión)
+    html = owner.get(f"/modules/{ds.STEM}?pack=datasphere_core&tool=assessment&client=Acme&root=4AM_OTRO&space=PRODUCCION").text
+    assert BeautifulSoup(html, "html.parser").select_one('#dsa-form [name="space"]')["value"] == "PRODUCCION"   # Space de la última publicación, precargado
     bad = owner.get(f"/modules/{ds.STEM}?pack=datasphere_core&tool=assessment&client=Acme&root=%3Cscript%3E").text
     assert BeautifulSoup(bad, "html.parser").select_one('#dsa-form [name="datasphere_root_object"]')["value"] != "<script>"   # inválido: no precarga

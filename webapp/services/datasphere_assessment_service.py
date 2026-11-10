@@ -298,19 +298,23 @@ def catalog_continuity(record: dict) -> dict:
     return out
 
 
-def catalog_prefill_url(stem: str, pack: str, client: str, root_object: str) -> str:
-    """Enlace del Catálogo a ESTA herramienta con el modelo precargado (cliente + objeto raíz; nunca Space ni credenciales)."""
-    return f"/modules/{stem}?" + urllib.parse.urlencode({"pack": pack, "tool": "assessment", "client": client, "root": root_object})
+def catalog_prefill_url(stem: str, pack: str, client: str, root_object: str, space: str = "") -> str:
+    """Enlace del informe del Catálogo («Evaluar la versión actual») a ESTA herramienta con el modelo precargado: cliente, objeto raíz y, si el ledger lo registra, el Space
+    de su última publicación (editable). Nunca credenciales."""
+    params = {"pack": pack, "tool": "assessment", "client": client, "root": root_object}
+    if space:
+        params["space"] = space
+    return f"/modules/{stem}?" + urllib.parse.urlencode(params)
 
 
 def _catalog_prefill(request, values: dict[str, str]) -> dict[str, str]:
-    """Precarga desde el Catálogo (``?client=…&root=…``): SOLO campos no sensibles y validados. El Space se VACÍA a propósito: el consultor elige desde qué Space
-    evaluar (la versión publicada en el Catálogo puede venir de otro); nunca se infiere. Sin parámetros, el contexto de la sesión queda como estaba."""
+    """Precarga desde el Catálogo (``?client=…&root=…&space=…``): SOLO campos no sensibles y validados. El Space es el de la última publicación registrada (lo manda el
+    informe); sin registro llega vacío y se deja VACÍO (lo elige el consultor; nunca el de la sesión ni inferido). Sin parámetros, el contexto de la sesión queda como estaba."""
     qp = _query_params(request)
-    client, root = str(qp.get("client") or "").strip(), str(qp.get("root") or "").strip()
-    if not (client and root and _PREFILL_RE.match(client) and _PREFILL_RE.match(root)):
+    client, root, space = (str(qp.get(k) or "").strip() for k in ("client", "root", "space"))
+    if not (client and root and _PREFILL_RE.match(client) and _PREFILL_RE.match(root)) or (space and not _PREFILL_RE.match(space)):
         return values
-    return {**values, "client": client, "root_object": root, "space": ""}
+    return {**values, "client": client, "root_object": root, "space": space}
 
 
 def publication_prefill(request, values: dict[str, str]) -> dict[str, str]:
