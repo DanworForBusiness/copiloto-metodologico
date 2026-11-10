@@ -47,7 +47,7 @@ def test_each_attribute_of_a_current_entry_equals_the_oracle(world, key):
     cases = [
         (f"¿Qué casos a revisar tiene {title}{where}?", "Casos a revisar", f"{c['review']} caso"),
         (f"¿Cuál es la confianza de {title}{where}?", "Confianza de la evidencia", CONF_LABEL[c["conf"]]),
-        (f"¿Cuál es la cobertura estricta de {title}{where}?", "Cobertura estricta", f"{c['strict'] * 100:.1f}%"),
+        (f"¿Cuál es la cobertura estricta de {title}{where}?", "Cobertura estricta", __import__("tools.catalog.modeling_assessment.presentation", fromlist=["x"]).percent_text(c["strict"])),
         (f"¿Qué adopción metodológica tiene {title}{where}?", "Adopción metodológica", LEVEL_LABEL[c["level"]]),
         (f"¿Cuál es la consistencia de tipos de {title}{where}?", "Consistencia de tipos", f"{c['score']}/100"),
     ]
@@ -68,7 +68,7 @@ def test_the_single_attribute_answer_shows_only_that_value_with_its_evidence_and
 
 def test_two_attributes_in_one_question_are_both_answered_and_nothing_else(world):
     r = one_entry(ask("¿Qué cobertura y qué confianza tiene Delivery Document?"), world, "dd")
-    assert "95.0%" in r.text and "Alta" in r.text and "Casos a revisar" not in r.text and "Adopción" not in r.text
+    assert "95%" in r.text and "Alta" in r.text and "Casos a revisar" not in r.text and "Adopción" not in r.text
 
 
 def test_the_old_need_scope_declaration_is_replaced_when_a_model_resolves(world):
@@ -78,7 +78,7 @@ def test_the_old_need_scope_declaration_is_replaced_when_a_model_resolves(world)
 # ══ 2. «¿qué sabés de X?»: ficha breve ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
 def test_ficha_has_state_and_the_five_measures(world):
     r = one_entry(ask("¿Qué sabés de Delivery Document?"), world, "dd")
-    for label in ("Estado del Assessment", "Assessment vigente", "Adopción metodológica", "Buena", "Confianza de la evidencia", "Alta", "Cobertura estricta", "95.0%",
+    for label in ("Estado del Assessment", "Assessment vigente", "Adopción metodológica", "Buena", "Confianza de la evidencia", "Alta", "Cobertura estricta", "95%",
                   "Consistencia de tipos", "90/100", "Casos a revisar", "7 casos"):
         assert label in r.text, (label, r.text)
     assert "no se combinan en un puntaje" in r.note                                                # sin puntaje global
@@ -92,7 +92,7 @@ def test_ficha_phrasings(world, question):
 # ══ 3. los siete estados se distinguen ══════════════════════════════════════════════════════════════════════════════════════════════════════
 def test_not_determinable_says_it_and_still_answers_the_other_measures(world):
     r = one_entry(ask("¿Qué sabés de Reserva MP?"), world, "mp")
-    assert "No determinable" in r.text and "Falta evidencia afirmativa de fortaleza" in r.text and "85.0%" in r.text and "80/100" in r.text
+    assert "No determinable" in r.text and "Falta evidencia afirmativa de fortaleza" in r.text and "85%" in r.text and "80/100" in r.text
     only = one_entry(ask("¿Qué adopción tiene Reserva MP?"), world, "mp")
     assert "No determinable" in only.text and "Buena" not in only.text and "Plena" not in only.text
 
@@ -296,7 +296,7 @@ def test_an_individual_question_never_reads_a_value_from_another_entry(world):
         r = one_entry(ask(f"¿Qué sabés de {CAST[key]['title']}{where}?"), world, key)
         seen[key] = r.text
     assert len(set(seen.values())) == len(seen)
-    assert "95.0%" in seen["dd"] and "95.0%" not in "".join(t for k, t in seen.items() if k != "dd")
+    assert "95%" in seen["dd"] and "95%" not in "".join(t for k, t in seen.items() if k != "dd")
 
 
 @pytest.mark.parametrize("question", [

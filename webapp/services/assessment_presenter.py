@@ -779,7 +779,10 @@ def percent(value: float | None, decimals: int = 1) -> str:
         return P.percent_text(value)
     from decimal import ROUND_HALF_UP, Decimal
     q = Decimal(1).scaleb(-decimals)
-    return f"{(Decimal(str(value)) * 100).quantize(q, rounding=ROUND_HALF_UP)}%"
+    text = (Decimal(str(value)) * 100).quantize(q, rounding=ROUND_HALF_UP)
+    if text >= 100 and value < 1:                       # nunca «100%» por redondeo si el valor real es menor (0.996 → «99%»)
+        text = Decimal(100) - q
+    return f"{text}%"
 
 
 def confidence_label(level: str) -> str:

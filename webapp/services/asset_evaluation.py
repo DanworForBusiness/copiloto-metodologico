@@ -214,11 +214,12 @@ def governance_view(findings: list[dict] | None) -> dict | None:
 
 def _confidence_help(port: dict) -> list[str]:
     """Qué evidencia respalda la confianza (no confundir cobertura de metadata ni compatibilidad con un destino)."""
+    from webapp.services import assessment_presenter as _presenter   # import local: el presenter importa este módulo (mismo formateador porcentual del informe)
     det = port.get("confianza_detalle")
     if not isinstance(det, dict):
         return ["Evaluado con reglas anteriores (v1): la confianza solo reflejaba la cobertura de metadata."]
     lines = ["Confianza de la evaluación estructural; no mide la compatibilidad con un destino.",
-             f"Cobertura de metadata: {round(float(det.get('cobertura') or 0) * 100)} %."]
+             f"Cobertura de metadata: {_presenter.percent(float(det.get('cobertura') or 0))}."]   # mismo criterio porcentual que el informe (sin «100 %» por redondeo)
     if det.get("evidencia_ejercida"):
         lines.append(f"Evidencia estructural ejercida: {_plural(det.get('derivadas_numericas', 0), 'campo numérico derivado', 'campos numéricos derivados')} y "
                      f"{_plural(det.get('relaciones_fk_resueltas', 0), 'relación FK resuelta', 'relaciones FK resueltas')}.")

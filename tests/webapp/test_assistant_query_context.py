@@ -529,7 +529,7 @@ def test_filters_requery_current_data_and_never_reuse_the_old_values(world, monk
     chat.ask("¿Qué entradas tienen mejor cobertura estricta?")
     _mutating_reader(monkeypatch, lambda g: [st.profile["summary"]["coverage"].__setitem__("strict", 0.5) for st in g.statuses.values() if st.profile])
     r = chat.ask("¿Y los de Ventas?")
-    assert {it for it in re.findall(r"assistant-result-metric\"><strong>([^<]+)</strong>", r.raw)} == {"50.0%"}                              # valores vigentes, no los de la lista anterior
+    assert {it for it in re.findall(r"assistant-result-metric\"><strong>([^<]+)</strong>", r.raw)} == {"50%"}                              # valores vigentes, no los de la lista anterior
 
 
 # ── 7. contexto ausente: aclaración determinista, sin LLM ni referencias inventadas ───────────────────────────────────────────────────────────
