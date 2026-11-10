@@ -9,7 +9,7 @@
     var host = document.querySelector("[data-cs-status]");
     if (!host) return;
     var box = document.createElement("div");
-    box.className = "callout callout--" + tone;
+    box.className = "callout callout--feedback callout--" + tone;   // aviso compacto (contrato común de notificaciones)
     box.setAttribute("role", "status");
     var head = document.createElement("div");
     head.className = "callout__head";

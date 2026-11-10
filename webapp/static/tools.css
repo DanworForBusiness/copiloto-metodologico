@@ -2374,13 +2374,29 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 
 /* Banner de Novedades (What's New): barra fina arriba del contenido cuando hay un
    anuncio mas nuevo que el ultimo visto. Acento dorado, theme-aware via --ink/--soft. */
+/* ── NOTIFICACIONES DEL HUB — contrato visual común (referencia: banner de estado de #296) ──────────────────────────────────────────────────────
+   UN solo juego de tokens por tono; cada primitivo de aviso existente (banner `.whatsnew-banner`/`.copilot-op`, `.callout--feedback`, los `.dashboard-empty`
+   que funcionan como aviso) los LEE. Solo presentación: ningún comportamiento (autocierre, cierre manual, visto/no visto, apilado) vive acá.
+   Tonos: info/procesamiento (ámbar, el de Novedades), éxito, advertencia, error y neutro. `--dw-notice-rgb` tiñe borde y fondo; `--dw-notice-ink` colorea
+   la marca, el título y los enlaces; el texto usa el color de cuerpo del banner (claro/oscuro). */
+:root { --dw-notice-text: #4a4a52; --dw-notice-surface: #ffffff; }
+.content-theme-dark { --dw-notice-text: #cfcfd6; --dw-notice-surface: #1b1b1e; }
+/* Fondo OPACO (tinte del tono sobre la superficie del tema): un aviso fijo (toast) nunca deja ver el contenido de abajo. */
+.dw-notice-tone--info, .whatsnew-banner, .callout--feedback.callout--info { --dw-notice-rgb: 231,176,8; --dw-notice-ink: var(--gold); }
+.dw-notice-tone--success, .copilot-op--success, .callout--feedback.callout--success { --dw-notice-rgb: 46,158,91; --dw-notice-ink: #16784a; }
+.callout--feedback.callout--punch, .dw-notice-tone--warn { --dw-notice-rgb: 211,160,0; --dw-notice-ink: #8a6a00; }
+.dw-notice-tone--error, .copilot-op--failed, .callout--feedback.callout--warn { --dw-notice-rgb: 201,93,93; --dw-notice-ink: #b34b4b; }
+.dw-notice-tone--neutral, .callout--feedback { --dw-notice-rgb: 139,149,165; --dw-notice-ink: #55555c; }
+.content-theme-dark :is(.dw-notice-tone--success, .copilot-op--success, .callout--feedback.callout--success) { --dw-notice-ink: #70d394; }
+.content-theme-dark :is(.dw-notice-tone--warn, .callout--feedback.callout--punch) { --dw-notice-ink: #e7c25a; }
+.content-theme-dark :is(.dw-notice-tone--error, .copilot-op--failed, .callout--feedback.callout--warn) { --dw-notice-ink: #e08a8a; }
+.content-theme-dark :is(.dw-notice-tone--neutral, .callout--feedback:not(.callout--success):not(.callout--punch):not(.callout--warn):not(.callout--info)) { --dw-notice-ink: #b4b8c0; }
 .whatsnew-banner { display: flex; align-items: center; justify-content: space-between; gap: 14px;
-  margin: 0 0 26px; padding: 11px 15px; border: 1px solid rgba(231,176,8,.35); border-radius: 10px;
-  background: rgba(231,176,8,.09); font-size: .82rem; color: #4a4a52; }
-.content-theme-dark .whatsnew-banner { color: #cfcfd6; }
+  margin: 0 0 26px; padding: 11px 15px; border: 1px solid rgba(var(--dw-notice-rgb), .35); border-radius: 10px;
+  background: color-mix(in srgb, rgb(var(--dw-notice-rgb)) 9%, var(--dw-notice-surface)); font-size: .82rem; color: var(--dw-notice-text); }
 .whatsnew-banner__msg { display: flex; align-items: center; gap: 10px; line-height: 1.4; }
-.whatsnew-banner__mark { color: var(--gold); font-size: 1rem; }
-.whatsnew-banner__cta { color: var(--gold); font-weight: 600; white-space: nowrap; }
+.whatsnew-banner__mark { color: var(--dw-notice-ink); font-size: 1rem; }
+.whatsnew-banner__cta { color: var(--dw-notice-ink); font-weight: 600; white-space: nowrap; }
 .whatsnew-banner__cta:hover { text-decoration: underline; }
 .whatsnew-banner__close { flex: none; border: 0; background: transparent; color: #7a7a82;
   font-size: .9rem; line-height: 1; cursor: pointer; padding: 4px 7px; border-radius: 6px; }
@@ -2391,13 +2407,7 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 .copilot-ops > .whatsnew-banner { margin-bottom: 10px; }
 .copilot-ops:not([hidden]) { margin-bottom: 16px; }
 .copilot-op .section-analysis-spinner { flex: none; }
-/* Estado final del aviso: tonos ya usados por el Hub (verde de `.catalog-pill--ok`, rojo de `.feedback-error`). */
-.copilot-op--success { border-color: rgba(46,158,91,.35); background: rgba(46,158,91,.08); }
-.copilot-op--success .whatsnew-banner__mark, .copilot-op--success .whatsnew-banner__cta { color: #16784a; }
-.content-theme-dark .copilot-op--success .whatsnew-banner__mark, .content-theme-dark .copilot-op--success .whatsnew-banner__cta { color: #70d394; }
-.copilot-op--failed { border-color: rgba(201,93,93,.4); background: #c95d5d17; }
-.copilot-op--failed .whatsnew-banner__mark, .copilot-op--failed .whatsnew-banner__cta { color: #b34b4b; }
-.content-theme-dark .copilot-op--failed .whatsnew-banner__mark, .content-theme-dark .copilot-op--failed .whatsnew-banner__cta { color: #e08a8a; }
+/* Estado final del aviso (`.copilot-op--success` / `--failed`): sus tonos los da el contrato común de notificaciones (arriba, junto a `.whatsnew-banner`). */
 /* «Detalle de ejecución» (panel CENTRAL): rigen los tokens semánticos del contenido por tema, no los del panel lateral (mismo patrón que .sap-types-view). */
 /* Loader estándar del Hub en el lugar de una acción del Catálogo mientras su modelo se publica (copilot_operations.js). */
 .catalog-card__head .op-surface-loader { margin: 0 4px 0 auto; align-self: center; }
@@ -3104,6 +3114,40 @@ details:not([open]) > summary > .panel-close[data-asr-close] { display: none; }
 .table-action-btn.chart-tooltip-anchor .chart-tooltip p, .panel-close.chart-tooltip-anchor .chart-tooltip p { margin: 0; color: inherit; font-size: inherit; line-height: 1.35; }
 .content-theme-dark .ln-edge-legend { fill: #9a9aa2; }
 
+/* ── NOTIFICACIONES DEL HUB (cont.): mismos tokens y misma caja que el banner de estado ────────────────────────────────────────────────────────
+   1) `.callout--feedback` (avisos de resultado de una acción: guardado, error, conflicto, baja… en Capital Humano, Operaciones, Comercial y Copiloto).
+      Los callouts EDITORIALES (sin `--feedback`: contenido, informes, presentaciones) NO cambian. Estructura (cabecera/ícono/título/cuerpo) intacta. */
+.callout.callout--feedback { margin: 14px 0; padding: 11px 15px; border: 1px solid rgba(var(--dw-notice-rgb), .35); border-radius: 10px;
+  background: color-mix(in srgb, rgb(var(--dw-notice-rgb)) 9%, var(--dw-notice-surface)); color: var(--dw-notice-text); font-size: .82rem; line-height: 1.5; overflow-wrap: anywhere; }
+.callout--feedback .callout__icon, .callout--feedback .callout__title { color: var(--dw-notice-ink); }
+.callout--feedback .callout__body { color: var(--dw-notice-text); }
+.callout--feedback .callout__body a { color: var(--dw-notice-ink); font-weight: 600; }
+/* 2) `.dashboard-empty` usado como AVISO (error de origen/acción/validación, bloqueo, resultado de una operación). Los estados VACÍOS reales (sin estos
+      atributos) conservan su caja punteada. El HTML no cambia: el autocierre (`initAutoDismissFeedback`) y el cierre manual de CCHH siguen leyendo
+      `.dashboard-empty` exactamente igual. Tono error por defecto; un resultado informativo (`role="status"` / `data-outcome`) usa el tono neutro. */
+.dashboard-empty:is([data-error-kind], [role="alert"], [data-blocker], [data-consolidation-notice], [data-consolidation-pending]) { --dw-notice-rgb: 201,93,93; --dw-notice-ink: #b34b4b; }
+.dashboard-empty:is([data-outcome], [role="status"]):not([role="alert"]):not([data-error-kind]) { --dw-notice-rgb: 139,149,165; --dw-notice-ink: #55555c; }
+.content-theme-dark .dashboard-empty:is([data-error-kind], [role="alert"], [data-blocker], [data-consolidation-notice], [data-consolidation-pending]) { --dw-notice-ink: #e08a8a; }
+.content-theme-dark .dashboard-empty:is([data-outcome], [role="status"]):not([role="alert"]):not([data-error-kind]) { --dw-notice-ink: #b4b8c0; }
+.dashboard-empty:is([data-error-kind], [role="alert"], [role="status"], [data-blocker], [data-outcome], [data-consolidation-notice], [data-consolidation-pending]) {
+  margin: 14px 0; padding: 11px 15px; border: 1px solid rgba(var(--dw-notice-rgb), .35); border-radius: 10px; background: color-mix(in srgb, rgb(var(--dw-notice-rgb)) 9%, var(--dw-notice-surface));
+  color: var(--dw-notice-text); text-align: left; font-size: .82rem; line-height: 1.5; overflow-wrap: anywhere; }
+.dashboard-empty:is([data-error-kind], [role="alert"], [role="status"], [data-blocker], [data-outcome], [data-consolidation-notice], [data-consolidation-pending]) .dashboard-empty__label {
+  margin: 0 0 4px; color: var(--dw-notice-ink); font: 700 .82rem var(--sans); text-transform: none; letter-spacing: 0; }
+.dashboard-empty:is([data-error-kind], [role="alert"], [role="status"], [data-blocker], [data-outcome], [data-consolidation-notice], [data-consolidation-pending]) :is(p, .dashboard-empty__hint) {
+  margin: 0 0 4px; max-width: none; color: inherit; font-size: inherit; line-height: inherit; text-align: left; }
+.dashboard-empty:is([data-error-kind], [role="alert"], [role="status"], [data-blocker], [data-outcome], [data-consolidation-notice], [data-consolidation-pending]) :is(p, .dashboard-empty__hint):last-child { margin-bottom: 0; }
+.dashboard-empty:is([data-error-kind], [role="alert"], [role="status"], [data-blocker], [data-outcome], [data-consolidation-notice], [data-consolidation-pending]) a:not(.btn-primary):not(.btn-secondary) { color: var(--dw-notice-ink); font-weight: 600; }
+/* 2b) Fallo de una EJECUCIÓN (publicación / diagnóstico / «Detalle de ejecución»): es un aviso de resultado, no un error de campo. Solo estos tres
+      usos de `.feedback-error` toman la caja común; los errores de validación de formularios conservan su estilo inline. */
+.feedback-error:is([data-dsp-failed], [data-dsa-failed], [data-op-failed]) { --dw-notice-rgb: 201,93,93; --dw-notice-ink: #b34b4b; margin: 10px 0; padding: 11px 15px;
+  border: 1px solid rgba(var(--dw-notice-rgb), .35); border-radius: 10px; background: color-mix(in srgb, rgb(var(--dw-notice-rgb)) 9%, var(--dw-notice-surface)); color: var(--dw-notice-text); font-size: .82rem; line-height: 1.5; overflow-wrap: anywhere; }
+.content-theme-dark .feedback-error:is([data-dsp-failed], [data-dsa-failed], [data-op-failed]) { --dw-notice-ink: #e08a8a; }
+.feedback-error:is([data-dsp-failed], [data-dsa-failed], [data-op-failed]) strong { color: var(--dw-notice-ink); }
+/* 3) Cierre manual de CCHH (`.hc-notice-close`, app.js): misma «✕» discreta que el banner. */
+.hc-notice--dismissible > .hc-notice-close { border: 0; background: transparent; color: #7a7a82; font-size: .9rem; line-height: 1; padding: 4px 7px; border-radius: 6px; }
+.content-theme-dark .hc-notice--dismissible > .hc-notice-close { color: #9a9aa2; }
+.hc-notice--dismissible > .hc-notice-close:hover { color: inherit; background: rgba(128,128,128,.16); }
 /* ═══ Assessment de modelado en el Catálogo (cabecera del flujo + informe + foco de linaje) ═══
    El informe participa del sistema visual transversal del Hub: `.module-hero`/`.hero-meta`, `.methodology`, `.content-section`
    + `.content-heading`, `.section-subtitle`, `.section-index`, `.callout`(+`-row`), `.content-collapsible`, tablas/listas/links
