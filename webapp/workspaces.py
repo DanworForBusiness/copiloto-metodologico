@@ -182,13 +182,16 @@ WORKSPACE_CARD_COPY = {
 
 
 def brand_identity(key: str) -> dict:
-    """Identidad visual de una vertical para superficies externas al Hub (correos): `title` (texto principal) y `accent` (destacado en el
-    acento institucional), tomados de la MISMA tarjeta del selector; sin tarjeta, del propio `Workspace` (label/subtitle)."""
+    """Identidad visual de una vertical para superficies externas al Hub (correos), tomada de la MISMA tarjeta del selector: `title` (texto
+    principal), `accent` (destacado en el acento institucional), `description` y `features` (capacidades). Sin tarjeta, del propio `Workspace`
+    (label/subtitle), sin descripción ni capacidades."""
     workspace = next((ws for ws in _ALL_WORKSPACES if ws.key == key), None)
     card = WORKSPACE_CARD_COPY.get(key, {})
     return {"key": key,
             "title": card.get("title") or (workspace.label if workspace else ""),
-            "accent": card.get("accent") or (workspace.subtitle if workspace else "")}
+            "accent": card.get("accent") or (workspace.subtitle if workspace else ""),
+            "description": card.get("description") or "",
+            "features": list(card.get("features") or [])}
 
 
 def available_workspaces(user: dict | None) -> list[Workspace]:

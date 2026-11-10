@@ -272,7 +272,9 @@ def test_header_uses_the_shared_logo_and_the_vertical_identity_from_the_hub_regi
     ident = workspaces.brand_identity("operations")
     assert 'src="https://hub.danwor.com/static/brand/danwor-logo.png"' in html and 'alt="Danwor"' in html   # HTTPS público del propio Hub
     assert ident["title"] in html and ident["accent"] in html and ident["title"] == workspaces.WORKSPACE_CARD_COPY["operations"]["title"]
-    assert "Hub Danwor · Notificaciones automáticas" in html
+    card = workspaces.WORKSPACE_CARD_COPY["operations"]
+    assert card["description"] in html and all(feature in html for feature in card["features"])          # hero = la tarjeta de la vertical
+    assert html.index(card["features"][-1]) < html.index("Nueva solicitud de arquitectura</h1>")          # el hero termina antes del contenido del evento
 
 
 def test_without_an_absolute_base_the_logo_is_omitted_and_the_header_stays_readable():

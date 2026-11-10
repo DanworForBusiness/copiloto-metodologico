@@ -1,8 +1,11 @@
-{#- Base COMPARTIDA de los correos del Hub (webapp/services/notifications.py). Capas: identidad institucional (`brand`: logo, negro, acento,
-    identificación secundaria) → identidad de la vertical (`vertical.title` / `vertical.accent`, desde `webapp.workspaces.brand_identity`, la misma
-    tarjeta del selector del Hub) → contenido del evento (`{% block content %}`) → datos de negocio (`d`). Esta plantilla no conoce ninguna vertical
-    por nombre. Compatible con Outlook: tablas + estilos en línea, fuentes seguras, sin CSS externo ni fuentes web. El logo se carga por HTTPS desde
-    `/static` del propio Hub (público); si el cliente bloquea imágenes, su `alt` mantiene la cabecera legible. Todo valor llega escapado. -#}
+{#- Base COMPARTIDA de los correos del Hub (webapp/services/notifications.py). Capas: identidad institucional (`brand`) → identidad de la vertical
+    (`vertical`: title/accent/description/features desde `webapp.workspaces.brand_identity`, la MISMA tarjeta del selector del Hub) → contenido del
+    evento (`{% block content %}`) → datos de negocio (`d`). No conoce ninguna vertical por nombre.
+    HERO = la tarjeta de la vertical del selector reinterpretada para correo (brand-hero.css `.workspace-tile`): fondo oscuro de página, tarjeta con
+    borde sutil y radio 20px, relleno 22/26px, título de dos líneas (21px/800/-0.42px/23px; tinta + acento), descripción 13px/19px atenuada y
+    capacidades con la marca circular dorada. El logo Danwor queda arriba, pequeño y subordinado. Se simplifica (límites del correo): sin
+    backdrop-filter ni sombra, colores sólidos equivalentes en lugar de rgba, y en Outlook de escritorio sin radios (Word ignora border-radius).
+    Compatible con Outlook: tablas + estilos en línea, fuentes seguras; el logo por HTTPS público (su `alt` mantiene el hero legible). -#}
 {%- set font = "'Segoe UI',Arial,Helvetica,sans-serif" -%}
 <!DOCTYPE html>
 <html lang="es">
@@ -11,30 +14,35 @@
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f6;padding:24px 0;">
   <tr><td align="center">
     <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border:1px solid #e3e3e8;border-radius:10px;">
-      <tr><td style="padding:14px 24px;background:{{ brand.dark }};border-radius:10px 10px 0 0;">
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-          <tr>
-            <td valign="middle" style="width:45%;">
-              {%- if brand.logo_url %}
-              <img src="{{ brand.logo_url }}" alt="{{ brand.logo_alt }}" width="132" style="display:block;width:132px;max-width:100%;height:auto;border:0;outline:none;text-decoration:none;color:#ffffff;font-family:{{ font }};font-size:16px;font-weight:800;letter-spacing:.24em;text-transform:uppercase;">
-              {%- else %}
-              <span style="color:#ffffff;font-family:{{ font }};font-size:16px;font-weight:800;letter-spacing:.24em;text-transform:uppercase;">{{ brand.logo_alt }}</span>
-              {%- endif %}
-            </td>
-            <td valign="middle" align="right">
-              {#- Título de la vertical = UNA unidad de dos líneas, como el `h2` de las tarjetas del selector del Hub (brand-hero.css:
-                  `.workspace-tile .access-brand h2`: 1.32rem/21px, peso 800, letter-spacing -.02em, line-height 1.1; 2ª línea en el acento).
-                  El bloque queda a la derecha del logo, pero su texto se alinea a la IZQUIERDA. `<br>` (no `display:block`, que Outlook ignora). -#}
-              <table role="presentation" align="right" cellpadding="0" cellspacing="0">
-                <tr><td align="left" style="text-align:left;">
-                  <div style="margin:0;font-family:{{ brand.font }};font-size:21px;line-height:23px;mso-line-height-rule:exactly;font-weight:800;letter-spacing:-0.42px;color:{{ brand.ink }};">{{ vertical.title }}<br><span style="color:{{ brand.accent }};">{{ vertical.accent }}</span></div>
-                  <div style="margin-top:6px;font-family:{{ brand.font }};font-size:9px;line-height:12px;mso-line-height-rule:exactly;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:#8b8b96;">{{ brand.tagline }}</div>
-                </td></tr>
-              </table>
-            </td>
-          </tr>
+      {#- ── HERO de la vertical (fondo oscuro de página + tarjeta) ─────────────────────────────────────────────────────────── #}
+      <tr><td style="padding:22px 24px 26px;background:{{ brand.dark }};border-radius:10px 10px 0 0;">
+        {%- if brand.logo_url %}
+        <img src="{{ brand.logo_url }}" alt="{{ brand.logo_alt }}" width="96" style="display:block;width:96px;max-width:100%;height:auto;border:0;outline:none;text-decoration:none;margin:0 0 16px;color:{{ brand.ink }};font-family:{{ brand.font }};font-size:13px;font-weight:800;letter-spacing:.24em;text-transform:uppercase;">
+        {%- else %}
+        <div style="margin:0 0 16px;color:{{ brand.ink }};font-family:{{ brand.font }};font-size:13px;font-weight:800;letter-spacing:.24em;text-transform:uppercase;">{{ brand.logo_alt }}</div>
+        {%- endif %}
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:{{ brand.surface }};border:1px solid {{ brand.line }};border-radius:20px;">
+          <tr><td style="padding:22px 26px;">
+            <div style="margin:0;font-family:{{ brand.font }};font-size:21px;line-height:23px;mso-line-height-rule:exactly;font-weight:800;letter-spacing:-0.42px;color:{{ brand.ink }};">{{ vertical.title }}<br><span style="color:{{ brand.accent }};">{{ vertical.accent }}</span></div>
+            {%- if vertical.description %}
+            <p style="margin:10px 0 0;font-family:{{ brand.font }};font-size:13px;line-height:19px;mso-line-height-rule:exactly;color:{{ brand.muted }};">{{ vertical.description }}</p>
+            {%- endif %}
+            {%- if vertical.features %}
+            <table role="presentation" cellpadding="0" cellspacing="0" style="margin-top:14px;">
+              {%- for feature in vertical.features %}
+              <tr>
+                <td valign="middle" style="padding:{{ '0' if loop.first else '7px' }} 8px 0 0;">
+                  <table role="presentation" cellpadding="0" cellspacing="0"><tr><td align="center" valign="middle" width="17" height="17" style="width:17px;height:17px;background:{{ brand.accent }};border-radius:999px;color:{{ brand.dark }};font-family:Arial,sans-serif;font-size:9px;line-height:17px;mso-line-height-rule:exactly;font-weight:900;">&#10003;</td></tr></table>
+                </td>
+                <td valign="middle" style="padding:{{ '0' if loop.first else '7px' }} 0 0;font-family:{{ brand.font }};font-size:12px;line-height:17px;mso-line-height-rule:exactly;color:{{ brand.feature_ink }};">{{ feature }}</td>
+              </tr>
+              {%- endfor %}
+            </table>
+            {%- endif %}
+          </td></tr>
         </table>
       </td></tr>
+      {#- ── fin del hero: empieza el contenido transaccional del evento ─────────────────────────────────────────────── #}
       {% block content %}{% endblock %}
       <tr><td style="padding:14px 24px;border-top:1px solid #eeeef2;font-size:12px;color:#7a7a82;">
         Comunicación automática del Hub Danwor. No respondas a este correo.

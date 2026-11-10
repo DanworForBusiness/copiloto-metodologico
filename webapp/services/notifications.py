@@ -66,10 +66,16 @@ INSTITUTIONAL = {
     "accent": "#e7b008",
     "ink": "#e4e4ec",                    # texto principal sobre negro (`--ink` de brand-hero.css: la 1ª línea del título de las tarjetas del Hub)
     "dark": "#0c0c0d",
+    # Tarjeta de vertical del selector del Hub (brand-hero.css `.workspace-tile` / `.access-*`), en valores SÓLIDOS equivalentes (Outlook no soporta
+    # rgba ni backdrop-filter): superficie rgba(20,20,22,.62) sobre #0c0c0d, borde 1px rgba(231,176,8,.16), descripción `--ink-soft`, capacidades
+    # rgba(228,228,236,.92).
+    "surface": "#141416",
+    "line": "#2c2510",
+    "muted": "#8b8b96",
+    "feature_ink": "#d3d3da",
     # Pila tipográfica del Hub (`--sans` de brand-hero.css) + fallbacks de sistema para correo: Outlook de escritorio no carga fuentes web, así
     # que cae en Segoe UI (Windows) / SF (Apple) / Helvetica-Arial; nada se incrusta.
     "font": "Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif",
-    "tagline": "Hub Danwor · Notificaciones automáticas",
 }
 
 
