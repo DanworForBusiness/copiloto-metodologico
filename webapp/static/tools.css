@@ -3070,7 +3070,7 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
    nombres técnicos completos (la celda ajusta en varias líneas en vez de truncar; el valor también queda en el title). */
 #dsp-replace-dialog .dw-confirm__msg { margin: 0 0 12px; }
 #dsp-replace-dialog .rr-dialog__lead { font-weight: 650; color: inherit; }
-#dsp-replace-dialog .matrix-scroll { margin: 0 0 12px; }
+#dsp-replace-dialog .matrix-scroll + .dw-confirm__msg { margin-top: 12px; }   /* aire tabla → veredicto sin redeclarar el primitivo .matrix-scroll */
 #dsp-replace-dialog .dashboard-table { font-size: .78rem; }
 #dsp-replace-dialog .dashboard-table td.left { white-space: normal; overflow-wrap: anywhere; }
 details:not([open]) > summary > .panel-close[data-asr-close] { display: none; }
