@@ -506,7 +506,9 @@ async def operations_busqueda_delete(request: Request, busqueda_id: str):
         return _render_detail(request, user, view, 503, error=_MSG_STORAGE)
     except ValueError as exc:
         return _render_detail(request, user, view, 422, error=str(exc))
-    return RedirectResponse(url=f"{BASE_PATH}?ok=eliminada", status_code=303)
+    # Vuelve al listado EN EL MISMO CONTEXTO (filtros/página) si la acción vino de él (`?return_to=` validado); si no, al listado base.
+    target = pagination.list_return_context(request.query_params, BASE_PATH)["return_to"] or f"{BASE_PATH}?ok=eliminada"
+    return RedirectResponse(url=target, status_code=303)
 
 
 @router.post(BASE_PATH + "/{busqueda_id}/cancelar", response_class=HTMLResponse, include_in_schema=False)

@@ -280,8 +280,14 @@ def test_the_delete_action_and_confirmation_only_exist_on_eligible_requests(esta
     if shown:
         assert 'class="dw-confirm busqueda-dialog"' in html and "no la haya tomado en gestión" in html and "elimina definitivamente" in html
         assert "Podés editarla" in html or "Corregí los datos" in html                                      # el resto de la pantalla no cambia
-    # la lista nunca ofrece controles de eliminación
-    assert "/eliminar" not in ops().get(BASE).text
+    # El LISTADO también ofrece Eliminar en la columna Acciones (decisión del owner 2026-11-10), pero SOLO en las elegibles:
+    # habilitado con la confirmación estándar del Hub (`data-dw-confirm-form`) y preservando filtros (`return_to`); en el resto,
+    # el slot queda como control atenuado sin acción (misma regla server-side `solicitud_puede_eliminar`, el backend revalida).
+    list_html = ops().get(BASE).text
+    assert (f'action="{BASE}/{SID}/eliminar' in list_html) is shown
+    assert ("data-dw-confirm-form" in list_html) is shown
+    if not shown:
+        assert "Eliminar no disponible" in list_html
 
 
 def test_cancel_keeps_working_exactly_as_before_and_is_distinct_from_delete():
