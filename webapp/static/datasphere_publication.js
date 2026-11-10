@@ -121,6 +121,8 @@
     // Estado inicial limpio de la corrida
     form.querySelectorAll("[data-dsp-error]").forEach((p) => { p.textContent = ""; p.hidden = true; });
     setHidden(el(panel, "[data-dsp-failed]"), true);
+    setHidden(el(panel, "[data-dsp-done]"), true);
+    setHidden(el(panel, "[data-dsp-bg]"), true);
     log.textContent = "";
     detail.open = true;
 
@@ -141,6 +143,7 @@
     setHidden(spinner, false);                                 // extracción en curso: misma fila de procesamiento, spinner visible
 
     let done = null;
+    let opRun = null;                                          // run_id del registro del servidor (aviso global / «Ver ejecución»)
     try {
       const response = await fetch(form.getAttribute("action"), {
         method: "POST", body, credentials: "same-origin", cache: "no-store",
@@ -162,7 +165,10 @@
           buffer = buffer.slice(index + 1);
           if (!raw.trim()) continue;
           const event = JSON.parse(raw);
-          if (event.t === "line") {
+          if (event.t === "start") {
+            opRun = event.run_id || null;
+            if (window.dwCopilotOps) window.dwCopilotOps.attach(opRun, el(panel, "[data-dsp-bg]"));   // aviso compacto «segundo plano» + el global no la duplica
+          } else if (event.t === "line") {
             log.textContent += event.v + "\n";
             log.scrollTop = log.scrollHeight;
           } else if (event.t === "phase") {
@@ -170,6 +176,7 @@
             setHidden(spinner, !WORKING.has(event.phase));   // presentación: el spinner solo gira en fases con trabajo en curso
           } else if (event.t === "done") {
             done = event;
+            if (window.dwCopilotOps) window.dwCopilotOps.seen(opRun);     // la vio terminar acá: el aviso global no la repite
           }
         }
       }
@@ -177,17 +184,20 @@
       done = { state: "FAILED", error_code: "CONNECTION_INTERRUPTED", title: "No se pudo publicar el modelo", message: "Se interrumpió la conexión con el servidor. Revisá el detalle técnico e intentá nuevamente.", errors: {} };
     }
 
-    if (done && done.state === "SUCCESS" && done.result_url) {
-      window.location.assign(done.result_url);                // la pestaña Catálogo se abre sola; el botón queda deshabilitado hasta salir
-      return;
+    // Éxito: NUNCA se navega solo (el usuario puede estar en otra sección); el panel ofrece «Abrir Catálogo» y el aviso global también.
+    const doneBox = el(panel, "[data-dsp-done]");
+    if (done && done.state === "SUCCESS" && done.result_url && doneBox) {
+      el(doneBox, "[data-dsp-done-link]").href = done.result_url;
+      setHidden(doneBox, false);
     }
 
+    setHidden(el(panel, "[data-dsp-bg]"), true);                // terminó: el resultado lo informa el panel
     submit.disabled = false;
     submit.removeAttribute("aria-busy");
     setReplacePending(form, false);                            // el resultado (éxito o error) lo informa el panel; el aviso de la corrida se retira
     status.textContent = "";
     setHidden(spinner, true);                                  // la falla detiene el estado de procesamiento
-    if (!done) return;
+    if (!done || done.state === "SUCCESS") return;
 
     if (done.state === "INVALID") {
       Object.entries(done.errors || {}).forEach(([field, message]) => {

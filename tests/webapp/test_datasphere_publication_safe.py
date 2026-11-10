@@ -157,9 +157,9 @@ def test_the_done_event_carries_status_durability_and_stages_and_only_success_op
     assert bool(done["result_url"]) is expect_url
 
 
-def test_the_ui_only_navigates_on_success_so_a_partial_is_shown_as_a_warning_not_a_success():
+def test_the_ui_only_offers_the_result_on_success_so_a_partial_is_shown_as_a_warning_not_a_success():
     js = (REPO / "webapp/static/datasphere_publication.js").read_text(encoding="utf-8")
-    assert 'done.state === "SUCCESS" && done.result_url' in js and js.count("window.location.assign") == 1
+    assert 'done.state === "SUCCESS" && done.result_url' in js and "window.location.assign" not in js   # nunca navega solo: «Abrir Catálogo» con clic explícito
     assert "PARTIAL" not in js                                                                                  # PARTIAL cae en el bloque de aviso (título/mensaje) con el botón rehabilitado para reintentar
 
 

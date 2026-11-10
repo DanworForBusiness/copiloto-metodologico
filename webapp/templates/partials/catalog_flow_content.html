@@ -11,6 +11,7 @@
    acción del assessment (Ver Assessment / Generar, con carga integrada) y el Informe de Cliente van a la derecha; el hero
    arranca debajo. `support-links heading-supports` se conserva (patrón del pipeline de contenido y anclado por regresiones). #}
 <div class="catalog-actionbar">
+  <span hidden data-op-detail-url="/catalog/flow?cliente={{ cliente|urlencode }}&flow={{ entry_id|urlencode }}&pack={{ pack|urlencode }}"></span>{# refresco en el lugar al terminar una publicación de este modelo (copilot_operations.js) #}
   {% if focus_csv and assessment_url %}{# llegó desde el informe: "Volver" regresa a quien lo invocó #}
   <a class="catalog-back" href="#" role="button" hx-get="{{ assessment_url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML" @click.prevent>← Volver</a>
   {% else %}<a class="catalog-back" href="#" onclick="return dwCatalogBack();">← Volver</a>{% endif %}

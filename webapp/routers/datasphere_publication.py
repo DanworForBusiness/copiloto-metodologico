@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import json
 import logging
-import queue
 import threading
 from urllib.parse import urlencode
 
@@ -32,12 +31,22 @@ from webapp import same_origin_guard
 from webapp.services import auth_service
 from webapp.services import datasphere_profiles as profiles
 from webapp.services import datasphere_publication_service as svc
+from webapp.services import operation_registry
 from webapp.services.activity_context import AREA_CATALOG, SCOPE_COPILOT
 from webapp.services.activity_service import log_activity
 from webapp.services.activity_catalog import outcome_of
 
 log = logging.getLogger("danwor.datasphere_publication")
 router = APIRouter()
+
+# Plazo de SEGUIMIENTO de una publicación (no de la publicación): vencido, el aviso deja de mostrarla «en curso» SIN afirmar resultado; la
+# publicación sigue y, si termina, su resultado real reemplaza este cierre. Nunca declara un rollback que no se verificó.
+PUBLICATION_MONITOR_MAX_S = 3 * 3600
+PUBLICATION_MONITOR_TIMEOUT = {
+    "t": "done", "state": "UNKNOWN", "error_code": "MONITOR_TIMEOUT", "title": "Seguimiento de la publicación vencido",
+    "message": ("El seguimiento superó su tiempo máximo sin recibir el resultado final. No se canceló nada y no puede afirmarse si la publicación "
+                "se aplicó: revisá el Catálogo y el detalle técnico antes de volver a publicar."),
+    "errors": {}, "result_url": None}
 
 
 def _authorize_read(request: Request, stem: str) -> dict:
@@ -94,47 +103,61 @@ def run_publication(
                                      headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
         secret = profile.secret
         del profile
-    events: queue.Queue = queue.Queue()
+    owner = svc.owner_email(request)
+    # La publicación vive en el registro COMPARTIDO de operaciones (el mismo del diagnóstico): navegar, recargar o un corte de esta conexión no la
+    # detiene ni la pierde; el aviso global del Copiloto la recupera por usuario. Solo metadatos no sensibles; el secreto jamás entra.
+    run_id = operation_registry.start_operation(
+        owner, meta={"kind": "publication", "stem": stem, "pack": selected, "client": values.client, "space": values.space, "root_object": values.root_object},
+        max_s=PUBLICATION_MONITOR_MAX_S, timeout_event=PUBLICATION_MONITOR_TIMEOUT, accept_late_done=True)
 
     def worker() -> None:
         nonlocal secret
         try:
             _work()
-        except Exception:                                                  # noqa: BLE001 — una falla inesperada NUNCA deja el stream sin evento terminal (colgaría al cliente)
+        except Exception:                                                  # noqa: BLE001 — una falla inesperada NUNCA deja la operación sin evento terminal (colgaría al cliente)
             log.exception("datasphere_publication: falla inesperada en el hilo de publicación")
-            events.put({"t": "done", "state": "FAILED", "error_code": "EXTRACTION_FAILED", "message": svc.asd.ERROR_MESSAGES["EXTRACTION_FAILED"],
-                        "title": svc.TITLE_PUBLISH, "errors": {}, "result_url": None})
+            operation_registry.publish_event(run_id, {"t": "done", "state": "FAILED", "error_code": "EXTRACTION_FAILED", "message": svc.asd.ERROR_MESSAGES["EXTRACTION_FAILED"],
+                                                      "title": svc.TITLE_PUBLISH, "errors": {}, "result_url": None})
         finally:
             secret = ""                                                    # el secreto no sobrevive a la ejecución
-            events.put(None)                                               # fin del stream SIEMPRE
 
     def _work() -> None:
-        outcome = svc.run(values, secret, user_email=svc.owner_email(request), replace_token=replacement.valid_token(replace_token),
-                          on_line=lambda line: events.put({"t": "line", "v": line}),
-                          on_phase=lambda phase: events.put({"t": "phase", "phase": phase, "v": svc.PHASE_COPY[phase]}))
-        log_activity("datasphere_publication_run", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG,
-                     client=values.client, space=values.space, root_object=values.root_object,
-                     state=outcome.state, error_code=outcome.error_code, stage=outcome.stage, duration_s=outcome.duration_s,
-                     operation_id=outcome.operation_id, status=getattr(outcome, "status", ""), durability=getattr(outcome, "durability", ""), change=getattr(outcome, "change", ""),
-                     outcome=outcome_of(outcome.state))
+        outcome = svc.run(values, secret, user_email=owner, replace_token=replacement.valid_token(replace_token),
+                          on_line=lambda line: operation_registry.publish_event(run_id, {"t": "line", "v": line}),
+                          on_phase=lambda phase: operation_registry.publish_event(run_id, {"t": "phase", "phase": phase, "v": svc.PHASE_COPY[phase]}))
         # Éxito → abrir la pestaña Catálogo del módulo (el nuevo dominio ya figura tras invalidar la caché).
         result_url = (f"/modules/{stem}?" + urlencode({"pack": selected, "tab": "catalogo"})) if outcome.state == "SUCCESS" else None
-        events.put({"t": "done", "state": outcome.state, "error_code": outcome.error_code, "message": outcome.message,
-                    "title": outcome.title, "errors": outcome.errors, "operation_id": outcome.operation_id,
-                    "duration_s": outcome.duration_s, "result_url": result_url,
-                    "status": getattr(outcome, "status", ""), "durability": getattr(outcome, "durability", ""), "stages": getattr(outcome, "stages", {}),
-                    "change": getattr(outcome, "change", ""), "assessment": {k: len(v) for k, v in (getattr(outcome, "assessment", None) or {}).items()},
-                    "replacement": getattr(outcome, "replacement", None)})            # alcance del conflicto / reemplazo (solo nombres de objetos y modelos; sin rutas)
+        operation_registry.publish_event(run_id, {
+            "t": "done", "state": outcome.state, "error_code": outcome.error_code, "message": outcome.message,
+            "title": outcome.title, "errors": outcome.errors, "operation_id": outcome.operation_id,
+            "duration_s": outcome.duration_s, "result_url": result_url,
+            "status": getattr(outcome, "status", ""), "durability": getattr(outcome, "durability", ""), "stages": getattr(outcome, "stages", {}),
+            "change": getattr(outcome, "change", ""), "assessment": {k: len(v) for k, v in (getattr(outcome, "assessment", None) or {}).items()},
+            "replacement": getattr(outcome, "replacement", None)})            # alcance del conflicto / reemplazo (solo nombres de objetos y modelos; sin rutas)
+        try:                                                               # telemetría DESPUÉS del `done`: su falla solo se registra, nunca cambia el resultado
+            log_activity("datasphere_publication_run", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG,
+                         client=values.client, space=values.space, root_object=values.root_object,
+                         state=outcome.state, error_code=outcome.error_code, stage=outcome.stage, duration_s=outcome.duration_s,
+                         operation_id=outcome.operation_id, status=getattr(outcome, "status", ""), durability=getattr(outcome, "durability", ""), change=getattr(outcome, "change", ""),
+                         outcome=outcome_of(outcome.state))
+        except Exception as exc:                                           # noqa: BLE001 — solo el tipo: nunca valores del run ni del usuario
+            log.warning("datasphere_publication run=%s activity log failed exc=%s", run_id, type(exc).__name__)
 
     threading.Thread(target=worker, name="datasphere-publication", daemon=True).start()
 
     def stream():
-        yield json.dumps({"t": "start"}) + chr(10)
+        # `run_id` = cómo retomar la publicación (aviso global / «Ver ejecución»); el latido evita el corte por inactividad.
+        yield json.dumps({"t": "start", "run_id": run_id}) + chr(10)
+        cursor = 0
         while True:
-            event = events.get()
-            if event is None:
+            batch, cursor, finished = operation_registry.wait_events(run_id, cursor, svc.asd.HEARTBEAT_S)
+            if not batch and not finished:
+                yield json.dumps({"t": "ping"}) + chr(10)
+                continue
+            for event in batch:
+                yield json.dumps(event, ensure_ascii=False) + chr(10)
+            if finished:
                 return
-            yield json.dumps(event, ensure_ascii=False) + chr(10)
 
     return StreamingResponse(stream(), media_type="application/x-ndjson",
                              headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no", "X-Content-Type-Options": "nosniff"})

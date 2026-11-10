@@ -36,6 +36,8 @@
     // Estado inicial limpio de la corrida
     form.querySelectorAll("[data-dsa-error]").forEach((p) => { p.textContent = ""; p.hidden = true; });
     setHidden(el(panel, "[data-dsa-failed]"), true);
+    setHidden(el(panel, "[data-dsa-done]"), true);
+    setHidden(el(panel, "[data-dsa-bg]"), true);
     log.textContent = "";
     detail.open = true;
 
@@ -54,6 +56,7 @@
     function handle(event) {
       if (event.t === "start") {
         runId = event.run_id || null;                         // cómo retomar la operación del servidor si esta conexión se corta
+        if (window.dwCopilotOps) window.dwCopilotOps.attach(runId, el(panel, "[data-dsa-bg]"));   // aviso compacto «segundo plano» + el global no la duplica
       } else if (event.t === "line") {
         log.textContent += event.v + "\n";
         log.scrollTop = log.scrollHeight;
@@ -62,6 +65,7 @@
         setHidden(spinner, !WORKING.has(event.phase));       // presentación: el spinner solo gira en fases con trabajo en curso
       } else if (event.t === "done") {
         done = event;
+        if (window.dwCopilotOps) window.dwCopilotOps.seen(runId);     // la vio terminar acá: el aviso global no la repite
       }                                                        // "ping": latido del servidor, sin efecto visible
     }
     let received = 0;                                          // eventos de la operación ya mostrados (= cursor del servidor; start y ping no cuentan)
@@ -119,16 +123,19 @@
       done = { state: "FAILED", error_code: "CONNECTION_INTERRUPTED", title: "No se pudo completar la extracción", message: "Se interrumpió la conexión con el servidor. Si la extracción terminó, su resultado aparece en «Assessments recientes». Revisá el detalle técnico e intentá nuevamente.", errors: {} };
     }
 
-    if (done && done.state === "SUCCESS" && done.result_url) {
-      window.location.assign(done.result_url);                // el informe se abre solo; el botón queda deshabilitado hasta salir
-      return;
+    // Éxito: NUNCA se navega solo (el usuario puede estar en otra sección); el panel ofrece «Abrir Assessment» y el aviso global también.
+    const doneBox = el(panel, "[data-dsa-done]");
+    if (done && done.state === "SUCCESS" && done.result_url && doneBox) {
+      el(doneBox, "[data-dsa-done-link]").href = done.result_url;
+      setHidden(doneBox, false);
     }
 
+    setHidden(el(panel, "[data-dsa-bg]"), true);                // terminó: el resultado lo informa el panel
     submit.disabled = false;
     submit.removeAttribute("aria-busy");
     status.textContent = "";
     setHidden(spinner, true);                                  // la falla detiene el estado de procesamiento
-    if (!done) return;
+    if (!done || done.state === "SUCCESS") return;
 
     if (done.state === "INVALID") {
       Object.entries(done.errors || {}).forEach(([field, message]) => {

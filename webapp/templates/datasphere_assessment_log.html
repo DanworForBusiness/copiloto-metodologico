@@ -12,15 +12,29 @@
 
   {% include "partials/copilot_nav.html" %}
 
-  <main id="content" class="module-content">
+  <main id="content" class="module-content execution-log-view">
     {# Detalle de ejecución del assessment ad-hoc: reusa el primitivo de "Detalle técnico" (`details.admin-tool` + `.admin-result-output`).
        El log ya viene saneado (sin secretos/tokens/rutas internas) y se imprime como texto (autoescape). #}
-    <a class="catalog-back" href="{{ report_url }}">← Volver al assessment</a>
-    <span class="admin-result-title">Detalle de ejecución · {{ terminal_am }}{% if client_display %} · {{ client_display }}{% endif %}</span>
+    <a class="catalog-back" href="{{ report_url }}">{{ back_label | default("← Volver al assessment") }}</a>
+    <span class="admin-result-title">Detalle de ejecución · {% if operation %}{{ operation.kind_label }} · {% endif %}{{ terminal_am }}{% if client_display %} · {{ client_display }}{% endif %}</span>
+    {# Operación del registro del Copiloto («Ver ejecución» del aviso global): estado real y, mientras siga en curso, avance en vivo
+       (hub_operations.js consulta `live_url`). Mismos primitivos: fila de procesamiento + `.feedback-error`; todo dinámico con textContent. #}
+    {% if operation %}
+    <div data-op-page data-op-kind="{{ operation.kind }}" data-op-result-label="{{ operation.result_label }}"{% if live_url %} data-op-live-url="{{ live_url }}" data-op-next="{{ live_next }}"{% endif %}>
+      <div class="section-analysis-loading" role="status" data-op-running{% if not live_url %} hidden{% endif %}>
+        <span class="section-analysis-spinner"></span><span class="section-analysis-loading-copy">{{ operation.kind_label }} en curso. Podés seguir navegando: no se interrumpe.</span>
+      </div>
+      <div class="feedback-error" role="alert" data-op-failed{% if operation.state in ("RUNNING", "SUCCESS") %} hidden{% endif %}>
+        <strong data-op-title>{{ operation.title or operation.state_label }}</strong>
+        <span data-op-message>{{ operation.message or "" }}</span>
+      </div>
+      <p class="admin-help" data-op-success{% if operation.state != "SUCCESS" %} hidden{% endif %}>{{ operation.done_label }}.{% if operation.result_url %} <a href="{{ operation.result_url }}" data-op-result>{{ operation.result_label }}</a>{% endif %}</p>
+    </div>
+    {% endif %}
     <details class="admin-tool" open>
       <summary class="admin-tool__summary">Detalle técnico</summary>
-      <div class="admin-tool__body"><pre class="admin-result-output">{% for line in log_lines %}{{ line }}
-{% else %}Sin detalle de ejecución disponible.{% endfor %}</pre></div>
+      <div class="admin-tool__body"><pre class="admin-result-output" data-op-log>{% for line in log_lines %}{{ line }}
+{% else %}{% if not live_url %}Sin detalle de ejecución disponible.{% endif %}{% endfor %}</pre></div>
     </details>
   </main>
 </div>
