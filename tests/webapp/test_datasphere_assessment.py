@@ -875,7 +875,8 @@ def test_recent_section_absent_without_results_and_present_with_live_ones_ordere
     html = _page(owner)
     assert "Assessments recientes" in html and "Historial" not in html
     assert html.index(second) < html.index(first)                                        # más reciente primero
-    assert html.count("Abrir assessment") == 2 and html.count("Ver ejecución") == 2
+    recent = html[html.index("data-dsa-recent"):]                                         # el bloque de recientes (los avisos de los paneles también dicen «Ver ejecución»)
+    assert recent.count("Abrir assessment") == 2 and recent.count("Ver ejecución") == 2
     assert f'href="{_results_url(first)}?pack=datasphere_core"' in html and str(fake_export["cache"]) not in html   # sin rutas del sistema
     assert owner.get(_results_url(second) + "?pack=datasphere_core").status_code == 200   # abrir = el informe existente
 

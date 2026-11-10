@@ -1,7 +1,7 @@
 // datasphere_assessment_recovery.node.js — invocado por test_datasphere_assessment_long_run.py.
 // Ejecuta el webapp/static/datasphere_assessment.js REAL contra un DOM y un fetch mínimos y verifica la recuperación tras un corte:
 //   A. el stream se corta a mitad de la extracción → el navegador consulta …/operation/{run_id}?since=N, tolera una consulta fallida,
-//      muestra solo lo nuevo y abre el informe (sin volver a ejecutar: un solo POST);
+//      muestra solo lo nuevo y ofrece el informe con un enlace explícito, sin navegar solo (sin volver a ejecutar: un solo POST);
 //   B. la operación ya no existe (404) → falla visible CONNECTION_INTERRUPTED, sin reintentos infinitos;
 //   C. stream completo con latidos → sin consultas de recuperación; los `ping` no ensucian el detalle técnico.
 "use strict";
@@ -25,8 +25,10 @@ function world(fetchImpl) {
   const nodes = {
     "[data-dsa-progress]": new Node_(), "[data-dsa-status]": new Node_({ dataset: { runningText: "Ejecutando extracción...", resumingText: "Retomando..." } }),
     "[data-dsa-spinner]": new Node_(), "[data-dsa-log]": new Node_(), "[data-dsa-detail]": new Node_(), "[data-dsa-failed]": new Node_(),
-    "[data-dsa-title]": new Node_(), "[data-dsa-message]": new Node_(),
+    "[data-dsa-title]": new Node_(), "[data-dsa-message]": new Node_(), "[data-dsa-done]": new Node_(), "[data-dsa-done-link]": new Node_(),
   };
+  nodes["[data-dsa-done]"].hidden = true;
+  nodes["[data-dsa-done]"].querySelector = (s) => nodes[s] || null;          // «Abrir Assessment» vive dentro del aviso de éxito
   const panel = { querySelector: (s) => nodes[s] || null };
   class HTMLFormElement extends Node_ {}
   const submit = new Node_();
@@ -82,7 +84,8 @@ const flush = () => new Promise((r) => setTimeout(r, 50));
     check(posts.length === 1, "A: un solo POST (no se reinicia la extracción)");
     check(gets.length === 2 && gets.every((g) => g[0] === "/modules/04_X/datasphere-assessment/operation/abc?since=1"), "A: consulta la operación desde el evento 1: " + JSON.stringify(gets));
     check(w.nodes["[data-dsa-log]"].textContent === "[RF 3/3] RF_Billing\nReplication Flows relacionados: 1/3\n", "A: el detalle muestra cada línea una vez: " + JSON.stringify(w.nodes["[data-dsa-log]"].textContent));
-    check(w.assigned.length === 1 && w.assigned[0].endsWith("/result/r1?pack=p"), "A: abre el informe recuperado");
+    check(w.assigned.length === 0 && w.nodes["[data-dsa-done]"].hidden === false && String(w.nodes["[data-dsa-done-link]"].href).endsWith("/result/r1?pack=p"),
+          "A: ofrece el informe recuperado con un enlace explícito (sin navegar solo)");
   }
   // B — la operación ya no existe
   {
@@ -109,7 +112,8 @@ const flush = () => new Promise((r) => setTimeout(r, 50));
     w.fire();
     await flush();
     check(calls.length === 1, "C: sin consultas de recuperación");
-    check(w.nodes["[data-dsa-log]"].textContent === "L1\n" && w.assigned[0] === "/r", "C: latidos invisibles y el informe se abre");
+    check(w.nodes["[data-dsa-log]"].textContent === "L1\n" && w.assigned.length === 0 && w.nodes["[data-dsa-done-link]"].href === "/r",
+          "C: latidos invisibles y el informe se ofrece con un enlace (sin navegar solo)");
   }
   console.log(failures ? `FAILURES: ${failures}` : "OK");
   process.exit(failures ? 1 : 0);

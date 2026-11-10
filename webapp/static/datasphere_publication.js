@@ -122,6 +122,7 @@
     form.querySelectorAll("[data-dsp-error]").forEach((p) => { p.textContent = ""; p.hidden = true; });
     setHidden(el(panel, "[data-dsp-failed]"), true);
     setHidden(el(panel, "[data-dsp-done]"), true);
+    setHidden(el(panel, "[data-dsp-bg]"), true);
     log.textContent = "";
     detail.open = true;
 
@@ -166,7 +167,7 @@
           const event = JSON.parse(raw);
           if (event.t === "start") {
             opRun = event.run_id || null;
-            if (window.dwCopilotOps) window.dwCopilotOps.attach(opRun);   // el aviso global no la duplica mientras este panel la sigue
+            if (window.dwCopilotOps) window.dwCopilotOps.attach(opRun, el(panel, "[data-dsp-bg]"));   // aviso compacto «segundo plano» + el global no la duplica
           } else if (event.t === "line") {
             log.textContent += event.v + "\n";
             log.scrollTop = log.scrollHeight;
@@ -190,6 +191,7 @@
       setHidden(doneBox, false);
     }
 
+    setHidden(el(panel, "[data-dsp-bg]"), true);                // terminó: el resultado lo informa el panel
     submit.disabled = false;
     submit.removeAttribute("aria-busy");
     setReplacePending(form, false);                            // el resultado (éxito o error) lo informa el panel; el aviso de la corrida se retira

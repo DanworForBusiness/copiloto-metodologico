@@ -37,6 +37,7 @@
     form.querySelectorAll("[data-dsa-error]").forEach((p) => { p.textContent = ""; p.hidden = true; });
     setHidden(el(panel, "[data-dsa-failed]"), true);
     setHidden(el(panel, "[data-dsa-done]"), true);
+    setHidden(el(panel, "[data-dsa-bg]"), true);
     log.textContent = "";
     detail.open = true;
 
@@ -55,7 +56,7 @@
     function handle(event) {
       if (event.t === "start") {
         runId = event.run_id || null;                         // cómo retomar la operación del servidor si esta conexión se corta
-        if (window.dwCopilotOps) window.dwCopilotOps.attach(runId);   // el aviso global no la duplica mientras este panel la sigue
+        if (window.dwCopilotOps) window.dwCopilotOps.attach(runId, el(panel, "[data-dsa-bg]"));   // aviso compacto «segundo plano» + el global no la duplica
       } else if (event.t === "line") {
         log.textContent += event.v + "\n";
         log.scrollTop = log.scrollHeight;
@@ -129,6 +130,7 @@
       setHidden(doneBox, false);
     }
 
+    setHidden(el(panel, "[data-dsa-bg]"), true);                // terminó: el resultado lo informa el panel
     submit.disabled = false;
     submit.removeAttribute("aria-busy");
     status.textContent = "";
