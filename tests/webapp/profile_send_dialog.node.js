@@ -2,7 +2,7 @@
 //
 // Prueba el selector de destinatarios y el envío del diálogo «Compartir perfiles» del módulo REAL `human_capital_candidates_selection.js`
 // (CCHH · Candidatos): chips (agregar, quitar, sin duplicados, tope), búsqueda en vivo (≥3 caracteres, resultados, sin coincidencias, bloqueo
-// por permiso), confirmación explícita, protección contra doble clic, identidad de operación por apertura y continuidad de «Abrir Outlook».
+// por permiso), confirmación explícita, protección contra doble clic, identidad de operación por apertura, saludo personalizado y continuidad de «Copiar mensaje».
 // DOM mínimo propio (no hay jsdom en el repo) y `fetch` / token delegado simulados: nada sale de este proceso.
 "use strict";
 const fs = require("fs");
@@ -54,7 +54,7 @@ function dialog(opts) {
                         "data-recipient-provider": o.provider || "directory" }),
     subject: node("input"), intro: node("textarea"), outro: node("textarea"), list: node("ul"), pending: node("p"), note: node("p"), status: node("p"),
     chips: node("ul"), search: node("input"), results: node("div"), resultsList: node("div"), hint: node("p"), blocked: node("p"),
-    sendStatus: node("p"), confirm: node("div"), confirmMsg: node("p"), send: node("button"), open: node("a", { href: "#" }), copy: node("button", { "data-share-copy": "mensaje" }),
+    sendStatus: node("p"), confirm: node("div"), confirmMsg: node("p"), send: node("button"), copy: node("button", { "data-share-copy": "mensaje" }),
     items: node("script"), unavailable: node("script"),
   };
   f.items._text = JSON.stringify(o.items); f.unavailable._text = "[]";
@@ -64,7 +64,7 @@ function dialog(opts) {
     "[data-share-pending]": f.pending, "[data-share-note]": f.note, "[data-share-status]": f.status, "[data-share-chips]": f.chips, "[data-share-search]": f.search,
     "[data-share-results]": f.results, "[data-share-results-list]": f.resultsList, "[data-share-results-hint]": f.hint, "[data-share-dir-blocked]": f.blocked,
     "[data-share-send-status]": f.sendStatus, "[data-share-confirm]": f.confirm, "[data-share-confirm-msg]": f.confirmMsg, "[data-share-send]": f.send,
-    "[data-share-open]": f.open, '[data-share-copy="mensaje"]': f.copy, "[data-share-items]": f.items, "[data-share-unavailable]": f.unavailable,
+    '[data-share-copy="mensaje"]': f.copy, "[data-share-items]": f.items, "[data-share-unavailable]": f.unavailable,
   };
   const content = node("div");
   content.querySelector = sel => map[sel] || f.list.querySelector(sel);
@@ -189,15 +189,48 @@ const params = body => { const out = {}; for (const kv of body.split("&")) { con
     ok(win.fetches.length === 0 && /autorización de Microsoft/.test(f.sendStatus.textContent) && api._state().sent === false, "sin token delegado no hay envío y se puede reintentar");
   }
 
-  // ── 18 · Copiar / Abrir Outlook siguen disponibles sin directorio ──
+  // ── 18 · «Copiar mensaje» sigue disponible sin proveedor de destinatarios ──
   {
     const { doc, f } = dialog({ directory: false });
     api.initShare(doc, store(), makeWin(() => ({ status: 200, data: {} })));
-    ok(f.search.disabled === true && f.blocked.hidden === false, "18: sin permiso de directorio el selector queda inerte con su aviso");
-    ok(/^mailto:\?subject=Perfiles&body=/.test(f.open.getAttribute("href") || "") && (f.open.getAttribute("href") || "").includes(encodeURIComponent("Ana Candidata")),
-       "18: «Abrir Outlook» sigue armado con el mensaje");
+    ok(f.search.disabled === true && f.blocked.hidden === false, "18: sin proveedor de destinatarios el selector queda inerte con su aviso");
+    ok(f.copy.disabled === false, "18: «Copiar mensaje» sigue habilitado con el mensaje listo");
     api.addRecipient(doc, { email: "ana@danwor.com", name: "Ana" });
-    ok(f.send.disabled === true, "18: «Enviar por correo» no se habilita sin directorio");
+    ok(f.send.disabled === true, "18: «Enviar» no se habilita sin proveedor");
+  }
+
+  // ── Saludo personalizado: un destinatario con nombre verificado → «Hola <Nombre>,»; 0, varios o sin nombre → «Hola,» ──
+  {
+    const { doc, f } = dialog();
+    f.root.attrs["data-intro"] = "Hola, te comparto los siguientes perfiles:";
+    api.initShare(doc, store(), makeWin(() => ({ status: 200, data: {} })));
+    const greet = () => f.intro.value.split(",")[0] + ",";
+    eq(greet(), "Hola,", "saludo: sin destinatarios, genérico");
+    api.addRecipient(doc, { email: "bjawor@danwor.com", name: "Brian Jawor" });
+    eq(f.intro.value, "Hola Brian, te comparto los siguientes perfiles:", "saludo: un destinatario identificado → solo el nombre de pila; el resto intacto");
+    api.addRecipient(doc, { email: "otra@danwor.com", name: "Otra Persona" });
+    eq(greet(), "Hola,", "saludo: dos destinatarios → genérico");
+    api.removeRecipient(doc, "otra@danwor.com");
+    eq(greet(), "Hola Brian,", "saludo: al quitar uno se recupera el saludo de la persona restante");
+    api.removeRecipient(doc, "bjawor@danwor.com");
+    eq(greet(), "Hola,", "saludo: sin destinatarios vuelve al genérico");
+    api.addRecipient(doc, { email: "joconnor@danwor.com", name: "joconnor@danwor.com" });
+    eq(greet(), "Hola,", "saludo: sin nombre verificado (solo correo) → genérico; nunca se deduce del alias");
+    api.removeRecipient(doc, "joconnor@danwor.com");
+    // el usuario edita el saludo → se respeta
+    f.intro.value = "Estimado equipo, te comparto los siguientes perfiles:";
+    api.addRecipient(doc, { email: "bjawor@danwor.com", name: "Brian Jawor" });
+    eq(f.intro.value, "Estimado equipo, te comparto los siguientes perfiles:", "saludo: editado a mano → no se sobrescribe");
+    api.removeRecipient(doc, "bjawor@danwor.com");
+    eq(f.intro.value, "Estimado equipo, te comparto los siguientes perfiles:", "saludo: sigue respetado al cambiar destinatarios");
+  }
+  {
+    const { doc, f } = dialog();
+    f.root.attrs["data-intro"] = "Hola, te comparto los siguientes perfiles:";
+    api.initShare(doc, store(), makeWin(() => ({ status: 200, data: {} })));
+    f.intro.value = "Hola, te comparto estos perfiles que vimos ayer:";                          // edita el cuerpo, no el saludo
+    api.addRecipient(doc, { email: "bjawor@danwor.com", name: "Brian Jawor" });
+    eq(f.intro.value, "Hola Brian, te comparto estos perfiles que vimos ayer:", "saludo: con el cuerpo editado solo cambia el saludo; el texto del usuario se conserva");
   }
 
   // ── proveedor transitorio «allowlist»: catálogo UNA vez por apertura (token base de lectura), filtro en memoria, mismo envío ──

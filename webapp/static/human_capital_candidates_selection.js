@@ -7,11 +7,10 @@
    · Casilla de encabezado: selecciona/deselecciona SOLO las filas de la página visible; es tri-estado (marcada / indeterminada / vacía).
    · Barra contextual (oculta con 0 seleccionados; el desplazamiento al aparecer/desaparecer se compensa para no desviar el clic siguiente): contador, «Compartir perfiles», «Descargar CVs» y «✕ Limpiar» (el mismo componente que el de los filtros).
    · «Compartir perfiles»: pide al servidor (POST, solo ids) el contenido del diálogo —nombres y rutas de las FICHAS resueltos en servidor— y arma el mensaje con el origen del
-     propio navegador. «Copiar» y «Abrir Outlook» (`mailto:`) son acciones explícitas del usuario; no se envía ni se registra nada.
+     propio navegador. «Copiar mensaje» es una acción explícita del usuario que no registra nada; «Enviar» manda el correo institucional tras una confirmación explícita.
 
    LÍMITES
    · Compartir: hasta MAX_SHARE perfiles (el servidor valida igual: esta cota es solo UX).
-   · `mailto:` tiene un tope práctico de longitud (~2 000 caracteres en Windows/Outlook): pasado MAILTO_MAX se deshabilita «Abrir Outlook» con una nota y queda «Copiar».
 
    Sin dependencias; se carga una sola vez desde `human_capital/profiles.html` y delega eventos en `document` (sobrevive a los swaps). Expone `window.__cchhSelection` para pruebas. */
 (function () {
@@ -22,7 +21,6 @@
   var ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
   var MAX_STORED = 2000;
   var MAX_SHARE = 25;
-  var MAILTO_MAX = 1900;
   var SHARE_URL = "/cchh/candidatos/compartir";
   var DIRECTORY_URL = "/cchh/candidatos/compartir/destinatarios";       // búsqueda EN VIVO del directorio (token delegado)
   var SEND_URL = "/cchh/candidatos/compartir/enviar";                   // envío MANUAL por el buzón institucional
@@ -35,7 +33,7 @@
     return window.dwTableSelection.createStore(storage, {key: STORAGE_KEY, idPattern: ID_RE, max: MAX_STORED});
   }
 
-  // ───────────────────────── mensaje (HTML + texto plano) y mailto ─────────────────────────
+  // ───────────────────────── mensaje (HTML + texto plano) ─────────────────────────
   var SKIP = "__skip";
 
   function escapeHtml(text) {
@@ -81,7 +79,7 @@
 
   function paragraph(text) { return "<p>" + escapeHtml(text).replace(/\r?\n/g, "<br>") + "</p>"; }
 
-  // Texto plano (fallback del portapapeles y cuerpo del `mailto:`): nombre y URL COMPLETA de cada CV.
+  // Texto plano (fallback del portapapeles y cuerpo del correo enviado): nombre y URL COMPLETA de cada CV.
   function buildPlain(model, intro, outro) {
     var lines = model.included.map(function (n) { return "- " + n.name + ": " + n.url; });
     return [String(intro || "")].concat([""], lines, [""], [String(outro || "")]).join("\n");
@@ -93,15 +91,6 @@
     return (intro ? paragraph(intro) : "") + "<ul>" + list + "</ul>" + (outro ? paragraph(outro) : "");
   }
 
-  // `:` y `/` son válidos sin codificar en un mailto (RFC 6068); codificarlos duplicaba el largo de cada enlace y acortaba de más el límite práctico.
-  function encodeMail(text) { return encodeURIComponent(text).replace(/%3A/g, ":").replace(/%2F/g, "/"); }
-
-  // El cuerpo de un `mailto:` es texto SIN formato (RFC 6068): no admite hipervínculos con nombre. «Abrir Outlook» usa el texto plano con las URLs completas.
-  function mailtoUrl(subject, body) {
-    return "mailto:?subject=" + encodeMail(subject || "") + "&body=" + encodeMail(String(body || "").replace(/\r?\n/g, "\r\n"));
-  }
-
-  function mailtoFits(subject, body) { return mailtoUrl(subject, body).length <= MAILTO_MAX; }
 
   // ───────────────────────── sincronización de la interfaz ─────────────────────────
   // Al aparecer/desaparecer la barra, todo lo que está debajo (la tabla) se corre su alto: el próximo clic caería en otra fila. `keepInPlace` mide dónde estaba el control accionado, aplica el
@@ -214,26 +203,35 @@
 
   function shareReady(model) { return model.pending.length === 0 && model.included.length > 0; }
 
-  // Enlace «Abrir Outlook»: texto plano con URLs completas; se deshabilita si no está listo o si el `mailto:` excede el límite práctico (entonces «Copiar mensaje» es el camino).
-  function refreshMailto(doc) {
-    var model = resolveShare(shareState.items, shareState.choice);
-    var ready = shareReady(model);
-    var link = shareField(doc, "data-share-open"), note = shareField(doc, "data-share-note"), copy = shareField(doc, 'data-share-copy="mensaje"');
-    if (copy) copy.disabled = !ready;
-    if (!link) return;
-    var subject = fieldValue(doc, "data-share-subject");
-    var plain = buildPlain(model, fieldValue(doc, "data-share-intro"), fieldValue(doc, "data-share-outro"));
-    var fits = ready && mailtoFits(subject, plain);
-    if (fits) {
-      link.setAttribute("href", mailtoUrl(subject, plain));
-      link.removeAttribute("aria-disabled");
-      if (link.classList) link.classList.remove("is-disabled");
-    } else {
-      link.setAttribute("href", "#");
-      link.setAttribute("aria-disabled", "true");
-      if (link.classList) link.classList.add("is-disabled");
-    }
-    setNote(note, ready && !fits ? "El mensaje es demasiado largo para abrirlo en Outlook (límite práctico de los enlaces de correo, que solo admiten texto plano con las URLs completas): usá «Copiar mensaje» y pegalo en tu correo." : "");
+  // «Copiar mensaje» solo se habilita con el mensaje completo (todos los CVs elegidos o excluidos).
+  function refreshCopy(doc) {
+    var copy = shareField(doc, 'data-share-copy="mensaje"');
+    if (copy) copy.disabled = !shareReady(resolveShare(shareState.items, shareState.choice));
+  }
+
+  // ── Saludo personalizado ──
+  // El saludo es el texto del campo de saludo hasta su PRIMERA coma («Hola,» / «Hola Brian,»). Un destinatario con nombre verificado (padrón
+  // corporativo o directorio: lo resuelve el servidor, nunca se deduce del alias) → «Hola <Nombre>,»; cero, varios o sin nombre → «Hola,».
+  // Solo se reemplaza el saludo si sigue siendo el último generado automáticamente: si el usuario lo cambió, se respeta; el resto del texto
+  // (lo que sigue a la coma) nunca se toca. Es presentación: el envío valida destinatarios en el servidor como siempre.
+  function firstName(person) {
+    var name = String((person && person.name) || "").trim();
+    if (!name || name.toLowerCase() === String(person.email || "").toLowerCase() || name.indexOf("@") !== -1) return "";
+    return name.split(/\s+/)[0];
+  }
+  function greetingFor(recipients) {
+    var first = recipients.length === 1 ? firstName(recipients[0]) : "";
+    return first ? "Hola " + first + "," : "Hola,";
+  }
+  function currentGreeting(text) { var i = String(text || "").indexOf(","); return i === -1 ? null : text.slice(0, i + 1); }
+  function applyGreeting(doc) {
+    var intro = shareField(doc, "data-share-intro");
+    if (!intro || shareState.greeting === null) return;
+    if (currentGreeting(intro.value) !== shareState.greeting) { shareState.greeting = null; return; }      // lo editó el usuario: se respeta
+    var next = greetingFor(shareState.recipients);
+    if (next === shareState.greeting) return;
+    intro.value = next + intro.value.slice(shareState.greeting.length);
+    shareState.greeting = next;
   }
 
   function refreshShare(doc, focusId) {
@@ -243,7 +241,7 @@
     if (model.pending.length) setNote(pending, "Falta elegir el CV de " + model.pending.length + (model.pending.length === 1 ? " candidato" : " candidatos") + " (o «No incluir a este candidato»).");
     else if (model.included.length === 0) setNote(pending, "Ningún candidato tiene un CV con enlace disponible para compartir.");
     else setNote(pending, "");
-    refreshMailto(doc);
+    refreshCopy(doc);
     refreshSend(doc);
   }
 
@@ -259,10 +257,11 @@
     if (unavailable.length) { store.remove(unavailable); syncUI(doc, store); }                    // un perfil dado de baja se saca de la selección: el contador no miente
     var maxR = parseInt(root.getAttribute("data-max-recipients"), 10);
     shareState = { items: items, choice: {}, recipients: [], directoryEnabled: !!root.getAttribute("data-directory-enabled"),
-                   provider: root.getAttribute("data-recipient-provider") === "allowlist" ? "allowlist" : "directory", catalog: null,
+                   provider: root.getAttribute("data-recipient-provider") === "allowlist" ? "allowlist" : "directory", catalog: null, greeting: null,
                    maxRecipients: isNaN(maxR) ? 20 : maxR, operationId: newOperationId(win), sending: false, sent: false, _searchSeq: 0 };
     shareField(doc, "data-share-subject").value = root.getAttribute("data-default-subject") || "";
     shareField(doc, "data-share-intro").value = root.getAttribute("data-intro") || "";
+    shareState.greeting = currentGreeting(shareField(doc, "data-share-intro").value) === "Hola," ? "Hola," : null;      // solo se gestiona el saludo genérico de la plantilla
     shareField(doc, "data-share-outro").value = root.getAttribute("data-outro") || "";
     autosize(shareField(doc, "data-share-intro"));
     autosize(shareField(doc, "data-share-outro"));
@@ -345,6 +344,7 @@
     if (shareState.recipients.length >= shareState.maxRecipients) { sendStatus(doc, "Se pueden agregar hasta " + shareState.maxRecipients + " destinatarios.", true); return; }
     shareState.recipients.push({ name: person.name || person.email, email: person.email });
     renderChips(doc);
+    applyGreeting(doc);
     refreshSend(doc);
   }
 
@@ -352,6 +352,7 @@
     var key = String(email || "").toLowerCase();
     shareState.recipients = shareState.recipients.filter(function (r) { return r.email.toLowerCase() !== key; });
     renderChips(doc);
+    applyGreeting(doc);
     refreshSend(doc);
   }
 
@@ -585,7 +586,7 @@
     var searchTimer = null;
     doc.addEventListener("input", function (event) {
       var t = event.target;
-      if (t && t.matches && t.matches("[data-share-subject], [data-share-intro], [data-share-outro]")) { if (!t.matches("[data-share-subject]")) autosize(t); refreshMailto(doc); }
+      if (t && t.matches && t.matches("[data-share-subject], [data-share-intro], [data-share-outro]")) { if (!t.matches("[data-share-subject]")) autosize(t); refreshCopy(doc); }
       else if (t && t.matches && t.matches("[data-share-search]")) {
         if (!shareState.directoryEnabled) return;
         if (searchTimer) win.clearTimeout(searchTimer);
@@ -597,7 +598,7 @@
       if (t && t.matches && t.matches("[data-share-search]") && shareState.directoryEnabled && (t.value || "").trim().length >= MIN_QUERY) runSearch(doc, win);
     });
     doc.addEventListener("click", function (event) {
-      var t = event.target, el = t && t.closest ? t.closest("[data-hc-clear-selection], [data-hc-share-open], [data-hc-consolidate-open], [data-share-copy], [data-share-open], [data-share-pick], [data-share-chip-remove], [data-share-send], [data-share-confirm-go], [data-share-confirm-cancel]") : null;
+      var t = event.target, el = t && t.closest ? t.closest("[data-hc-clear-selection], [data-hc-share-open], [data-hc-consolidate-open], [data-share-copy], [data-share-pick], [data-share-chip-remove], [data-share-send], [data-share-confirm-go], [data-share-confirm-cancel]") : null;
       if (!el) {
         var results = shareField(doc, "data-share-results");                                        // clic fuera del selector: cierra el desplegable
         if (results && !results.hidden && !(t && t.closest && t.closest("[data-share-recipients]"))) showResults(doc, false);
@@ -619,11 +620,6 @@
       if (el.hasAttribute("data-hc-share-open")) { openShare(doc, win, store); return; }
       if (el.hasAttribute("data-share-copy")) {
         var what = el.getAttribute("data-share-copy"), failed = function () { status(doc, "No se pudo copiar: seleccioná el texto y copialo a mano."); };
-        if (what === "asunto") {
-          var subject = shareField(doc, "data-share-subject");
-          if (subject) copyText(win, doc, subject.value, function () { status(doc, "Copiado al portapapeles."); }, failed);
-          return;
-        }
         var model = resolveShare(shareState.items, shareState.choice);
         if (!shareReady(model)) return;                                                          // sin CVs elegidos no se copia un mensaje incompleto
         var intro = fieldValue(doc, "data-share-intro"), outro = fieldValue(doc, "data-share-outro");
@@ -632,7 +628,6 @@
         }, failed);
         return;
       }
-      if (el.hasAttribute("data-share-open") && el.getAttribute("aria-disabled") === "true") event.preventDefault();      // Outlook deshabilitado por longitud
     });
     function resync() { syncUI(doc, store); }
     doc.body.addEventListener("htmx:afterSwap", function (event) {
@@ -642,9 +637,9 @@
     if (doc.readyState === "loading") doc.addEventListener("DOMContentLoaded", resync); else resync();
   }
 
-  var api = { STORAGE_KEY: STORAGE_KEY, MAX_SHARE: MAX_SHARE, MAILTO_MAX: MAILTO_MAX, SKIP: SKIP, createStore: createStore, escapeHtml: escapeHtml, safeCvUrl: safeCvUrl, rowsModel: rowsModel, resolveShare: resolveShare, autosize: autosize,
-              buildPlain: buildPlain, buildHtml: buildHtml, copyRich: copyRich, refreshShare: refreshShare, renderList: renderList, mailtoUrl: mailtoUrl,
-              mailtoFits: mailtoFits, syncUI: syncUI, keepInPlace: keepInPlace, refreshMailto: refreshMailto, initShare: initShare, openShare: openShare, wire: wire,
+  var api = { STORAGE_KEY: STORAGE_KEY, MAX_SHARE: MAX_SHARE, SKIP: SKIP, createStore: createStore, escapeHtml: escapeHtml, safeCvUrl: safeCvUrl, rowsModel: rowsModel, resolveShare: resolveShare, autosize: autosize,
+              buildPlain: buildPlain, buildHtml: buildHtml, copyRich: copyRich, refreshShare: refreshShare, renderList: renderList,
+              syncUI: syncUI, keepInPlace: keepInPlace, refreshCopy: refreshCopy, greetingFor: greetingFor, applyGreeting: applyGreeting, initShare: initShare, openShare: openShare, wire: wire,
               MIN_QUERY: MIN_QUERY, DIRECTORY_URL: DIRECTORY_URL, SEND_URL: SEND_URL, CATALOG_URL: CATALOG_URL, loadCatalog: loadCatalog, catalogMatches: catalogMatches, newOperationId: newOperationId, renderChips: renderChips, addRecipient: addRecipient,
               removeRecipient: removeRecipient, renderResults: renderResults, runSearch: runSearch, blockDirectory: blockDirectory, sendReady: sendReady, refreshSend: refreshSend,
               showConfirm: showConfirm, hideConfirm: hideConfirm, doSend: doSend, applySendOutcome: applySendOutcome,

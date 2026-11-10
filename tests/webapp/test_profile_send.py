@@ -6,7 +6,7 @@ expone (`fetch` de `search_directory`/`validate_recipients`, `token_fn`/`post` d
 durante cada test, así las rutas reales ejercitan TODO el flujo (sesión, autorización, mismo origen, resolución de candidatos, validación de
 destinatarios, auditoría durable y armado del correo).
 
-El comportamiento del navegador (chips, deduplicación, confirmación explícita, doble clic, Copiar/Abrir Outlook) se prueba con el harness Node
+El comportamiento del navegador (chips, deduplicación, saludo, confirmación explícita, doble clic, Copiar mensaje) se prueba con el harness Node
 `profile_send_dialog.node.js` contra el módulo real `human_capital_candidates_selection.js`.
 """
 from __future__ import annotations
@@ -356,13 +356,13 @@ def test_mail_body_carries_only_names_and_links_and_escapes_the_user_message(gra
     assert "attachments" not in msg and msg["subject"] == "Asunto <b>x</b>"                          # asunto en texto plano (Graph no lo interpreta como HTML)
 
 
-# ── 18 · el diálogo conserva Copiar y Abrir Outlook (con y sin directorio) ──────────────────────────────────────────────────────────────────
+# ── 18 · el diálogo conserva «Copiar mensaje» (con y sin directorio) ──────────────────────────────────────────────────────────────────
 @pytest.mark.parametrize("scope", ["User.ReadBasic.All", ""])
 def test_dialog_keeps_copy_and_outlook_and_reflects_directory_availability(graph, monkeypatch, scope):
     monkeypatch.setattr(config, "HC_DIRECTORY_SEARCH_SCOPE", scope)
     a = candidate()
     html = client().post("/cchh/candidatos/compartir", data={"profile_ids": [a]}, headers=ORIGIN).text
-    assert 'data-share-copy="mensaje"' in html and "data-share-open" in html and "data-share-send disabled" in html
+    assert 'data-share-copy="mensaje"' in html and "data-share-send disabled" in html and "data-share-open" not in html
     assert ("data-share-dir-blocked hidden" in html) == bool(scope)                                   # aviso de permiso pendiente solo sin scope
     assert (f'data-directory-enabled="{"1" if scope else ""}"') in html
 
@@ -441,8 +441,8 @@ def test_allowlist_without_catalog_entries_stays_blocked(allowlist, monkeypatch)
 
 def test_allowlist_dialog_announces_the_transitional_mode_and_keeps_the_same_ui(allowlist):
     html = client().post("/cchh/candidatos/compartir", data={"profile_ids": [candidate()]}, headers=ORIGIN).text
-    assert 'data-recipient-provider="allowlist"' in html and 'data-directory-enabled="1"' in html and "data-share-provider-note" in html
-    for marker in ("data-share-search", "data-share-chips", "data-share-send", 'data-share-copy="mensaje"', "data-share-open"):
+    assert 'data-recipient-provider="allowlist"' in html and 'data-directory-enabled="1"' in html
+    for marker in ("data-share-search", "data-share-chips", "data-share-send", 'data-share-copy="mensaje"'):
         assert marker in html
 
 
@@ -504,3 +504,28 @@ def test_names_are_presentation_only_send_still_validates_allowlist_membership(r
     assert body["status"] == "accepted"
     assert body["recipients"] == [HC] and body["invalid"] == ["colaborador.ajeno@danwor.com"]                        # estar en el padrón no habilita
     assert roster == []                                                                                               # el envío no consulta el padrón
+
+
+# ── cierre UX del diálogo: textos técnicos fuera, sin «Copiar» del asunto, sin «Abrir Outlook», acciones «Copiar mensaje» + «Enviar» ──────
+@pytest.mark.parametrize("provider", ["allowlist", "directory"])
+def test_dialog_ux_closure_controls_and_texts(graph, monkeypatch, provider):
+    monkeypatch.setattr(config, "HC_SHARE_RECIPIENTS_PROVIDER", provider, raising=False)
+    monkeypatch.setattr(auth_service, "HUMAN_CAPITAL_ALLOWED_USERS", HC)
+    html = client().post("/cchh/candidatos/compartir", data={"profile_ids": [candidate()]}, headers=ORIGIN).text
+    for gone in ("Modo transitorio", "data-share-provider-note", "El acceso a los CVs está sujeto a los permisos de SharePoint del destinatario",
+                 'data-share-copy="asunto"', "data-share-open", "Abrir Outlook", "mailto:", "Enviar por correo<", "data-share-note"):
+        assert gone not in html, gone
+    assert 'id="hc-share-asunto" type="text" data-share-subject' in html                                # el asunto sigue visible y editable
+    actions = html[html.index('<div class="dw-confirm__actions busqueda-contact__actions">'):]
+    actions = actions[:actions.index("</div>")]
+    labels = [m for m in ("Cerrar", "Copiar mensaje", ">Enviar<") if m in actions]
+    assert labels == ["Cerrar", "Copiar mensaje", ">Enviar<"]
+    assert actions.index("Copiar mensaje") < actions.index(">Enviar<") and actions.count("<button") == 3 and "<a " not in actions
+    assert "data-share-confirm-go" in html and "Confirmar envío" in html                               # la confirmación explícita sigue
+
+
+def test_email_keeps_the_sharepoint_permissions_note_and_validation_is_unchanged(allowlist):
+    r = send(client(), [candidate()], [HC, "externo@gmail.com"], graph_token="", message="Hola Helena, te comparto…")
+    assert r.json()["status"] == "accepted" and r.json()["invalid"] == ["externo@gmail.com"] and to_of(allowlist) == [HC]
+    html = html_of(allowlist)
+    assert "permisos de SharePoint del destinatario" in html and "Hola Helena" in html                  # la nota vive en el correo; el saludo viaja en el mensaje
