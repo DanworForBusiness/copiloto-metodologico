@@ -38,6 +38,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
+from html.parser import HTMLParser
 from urllib.parse import quote
 
 import config
@@ -56,10 +57,23 @@ RESUMABLE = frozenset({"pending", "retry"})
 _EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+'-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
 _lock = threading.Lock()                # serializa las transiciones de estado de los registros (un proceso)
 
+# Identidad INSTITUCIONAL (común a todas las verticales): logo corporativo del Hub (versión para fondo oscuro, servida públicamente en `/static`,
+# la misma del landing), negro y acento institucionales (tokens del Hub: `--content-accent` en content.css / `--gold` en brand-hero.css) y la
+# identificación secundaria. La identidad de cada VERTICAL (título/acento) no vive acá: sale de `webapp.workspaces.brand_identity`.
+INSTITUTIONAL = {
+    "logo_path": "/static/brand/danwor-logo.png",
+    "logo_alt": "Danwor",
+    "accent": "#e7b008",
+    "dark": "#0c0c0d",
+    "tagline": "Hub Danwor · Notificaciones automáticas",
+}
+
 
 @dataclass(frozen=True)
 class EventSpec:
-    """Política de un evento: a quién (setting de destinatarios), qué asunto y qué plantilla. Inmutable."""
+    """Política de un evento: vertical que lo origina (clave de `webapp.workspaces`), a quién (setting de destinatarios), qué asunto y qué
+    plantilla. Inmutable. La plantilla del evento extiende la base compartida (`notifications/_layout.html`)."""
+    workspace: str
     recipients_setting: str
     subject: Callable[[dict], str]
     template: str
@@ -68,6 +82,7 @@ class EventSpec:
 
 EVENTS: dict[str, EventSpec] = {
     "operations.architecture_request.created": EventSpec(
+        workspace="operations",
         recipients_setting="NOTIFICATIONS_OPERATIONS_RECIPIENTS",
         subject=lambda d: f"Nueva solicitud de arquitectura | Operaciones | Solicitud #{d.get('id', '')}",
         template="notifications/architecture_request_created.html",
@@ -153,25 +168,26 @@ def _create_exclusive(path: Path, record: dict) -> bool:
 
 
 # ── API para los productores de eventos ──────────────────────────────────────────────────────────────────────────────────────────────────────
-def emit(event: str, key: str, data: dict) -> str:
+def emit(event: str, key: str, data: dict, *, origin: str | None = None) -> str:
     """Registra la intención de notificar un evento de negocio YA CONFIRMADO y dispara el envío en segundo plano.
     Devuelve: "disabled" | "duplicate" | "config_incomplete" | "no_recipients" | "queued". Nunca lanza: un fallo de la notificación
     jamás afecta al workflow que la originó."""
     try:
-        return _emit(event, str(key), dict(data))
+        return _emit(event, str(key), dict(data), origin)
     except Exception as exc:                                     # noqa: BLE001 — la notificación es accesoria al evento de negocio
         log.warning("notificación %s no registrada por un error interno (%s)", event, type(exc).__name__)
         return "error"
 
 
-def _emit(event: str, key: str, data: dict) -> str:
+def _emit(event: str, key: str, data: dict, origin: str | None = None) -> str:
     spec = EVENTS.get(event)
     if spec is None:
         raise ValueError(f"evento no registrado: {event}")
     if not enabled():
         return "disabled"
     path = record_path(event, key)
-    record = {"event": event, "key": key, "data": data, "state": "pending", "attempts": 0, "created_at": _now(), "updated_at": _now()}
+    record = {"event": event, "key": key, "data": data, "hub_base": hub_base(origin), "state": "pending", "attempts": 0,
+              "created_at": _now(), "updated_at": _now()}
     missing = missing_settings()
     recipients = recipients_for(spec)
     if missing or not recipients:
@@ -277,7 +293,7 @@ def _deliver(path: Path) -> None:
         log.error("notificación %s clave=%s no enviada: %s", record["event"], _short(record["key"]),
                   "configuración incompleta" if missing else "sin destinatarios configurados")
         return
-    message = build_message(record["event"], record.get("data") or {}, recipients)
+    message = build_message(record["event"], record.get("data") or {}, recipients, hub_base=record.get("hub_base") or "")
     attempts = int(record.get("attempts", 0))
     for inline in range(INLINE_ATTEMPTS):
         attempts += 1
@@ -342,19 +358,78 @@ def _short(key: str) -> str:
 
 
 # ── plantilla ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-def build_message(event: str, data: dict, recipients: list[str]) -> dict:
+def build_message(event: str, data: dict, recipients: list[str], *, hub_base: str = "") -> dict:
     """Mensaje Graph (`sendMail`): asunto y cuerpo HTML generados SOLO desde la política y la plantilla del evento; todos los valores dinámicos
-    se escapan (la plantilla no acepta HTML del usuario). El remitente lo fija la URL (buzón de configuración), nunca el mensaje."""
-    from webapp.templating import templates                   # import diferido: el servicio no depende de la app web para importarse
+    se escapan (la plantilla no acepta HTML del usuario). El remitente lo fija la URL (buzón de configuración), nunca el mensaje.
+    Capas: identidad institucional (`INSTITUTIONAL`) → identidad de la vertical (`workspaces.brand_identity(spec.workspace)`) → plantilla del
+    evento (extiende `_layout.html`) → datos de negocio (`d`)."""
+    from webapp import workspaces                             # imports diferidos: el servicio no depende de la app web para importarse
+    from webapp.templating import templates
     spec = EVENTS[event]
-    html = templates.env.get_template(spec.template).render(title=spec.title, d=data)
+    brand = {**INSTITUTIONAL, "logo_url": f"{hub_base}{INSTITUTIONAL['logo_path']}" if hub_base else ""}
+    html = templates.env.get_template(spec.template).render(title=spec.title, d=data, brand=brand,
+                                                             vertical=workspaces.brand_identity(spec.workspace))
     return {"message": {"subject": spec.subject(data)[:255],
                         "body": {"contentType": "HTML", "content": html},
                         "toRecipients": [{"emailAddress": {"address": address}} for address in recipients]}}
 
 
-def hub_link(path: str, origin: str | None = None) -> str:
-    """URL absoluta a una ruta EXISTENTE del Hub: `NOTIFICATIONS_HUB_BASE_URL` si está configurada; si no, el origen ya validado del request
-    que originó el evento. Sin tokens ni accesos privilegiados: el destinatario se autentica como siempre."""
+def hub_base(origin: str | None = None) -> str:
+    """Base absoluta del Hub para los correos: `NOTIFICATIONS_HUB_BASE_URL` si está configurada; si no, el origen ya validado del request que
+    originó el evento. Vacía si ninguna es una URL http(s) (el correo omite entonces el logo y deja el enlace relativo)."""
     base = str(getattr(config, "NOTIFICATIONS_HUB_BASE_URL", "") or "").rstrip("/") or (origin or "").rstrip("/")
-    return f"{base}{path}" if base.startswith(("https://", "http://")) else path
+    return base if base.startswith(("https://", "http://")) else ""
+
+
+def hub_link(path: str, origin: str | None = None) -> str:
+    """URL absoluta a una ruta EXISTENTE del Hub (ver `hub_base`). Sin tokens ni accesos privilegiados: el destinatario se autentica como siempre."""
+    return f"{hub_base(origin)}{path}"
+
+
+class _ReadableText(HTMLParser):
+    BLOCK = {"p", "div", "li", "tr", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "pre", "table", "ul", "ol"}
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "br":
+            self.parts.append("\n")
+        elif tag in self.BLOCK:
+            self.parts.append("\n")
+            if tag == "li":
+                self.parts.append("• ")
+
+    def handle_endtag(self, tag):
+        if tag in self.BLOCK and tag != "li":                    # viñetas consecutivas sin línea en blanco entre ellas
+            self.parts.append("\n")
+
+    def handle_data(self, data):
+        self.parts.append(data)
+
+
+_TAG_LIKE = re.compile(r"</?[A-Za-z][A-Za-z0-9]*(\s[^<>]*)?/?>")
+
+
+def readable_text(value: str | None, limit: int | None = None) -> str:
+    """Texto LEGIBLE para un correo desde un campo que puede traer HTML enriquecido: conserva párrafos, saltos de línea y viñetas, decodifica
+    entidades y descarta las etiquetas (también las que llegaron escapadas como texto). El resultado es texto plano: la plantilla lo ESCAPA al
+    renderizar (nunca se inserta HTML)."""
+    text = str(value or "")
+    for _ in range(2):                                           # 2ª pasada: etiquetas que el campo guardó escapadas (&lt;b&gt;) y quedaron como texto
+        parser = _ReadableText()
+        parser.feed(text)
+        parser.close()
+        text = "".join(parser.parts)
+        if not _TAG_LIKE.search(text):
+            break
+    lines = [" ".join(line.split()) for line in text.replace("\r", "").split("\n")]
+    out: list[str] = []
+    for line in lines:
+        if line or (out and out[-1]):
+            out.append(line)
+    text = "\n".join(out).strip()
+    if limit and len(text) > limit:
+        text = text[:limit].rstrip() + "…"
+    return text

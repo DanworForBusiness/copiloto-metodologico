@@ -1,0 +1,40 @@
+{#- Base COMPARTIDA de los correos del Hub (webapp/services/notifications.py). Capas: identidad institucional (`brand`: logo, negro, acento,
+    identificación secundaria) → identidad de la vertical (`vertical.title` / `vertical.accent`, desde `webapp.workspaces.brand_identity`, la misma
+    tarjeta del selector del Hub) → contenido del evento (`{% block content %}`) → datos de negocio (`d`). Esta plantilla no conoce ninguna vertical
+    por nombre. Compatible con Outlook: tablas + estilos en línea, fuentes seguras, sin CSS externo ni fuentes web. El logo se carga por HTTPS desde
+    `/static` del propio Hub (público); si el cliente bloquea imágenes, su `alt` mantiene la cabecera legible. Todo valor llega escapado. -#}
+{%- set font = "'Segoe UI',Arial,Helvetica,sans-serif" -%}
+<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{ title }}</title></head>
+<body style="margin:0;padding:0;background:#f4f4f6;font-family:{{ font }};color:#202124;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f6;padding:24px 0;">
+  <tr><td align="center">
+    <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border:1px solid #e3e3e8;border-radius:10px;">
+      <tr><td style="padding:14px 24px;background:{{ brand.dark }};border-radius:10px 10px 0 0;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+          <tr>
+            <td valign="middle" style="width:45%;">
+              {%- if brand.logo_url %}
+              <img src="{{ brand.logo_url }}" alt="{{ brand.logo_alt }}" width="132" style="display:block;width:132px;max-width:100%;height:auto;border:0;outline:none;text-decoration:none;color:#ffffff;font-family:{{ font }};font-size:16px;font-weight:800;letter-spacing:.24em;text-transform:uppercase;">
+              {%- else %}
+              <span style="color:#ffffff;font-family:{{ font }};font-size:16px;font-weight:800;letter-spacing:.24em;text-transform:uppercase;">{{ brand.logo_alt }}</span>
+              {%- endif %}
+            </td>
+            <td valign="middle" align="right" style="text-align:right;">
+              <div style="font-family:{{ font }};font-size:17px;line-height:1.1;font-weight:800;letter-spacing:-.01em;color:#ffffff;">{{ vertical.title }}</div>
+              <div style="font-family:{{ font }};font-size:17px;line-height:1.1;font-weight:800;letter-spacing:-.01em;color:{{ brand.accent }};">{{ vertical.accent }}</div>
+              <div style="margin-top:5px;font-family:{{ font }};font-size:9px;line-height:1.2;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:#8b8b96;">{{ brand.tagline }}</div>
+            </td>
+          </tr>
+        </table>
+      </td></tr>
+      {% block content %}{% endblock %}
+      <tr><td style="padding:14px 24px;border-top:1px solid #eeeef2;font-size:12px;color:#7a7a82;">
+        Comunicación automática del Hub Danwor. No respondas a este correo.
+      </td></tr>
+    </table>
+  </td></tr>
+</table>
+</body>
+</html>

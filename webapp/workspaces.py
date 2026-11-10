@@ -111,6 +111,85 @@ HUMAN_CAPITAL = Workspace(
 
 _ALL_WORKSPACES: tuple[Workspace, ...] = (COPILOT, OPERATIONS, COMMERCIAL, HUMAN_CAPITAL)
 
+# Presentación de cada vertical (tarjeta del selector del Hub: eyebrow/título/acento/descripción/capacidades), keyed por `Workspace.key`.
+# Vive acá — el registro compartido de verticales — para que la consuman TANTO el selector (`routers/platform.py`) como otras superficies
+# que necesitan la identidad de la vertical sin depender de rutas ni plantillas de páginas (p. ej. los correos de `services/notifications.py`).
+WORKSPACE_CARD_COPY = {
+    "copilot": {
+        "eyebrow": None,
+        "title": "Copiloto Metodológico",
+        "accent": "Arquitecto Danwor",
+        "description": (
+            "Un entorno guiado para recorrer nuestro marco metodológico, consultar "
+            "decisiones técnicas y acelerar entregables con criterio arquitectónico "
+            "y mirada Danwor."
+        ),
+        "features": [
+            "Marco metodológico navegable",
+            "Árboles de decisión y asistencia IA",
+            "Criterios técnicos para proyectos SAP",
+        ],
+    },
+    "operations": {
+        "eyebrow": None,
+        "title": "Gestión Inteligente",
+        "accent": "Operaciones",
+        "description": (
+            "El espacio operativo de Danwor: gestión y analítica interna, hoy con "
+            "Staffing y asignaciones como primera capacidad implementada."
+        ),
+        "features": [
+            "Staffing y asignaciones",
+            "Gestión de proyectos",
+            "Analítica operativa",
+        ],
+    },
+    "commercial": {
+        "eyebrow": None,
+        "title": "Gestión Comercial",
+        "accent": "CRM Danwor",
+        "description": (
+            "Un espacio para gestionar oportunidades, seguir la actividad del CRM y "
+            "convertir la información comercial en decisiones accionables."
+        ),
+        "features": [
+            "Pipeline y oportunidades",
+            "Seguimiento de actividad comercial",
+            "Indicadores y analítica CRM",
+        ],
+    },
+    # Capital Humano: se anuncian SOLO las capacidades ya integradas en main
+    # (Base de CVs/Candidatos, Búsquedas, Entrevistas, Onboarding y Avisos),
+    # agrupadas en tres frases al estilo de los demás tiles (descripción de una
+    # oración + 3 capacidades). Indicadores NO se menciona mientras no esté
+    # publicado en main: este dict es presentación pura, nunca una promesa de
+    # funcionalidad (MISMO criterio que el resto de las entradas).
+    "human-capital": {
+        "eyebrow": None,
+        "title": "Capital Humano",
+        "accent": "Selección e Incorporación",
+        "description": (
+            "Un espacio para gestionar el ciclo de selección: banco de CVs, "
+            "búsquedas, entrevistas e incorporación."
+        ),
+        "features": [
+            "Banco de CVs y candidatos",
+            "Búsquedas y entrevistas",
+            "Onboarding y avisos",
+        ],
+    },
+}
+
+
+def brand_identity(key: str) -> dict:
+    """Identidad visual de una vertical para superficies externas al Hub (correos): `title` (texto principal) y `accent` (destacado en el
+    acento institucional), tomados de la MISMA tarjeta del selector; sin tarjeta, del propio `Workspace` (label/subtitle)."""
+    workspace = next((ws for ws in _ALL_WORKSPACES if ws.key == key), None)
+    card = WORKSPACE_CARD_COPY.get(key, {})
+    return {"key": key,
+            "title": card.get("title") or (workspace.label if workspace else ""),
+            "accent": card.get("accent") or (workspace.subtitle if workspace else "")}
+
 
 def available_workspaces(user: dict | None) -> list[Workspace]:
     """Workspaces que `user` puede ver, en orden estable. `user` son los

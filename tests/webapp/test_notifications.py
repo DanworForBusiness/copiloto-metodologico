@@ -259,3 +259,56 @@ def test_app_token_errors_are_classified_and_never_echo_the_secret(monkeypatch, 
     with pytest.raises(microsoft365_app.AppTokenError) as info:
         microsoft365_app.acquire_app_token("tenant", "client", SECRET)
     assert info.value.transient is transient and SECRET not in str(info.value)
+
+
+# Identidad visual: institucional (logo) → vertical (workspaces) → evento → datos
+def _render(event="operations.architecture_request.created", data=None, base="https://hub.danwor.com"):
+    return notifications.build_message(event, data or {"id": "7", "title": "T", "url": "/x"}, ["a@danwor.com"], hub_base=base)["message"]["body"]["content"]
+
+
+def test_header_uses_the_shared_logo_and_the_vertical_identity_from_the_hub_registry():
+    from webapp import workspaces
+    html = _render()
+    ident = workspaces.brand_identity("operations")
+    assert 'src="https://hub.danwor.com/static/brand/danwor-logo.png"' in html and 'alt="Danwor"' in html   # HTTPS público del propio Hub
+    assert ident["title"] in html and ident["accent"] in html and ident["title"] == workspaces.WORKSPACE_CARD_COPY["operations"]["title"]
+    assert "Hub Danwor · Notificaciones automáticas" in html
+
+
+def test_without_an_absolute_base_the_logo_is_omitted_and_the_header_stays_readable():
+    html = _render(base="")
+    assert "<img" not in html and ">Danwor<" in html                                                   # nunca una ruta relativa ni localhost implícito
+
+
+def test_shared_layout_knows_no_vertical_by_name():
+    from pathlib import Path
+    layout = (Path(__file__).resolve().parents[2] / "webapp/templates/notifications/_layout.html").read_text(encoding="utf-8")
+    for name in ("Operaciones", "Gestión Inteligente", "Capital Humano", "CRM", "Comercial"):
+        assert name not in layout
+
+
+@pytest.mark.parametrize("key", ["commercial", "human-capital", "copilot"])
+def test_the_same_header_renders_another_vertical_from_its_existing_metadata(monkeypatch, key):
+    from webapp import workspaces
+    spec = notifications.EVENTS["operations.architecture_request.created"]
+    monkeypatch.setitem(notifications.EVENTS, "demo.other_vertical", notifications.EventSpec(
+        workspace=key, recipients_setting=spec.recipients_setting, subject=spec.subject, template=spec.template, title=spec.title))
+    html = _render("demo.other_vertical")
+    ident = workspaces.brand_identity(key)
+    assert ident["title"] in html and ident["accent"] in html and "Gestión Inteligente" not in html
+
+
+@pytest.mark.parametrize("raw,expected", [
+    ("<div><p>Necesitamos <b>diseñar</b> el modelo &amp; la capa.</p><p>Incluye:<br>stock</p></div>", "Necesitamos diseñar el modelo & la capa.\n\nIncluye:\nstock"),
+    ("<div>Necesitamos &lt;b&gt;diseñar&lt;/b&gt; algo</div>", "Necesitamos diseñar algo"),                     # etiquetas que llegaron escapadas
+    ("<ul><li>Vencimientos</li><li>Reservas</li></ul>", "• Vencimientos\n• Reservas"),
+    ("Precio &lt; 5 &amp; ñandú «ok»\r\nsegunda", "Precio < 5 & ñandú «ok»\nsegunda"),
+    ("<script>alert(1)</script>texto", "alert(1)texto"),
+])
+def test_rich_description_becomes_readable_plain_text(raw, expected):
+    assert notifications.readable_text(raw) == expected
+
+
+def test_rich_description_is_rendered_escaped_with_line_breaks():
+    html = _render(data={"id": "7", "url": "/x", "description": notifications.readable_text("<p>Uno &lt; dos</p><p><b>Tres</b> & <i>cuatro</i></p>")})
+    assert "Uno &lt; dos\n\nTres &amp; cuatro" in html and "<b>" not in html and "white-space:pre-line" in html

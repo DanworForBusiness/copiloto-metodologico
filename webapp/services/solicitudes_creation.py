@@ -161,9 +161,7 @@ def _announce_created(actor, item_id, observed, options, origin):
     la solicitud con sus datos reales; el envío, los destinatarios y los reintentos son del servicio de notificaciones. Nunca afecta el alta."""
     try:
         fields = observed.get("fields") or {}
-        description = service.plain_text(fields.get(service.DESCRIPTION))
-        if len(description) > DESCRIPTION_EXCERPT:
-            description = description[:DESCRIPTION_EXCERPT].rstrip() + "…"
+        description = notifications.readable_text(fields.get(service.DESCRIPTION), DESCRIPTION_EXCERPT)   # texto legible: párrafos y saltos conservados
         notifications.emit(CREATED_EVENT, item_id, {
             "id": item_id,
             "title": str(fields.get("Title") or ""),
@@ -174,7 +172,7 @@ def _announce_created(actor, item_id, observed, options, origin):
             "created": _business_time(observed.get("createdDateTime")),
             "description": description,
             "url": notifications.hub_link(f"/operaciones/solicitudes/{item_id}/editar", origin),
-        })
+        }, origin=origin)
     except Exception as exc:                                      # noqa: BLE001 — la notificación es accesoria: el alta ya está confirmada
         logging.getLogger("danwor.solicitudes.audit").warning("operation=create notification=not_emitted item=%s error=%s", item_id, type(exc).__name__)
 
