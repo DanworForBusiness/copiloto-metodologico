@@ -34,6 +34,21 @@ def _isolate_runtime_logs(tmp_path_factory, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_notifications(tmp_path_factory, monkeypatch):
+    """MISMO criterio: `config` carga el `.env` local, y con NOTIFICATIONS_ENABLED=true un test que confirma un evento de negocio (alta o
+    rechazo de Solicitudes) enviaría CORREOS REALES con la identidad de la app y escribiría en el registro durable real. Por defecto: apagadas,
+    sin credenciales ni destinatarios (aunque un test las encendiera, `missing_settings` bloquea el envío) y registro en tmp. Los tests de notificaciones (fixture `graph` de
+    test_notifications.py) encienden y simulan Graph con su propio monkeypatch, que gana sobre este."""
+    import config
+
+    for name, value in {"NOTIFICATIONS_ENABLED": False, "NOTIFICATIONS_TENANT_ID": "", "NOTIFICATIONS_CLIENT_ID": "",
+                        "NOTIFICATIONS_CLIENT_SECRET": "", "NOTIFICATIONS_SENDER": "", "NOTIFICATIONS_OPERATIONS_RECIPIENTS": "",
+                        "NOTIFICATIONS_ARQ_RECIPIENTS": "", "NOTIFICATIONS_HC_RECIPIENTS": "", "NOTIFICATIONS_HUB_BASE_URL": "",
+                        "NOTIFICATIONS_DIR": tmp_path_factory.mktemp("runtime-notifications")}.items():
+        monkeypatch.setattr(config, name, value, raising=False)
+
+
+@pytest.fixture(autouse=True)
 def _isolate_remote_store_persistence(tmp_path_factory, monkeypatch):
     """MISMO criterio que `_isolate_runtime_logs` arriba — Integral Cold
     Start Fase 1 (ver HANDOFF, reporting_time_logs_durable.py): un test que
