@@ -24,6 +24,10 @@
   var MAX_SHARE = 25;
   var MAILTO_MAX = 1900;
   var SHARE_URL = "/cchh/candidatos/compartir";
+  var DIRECTORY_URL = "/cchh/candidatos/compartir/destinatarios";       // búsqueda EN VIVO del directorio (token delegado)
+  var SEND_URL = "/cchh/candidatos/compartir/enviar";                   // envío MANUAL por el buzón institucional
+  var MIN_QUERY = 3;
+  var SEARCH_DEBOUNCE = 250;
 
   // ───────────────────────── almacén de la selección (solo ids) ─────────────────────────
   function createStore(storage) {
@@ -140,7 +144,7 @@
   }
 
   // ───────────────────────── diálogo de compartir ─────────────────────────
-  var shareState = { items: [], choice: {} };
+  var shareState = { items: [], choice: {}, recipients: [], directoryEnabled: false, maxRecipients: 20, operationId: "", sending: false, sent: false, _searchSeq: 0 };
 
   function shareRoot(doc) { var c = doc.getElementById("hc-share-content"); return c && c.querySelector("[data-share-root]"); }
   // Los campos se buscan en TODO el contenedor del diálogo (no solo en `data-share-root`): las acciones —«Copiar mensaje», «Abrir Outlook»— y los JSON de datos viven fuera del bloque `root`.
@@ -239,6 +243,7 @@
     else if (model.included.length === 0) setNote(pending, "Ningún candidato tiene un CV con enlace disponible para compartir.");
     else setNote(pending, "");
     refreshMailto(doc);
+    refreshSend(doc);
   }
 
   function status(doc, text) { var s = shareField(doc, "data-share-status"); if (s) { s.textContent = text || ""; s.hidden = !text; } }
@@ -251,13 +256,188 @@
     var unavailable = [];
     try { var u = shareField(doc, "data-share-unavailable"); unavailable = u ? JSON.parse(u.textContent) : []; } catch (e) { unavailable = []; }
     if (unavailable.length) { store.remove(unavailable); syncUI(doc, store); }                    // un perfil dado de baja se saca de la selección: el contador no miente
-    shareState = { items: items, choice: {} };
+    var maxR = parseInt(root.getAttribute("data-max-recipients"), 10);
+    shareState = { items: items, choice: {}, recipients: [], directoryEnabled: !!root.getAttribute("data-directory-enabled"),
+                   maxRecipients: isNaN(maxR) ? 20 : maxR, operationId: newOperationId(win), sending: false, sent: false, _searchSeq: 0 };
     shareField(doc, "data-share-subject").value = root.getAttribute("data-default-subject") || "";
     shareField(doc, "data-share-intro").value = root.getAttribute("data-intro") || "";
     shareField(doc, "data-share-outro").value = root.getAttribute("data-outro") || "";
     autosize(shareField(doc, "data-share-intro"));
     autosize(shareField(doc, "data-share-outro"));
+    var search = shareField(doc, "data-share-search");
+    if (search && !shareState.directoryEnabled) search.disabled = true;                            // sin permiso de directorio: el selector queda inerte (el aviso ya está en el partial)
+    renderChips(doc);
     refreshShare(doc);
+  }
+
+  // ───────────────────────── destinatarios: directorio en vivo + chips + envío ─────────────────────────
+  function newOperationId(win) {
+    try { if (win.crypto && win.crypto.randomUUID) return win.crypto.randomUUID().replace(/-/g, ""); } catch (e) { /* sigue al fallback */ }
+    return "op" + Date.now().toString(36) + Math.random().toString(36).slice(2, 12);              // id ≥8, [A-Za-z0-9_-] (ver OPERATION_ID_RE en el servidor)
+  }
+
+  function sendStatus(doc, text, warn) {
+    var s = shareField(doc, "data-share-send-status");
+    if (!s) return;
+    s.textContent = text || ""; s.hidden = !text;
+    if (s.classList) { if (warn) s.classList.add("field-hint--warn"); else s.classList.remove("field-hint--warn"); }
+  }
+
+  function hasRecipient(email) {
+    var key = String(email || "").toLowerCase();
+    return shareState.recipients.some(function (r) { return r.email.toLowerCase() === key; });
+  }
+
+  function renderChips(doc) {
+    var list = shareField(doc, "data-share-chips");
+    if (!list) return;
+    list.textContent = "";
+    shareState.recipients.forEach(function (r) {
+      var li = doc.createElement("li");
+      li.className = "hc-share-chip";
+      var name = doc.createElement("span");
+      name.className = "hc-share-chip__label";
+      name.textContent = r.name && r.name !== r.email ? (r.name + " · " + r.email) : r.email;
+      li.appendChild(name);
+      var btn = doc.createElement("button");
+      btn.type = "button"; btn.className = "hc-share-chip__remove";
+      btn.setAttribute("data-share-chip-remove", r.email);
+      btn.setAttribute("aria-label", "Quitar a " + (r.name || r.email));
+      btn.title = "Quitar";
+      btn.textContent = "×";
+      li.appendChild(btn);
+      list.appendChild(li);
+    });
+  }
+
+  function addRecipient(doc, person) {
+    if (!person || !person.email || hasRecipient(person.email)) return;
+    if (shareState.recipients.length >= shareState.maxRecipients) { sendStatus(doc, "Se pueden agregar hasta " + shareState.maxRecipients + " destinatarios.", true); return; }
+    shareState.recipients.push({ name: person.name || person.email, email: person.email });
+    renderChips(doc);
+    refreshSend(doc);
+  }
+
+  function removeRecipient(doc, email) {
+    var key = String(email || "").toLowerCase();
+    shareState.recipients = shareState.recipients.filter(function (r) { return r.email.toLowerCase() !== key; });
+    renderChips(doc);
+    refreshSend(doc);
+  }
+
+  function showResults(doc, show) {
+    var box = shareField(doc, "data-share-results"), input = shareField(doc, "data-share-search");
+    if (box) box.hidden = !show;
+    if (input) input.setAttribute("aria-expanded", show ? "true" : "false");
+  }
+
+  function renderResults(doc, rows) {
+    var listEl = shareField(doc, "data-share-results-list"), hint = shareField(doc, "data-share-results-hint");
+    if (!listEl) return;
+    listEl.textContent = "";
+    rows.forEach(function (p) {
+      var opt = doc.createElement("div");
+      opt.setAttribute("role", "option");
+      opt.setAttribute("data-share-pick", p.email);
+      opt.setAttribute("data-share-pick-name", p.name || p.email);
+      opt.setAttribute("aria-selected", hasRecipient(p.email) ? "true" : "false");
+      opt.textContent = p.name && p.name !== p.email ? (p.name + " · " + p.email) : p.email;
+      listEl.appendChild(opt);
+    });
+    if (hint) { hint.textContent = rows.length ? "" : "Sin coincidencias en el directorio."; hint.hidden = rows.length > 0; }
+  }
+
+  // Búsqueda con rebote: pide un token DELEGADO (`dwHumanCapitalDirectoryToken`) y consulta el directorio. 503 = bloqueado por permiso; se muestra el aviso y se deshabilita.
+  function runSearch(doc, win) {
+    var input = shareField(doc, "data-share-search");
+    if (!input) return;
+    var q = (input.value || "").trim();
+    var hint = shareField(doc, "data-share-results-hint");
+    if (q.length < MIN_QUERY) { renderResults(doc, []); if (hint) { hint.textContent = "Escribí al menos " + MIN_QUERY + " caracteres para buscar."; hint.hidden = false; } showResults(doc, true); return; }
+    if (hint) { hint.textContent = "Buscando…"; hint.hidden = false; }
+    showResults(doc, true);
+    var seq = ++shareState._searchSeq;
+    var tokenFn = win.dwHumanCapitalDirectoryToken;
+    Promise.resolve(tokenFn ? tokenFn() : "").then(function (token) {
+      if (seq !== shareState._searchSeq) return;                                                  // llegó tarde: hay una búsqueda más nueva
+      if (!token) { blockDirectory(doc, "No se pudo obtener autorización de Microsoft para buscar en el directorio."); return; }
+      var body = "q=" + encodeURIComponent(q) + "&graph_token=" + encodeURIComponent(token);
+      return win.fetch(DIRECTORY_URL, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: body })
+        .then(function (res) { return res.json().then(function (data) { return { res: res, data: data }; }, function () { return { res: res, data: {} }; }); })
+        .then(function (r) {
+          if (seq !== shareState._searchSeq) return;
+          if (r.res.status === 401) { blockDirectory(doc, "Tu sesión de Microsoft venció. Reingresá y reintentá la búsqueda."); return; }
+          if (r.res.status === 503 || (r.data && r.data.blocked)) { blockDirectory(doc, (r.data && r.data.message) || "La búsqueda de destinatarios no está habilitada."); return; }
+          if (!r.res.ok) { if (hint) { hint.textContent = "No se pudo consultar el directorio. Reintentá."; hint.hidden = false; } return; }
+          renderResults(doc, (r.data && r.data.results) || []);
+        });
+    }).catch(function () { if (seq === shareState._searchSeq && hint) { hint.textContent = "No se pudo consultar el directorio. Reintentá."; hint.hidden = false; } });
+  }
+
+  function blockDirectory(doc, message) {
+    shareState.directoryEnabled = false;
+    var note = shareField(doc, "data-share-dir-blocked"), input = shareField(doc, "data-share-search");
+    if (note) { note.textContent = message || "La búsqueda de destinatarios no está habilitada."; note.hidden = false; }
+    if (input) input.disabled = true;
+    showResults(doc, false);
+    refreshSend(doc);
+  }
+
+  // Habilita «Enviar por correo» solo con: directorio disponible, mensaje listo (CVs elegidos) y ≥1 destinatario; nunca mientras hay un envío en curso o ya se envió.
+  function sendReady() {
+    var model = resolveShare(shareState.items, shareState.choice);
+    return shareState.directoryEnabled && !shareState.sending && !shareState.sent && shareReady(model) && shareState.recipients.length > 0;
+  }
+
+  function refreshSend(doc) {
+    var btn = shareField(doc, "data-share-send");
+    if (btn) btn.disabled = !sendReady();
+    if (!sendReady()) hideConfirm(doc);                                                           // si deja de estar listo, se cancela una confirmación abierta
+  }
+
+  function hideConfirm(doc) { var c = shareField(doc, "data-share-confirm"); if (c) c.hidden = true; }
+
+  function showConfirm(doc) {
+    if (!sendReady()) return;
+    var c = shareField(doc, "data-share-confirm"), msg = shareField(doc, "data-share-confirm-msg");
+    var n = shareState.recipients.length, shared = resolveShare(shareState.items, shareState.choice).included.length;
+    if (msg) msg.textContent = "Vas a enviar " + shared + (shared === 1 ? " perfil" : " perfiles") + " a " + n + (n === 1 ? " destinatario" : " destinatarios") + ". El correo sale desde el buzón institucional. ¿Confirmás?";
+    if (c) c.hidden = false;
+  }
+
+  function doSend(doc, win) {
+    if (!sendReady()) return;
+    shareState.sending = true;
+    refreshSend(doc);
+    hideConfirm(doc);
+    sendStatus(doc, "Enviando…", false);
+    var model = resolveShare(shareState.items, shareState.choice);
+    var tokenFn = win.dwHumanCapitalDirectoryToken;
+    Promise.resolve(tokenFn ? tokenFn() : "").then(function (token) {
+      if (!token) { shareState.sending = false; sendStatus(doc, "No se pudo obtener autorización de Microsoft para validar los destinatarios.", true); refreshSend(doc); return; }
+      var parts = ["operation_id=" + encodeURIComponent(shareState.operationId),
+                   "subject=" + encodeURIComponent(fieldValue(doc, "data-share-subject")),
+                   "message=" + encodeURIComponent(buildPlain(model, fieldValue(doc, "data-share-intro"), fieldValue(doc, "data-share-outro"))),
+                   "choice=" + encodeURIComponent(JSON.stringify(shareState.choice || {})),
+                   "graph_token=" + encodeURIComponent(token)];
+      shareState.items.forEach(function (it) { parts.push("profile_ids=" + encodeURIComponent(it.id)); });
+      shareState.recipients.forEach(function (r) { parts.push("recipients=" + encodeURIComponent(r.email)); });
+      return win.fetch(SEND_URL, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: parts.join("&") })
+        .then(function (res) { return res.json().then(function (data) { return { res: res, data: data }; }, function () { return { res: res, data: {} }; }); })
+        .then(function (r) { applySendOutcome(doc, win, r.res, r.data || {}); });
+    }).catch(function () { shareState.sending = false; sendStatus(doc, "No se pudo completar el envío. Reintentá en unos instantes.", true); refreshSend(doc); });
+  }
+
+  function applySendOutcome(doc, win, res, data) {
+    shareState.sending = false;
+    var st = data.status;
+    if (st === "accepted") { shareState.sent = true; sendStatus(doc, "Correo enviado a " + shareState.recipients.length + (shareState.recipients.length === 1 ? " destinatario." : " destinatarios."), false); }
+    else if (st === "duplicate") { shareState.sent = true; sendStatus(doc, "Este envío ya se había registrado; no se reenvió.", true); }
+    else if (st === "uncertain") { shareState.sent = true; sendStatus(doc, "El envío quedó sin confirmación de Microsoft. No se reenvía automáticamente: verificá tu bandeja antes de reintentar.", true); }
+    else if (st === "config_incomplete" || (data.reason === "audit_unavailable")) { sendStatus(doc, data.message || "No se pudo enviar por un problema de configuración. Nada fue enviado.", true); }      // nada enviado: se puede reintentar con el mismo operation_id
+    else if (st === "error") { sendStatus(doc, data.message || "No se pudo enviar. Revisá la selección y los destinatarios.", true); }                                                                          // validación previa: reintentable
+    else { shareState.sent = true; sendStatus(doc, data.message || "El servicio de correo rechazó el envío.", true); }                                                                                          // failed u otro: se bloquea para no reintentar a ciegas
+    refreshSend(doc);
   }
 
   // Copia el mensaje con DOS representaciones (text/html con los nombres como hipervínculos y text/plain con las URLs completas) si el navegador lo permite; si no, copia la selección renderizada
@@ -356,13 +536,38 @@
         keepInPlace(doc, t, function () { if (t.checked) store.add(visible); else store.remove(visible); syncUI(doc, store); });     // SOLO la página visible
       }
     });
+    var searchTimer = null;
     doc.addEventListener("input", function (event) {
       var t = event.target;
       if (t && t.matches && t.matches("[data-share-subject], [data-share-intro], [data-share-outro]")) { if (!t.matches("[data-share-subject]")) autosize(t); refreshMailto(doc); }
+      else if (t && t.matches && t.matches("[data-share-search]")) {
+        if (!shareState.directoryEnabled) return;
+        if (searchTimer) win.clearTimeout(searchTimer);
+        searchTimer = win.setTimeout(function () { runSearch(doc, win); }, SEARCH_DEBOUNCE);
+      }
+    });
+    doc.addEventListener("focusin", function (event) {
+      var t = event.target;
+      if (t && t.matches && t.matches("[data-share-search]") && shareState.directoryEnabled && (t.value || "").trim().length >= MIN_QUERY) runSearch(doc, win);
     });
     doc.addEventListener("click", function (event) {
-      var t = event.target, el = t && t.closest ? t.closest("[data-hc-clear-selection], [data-hc-share-open], [data-hc-consolidate-open], [data-share-copy], [data-share-open]") : null;
-      if (!el) return;
+      var t = event.target, el = t && t.closest ? t.closest("[data-hc-clear-selection], [data-hc-share-open], [data-hc-consolidate-open], [data-share-copy], [data-share-open], [data-share-pick], [data-share-chip-remove], [data-share-send], [data-share-confirm-go], [data-share-confirm-cancel]") : null;
+      if (!el) {
+        var results = shareField(doc, "data-share-results");                                        // clic fuera del selector: cierra el desplegable
+        if (results && !results.hidden && !(t && t.closest && t.closest("[data-share-recipients]"))) showResults(doc, false);
+        return;
+      }
+      if (el.hasAttribute("data-share-pick")) {
+        addRecipient(doc, { email: el.getAttribute("data-share-pick"), name: el.getAttribute("data-share-pick-name") });
+        var search = shareField(doc, "data-share-search");
+        if (search) { search.value = ""; search.focus(); }
+        renderResults(doc, []); showResults(doc, false);
+        return;
+      }
+      if (el.hasAttribute("data-share-chip-remove")) { removeRecipient(doc, el.getAttribute("data-share-chip-remove")); return; }
+      if (el.hasAttribute("data-share-send")) { showConfirm(doc); return; }
+      if (el.hasAttribute("data-share-confirm-cancel")) { hideConfirm(doc); return; }
+      if (el.hasAttribute("data-share-confirm-go")) { doSend(doc, win); return; }
       if (el.hasAttribute("data-hc-consolidate-open")) { openConsolidation(doc, store); return; }
       if (el.hasAttribute("data-hc-clear-selection")) { store.clear(); syncUI(doc, store); return; }
       if (el.hasAttribute("data-hc-share-open")) { openShare(doc, win, store); return; }
@@ -393,7 +598,11 @@
 
   var api = { STORAGE_KEY: STORAGE_KEY, MAX_SHARE: MAX_SHARE, MAILTO_MAX: MAILTO_MAX, SKIP: SKIP, createStore: createStore, escapeHtml: escapeHtml, safeCvUrl: safeCvUrl, rowsModel: rowsModel, resolveShare: resolveShare, autosize: autosize,
               buildPlain: buildPlain, buildHtml: buildHtml, copyRich: copyRich, refreshShare: refreshShare, renderList: renderList, mailtoUrl: mailtoUrl,
-              mailtoFits: mailtoFits, syncUI: syncUI, keepInPlace: keepInPlace, refreshMailto: refreshMailto, initShare: initShare, openShare: openShare, wire: wire };
+              mailtoFits: mailtoFits, syncUI: syncUI, keepInPlace: keepInPlace, refreshMailto: refreshMailto, initShare: initShare, openShare: openShare, wire: wire,
+              MIN_QUERY: MIN_QUERY, DIRECTORY_URL: DIRECTORY_URL, SEND_URL: SEND_URL, newOperationId: newOperationId, renderChips: renderChips, addRecipient: addRecipient,
+              removeRecipient: removeRecipient, renderResults: renderResults, runSearch: runSearch, blockDirectory: blockDirectory, sendReady: sendReady, refreshSend: refreshSend,
+              showConfirm: showConfirm, hideConfirm: hideConfirm, doSend: doSend, applySendOutcome: applySendOutcome,
+              _state: function () { return shareState; } };
   if (typeof window !== "undefined") {
     window.__cchhSelection = api;
     if (typeof document !== "undefined" && document.body && !window.__cchhSelectionWired) {

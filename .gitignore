@@ -63,3 +63,8 @@ catalog_inbound/
 .scratch_*
 scratch_preview.html
 .publication_runtime/
+# Persistencia local de Capital Humano (perfiles, CVs, búsquedas, auditorías cv-exports/cv-shares):
+# DATO de negocio + PII, vive en Spaces vía PERSIST_PATHS; acá sólo staging local. Nunca se versiona.
+human-capital/
+# Caché de reporting (derivable, runtime).
+reporting_cache/

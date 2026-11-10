@@ -370,6 +370,12 @@ HC_CATALOG_ITEM_ID      = _env("HC_CATALOG_ITEM_ID", "")
 # un backend env var que el JS estático no puede leer. Ausente = fail
 # closed (CONFIG_INCOMPLETE, ver profile_document_service.require_graph_config).
 HC_DOCUMENT_WRITE_SCOPE = _env("HC_DOCUMENT_WRITE_SCOPE", "")
+# Compartir perfiles → «Enviar por correo» (CCHH): scope DELEGADO ADICIONAL para que el selector busque usuarios del directorio Microsoft
+# Entra (`/users?$search`). El mínimo del endpoint es `User.ReadBasic.All` (sujeto a verificación real). VACÍO por defecto = búsqueda de
+# directorio EXPLÍCITAMENTE DESHABILITADA (prerequisito sin conceder): el resto del diálogo (Copiar, Abrir Outlook) sigue funcionando. No es
+# secreto: se expone vía `/api/auth/microsoft/config` para que `hub_auth.js` pida ESTE scope adicional, igual que `HC_DOCUMENT_WRITE_SCOPE`.
+# NUNCA se concede a la identidad técnica de notificaciones (client credentials, solo `Mail.Send`): la búsqueda usa el token DELEGADO del usuario.
+HC_DIRECTORY_SEARCH_SCOPE = _env("HC_DIRECTORY_SEARCH_SCOPE", "")
 # Carga masiva de CVs — Excel modelo descargable (owner, paridad con la app
 # vigente). A diferencia de HC_SHAREPOINT_SITE_ID/DRIVE_ID/HC_CV_ROOT_ITEM_ID
 # arriba, esto NO es identidad Graph (site_id/drive_id/item_id) -- es

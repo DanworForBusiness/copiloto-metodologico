@@ -20,7 +20,7 @@ from webapp.services import auth_service
 from webapp.services.activity_service import log_activity
 from webapp.services.activity_context import SCOPE_PLATFORM, AREA_AUTH
 from config import (
-    AZURE_CLIENT_ID, AZURE_TENANT_ID, HC_DOCUMENT_WRITE_SCOPE,
+    AZURE_CLIENT_ID, AZURE_TENANT_ID, HC_DOCUMENT_WRITE_SCOPE, HC_DIRECTORY_SEARCH_SCOPE,
     SESSION_MAX_AGE, SESSION_COOKIE_SAMESITE, SESSION_COOKIE_SECURE,
 )
 
@@ -47,6 +47,13 @@ def microsoft_config():
         # configurado: el cliente falla cerrado (ver
         # hub_auth.js::dwHumanCapitalDocumentWriteToken).
         "hc_document_write_scope": HC_DOCUMENT_WRITE_SCOPE,
+        # Capital Humano — Compartir perfiles: scope delegado ADICIONAL para
+        # buscar destinatarios en el directorio corporativo (`/users?$search`,
+        # mínimo `User.ReadBasic.All`). Mismo criterio que arriba: no es un
+        # secreto; `""` si no está consentido → la búsqueda queda bloqueada con
+        # mensaje claro (ver hub_auth.js::dwHumanCapitalDirectoryToken y la
+        # ruta /cchh/candidatos/compartir/destinatarios).
+        "hc_directory_search_scope": HC_DIRECTORY_SEARCH_SCOPE,
     }
 
 

@@ -67,10 +67,11 @@ INSTITUTIONAL = {
     "ink": "#e4e4ec",                    # texto principal sobre negro (`--ink` de brand-hero.css: la 1ª línea del título de las tarjetas del Hub)
     "dark": "#0c0c0d",
     "muted": "#8b8b96",                  # `--ink-soft` de brand-hero.css (separador «·»)
-    # Pila tipográfica de la cabecera: Inter (la del Hub) donde el cliente cargue la hoja de fuentes del Hub (`hub_fonts_url`, en <head> como
-    # mejora progresiva: Apple Mail, iOS, Outlook para Mac…). Outlook de Windows no carga fuentes web: cae en «Segoe UI Black», el peso de
-    # sistema más cercano a Inter 800 (Segoe UI Bold es 700 y más angosta); Apple usa SF con su peso 800. Nada se incrusta.
-    "font": "Inter,'Segoe UI Black','Segoe UI',-apple-system,BlinkMacSystemFont,Roboto,Helvetica,Arial,sans-serif",
+    # Pila tipográfica de la cabecera: SOLO fuentes de SISTEMA (sin fuente web). Se prioriza la fidelidad del correo RECIBIDO sobre la de una
+    # vista previa que usa capacidades del navegador. Segoe UI (Windows/Outlook, el cliente de la prueba real) primero; SF en Apple, Roboto en
+    # Android/Gmail, Helvetica Neue/Arial de respaldo. Visualmente cercana a Inter y consistente entre clientes de correo. Nada se incrusta ni
+    # se carga por `hub_fonts_url` (el correo ya no depende de fuentes web; el harness usa EXACTAMENTE esta misma pila, así reproduce el correo).
+    "font": "'Segoe UI',-apple-system,BlinkMacSystemFont,Roboto,'Helvetica Neue',Arial,sans-serif",
 }
 
 
@@ -106,6 +107,15 @@ EVENTS: dict[str, EventSpec] = {
         subject=lambda d: f"Solicitud rechazada y derivada a Operaciones | Arquitectura | Solicitud #{d.get('id', '')}",
         template="notifications/architecture_request_rejected.html",
         title="Solicitud rechazada y derivada a Operaciones",
+    ),
+    # Operaciones registra una nueva BÚSQUEDA de recurso; actúa Capital Humano. Evento SOLO-To (sin copia): `cc_setting=""`.
+    "operations.search.created": EventSpec(
+        workspace="operations",
+        to_setting="NOTIFICATIONS_HC_RECIPIENTS",
+        cc_setting="",
+        subject=lambda d: f"Nueva búsqueda de recurso | Operaciones | Búsqueda #{d.get('id', '')}",
+        template="notifications/search_created.html",
+        title="Nueva búsqueda de recurso",
     ),
 }
 

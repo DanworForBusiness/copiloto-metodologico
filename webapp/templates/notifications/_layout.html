@@ -9,9 +9,9 @@
 <!DOCTYPE html>
 <html lang="es">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{ title }}</title>
-{#- Fuente del Hub (Inter) como mejora progresiva: la MISMA hoja que carga el Hub (`hub_fonts_url`). Los clientes que no cargan fuentes web
-    (Outlook de Windows, Gmail) la ignoran y usan el fallback de `brand.font`. #}
-<link href="{{ hub_fonts_url }}" rel="stylesheet"></head>
+{#- Sin fuente web: el correo usa SOLO fuentes de sistema (`brand.font`, Segoe UI primero). Se prioriza la fidelidad del correo recibido (p. ej.
+    Outlook de Windows, motor Word) sobre la de la vista previa del navegador; el harness, que renderiza este mismo layout, reproduce el correo. #}
+</head>
 <body style="margin:0;padding:0;background:#f4f4f6;font-family:{{ font }};color:#202124;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f6;padding:24px 0;">
   <tr><td align="center">

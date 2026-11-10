@@ -398,6 +398,17 @@
     return delegatedWriteToken(() => "Sites.ReadWrite.All", opts, "solicitudes_write", true);
   };
 
+  // Capital Humano — Compartir perfiles: token DELEGADO para buscar
+  // destinatarios en el directorio corporativo (`/users?$search`). Pide el
+  // scope ADICIONAL `hc_directory_search_scope` (mínimo `User.ReadBasic.All`),
+  // servido por /api/auth/microsoft/config. Vacío → `_scope_not_configured`
+  // devuelve "" y la búsqueda queda bloqueada con mensaje claro (el router
+  // trata graph_token vacío como falta de autorización). recoverAccount=true:
+  // la búsqueda puede dispararse por gesto en un tab recién abierto.
+  window.dwHumanCapitalDirectoryToken = async function (opts) {
+    return delegatedWriteToken(() => cachedConfig && cachedConfig.hc_directory_search_scope, opts, "hc_directory", true);
+  };
+
   // ── LA ÚNICA PUERTA A LA INTERACCIÓN ──────────────────────────────────
   // Este es el ÚNICO lugar del proyecto que llama `acquireTokenPopup`
   // (GUARD 5, test_hub_auth_gesture.py — invariante deliberado: cada call
