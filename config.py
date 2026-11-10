@@ -187,8 +187,11 @@ NOTIFICATIONS_TENANT_ID     = os.getenv("NOTIFICATIONS_TENANT_ID", "").strip()
 NOTIFICATIONS_CLIENT_ID     = os.getenv("NOTIFICATIONS_CLIENT_ID", "").strip()
 NOTIFICATIONS_CLIENT_SECRET = os.getenv("NOTIFICATIONS_CLIENT_SECRET", "").strip()
 NOTIFICATIONS_SENDER        = os.getenv("NOTIFICATIONS_SENDER", "").strip()
-# Destinatarios por evento (separados por coma o punto y coma). Operaciones → 03. Solicitudes.
+# Destinatarios por ÁREA (separados por coma o punto y coma). Cada evento declara en su política qué área va en To (quien debe actuar) y cuál en
+# Cc (quien originó o devolvió), ver EVENTS en webapp/services/notifications.py.
 NOTIFICATIONS_OPERATIONS_RECIPIENTS = os.getenv("NOTIFICATIONS_OPERATIONS_RECIPIENTS", "").strip()
+NOTIFICATIONS_ARQ_RECIPIENTS        = os.getenv("NOTIFICATIONS_ARQ_RECIPIENTS", "").strip()     # Arquitectura e Innovación
+NOTIFICATIONS_HC_RECIPIENTS         = os.getenv("NOTIFICATIONS_HC_RECIPIENTS", "").strip()      # Capital Humano: reservado, ningún evento todavía
 # URL pública del Hub para los enlaces de los correos (p. ej. https://hub.danwor.com). Opcional: sin ella se usa el origen YA validado (mismo origen)
 # del POST que originó el evento. Recomendada en producción.
 NOTIFICATIONS_HUB_BASE_URL  = os.getenv("NOTIFICATIONS_HUB_BASE_URL", "").strip().rstrip("/")

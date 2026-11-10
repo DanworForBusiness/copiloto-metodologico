@@ -81,3 +81,42 @@ def rejection_reason(fields, reason, columns, *, confirmed):
     if confirmed is not True:
         raise ValueError("Confirmá expresamente el rechazo de la demanda.")
     return service.normalize_narrative(reason.strip())
+
+
+REJECTED_EVENT = "operations.architecture_request.rejected"
+REASON_EXCERPT = 1500
+
+
+def announce_rejection(token, columns, item_id, entry_id, updated, reason, user, *, origin=None):
+    """Evento de negocio `operations.architecture_request.rejected`: SOLO tras la confirmación durable del rechazo (la relectura mostró el Funnel
+    en REJECTED y el movimiento `entry_id` del historial preservado). Clave idempotente = solicitud + id del movimiento firmado del historial:
+    el mismo rechazo nunca se notifica dos veces (reintentos, reenvíos, refrescos) y un rechazo POSTERIOR legítimo —otro movimiento, tras volver
+    la solicitud a «Solicitado»— tiene clave propia. Datos: solo lo confirmado por SharePoint y por el diálogo. Destinatarios, envío y
+    reintentos son del servicio de notificaciones. La lectura del rótulo de Proyecto usa el token DELEGADO del usuario (nunca la identidad de
+    aplicación de las notificaciones). Nunca lanza ni afecta el rechazo ya confirmado."""
+    from webapp.services import notifications
+    from webapp.services import solicitudes_repository as repository
+    from webapp.services.solicitudes_creation import _business_time
+    if not notifications.enabled():
+        return
+    try:
+        fields = updated.get("fields") or {}
+        project = service.project_label(fields)
+        if not project and token:
+            try:
+                catalog = repository.lookup_options(token, (service.PROJECT,), columns=columns).get(service.PROJECT)
+                project = service.project_label(fields, catalog)
+            except Exception:                                    # noqa: BLE001 — sin rótulo, el correo omite el Proyecto (nunca inventa uno)
+                project = ""
+        notifications.emit(REJECTED_EVENT, f"{item_id}:{entry_id}", {
+            "id": str(item_id),
+            "title": str(fields.get("Title") or ""),
+            "project": project,
+            "funnel": str(fields.get(service.FUNNEL) or ""),
+            "actor": str(user.get("email") or user.get("name") or ""),
+            "rejected_at": _business_time(updated.get("lastModifiedDateTime")),
+            "reason": notifications.readable_text(reason, REASON_EXCERPT),
+            "url": notifications.hub_link(f"/operaciones/solicitudes/{item_id}/editar", origin),
+        }, origin=origin)
+    except Exception as exc:                                      # noqa: BLE001 — la notificación es accesoria: el rechazo ya está confirmado
+        logging.getLogger("danwor.solicitudes.audit").warning("operation=reject notification=not_emitted item=%s error=%s", item_id, type(exc).__name__)

@@ -493,6 +493,8 @@ async def solicitudes_reject(request: Request, item_id: str, graph_token: str = 
             outcome = "uncertain"
             return feedback("uncertain", "No pudimos confirmar el rechazo. Revisá los valores vigentes antes de reintentar; la justificación se conserva.")
         outcome = "confirmed"
+        origin = request.headers.get("origin") or f"{request.url.scheme}://{request.url.netloc}"   # ya validado por same_origin_guard (solo para el enlace del aviso)
+        await run_in_threadpool(admission.announce_rejection, graph_token, columns, item_id, entry_id, updated, reason, user, origin=origin)
         return feedback("saved", "Rechazo confirmado en SharePoint.",
                         history_rows=journal.history(updated["fields"].get(service.COMMENTS), item_id),
                         refresh_history=True, **_detail_context(updated))

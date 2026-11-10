@@ -76,22 +76,36 @@ INSTITUTIONAL = {
 
 @dataclass(frozen=True)
 class EventSpec:
-    """Política de un evento: vertical que lo origina (clave de `webapp.workspaces`), a quién (setting de destinatarios), qué asunto y qué
-    plantilla. Inmutable. La plantilla del evento extiende la base compartida (`notifications/_layout.html`)."""
+    """Política de un evento: vertical que lo origina (clave de `webapp.workspaces`), a quién (To = el área que debe ACTUAR; Cc = el área que
+    originó o devolvió, ambas como NOMBRES de settings de destinatarios por área), qué asunto y qué plantilla. Inmutable. La plantilla del
+    evento extiende la base compartida (`notifications/_layout.html`)."""
     workspace: str
-    recipients_setting: str
+    to_setting: str
     subject: Callable[[dict], str]
     template: str
     title: str
+    cc_setting: str = ""
 
 
 EVENTS: dict[str, EventSpec] = {
+    # Operaciones crea la demanda; actúa Arquitectura e Innovación.
     "operations.architecture_request.created": EventSpec(
         workspace="operations",
-        recipients_setting="NOTIFICATIONS_OPERATIONS_RECIPIENTS",
+        to_setting="NOTIFICATIONS_ARQ_RECIPIENTS",
+        cc_setting="NOTIFICATIONS_OPERATIONS_RECIPIENTS",
         subject=lambda d: f"Nueva solicitud de arquitectura | Operaciones | Solicitud #{d.get('id', '')}",
         template="notifications/architecture_request_created.html",
         title="Nueva solicitud de arquitectura",
+    ),
+    # Arquitectura rechaza la admisión y deriva la demanda a Operaciones (Status funnel «Solicitado» → «Rechazado, Aplica Operaciones»):
+    # la responsabilidad se invierte y actúa Operaciones.
+    "operations.architecture_request.rejected": EventSpec(
+        workspace="operations",
+        to_setting="NOTIFICATIONS_OPERATIONS_RECIPIENTS",
+        cc_setting="NOTIFICATIONS_ARQ_RECIPIENTS",
+        subject=lambda d: f"Solicitud rechazada y derivada a Operaciones | Arquitectura | Solicitud #{d.get('id', '')}",
+        template="notifications/architecture_request_rejected.html",
+        title="Solicitud rechazada y derivada a Operaciones",
     ),
 }
 
@@ -111,15 +125,25 @@ def missing_settings() -> list[str]:
     return missing
 
 
-def recipients_for(spec: EventSpec) -> list[str]:
-    """Destinatarios gobernados del evento: SOLO la variable de configuración declarada en su política (deduplicados, formato válido)."""
-    raw = str(getattr(config, spec.recipients_setting, "") or "")
+def _addresses(setting: str) -> list[str]:
+    """Direcciones de UN setting de destinatarios (coma o punto y coma): normalizadas (sin espacios), formato válido, sin duplicados
+    (comparación sin mayúsculas). Un setting vacío o no declarado no aporta nadie."""
+    raw = str(getattr(config, setting, "") or "") if setting else ""
     out: list[str] = []
     for part in re.split(r"[;,]", raw):
         address = part.strip()
         if address and _EMAIL_RE.match(address) and address.lower() not in {a.lower() for a in out}:
             out.append(address)
     return out
+
+
+def recipients_for(spec: EventSpec) -> tuple[list[str], list[str]]:
+    """(To, Cc) gobernados del evento: SOLO los settings declarados en su política, nunca datos del request. Una dirección que esté en To y en
+    Cc queda solo en To. Sin To no hay envío (lo decide quien llama): un Cc solo no convierte en destinatario principal a quien no debe actuar."""
+    to = _addresses(spec.to_setting)
+    seen = {a.lower() for a in to}
+    cc = [a for a in _addresses(spec.cc_setting) if a.lower() not in seen]
+    return to, cc
 
 
 def startup_check() -> None:
@@ -205,12 +229,12 @@ def _emit(event: str, key: str, data: dict, origin: str | None = None) -> str:
     record = {"event": event, "key": key, "data": data, "hub_base": hub_base(origin), "state": "pending", "attempts": 0,
               "created_at": _now(), "updated_at": _now()}
     missing = missing_settings()
-    recipients = recipients_for(spec)
-    if missing or not recipients:
+    to, _cc = recipients_for(spec)
+    if missing or not to:
         record.update(state="failed", error="config_incomplete" if missing else "no_recipients")
         if _create_exclusive(path, record):
             log.error("notificación %s clave=%s no enviada: %s", event, _short(key),
-                      ("configuración incompleta (" + ", ".join(missing) + ")") if missing else "sin destinatarios configurados")
+                      ("configuración incompleta (" + ", ".join(missing) + ")") if missing else f"sin destinatarios principales ({spec.to_setting})")
         return "config_incomplete" if missing else "no_recipients"
     if not _create_exclusive(path, record):
         log.info("notificación %s clave=%s ya registrada: no se duplica", event, _short(key))
@@ -302,21 +326,21 @@ def _deliver(path: Path) -> None:
     if spec is None:
         _finish(path, record, state="failed", error="unknown_event")
         return
-    recipients = recipients_for(spec)
+    to, cc = recipients_for(spec)
     missing = missing_settings()
-    if missing or not recipients:
+    if missing or not to:
         _finish(path, record, state="failed", error="config_incomplete" if missing else "no_recipients")
         log.error("notificación %s clave=%s no enviada: %s", record["event"], _short(record["key"]),
-                  "configuración incompleta" if missing else "sin destinatarios configurados")
+                  "configuración incompleta" if missing else f"sin destinatarios principales ({spec.to_setting})")
         return
-    message = build_message(record["event"], record.get("data") or {}, recipients, hub_base=record.get("hub_base") or "")
+    message = build_message(record["event"], record.get("data") or {}, to, cc=cc, hub_base=record.get("hub_base") or "")
     attempts = int(record.get("attempts", 0))
     for inline in range(INLINE_ATTEMPTS):
         attempts += 1
         outcome, detail, retry_after = _send_once(message)
         if outcome == "accepted":
             _finish(path, record, state="accepted", attempts=attempts, error=None, accepted_at=_now())
-            log.info("notificación %s clave=%s aceptada por Graph (HTTP 202) para %d destinatario(s)", record["event"], _short(record["key"]), len(recipients))
+            log.info("notificación %s clave=%s aceptada por Graph (HTTP 202) para %d destinatario(s) + %d en copia", record["event"], _short(record["key"]), len(to), len(cc))
             return
         if outcome != "transient" or attempts >= MAX_ATTEMPTS:
             state = outcome if outcome != "transient" else "failed"             # failed/uncertain son terminales; un transitorio agotado también
@@ -374,7 +398,7 @@ def _short(key: str) -> str:
 
 
 # ── plantilla ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-def build_message(event: str, data: dict, recipients: list[str], *, hub_base: str = "") -> dict:
+def build_message(event: str, data: dict, recipients: list[str], *, cc: list[str] | None = None, hub_base: str = "") -> dict:
     """Mensaje Graph (`sendMail`): asunto y cuerpo HTML generados SOLO desde la política y la plantilla del evento; todos los valores dinámicos
     se escapan (la plantilla no acepta HTML del usuario). El remitente lo fija la URL (buzón de configuración), nunca el mensaje.
     Capas: identidad institucional (`INSTITUTIONAL`) → identidad de la vertical (`workspaces.brand_identity(spec.workspace)`) → plantilla del
@@ -385,9 +409,12 @@ def build_message(event: str, data: dict, recipients: list[str], *, hub_base: st
     brand = dict(INSTITUTIONAL)
     html = templates.env.get_template(spec.template).render(title=spec.title, d=data, brand=brand,
                                                              vertical=workspaces.brand_identity(spec.workspace))
-    return {"message": {"subject": spec.subject(data)[:255],
-                        "body": {"contentType": "HTML", "content": html},
-                        "toRecipients": [{"emailAddress": {"address": address}} for address in recipients]}}
+    message = {"subject": spec.subject(data)[:255],
+               "body": {"contentType": "HTML", "content": html},
+               "toRecipients": [{"emailAddress": {"address": address}} for address in recipients]}
+    if cc:
+        message["ccRecipients"] = [{"emailAddress": {"address": address}} for address in cc]
+    return {"message": message}
 
 
 def hub_base(origin: str | None = None) -> str:

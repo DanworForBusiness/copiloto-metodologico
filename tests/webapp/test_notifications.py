@@ -39,7 +39,8 @@ def graph(monkeypatch, tmp_path):
     """Notificaciones habilitadas con configuración completa + Graph simulado. `graph.responses` define la respuesta de cada intento."""
     for name, value in {"NOTIFICATIONS_ENABLED": True, "NOTIFICATIONS_TENANT_ID": "tenant-x", "NOTIFICATIONS_CLIENT_ID": "client-x",
                         "NOTIFICATIONS_CLIENT_SECRET": SECRET, "NOTIFICATIONS_SENDER": "hub-notifications@danwor.com",
-                        "NOTIFICATIONS_OPERATIONS_RECIPIENTS": "arquitectura@example.com; operaciones@example.com",
+                        "NOTIFICATIONS_ARQ_RECIPIENTS": "arquitectura@example.com; innovacion@example.com",
+                        "NOTIFICATIONS_OPERATIONS_RECIPIENTS": "operaciones@example.com",
                         "NOTIFICATIONS_HUB_BASE_URL": "", "NOTIFICATIONS_DIR": tmp_path / "notifications",
                         "ALLOWED_USERS": "intruso@example.com", "APP_OWNER": "owner@example.com"}.items():
         monkeypatch.setattr(config, name, value, raising=False)
@@ -101,7 +102,8 @@ def test_confirmed_creation_sends_one_governed_notification(client, submitted, g
     call = graph.calls[0]
     assert call["url"] == "https://graph.microsoft.com/v1.0/users/hub-notifications@danwor.com/sendMail"
     message = call["body"]["message"]
-    assert [r["emailAddress"]["address"] for r in message["toRecipients"]] == ["arquitectura@example.com", "operaciones@example.com"]
+    assert [r["emailAddress"]["address"] for r in message["toRecipients"]] == ["arquitectura@example.com", "innovacion@example.com"]   # actúa Arquitectura
+    assert [r["emailAddress"]["address"] for r in message["ccRecipients"]] == ["operaciones@example.com"]                              # Operaciones, informada
     assert message["subject"] == "Nueva solicitud de arquitectura | Operaciones | Solicitud #7"
     html = message["body"]["content"]
     assert message["body"]["contentType"] == "HTML"
@@ -116,7 +118,7 @@ def test_confirmed_creation_sends_one_governed_notification(client, submitted, g
 def test_recipients_never_come_from_access_lists_or_the_frontend(client, submitted, graph, sharepoint):  # noqa: F811
     _create(client, {**submitted})
     addresses = json.dumps(graph.calls[0]["body"])
-    assert "intruso@example.com" not in addresses and "owner@example.com" not in addresses and "create-test" not in json.dumps(graph.calls[0]["body"]["message"]["toRecipients"])
+    assert "intruso@example.com" not in addresses and "owner@example.com" not in addresses and "create-test" not in json.dumps(graph.calls[0]["body"]["message"]["toRecipients"] + graph.calls[0]["body"]["message"]["ccRecipients"])
 
 
 def test_configured_base_url_wins_for_the_link(client, submitted, graph, sharepoint, monkeypatch):  # noqa: F811
@@ -297,7 +299,7 @@ def test_the_same_header_renders_another_vertical_from_its_existing_metadata(mon
     from webapp import workspaces
     spec = notifications.EVENTS["operations.architecture_request.created"]
     monkeypatch.setitem(notifications.EVENTS, "demo.other_vertical", notifications.EventSpec(
-        workspace=key, recipients_setting=spec.recipients_setting, subject=spec.subject, template=spec.template, title=spec.title))
+        workspace=key, to_setting=spec.to_setting, subject=spec.subject, template=spec.template, title=spec.title))
     html = _render("demo.other_vertical")
     ident = workspaces.brand_identity(key)
     assert ident["title"] in html and ident["accent"] in html and "Gestión Inteligente" not in html
