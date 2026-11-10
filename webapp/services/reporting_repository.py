@@ -205,6 +205,53 @@ FAC_CANTIDAD = "Suma de Cantidad"
 COLAB_TITLE = ("Title",)
 COLAB_LOOKUP_ID = "Colaborador_x002e_LookupId"
 USER_INFO_NAME = "Name"
+USER_INFO_TITLE = "Title"
+USER_INFO_EMAIL = "EMail"
+
+
+def user_info_identity(fields: dict | None, *, allow_email_field: bool = False) -> str:
+    """Correo (minúsculas) de un ítem de la User Information List. Regla ÚNICA y validada en vivo: `Name` es un claims/login SharePoint
+    (`i:0#.f|membership|user@dom`) y el correo es el último segmento tras el último `|`. `allow_email_field=True` (solo para presentación,
+    nunca para Reporting) acepta `EMail` cuando `Name` no trae un correo. "" si no hay identidad de correo."""
+    fields = fields or {}
+    name = _text(fields.get(USER_INFO_NAME))
+    email = (name.rsplit("|", 1)[-1] if "|" in name else name).strip().lower()
+    if "@" in email:
+        return email
+    if allow_email_field:
+        alt = _text(fields.get(USER_INFO_EMAIL)).strip().lower()
+        if "@" in alt:
+            return alt
+    return ""
+
+
+def _colaboradores_map(items: list[dict], userinfo_items: list[dict]) -> dict[str, str]:
+    """Email → nombre de Consultor (Colaboradores.LookupId → User Information List → `Name`). Criterio funcional de Reporting, SIN cambios."""
+    email_by_id = {_text(it.get("id")): user_info_identity(it.get("fields")) for it in userinfo_items}
+    mapping: dict[str, str] = {}
+    for it in items:
+        fields = it.get("fields") or {}
+        title = _first(fields, *COLAB_TITLE)
+        lookup_id = _text(fields.get(COLAB_LOOKUP_ID))
+        if not title or not lookup_id:
+            continue
+        email = email_by_id.get(lookup_id) or ""
+        if "@" not in email:
+            continue
+        mapping[email] = title
+    return mapping
+
+
+def _user_info_titles(userinfo_items: list[dict]) -> dict[str, str]:
+    """Email → `Title` (nombre visible que SharePoint sincroniza del perfil de Microsoft) de la User Information List. SOLO presentación."""
+    out: dict[str, str] = {}
+    for it in userinfo_items:
+        fields = it.get("fields") or {}
+        email = user_info_identity(fields, allow_email_field=True)
+        title = _text(fields.get(USER_INFO_TITLE)).strip()
+        if email and title and email not in out:
+            out[email] = title
+    return out
 
 # Time Logs Reports (CSV, sitio Operaciones) — Batch B, ÚNICA fuente física
 # nueva (junto con "Ejecutadas" de Rentabilidad, que reusa este MISMO
@@ -2117,23 +2164,19 @@ class ReportingRepository:
         timer.stage("colaboradores", len(items))
         userinfo_items = self._items(site_id, self.user_information_list_id, "user_information")
         timer.stage("user_information", len(userinfo_items))
-        name_by_id = {_text(it.get("id")): _text((it.get("fields") or {}).get(USER_INFO_NAME)) for it in userinfo_items}
-        mapping: dict[str, str] = {}
-        for it in items:
-            fields = it.get("fields") or {}
-            title = _first(fields, *COLAB_TITLE)
-            lookup_id = _text(fields.get(COLAB_LOOKUP_ID))
-            if not title or not lookup_id:
-                continue
-            name = name_by_id.get(lookup_id)
-            if not name:
-                continue
-            email = (name.rsplit("|", 1)[-1] if "|" in name else name).strip().lower()
-            if "@" not in email:
-                continue
-            mapping[email] = title
+        mapping = _colaboradores_map(items, userinfo_items)
         timer.total()
         return mapping
+
+    def get_people_names(self, access_token: str) -> tuple[dict[str, str], dict[str, str]]:
+        """(Colaboradores email→nombre —IDÉNTICO a `get_colaboradores_email_map`—, User Information List email→`Title`) con UNA lectura de
+        cada lista (la User Information List se reutiliza para ambos mapas). Para PRESENTACIÓN de nombres fuera de Reporting (p. ej. el
+        selector de Capital Humano); no cambia ningún criterio funcional de Reporting."""
+        self._token = access_token
+        site_id = self._require_site_id()
+        items = self._items(site_id, self.colaboradores_list_id, "colaboradores")
+        userinfo_items = self._items(site_id, self.user_information_list_id, "user_information")
+        return _colaboradores_map(items, userinfo_items), _user_info_titles(userinfo_items)
 
 
 def _quote(path: str) -> str:

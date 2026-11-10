@@ -72,16 +72,29 @@ def allowlist_recipients() -> list[dict]:
     return [{"name": e, "email": e} for e in emails]
 
 
+def _valid_name(value, email: str) -> str:
+    """Nombre confiable para mostrar: no vacío, no es un correo ni el propio correo. Nunca se deduce del alias."""
+    name = str(value or "").strip()
+    return "" if not name or "@" in name or name.lower() == email else name
+
+
 def roster_names(token: str) -> dict[str, str]:
-    """correo (minúsculas) → nombre del padrón de personal: lista Colaboradores + User Information List del sitio Gestión, leídas con el token
-    DELEGADO base de lectura (`Sites.Read.All`, ya concedido). Reutiliza la resolución existente y validada en vivo de
-    `ReportingRepository.get_colaboradores_email_map` (la capa de REPOSITORIO, no el servicio funcional de Reporting) sin duplicarla.
-    Solo presentación: ante cualquier falla devuelve {} y el selector usa el correo. No persiste nada."""
+    """correo (minúsculas) → nombre para PRESENTACIÓN, con prioridad: (1) lista Colaboradores del sitio Gestión (padrón de personal),
+    (2) `Title` de la User Information List del mismo sitio (nombre visible sincronizado del perfil de Microsoft) cuando Colaboradores no
+    tiene un nombre válido; (3) sin nombre → el llamador muestra el correo. UNA lectura de cada lista con el token DELEGADO base de lectura
+    (`Sites.Read.All`, ya concedido), vía `ReportingRepository.get_people_names` (misma regla de identidad que Reporting, sin duplicarla ni
+    cambiar su mapa funcional). Nunca agrega destinatarios: solo nombra a quien ya está en la allowlist. Ante cualquier falla devuelve {}."""
     if not token:
         return {}
     try:
         from webapp.services.reporting_repository import ReportingRepository
-        return dict(ReportingRepository().get_colaboradores_email_map(token) or {})
+        colaboradores, user_info = ReportingRepository().get_people_names(token)
+        names: dict[str, str] = {}
+        for email in set(colaboradores) | set(user_info):
+            chosen = _valid_name(colaboradores.get(email), email) or _valid_name(user_info.get(email), email)
+            if chosen:
+                names[email] = chosen
+        return names
     except Exception as exc:                                         # noqa: BLE001 — presentación accesoria: nunca bloquea la selección
         _logger.info("operation=cv_share roster_names_unavailable error=%s", type(exc).__name__)
         return {}

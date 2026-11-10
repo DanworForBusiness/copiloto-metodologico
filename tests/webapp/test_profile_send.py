@@ -446,8 +446,21 @@ def test_allowlist_dialog_announces_the_transitional_mode_and_keeps_the_same_ui(
         assert marker in html
 
 
-# ── «allowlist» con nombres del padrón (Colaboradores + User Information List, vía ReportingRepository) ─────────────────────────────────
-ROSTER = {HC: "Helena Castro Ruiz", "colaborador.ajeno@danwor.com": "Persona Fuera De La Lista", "otro.ajeno@danwor.com": "Otra Persona"}
+# ── «allowlist» con nombres: Colaboradores → User Information List (Title) → correo; una lectura de cada lista vía ReportingRepository ──
+# Listas SharePoint simuladas a nivel `_items` (la lectura): así se ejercita el cruce real de identidades, la prioridad y la invariancia de Reporting.
+COLABORADORES_LIST = [
+    {"id": "c1", "fields": {"Title": "Helena Castro Ruiz", "Colaborador_x002e_LookupId": "11"}},       # HC: nombre del padrón
+    {"id": "c2", "fields": {"Title": "Persona Fuera De La Lista", "Colaborador_x002e_LookupId": "12"}},  # en el padrón pero NO en la allowlist
+    {"id": "c3", "fields": {"Title": "", "Colaborador_x002e_LookupId": "14"}},                            # fila sin Title válido
+]
+USER_INFO_LIST = [
+    {"id": "11", "fields": {"Title": "Helena C. (perfil)", "Name": f"i:0#.f|membership|{HC.upper()}", "EMail": HC}},     # mayúsculas en Name
+    {"id": "12", "fields": {"Title": "Persona Fuera", "Name": "i:0#.f|membership|colaborador.ajeno@danwor.com"}},
+    {"id": "13", "fields": {"Title": "Compacto Usuario", "Name": "i:0#.f|membership|compacto.usuario@danwor.com"}},      # SOLO en UIL (caso Cecilia)
+    {"id": "14", "fields": {"Title": "", "Name": "i:0#.f|membership|sin.titulo@danwor.com"}},                           # sin Title confiable
+    {"id": "15", "fields": {"Title": "Solo En User Info", "Name": "i:0#.f|membership|solo.uil@danwor.com"}},            # UIL fuera de la allowlist
+    {"id": "16", "fields": {"Title": "Por EMail", "Name": "c:0(.s|true", "EMail": "Por.Email@Danwor.com"}},             # Name sin correo → EMail
+]
 
 
 @pytest.fixture
@@ -455,12 +468,15 @@ def roster(allowlist, monkeypatch):
     from webapp.services import reporting_repository
     calls = []
 
-    def email_map(self, token):
-        calls.append(token)
-        if token == "boom":
-            raise reporting_repository.ReportingGraphError("user_information", 503)
-        return dict(ROSTER)
-    monkeypatch.setattr(reporting_repository.ReportingRepository, "get_colaboradores_email_map", email_map)
+    def items(self, site_id, list_id, stage, select=None):
+        calls.append((stage, self._token))
+        if self._token == "boom":
+            raise reporting_repository.ReportingGraphError(stage, 503)
+        return [dict(i) for i in (COLABORADORES_LIST if stage == "colaboradores" else USER_INFO_LIST)]
+    monkeypatch.setattr(reporting_repository.ReportingRepository, "_items", items)
+    monkeypatch.setattr(config, "SHAREPOINT_GESTION_SITE_ID", "site-x", raising=False)
+    monkeypatch.setattr(auth_service, "HUMAN_CAPITAL_ALLOWED_USERS",
+                        f"{HC}, Compacto.Usuario, sin.titulo, por.email@danwor.com, externo@gmail.com")
     return calls
 
 
@@ -468,24 +484,49 @@ def catalog(c, token="base-read-token", headers=ORIGIN):
     return c.post("/cchh/candidatos/compartir/catalogo", data={"graph_token": token}, headers=headers)
 
 
-def test_catalog_enriches_only_allowlisted_identities_with_roster_names(roster):
+def test_catalog_names_follow_colaboradores_then_user_info_then_email(roster):
     r = catalog(client())
     body = r.json()
     assert r.status_code == 200 and r.headers.get("cache-control", "").startswith("no-store")
-    assert body["recipients"] == [{"name": "compacto.usuario@danwor.com", "email": "compacto.usuario@danwor.com"},   # fuera del padrón → correo
-                                  {"name": "Helena Castro Ruiz", "email": HC}]                                        # del padrón → Nombre Apellido
-    assert body["names_resolved"] == 1
+    assert body["recipients"] == [
+        {"name": "Compacto Usuario", "email": "compacto.usuario@danwor.com"},   # ausente en Colaboradores, presente en UIL (caso Cecilia) → Title de UIL
+        {"name": HC_NAME, "email": HC},                                          # en ambas → GANA Colaboradores
+        {"name": "Por EMail", "email": "por.email@danwor.com"},                  # Name sin correo → identidad por EMail normalizado
+        {"name": "sin.titulo@danwor.com", "email": "sin.titulo@danwor.com"},     # sin Title confiable en ninguna fuente → correo
+    ]
+    assert body["names_resolved"] == 3
     emails = [x["email"] for x in body["recipients"]]
-    assert "colaborador.ajeno@danwor.com" not in emails and "otro.ajeno@danwor.com" not in emails                   # el padrón NUNCA amplía destinatarios
-    assert "externo@gmail.com" not in emails
-    assert roster == ["base-read-token"]                                                                              # una lectura por apertura, con el token base
+    for outsider in ("colaborador.ajeno@danwor.com", "solo.uil@danwor.com", "externo@gmail.com"):
+        assert outsider not in emails                                            # ni Colaboradores ni UIL amplían destinatarios
+    assert roster == [("colaboradores", "base-read-token"), ("user_information", "base-read-token")]   # UNA lectura de cada lista
+
+
+HC_NAME = "Helena Castro Ruiz"
 
 
 def test_catalog_falls_back_to_email_when_sharepoint_fails_or_there_is_no_token(roster):
     for token in ("boom", ""):
         body = catalog(client(), token=token).json()
         assert [x["name"] for x in body["recipients"]] == [x["email"] for x in body["recipients"]] and body["names_resolved"] == 0
-    assert roster == ["boom"]                                                                                         # sin token ni se consulta SharePoint
+        assert len(body["recipients"]) == 4                                      # la población autorizada no cambia
+    assert roster == [("colaboradores", "boom")]                                 # sin token ni se consulta SharePoint
+
+
+def test_reporting_map_is_unchanged_by_the_user_info_fallback(roster):
+    from webapp.services.reporting_repository import ReportingRepository
+    assert ReportingRepository().get_colaboradores_email_map("t") == {HC: HC_NAME, "colaborador.ajeno@danwor.com": "Persona Fuera De La Lista"}
+    colab, user_info = ReportingRepository().get_people_names("t")
+    assert colab == ReportingRepository().get_colaboradores_email_map("t")      # mismo mapa funcional
+    assert user_info["compacto.usuario@danwor.com"] == "Compacto Usuario" and "sin.titulo@danwor.com" not in user_info
+    assert user_info["por.email@danwor.com"] == "Por EMail" and user_info[HC] == "Helena C. (perfil)"
+
+
+def test_user_info_identity_rule_is_shared_and_email_field_only_for_presentation():
+    from webapp.services.reporting_repository import user_info_identity
+    assert user_info_identity({"Name": "i:0#.f|membership|CCosta@Danwor.com"}) == "ccosta@danwor.com"
+    assert user_info_identity({"Name": "c:0(.s|true", "EMail": "x@danwor.com"}) == ""                       # Reporting: solo Name
+    assert user_info_identity({"Name": "c:0(.s|true", "EMail": " X@Danwor.com "}, allow_email_field=True) == "x@danwor.com"
+    assert user_info_identity({}) == "" and user_info_identity(None, allow_email_field=True) == ""
 
 
 def test_catalog_requires_session_authorization_origin_and_the_allowlist_provider(roster, monkeypatch):
@@ -494,7 +535,7 @@ def test_catalog_requires_session_authorization_origin_and_the_allowlist_provide
     assert catalog(client(), headers={"Origin": "https://evil.example"}).status_code == 403
     monkeypatch.setattr(config, "HC_SHARE_RECIPIENTS_PROVIDER", "directory", raising=False)
     assert catalog(client()).status_code == 404                                                                       # el proveedor definitivo no cambia
-    assert roster == []
+    assert roster == []                                                                                               # sin lecturas de SharePoint
 
 
 def test_names_are_presentation_only_send_still_validates_allowlist_membership(roster):
@@ -503,7 +544,9 @@ def test_names_are_presentation_only_send_still_validates_allowlist_membership(r
     body = r.json()
     assert body["status"] == "accepted"
     assert body["recipients"] == [HC] and body["invalid"] == ["colaborador.ajeno@danwor.com"]                        # estar en el padrón no habilita
-    assert roster == []                                                                                               # el envío no consulta el padrón
+    r = send(client(), [a], ["solo.uil@danwor.com"], graph_token="", operation_id="op-test-000009")
+    assert r.status_code == 422 and r.json()["reason"] == "no_recipients"                                            # estar en UIL tampoco
+    assert roster == []                                                                                               # el envío no consulta Colaboradores ni UIL
 
 
 # ── cierre UX del diálogo: textos técnicos fuera, sin «Copiar» del asunto, sin «Abrir Outlook», acciones «Copiar mensaje» + «Enviar» ──────
