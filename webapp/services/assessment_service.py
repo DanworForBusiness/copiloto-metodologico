@@ -227,7 +227,7 @@ def dependency_signatures_for(res: "Resolution") -> dict[str, str | None]:
         return cached
     try:
         _k, group = ma_shadow.select_pool(res.pool_root, res.client_dir, res.domain_dir)
-        entities, universe, _shadows = ma_shadow.semantic_universe(ma_shadow.load_pool(group), group)
+        entities, universe, _shadows = ma_shadow.semantic_universe(ma_shadow.load_pool(group, _governed_for(res.pool_root, res.client_dir)), group)
         sigs = ma_dependencies.dependency_signatures(res.pool_root, group, entities, universe)
     except Exception:                                   # noqa: BLE001 — incierto, jamás un fallo de lectura
         log.warning("assessment: no se pudo calcular la firma de dependencias de %s/%s", res.client_dir, res.domain_dir, exc_info=True)
@@ -255,6 +255,18 @@ def dependency_verdict(env: dict | None, res: "Resolution") -> str:
     return dependency_verdict_from(stored, (env or {}).get("dependency_rule_version"), ma_dependencies.DEPENDENCY_RULE_VERSION, closure_signature(res))
 
 
+def _governed_for(root: Path | None, client_dir: str) -> dict:
+    """Autoridad del reemplazo de Space confirmado para el pool del CATÁLOGO (mismo contrato que su generador). Otro pool (p. ej. el temporal de un
+    Assessment ad hoc) no la usa: sus archivos no son los que acreditan los manifiestos del Catálogo."""
+    try:
+        cache = Path(os.getenv("DANWOR_CATALOG_CSN_CACHE", "").strip() or str(catalog_dir() / ".csn_cache"))
+        if root is None or Path(root).resolve() != cache.resolve():
+            return {}
+        return ma_shadow.governed_names(catalog_dir(), client_dir)
+    except Exception:                                   # noqa: BLE001 — sin manifiestos legibles no hay autoridad: carga de siempre
+        return {}
+
+
 def _stat_fingerprint(files: Iterable[Path]) -> tuple:
     out = []
     for p in files:
@@ -265,7 +277,8 @@ def _stat_fingerprint(files: Iterable[Path]) -> tuple:
 
 def _index_for(root: Path, key: tuple[str, str], group: dict) -> _PoolIndex:
     files = [*group["jsons"], *group["txts"]]
-    fp = _stat_fingerprint(files)
+    governed = _governed_for(root, key[0])
+    fp = (_stat_fingerprint(files), tuple(sorted(governed.items())))
     memo_key = (str(root), key)
     with _index_lock:
         cached = _index_memo.get(memo_key)
@@ -273,7 +286,7 @@ def _index_for(root: Path, key: tuple[str, str], group: dict) -> _PoolIndex:
             return cached
         signature = ma_shadow.pool_signature(root, files)
         try:
-            terminals = AssessmentUniverse.from_entities(ma_shadow.load_pool(group)).terminal_ams
+            terminals = AssessmentUniverse.from_entities(ma_shadow.load_pool(group, governed)).terminal_ams
             idx = _PoolIndex(fp, signature, tuple(terminals), None)
         except ma_shadow.AssessmentPoolLoadError as exc:
             log.warning("assessment: pool no cargable para %s: %s", key, exc)
@@ -847,6 +860,9 @@ def _engine_assess(root: Path, client_dir: str, am: str, domain_dir: str, eviden
         kw["generic_root"] = True
         if root_type:
             kw["root_type"] = root_type
+    governed = _governed_for(root, client_dir)
+    if governed:
+        kw["governed_names"] = governed                 # reemplazo de Space confirmado: misma autoridad que el Catálogo
     return ma_shadow.assess(root, client_dir, am, domain_dir, **kw)
 
 

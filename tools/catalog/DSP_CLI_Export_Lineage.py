@@ -2480,7 +2480,9 @@ def _apply_unit(req, exporter, *, base, txn, op_id, stages, planned, planned_sha
         if stage == "assessment":
             code = str(getattr(exc, "code", "") or code)
             failures = list(getattr(exc, "failures", []) or [])
-        _say(f"ERROR: {code} - {type(exc).__name__}", file=sys.stderr)
+        # observabilidad: modelo y código de cada falla de la etapa (códigos estables del StageError; sin trazas ni datos sensibles)
+        detail = "; ".join(f"{f.get('technical_name') or '?'}: {f.get('code') or '?'}" for f in failures[:5] if isinstance(f, dict))
+        _say(f"ERROR: {code} - {type(exc).__name__}" + (f" ({detail})" if detail else ""), file=sys.stderr)
         stages.update({"apply": "FAILED", "catalog": "FAILED" if stage == "catalog" else "SKIPPED", "assessment": "FAILED" if stage == "assessment" else "SKIPPED"})
         residue = undo.restore()
         txn.call_hook(hooks, "after_rollback", ctx)

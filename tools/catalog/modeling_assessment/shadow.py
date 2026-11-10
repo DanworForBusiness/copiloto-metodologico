@@ -109,13 +109,22 @@ def pool_signature(inbound: Path, files: list[Path]) -> str:
     return h.hexdigest()
 
 
-def load_pool(group: dict[str, list[Path]]):
-    """Entidades del pool (el loader legacy imprime en stdout: se silencia)."""
+def governed_names(catalog_root: Path, client_dir: str) -> dict:
+    """Definiciones autoritativas tras un reemplazo de Space confirmado: MISMO contrato que el generador del Catálogo (`object_type` + `technical_name` +
+    sha256 del manifiesto con `replaces`). Vacío si no hay reemplazo confirmado (la carga es la de siempre)."""
+    return bridge.governed_names(catalog_root, client_dir)
+
+
+def load_pool(group: dict[str, list[Path]], governed_names: dict | None = None):
+    """Entidades del pool (el loader legacy imprime en stdout: se silencia). ``governed_names``: autoridad del reemplazo confirmado (ver `governed_names`);
+    una definición no acreditada (falta o sha256 divergente) se reporta como pool no cargable, nunca se elige otra."""
     try:
         with contextlib.redirect_stdout(io.StringIO()):
-            entities, _sql = bridge.load_folder(json_files=group["jsons"], txt_files=group["txts"], dataflow_lineage=False)
+            entities, _sql = bridge.load_folder(json_files=group["jsons"], txt_files=group["txts"], dataflow_lineage=False, governed_names=governed_names or None)
     except bridge.CatalogCollisionError as exc:
         raise AssessmentPoolLoadError(f"colisión de entidades en el conjunto de artefactos: {exc}") from exc
+    except bridge.CatalogAuthorityError as exc:
+        raise AssessmentPoolLoadError(f"definición gobernada no acreditada: {exc}") from exc
     except Exception as exc:  # noqa: BLE001 - cualquier fallo de carga se reporta como documento INDETERMINATE, nunca se enmascara
         raise AssessmentPoolLoadError(f"no se pudo cargar el conjunto de artefactos: {type(exc).__name__}: {exc}") from exc
     return entities
@@ -175,7 +184,7 @@ def semantic_universe(entities, group: dict[str, list[Path]]):
 
 
 def assess(inbound: Path, client: str, am: str | None, domain: str | None = None, *, evidence_scope: dict | None = None,
-           generic_root: bool = False, root_type: str | None = None) -> tuple[dict, dict]:
+           generic_root: bool = False, root_type: str | None = None, governed_names: dict | None = None) -> tuple[dict, dict]:
     """(documento publico, metadatos de pool para el manifiesto). Lanza ClientNotFoundError/AmbiguousClientDomainError/UnknownTerminalAmError/
     TerminalAmSelectionRequired; un fallo de carga NO lanza: devuelve el documento INDETERMINATE.
     ``generic_root=True`` (producto "Assessment de tu modelo"): ``am`` es el OBJETO RAIZ y puede ser un AM, una vista o una tabla; se evalua su
@@ -186,7 +195,7 @@ def assess(inbound: Path, client: str, am: str | None, domain: str | None = None
     signature = pool_signature(inbound, files)
     meta = {"client_dir": key[0], "domain_dir": key[1], "files": len(files), "json_files": len(group["jsons"]), "pool_signature": signature, "errors": []}
     try:
-        entities = load_pool(group)
+        entities = load_pool(group, governed_names)
     except AssessmentPoolLoadError as exc:
         meta["errors"].append(str(exc))
         return build_indeterminate_assessment(client=key[0], requested_model=am, message=str(exc), pool_signature=signature), meta

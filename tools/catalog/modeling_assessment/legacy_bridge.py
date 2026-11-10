@@ -34,6 +34,9 @@ from tools.catalog import layer_semantics, leaf_materialization, leaf_materializ
 load_folder = _gc.load_folder
 Entity = _gc.Entity
 CatalogCollisionError = _gc.CatalogCollisionError
+CatalogAuthorityError = _gc.CatalogAuthorityError
+# Autoridad de definiciones tras un reemplazo de Space CONFIRMADO (manifiesto con `replaces`): UNA sola política para el Catálogo y el Assessment.
+governed_names = _gc._governed_names
 
 # ── Grafo / capa / naming ──────────────────────────────────────────────────
 is_cube = _gc._is_cube
