@@ -385,7 +385,7 @@ def test_legacy_persisted_results_are_flagged_and_still_render():
 def test_confidence_help_states_what_evidence_backs_it_and_is_not_about_the_destination():
     help_ = next(t for t in ae.portability_view(V2, [], "dominio")["tiles"] if t["label"] == "Confianza")["help"]
     text = " ".join(help_)
-    assert "no mide la compatibilidad con un destino" in text and "Cobertura de metadata: 100 %" in text
+    assert "no mide la compatibilidad con un destino" in text and "Cobertura de metadata: 100%" in text
     assert "2 campos numéricos derivados" in text and "3 relaciones FK resueltas" in text
     no_ev = {**V2, "confianza": "media", "clase_evidencia": "no_ejercida", "confianza_detalle": {**V2["confianza_detalle"], "evidencia_ejercida": False, "derivadas_numericas": 0, "relaciones_fk_resueltas": 0}}
     assert "las reglas estructurales no tuvieron entrada" in " ".join(next(t for t in ae.portability_view(no_ev, [], "dominio")["tiles"] if t["label"] == "Confianza")["help"])

@@ -336,7 +336,7 @@ def test_existing_portfolio_semantics_survive(env):
     snap = pf.build_snapshot(first, PACK)
     view = pf.report_view(snap)
     assert [k["label"] for k in view["kpis"]] == ["Total de Artefactos", "Assessments vigentes", "Requieren revisión", "Cobertura promedio"]
-    assert [k["value"] for k in view["kpis"]] == ["3", "3", "0", "90.0%"]
+    assert [k["value"] for k in view["kpis"]] == ["3", "3", "0", "90%"]
     assert snap["schema_version"] == "client-assessment-portfolio/v1" and "confidence_distribution" in snap["summary"] and "recurring_findings" in snap
 
 

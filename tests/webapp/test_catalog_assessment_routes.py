@@ -269,7 +269,7 @@ def test_detail_header_states_follow_the_contract(world, monkeypatch):
     assert "id=\"asm-busy\"" not in h and h.count("Generando informe…") == 1    # un único label, dentro del botón (no flotante)
     assert _post(c).status_code == 200
     h = hdr()                                                                  # CURRENT
-    assert "Adopción metodológica · " in h and "Ver Assessment" in h and "Ver informe" not in h and "hx-get" in h and "hx-post" not in h and re.search(r"Cobertura \d+\.\d%", h)
+    assert "Adopción metodológica · " in h and "Ver Assessment" in h and "Ver informe" not in h and "hx-get" in h and "hx-post" not in h and re.search(r"Cobertura \d+(\.\d)?%", h)
     assert re.search(r"Confianza (Alta|Media|Baja)", h) and re.search(r"(\d+ casos? a revisar|Sin casos a revisar)", h)
     for absent in ("Inclusiva", "inclusive", "signal-rules", "assessment-rules", "confidence-cuts", "UTC", "2026", "preguntas de contexto", "Generado"):
         assert absent not in h, absent

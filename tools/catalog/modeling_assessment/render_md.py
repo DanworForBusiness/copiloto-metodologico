@@ -57,7 +57,14 @@ _TIER_TEXT = {"CO_DECLARED_IN_ARTIFACT": "declarados juntos en un artefacto", "E
 
 
 def _pct(v: float | None) -> str:
-    return "n/d" if v is None else f"{v * 100:.1f}%"
+    """Proporción [0,1] → porcentaje VISUAL (único criterio del informe HTML y del Markdown; el dato no cambia): hasta un decimal , sin `.0` cuando es
+    entero (1.0 → "100%", 0.98 → "98%", 0.983 → "98.3%", 0 → "0%") y nunca "100%" por redondeo si el valor real es menor (0.9996 → "99.9%")."""
+    if v is None:
+        return "n/d"
+    text = f"{v * 100:.1f}"                             # mismo redondeo de siempre (función pura, sin imports)
+    if float(text) >= 100 and v < 1:
+        text = "99.9"                                    # incompleta: no se presenta como cobertura completa
+    return (text[:-2] if text.endswith(".0") else text) + "%"
 
 
 def _cell(v: Any) -> str:

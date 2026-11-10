@@ -57,7 +57,7 @@ def test_the_requested_circuit_individual_then_its_confidence_then_why_then_its_
 
 
 @pytest.mark.parametrize("question,label,expected", [
-    ("¿Y su cobertura?", "Cobertura estricta", "95.0%"), ("¿Y sus casos a revisar?", "Casos a revisar", "7 casos"), ("¿Y su consistencia de tipos?", "Consistencia de tipos", "90/100"),
+    ("¿Y su cobertura?", "Cobertura estricta", "95%"), ("¿Y sus casos a revisar?", "Casos a revisar", "7 casos"), ("¿Y su consistencia de tipos?", "Consistencia de tipos", "90/100"),
     ("¿Y la adopción?", "Adopción metodológica", "Buena"), ("¿Cuál es su confianza?", "Confianza de la evidencia", "Alta"), ("¿Y su estado?", "Estado del Assessment", "Assessment vigente"),
     ("¿Y qué fortalezas tiene?", "Evidencias favorables", "Adquisición de la fuente gobernada"), ("¿Por qué?", "Adopción metodológica: Buena", "Puntos de atención"),
 ])
@@ -75,7 +75,7 @@ def test_focus_moves_with_each_new_individual_answer(world):
     chat.ask("¿Qué sabés de Reserva MP?")
     r = chat.ask("¿Y su cobertura?")
     assert_about(r, world, "mp")
-    assert "85.0%" in r.text and "95.0%" not in r.text                                              # el valor del NUEVO foco, nunca el del anterior
+    assert "85%" in r.text and "95%" not in r.text                                              # el valor del NUEVO foco, nunca el del anterior
 
 
 def test_naming_another_model_is_a_new_query_not_a_followup_on_the_focus(world):
@@ -275,7 +275,7 @@ def test_the_state_keeps_only_identities_and_parameters_never_values_or_urls(wor
     assert st.spec.capability == "entry" and st.spec.entry == world.e["dd"].entry_id and st.spec.attrs == ("coverage", "confidence") and st.focus == st.spec.entry
     assert st.refs == ((caps.CATALOG_ENTRY, world.e["dd"].entry_id),)
     dumped = repr(st)
-    for value in ("95.0%", "Alta", "Buena", "/catalog/", "http", "Delivery Document", "Kensing"):
+    for value in ("95%", "Alta", "Buena", "/catalog/", "http", "Delivery Document", "Kensing"):
         assert value not in dumped, value
 
 
@@ -301,7 +301,7 @@ def test_open_by_reference_puts_the_model_in_focus_without_losing_the_list(world
     chat.ask("Abrí el segundo")
     r = chat.ask("¿Y su cobertura?")
     assert_about(r, world, order[1])
-    assert f"{CAST[order[1]]['strict'] * 100:.1f}%" in r.text
+    assert __import__("tools.catalog.modeling_assessment.presentation", fromlist=["x"]).percent_text(CAST[order[1]]["strict"]) in r.text
     assert [world.key_of[x] for x in chat.ask("Abrí el primero").refs] == [order[0]]                    # y después de responder, la lista sigue
 
 

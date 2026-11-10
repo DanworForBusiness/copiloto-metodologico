@@ -497,7 +497,7 @@ def test_artifact_table_shows_whole_percent_but_snapshot_and_json_keep_their_pre
     snap = c.get("/catalog/client/assessment.json?flow=a").json()
     cov = {r["entry_id"]: r["coverage_strict"] for r in snap["assets"]}
     assert cov["a"] == 0.9 and cov["b"] == 0.7 and cov["c"] == 0.8 and cov["e"] is None             # valor canónico intacto
-    assert {r["entry_id"]: r["coverage_text"] for r in snap["assets"]}["a"] == presenter.percent(0.9) == "90.0%"
+    assert {r["entry_id"]: r["coverage_text"] for r in snap["assets"]}["a"] == presenter.percent(0.9) == "90%"
     assert "—" in arts                                                                               # no vigentes siguen en guion
 
 
