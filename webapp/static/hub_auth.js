@@ -626,6 +626,38 @@
       });
   });
 
+  // ── RECUPERACIÓN COMPARTIDA (partials/graph_auth_recovery.html) ────────
+  // El botón «Autorizar con Microsoft» que el servidor devuelve cuando un
+  // cargador `data-dw-graph-token` llegó sin token (p. ej. enlace profundo en
+  // una pestaña nueva: la cache MSAL es por pestaña). El CLICK es el gesto:
+  // delega en `dwGraphReauthenticate` (no hay otro popup) y, sólo si quedó
+  // lista, dispara `dw-graph-authorized` sobre el botón, cuyo hx-trigger
+  // reemite el MISMO request del cargador — que vuelve a pasar por el gate de
+  // arriba y lleva el token silencioso. Cancelar deja el cuadro como estaba;
+  // una respuesta sin token vuelve a traer el cuadro: no hay bucle.
+  document.addEventListener("click", function (event) {
+    const btn = event.target && event.target.closest && event.target.closest("[data-dw-graph-reauth]");
+    if (!btn || btn.disabled) return;
+    event.preventDefault();
+    const box = btn.closest("[data-graph-auth-recovery]");
+    const status = box && box.querySelector("[data-dw-graph-reauth-status]");
+    btn.disabled = true;
+    if (status) status.textContent = "Esperando la autorización de Microsoft…";
+    Promise.resolve()
+      .then(() => window.dwGraphReauthenticate())
+      .catch(() => false)
+      .then((ok) => {
+        if (ok && window.htmx) {
+          if (status) status.textContent = "Autorización lista. Cargando…";
+          btn.disabled = false;   // htmx no emite desde un elemento deshabilitado
+          window.htmx.trigger(btn, "dw-graph-authorized");
+          return;
+        }
+        btn.disabled = false;
+        if (status) status.textContent = "No se completó la autorización. Podés volver a intentarlo.";
+      });
+  });
+
   document.addEventListener("htmx:configRequest", function (event) {
     const elt = event.detail && event.detail.elt;
     if (!needsGraph(elt)) return;

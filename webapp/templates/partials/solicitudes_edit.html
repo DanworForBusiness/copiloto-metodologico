@@ -1,7 +1,8 @@
 {% from "partials/solicitudes_lookup_picker.html" import lookup_picker %}
 {% if refresh_hero %}{% include "partials/solicitudes_detail_hero.html" %}{% endif %}
 {% if error %}
-<div class="dashboard-empty" role="alert"><span class="dashboard-empty__label">No disponible</span><p>{{ error }}</p></div>
+{% if auth_recovery %}{% from "partials/graph_auth_recovery.html" import graph_auth_recovery %}{{ graph_auth_recovery(auth_recovery.post_url, auth_recovery.target) }}
+{% else %}<div class="dashboard-empty" role="alert"><span class="dashboard-empty__label">No disponible</span><p>{{ error }}</p></div>{% endif %}
 <a class="btn-secondary" href="/operaciones/solicitudes">Volver a Solicitudes</a>
 {% else %}
 <form class="hc-profile-form" data-solicitudes-write-token hx-sync="this:drop"

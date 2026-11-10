@@ -75,7 +75,8 @@ function makeMsal(behaviour, captured) {
       if (b.popupDelayMs) await new Promise(r => setTimeout(r, b.popupDelayMs));
       if (b.popup === "cancel") throw new AuthError("user_cancelled");
       this._popupHappened = true;
-      return { accessToken: b.popupToken || "AT-POPUP" };
+      // `popupAccount`: el popup devuelve la cuenta (caso pestaña nueva sin cuenta MSAL), como MSAL real.
+      return b.popupAccount ? { accessToken: b.popupToken || "AT-POPUP", account: b.popupAccount } : { accessToken: b.popupToken || "AT-POPUP" };
     }
     async loginPopup(req) {
       log.push("loginPopup:" + JSON.stringify(req.scopes) + ":" + req.prompt);
@@ -785,6 +786,55 @@ const ACCOUNT = { username: "joe@danwor.com", homeAccountId: "hid" };
     assertTrue(!env.msalLog.includes("acquireTokenPopup"), "Solicitudes: silent write has no popup");
     assertTrue(!!await env.win.dwSolicitudesWriteToken({interactive:true}), "Solicitudes: explicit authorization recovers token");
     assertTrue(env.captured.popupScopes.includes("Sites.ReadWrite.All"), "Solicitudes: shared popup requests write scope");
+  }
+
+  // ── P: enlace profundo en una pestaña nueva (partials/graph_auth_recovery.html) ──
+  // La cache MSAL es por pestaña: sin cuenta, el cargador sale con "" y SIN popup; el cuadro ofrece
+  // «Autorizar con Microsoft»; el CLICK reautentica por la puerta única y reemite el MISMO request con token.
+  function makeRecoveryButton(id) {
+    const status = { textContent: "" };
+    const box = { querySelector: (sel) => (sel === "[data-dw-graph-reauth-status]" ? status : null) };
+    const btn = { id: id || "reauth", marked: true, disabled: false, status };
+    btn.closest = (sel) => (sel === "[data-dw-graph-reauth]" || sel === "[data-dw-graph-token]" ? btn : sel === "[data-graph-auth-recovery]" ? box : null);
+    return btn;
+  }
+  function click(env, target) {
+    (env.listeners.click || []).forEach(fn => fn({ target, preventDefault() {} }));
+  }
+  {
+    const env = makeEnv({ accounts: [], popupAccount: ACCOUNT, silentToken: "AT-DEEP" });
+    const htmx = makeHtmx(env);
+    const triggers = [];
+    env.win.htmx = { trigger(elt, name) { triggers.push(name); htmx.fire(elt); } };
+    htmx.fire(makeElt(true, "loader")); await drain(); await drain();
+    assertEqual(htmx.issued[0].params.graph_token, "", "P: sin cuenta en la pestaña, el cargador sale vacío");
+    assertTrue(!env.msalLog.includes("acquireTokenPopup"), "P: la carga nunca abre un popup");
+    const btn = makeRecoveryButton();
+    click(env, btn); click(env, btn);                       // doble clic: un solo popup
+    for (let i = 0; i < 6; i++) await drain();
+    assertEqual(env.msalLog.filter(x => x === "acquireTokenPopup").length, 1, "P: un clic (o doble) abre UN popup");
+    assertEqual(JSON.stringify(triggers), '["dw-graph-authorized"]', "P: tras autorizar se reemite el cargador una vez");
+    assertEqual(htmx.issued.length, 2, "P: el reintento sale");
+    assertEqual(htmx.issued[1].params.graph_token, "AT-DEEP", "P: el reintento lleva el token silencioso de la cuenta autorizada");
+  }
+  {
+    const env = makeEnv({ accounts: [], popup: "cancel" });
+    const htmx = makeHtmx(env);
+    const triggers = [];
+    env.win.htmx = { trigger(elt, name) { triggers.push(name); htmx.fire(elt); } };
+    const btn = makeRecoveryButton();
+    click(env, btn);
+    for (let i = 0; i < 6; i++) await drain();
+    assertEqual(triggers.length, 0, "P: cancelar no reemite nada (sin bucle)");
+    assertEqual(htmx.issued.length, 0, "P: cancelar no consulta al servidor");
+    assertEqual(btn.disabled, false, "P: cancelar deja el botón disponible");
+  }
+  {
+    const env = makeEnv({ accounts: [ACCOUNT] });
+    const elt = makeElt(true, "otro");
+    click(env, elt);                                        // un clic fuera del cuadro no abre nada
+    await drain(); await drain();
+    assertTrue(!env.msalLog.includes("acquireTokenPopup"), "P: sólo el botón del cuadro dispara la reautenticación");
   }
 
   if (failures > 0) {

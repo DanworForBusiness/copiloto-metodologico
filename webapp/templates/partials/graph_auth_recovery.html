@@ -1,0 +1,19 @@
+{#- Recuperación COMPARTIDA de la autorización delegada de Microsoft para cargadores HTMX con el marcador de token delegado.
+    Caso típico: un enlace profundo abierto en una pestaña nueva. La cache de MSAL vive en `sessionStorage` (por pestaña, a propósito), así
+    que la pestaña nueva tiene la sesión del Hub (cookie) pero ninguna cuenta MSAL: `dwGraphToken()` devuelve "" y el servidor no consulta Graph.
+    Este cuadro ofrece la acción; `hub_auth.js` la resuelve con el mecanismo de siempre:
+      clic (gesto) → `dwGraphReauthenticate()` (único popup del proyecto) → si quedó lista, dispara `dw-graph-authorized` sobre el botón →
+      htmx reemite EL MISMO request del cargador (misma ruta, mismo target, misma URL de la página) y el hook del marcador
+      inyecta el token silencioso. Sin gesto no se abre nada; si el usuario cancela, el cuadro queda; si el servidor vuelve a responder sin
+      token, vuelve este cuadro y hace falta otro clic: no hay bucle.
+    No toca la autorización funcional del Hub (la decide la sesión del servidor) ni guarda credenciales. -#}
+{% macro graph_auth_recovery(post_url, target, swap="innerHTML", include="", vals=none, message="Para ver este contenido, autorizá el acceso a Microsoft en esta pestaña.") -%}
+<div class="dashboard-empty" role="alert" data-graph-auth-recovery>
+  <span class="dashboard-empty__label">Autorización de Microsoft</span>
+  <p>{{ message }}</p>
+  <p><button type="button" class="btn-primary" data-dw-graph-reauth data-dw-graph-token
+          hx-post="{{ post_url }}" hx-target="{{ target }}" hx-swap="{{ swap }}" hx-trigger="dw-graph-authorized"
+          {%- if include %} hx-include="{{ include }}"{% endif %}{% if vals %} hx-vals='{{ vals | tojson }}'{% endif %}>Autorizar con Microsoft</button></p>
+  <p class="field-hint" role="status" data-dw-graph-reauth-status></p>
+</div>
+{%- endmacro %}

@@ -57,9 +57,11 @@ async def solicitudes_data(request: Request, graph_token: str = Form("")):
     selected = {key: str(form.get(key, "")) for key in FILTERS}
     query = str(form.get("q", ""))
     error = ""
+    auth_recovery = None
     rows = []
     if not graph_token:
         error = "No pudimos obtener tu token de Microsoft. Volvé a iniciar sesión."
+        auth_recovery = _graph_auth_recovery(request)
     else:
         try:
             rows = await run_in_threadpool(solicitudes_snapshot.read, user.get("sub"), graph_token,
@@ -100,7 +102,7 @@ async def solicitudes_data(request: Request, graph_token: str = Form("")):
     pager = groups[0]['pager']
     return templates.TemplateResponse(request=request, name="partials/solicitudes_panel.html", context={
         "rows": pager["items"], "pager": pager, "groups": groups, "unknown_ids": unknown_ids, "kpis": kpis, "kpi_defs": service.KPIS, "kpi": kpi, "kpi_label": kpi_labels.get(kpi, ""),
-        "count": len(matches), "source_count": len(rows), "error": error, "query": query,
+        "count": len(matches), "source_count": len(rows), "error": error, "auth_recovery": auth_recovery, "query": query,
         "selection_scope": hashlib.sha256((str(user.get('sub', '')) + ':operaciones:' + repository.LIST_ID).encode()).hexdigest(),
         "universe_ids": [str(row['id']) for row in rows],
         "selected": selected, "filters": FILTERS, "options": options,
@@ -130,7 +132,7 @@ def solicitudes_new_data(request: Request, graph_token: str = Form("")):
     if not user or not user.get("sub"):
         raise HTTPException(401)
     if not graph_token:
-        return _edit_panel(request, "", error="No pudimos obtener tu token de Microsoft.")
+        return _edit_panel(request, "", error="No pudimos obtener tu token de Microsoft.", auth_recovery=_graph_auth_recovery(request))
     try:
         columns = repository.read_creation_columns(graph_token)
         options = repository.lookup_options(graph_token, columns=columns)
@@ -217,13 +219,20 @@ def _detail_context(item):
     }
 
 
-def _edit_panel(request, item_id, *, item=None, options=None, error=""):
+def _graph_auth_recovery(request):
+    """Reintento del cargador que llegó SIN token delegado (partials/graph_auth_recovery.html): EL MISMO request (ruta + query, p. ej.
+    `?mode=display`) sobre el mismo target, para que tras «Autorizar con Microsoft» se recupere la misma solicitud sin cambiar de URL."""
+    query = request.url.query
+    return {"post_url": request.url.path + ("?" + query if query else ""), "target": "#solicitudes-panel"}
+
+
+def _edit_panel(request, item_id, *, item=None, options=None, error="", auth_recovery=None):
     values = service.form_values(item["fields"]) if item else {}
     user = _user(request) or {}
     template = "partials/solicitudes_display.html" if request.query_params.get("mode") == "display" else "partials/solicitudes_edit.html"
     return templates.TemplateResponse(request=request, name=template, context={
         "item_id": item_id, "values": values, "current": values,
-        "options": options or {}, "error": error,
+        "options": options or {}, "error": error, "auth_recovery": auth_recovery,
         "project_display": service.project_label(item["fields"], (options or {}).get(service.PROJECT)) if item else "",
         "etag": _etag(item) if item else "", "funnel": item["fields"].get(service.FUNNEL) if item else "",
         "status_choices": (options or {}).get(service.STATUS, []),
@@ -261,7 +270,7 @@ def solicitudes_detail(request: Request, item_id: str, graph_token: str = Form("
     if not item_id.isascii() or not item_id.isdecimal():
         raise HTTPException(404)
     if not graph_token:
-        return _edit_panel(request, item_id, error="No pudimos obtener tu token de Microsoft.")
+        return _edit_panel(request, item_id, error="No pudimos obtener tu token de Microsoft.", auth_recovery=_graph_auth_recovery(request))
     try:
         item = repository.read_item(graph_token, item_id)
         options = repository.lookup_options(graph_token)
