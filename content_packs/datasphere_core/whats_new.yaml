@@ -26,6 +26,14 @@
 # `ref` tiene que ser único y estable: es lo que la cookie `dw-whatsnew-seen`
 # recuerda como "último anuncio visto". Cambiarlo re-dispara el banner.
 
+- ref: assessments-accionables
+  fecha: "2026-11-09"
+  titulo: "Assessments accionables: del hallazgo a la decisión"
+  categoria: "Modelado"
+  detalle: "Los Assessments del Copiloto Metodológico evolucionan: además de identificar oportunidades y observaciones, ahora permiten registrar decisiones gobernadas directamente desde el informe. Cada caso puede evaluarse, justificarse y gestionarse con trazabilidad, conservando la evidencia y el contexto que sustentan la decisión. Podés resolver casos a revisar y observaciones desde el propio Assessment; validar diseños, reconocer oportunidades o registrar correcciones pendientes; documentar el fundamento de cada decisión; y consultar su estado, vigencia e historial, revocándolas cuando corresponde. La evaluación metodológica y el Juicio se mantienen independientes de las resoluciones humanas. El Assessment deja de ser solamente un diagnóstico para convertirse también en un espacio de decisiones trazables."
+  cta: "Ir al Catálogo"
+  link: "/modules/04_Modelado_y_Desarrollo?pack=datasphere_core&tab=catalogo"
+
 - ref: catalogo-conectividad-sap
   fecha: "2026-11-01"
   titulo: "Catálogo de Conectividad — Disponibilidad SAP"
