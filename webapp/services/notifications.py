@@ -67,9 +67,10 @@ INSTITUTIONAL = {
     "ink": "#e4e4ec",                    # texto principal sobre negro (`--ink` de brand-hero.css: la 1ª línea del título de las tarjetas del Hub)
     "dark": "#0c0c0d",
     "muted": "#8b8b96",                  # `--ink-soft` de brand-hero.css (separador «·»)
-    # Pila tipográfica del Hub (`--sans` de brand-hero.css) + fallbacks de sistema para correo: Outlook de escritorio no carga fuentes web, así
-    # que cae en Segoe UI (Windows) / SF (Apple) / Helvetica-Arial; nada se incrusta.
-    "font": "Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif",
+    # Pila tipográfica de la cabecera: Inter (la del Hub) donde el cliente cargue la hoja de fuentes del Hub (`hub_fonts_url`, en <head> como
+    # mejora progresiva: Apple Mail, iOS, Outlook para Mac…). Outlook de Windows no carga fuentes web: cae en «Segoe UI Black», el peso de
+    # sistema más cercano a Inter 800 (Segoe UI Bold es 700 y más angosta); Apple usa SF con su peso 800. Nada se incrusta.
+    "font": "Inter,'Segoe UI Black','Segoe UI',-apple-system,BlinkMacSystemFont,Roboto,Helvetica,Arial,sans-serif",
 }
 
 

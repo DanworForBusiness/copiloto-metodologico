@@ -8,7 +8,10 @@
 {%- set font = "'Segoe UI',Arial,Helvetica,sans-serif" -%}
 <!DOCTYPE html>
 <html lang="es">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{ title }}</title></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{ title }}</title>
+{#- Fuente del Hub (Inter) como mejora progresiva: la MISMA hoja que carga el Hub (`hub_fonts_url`). Los clientes que no cargan fuentes web
+    (Outlook de Windows, Gmail) la ignoran y usan el fallback de `brand.font`. #}
+<link href="{{ hub_fonts_url }}" rel="stylesheet"></head>
 <body style="margin:0;padding:0;background:#f4f4f6;font-family:{{ font }};color:#202124;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f6;padding:24px 0;">
   <tr><td align="center">
@@ -18,17 +21,18 @@
             sin media queries (técnica compatible con Outlook). -#}
         <table role="presentation" align="left" cellpadding="0" cellspacing="0" style="margin:4px 16px 4px 0;">
           <tr>
-            <td valign="middle" style="padding-right:10px;">
-              {#- ícono del Hub (4 cuadrados con borde en el acento), mismo dibujo que `hub_icon()` -#}
+            <td valign="middle" style="padding-right:7px;">
+              {#- ícono del Hub con las proporciones de `hub_icon()` a 1em (21px): 4 cuadrados de 7/24 con trazo 1.4/24 → 7px de lado exterior,
+                  borde 1px, 3px entre cuadrados (≈ la altura de mayúsculas del texto, centrado); separación ícono-texto 0.33em como `.hub-hero h1`. -#}
               <table role="presentation" cellpadding="0" cellspacing="0"><tr>
-                <td style="padding:0 3px 3px 0;"><div style="width:7px;height:7px;border:1.5px solid {{ brand.accent }};border-radius:2px;font-size:0;line-height:0;"></div></td>
-                <td style="padding:0 0 3px 0;"><div style="width:7px;height:7px;border:1.5px solid {{ brand.accent }};border-radius:2px;font-size:0;line-height:0;"></div></td>
+                <td style="padding:0 3px 3px 0;"><div style="width:5px;height:5px;border:1px solid {{ brand.accent }};border-radius:2px;font-size:0;line-height:0;"></div></td>
+                <td style="padding:0 0 3px 0;"><div style="width:5px;height:5px;border:1px solid {{ brand.accent }};border-radius:2px;font-size:0;line-height:0;"></div></td>
               </tr><tr>
-                <td style="padding:0 3px 0 0;"><div style="width:7px;height:7px;border:1.5px solid {{ brand.accent }};border-radius:2px;font-size:0;line-height:0;"></div></td>
-                <td style="padding:0;"><div style="width:7px;height:7px;border:1.5px solid {{ brand.accent }};border-radius:2px;font-size:0;line-height:0;"></div></td>
+                <td style="padding:0 3px 0 0;"><div style="width:5px;height:5px;border:1px solid {{ brand.accent }};border-radius:2px;font-size:0;line-height:0;"></div></td>
+                <td style="padding:0;"><div style="width:5px;height:5px;border:1px solid {{ brand.accent }};border-radius:2px;font-size:0;line-height:0;"></div></td>
               </tr></table>
             </td>
-            <td valign="middle" style="white-space:nowrap;font-family:{{ brand.font }};font-size:21px;line-height:24px;mso-line-height-rule:exactly;font-weight:800;letter-spacing:-0.42px;color:{{ brand.ink }};">{{ brand.hub_name }}</td>
+            <td valign="middle" style="white-space:nowrap;font-family:{{ brand.font }};font-size:21px;line-height:24px;mso-line-height-rule:exactly;font-weight:800;letter-spacing:-0.63px;color:{{ brand.ink }};">{{ brand.hub_name }}</td>
           </tr>
         </table>
         <table role="presentation" align="right" cellpadding="0" cellspacing="0" style="margin:4px 0;">
