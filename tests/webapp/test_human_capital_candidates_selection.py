@@ -398,7 +398,10 @@ def test_share_never_writes_anything_and_does_not_log_or_audit():
     share(client(), [p["profile_id"]])
     assert data_digest() == before
     src = (_ROOT / "webapp/routers/human_capital.py").read_text(encoding="utf-8")
-    body = src[src.index("def human_capital_profiles_share_dialog"):src.index("_export_logger = logging.getLogger")]
+    # Solo la función del diálogo (hasta el siguiente decorador): las rutas de «Enviar por correo» (Caso B) que la siguen SÍ consultan el directorio,
+    # envían y auditan a propósito, y tienen su propia cobertura en test_profile_send.py.
+    start = src.index("def human_capital_profiles_share_dialog")
+    body = src[start:src.index("\n@router.", start)]
     assert "log_activity" not in body and "log_verbose" not in body and "human_capital_export" not in body          # «Compartir» no audita: solo ayuda a redactar (la auditoría durable es de «Descargar CVs»)
     assert "graph" not in body.lower() and "microsoft365" not in body                                                # no toca Graph: solo la metadata ya guardada
 
