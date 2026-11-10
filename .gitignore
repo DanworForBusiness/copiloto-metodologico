@@ -32,6 +32,7 @@ desktop.ini
 *.log
 feedback_log/
 activity_log/
+notifications/
 
 # Archivos temporales
 *.tmp
