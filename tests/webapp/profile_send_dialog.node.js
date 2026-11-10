@@ -2,7 +2,8 @@
 //
 // Prueba el selector de destinatarios y el envío del diálogo «Compartir perfiles» del módulo REAL `human_capital_candidates_selection.js`
 // (CCHH · Candidatos): chips (agregar, quitar, sin duplicados, tope), búsqueda en vivo (≥3 caracteres, resultados, sin coincidencias, bloqueo
-// por permiso), confirmación explícita, protección contra doble clic, identidad de operación por apertura, saludo personalizado y continuidad de «Copiar mensaje».
+// por permiso), envío directo (sin confirmación secundaria), estado «Enviando…», cierre + toast con 202, protección contra doble clic, identidad de
+// operación por apertura, saludo personalizado y continuidad de «Copiar mensaje».
 // DOM mínimo propio (no hay jsdom en el repo) y `fetch` / token delegado simulados: nada sale de este proceso.
 "use strict";
 const fs = require("fs");
@@ -54,21 +55,25 @@ function dialog(opts) {
                         "data-recipient-provider": o.provider || "directory" }),
     subject: node("input"), intro: node("textarea"), outro: node("textarea"), list: node("ul"), pending: node("p"), note: node("p"), status: node("p"),
     chips: node("ul"), search: node("input"), results: node("div"), resultsList: node("div"), hint: node("p"), blocked: node("p"),
-    sendStatus: node("p"), confirm: node("div"), confirmMsg: node("p"), send: node("button"), copy: node("button", { "data-share-copy": "mensaje" }),
+    sendStatus: node("p"), send: node("button"), copy: node("button", { "data-share-copy": "mensaje" }),
     items: node("script"), unavailable: node("script"),
   };
   f.items._text = JSON.stringify(o.items); f.unavailable._text = "[]";
-  f.blocked.hidden = !!o.directory; f.confirm.hidden = true; f.results.hidden = true; f.send.disabled = true;
+  f.blocked.hidden = !!o.directory; f.results.hidden = true; f.send.disabled = true; f.send.textContent = "Enviar";
   const map = {
     "[data-share-root]": f.root, "[data-share-subject]": f.subject, "[data-share-intro]": f.intro, "[data-share-outro]": f.outro, "[data-share-list]": f.list,
     "[data-share-pending]": f.pending, "[data-share-note]": f.note, "[data-share-status]": f.status, "[data-share-chips]": f.chips, "[data-share-search]": f.search,
     "[data-share-results]": f.results, "[data-share-results-list]": f.resultsList, "[data-share-results-hint]": f.hint, "[data-share-dir-blocked]": f.blocked,
-    "[data-share-send-status]": f.sendStatus, "[data-share-confirm]": f.confirm, "[data-share-confirm-msg]": f.confirmMsg, "[data-share-send]": f.send,
+    "[data-share-send-status]": f.sendStatus, "[data-share-send]": f.send,
     '[data-share-copy="mensaje"]': f.copy, "[data-share-items]": f.items, "[data-share-unavailable]": f.unavailable,
   };
   const content = node("div");
   content.querySelector = sel => map[sel] || f.list.querySelector(sel);
-  const doc = { getElementById: id => (id === "hc-share-content" ? content : null), createElement: tag => node(tag), querySelectorAll: () => [] };
+  const dlg = { open: true, closed: 0, close() { this.open = false; this.closed++; } };
+  const toast = node("div");
+  f.dialog = dlg; f.toast = toast; f.content = content;
+  const doc = { getElementById: id => (id === "hc-share-content" ? content : id === "hc-share-dialog" ? dlg : null), createElement: tag => node(tag),
+                querySelectorAll: () => [], querySelector: sel => (sel === "[data-hc-share-toast]" ? toast : null) };
   return { doc, f };
 }
 
@@ -136,33 +141,45 @@ const params = body => { const out = {}; for (const kv of body.split("&")) { con
     ok(f.send.disabled === true, "3: con el directorio bloqueado no se puede enviar (Copiar/Outlook siguen)");
   }
 
-  // ── 10 + 11 · confirmación explícita y doble clic ──
+  // ── envío directo, estado de procesamiento, doble clic, cierre + toast con 202 ──
   {
     const { doc, f } = dialog();
-    const win = makeWin(() => ({ status: 200, data: { status: "accepted" } }));
+    let release;
+    const win = makeWin(() => ({ status: 200, data: { status: "accepted", recipients: ["ana@danwor.com"] } }));
+    const realFetch = win.fetch;
+    win.fetch = (url, init) => new Promise(r => { release = () => r(realFetch(url, init)); });     // el servidor «tarda»: se ve el estado intermedio
     api.initShare(doc, store(), win);
-    api.addRecipient(doc, { email: "ana@danwor.com", name: "Ana" });
-    api.showConfirm(doc);
-    ok(f.confirm.hidden === false && /1 perfil a 1 destinatario/.test(f.confirmMsg.textContent) && win.fetches.length === 0, "10: «Enviar» solo abre la confirmación, no envía");
-    api.hideConfirm(doc);
-    ok(f.confirm.hidden === true && win.fetches.length === 0, "10: «Cancelar» cierra sin enviar");
-    api.showConfirm(doc);
-    api.doSend(doc, win); api.doSend(doc, win);                                                   // doble clic en «Confirmar envío»
-    for (let i = 0; i < 6; i++) await drain();
-    ok(win.fetches.length === 1 && win.fetches[0].url === api.SEND_URL, "11: el doble clic produce UN solo envío");
+    api.addRecipient(doc, { email: "ana@danwor.com", name: "Ana Pérez" });
+    api.doSend(doc, win); api.doSend(doc, win);                                                   // «Enviar» + doble clic: sin confirmación secundaria
+    for (let i = 0; i < 4; i++) await drain();
+    ok(f.send.disabled === true && f.send.textContent === "Enviando…" && f.send.getAttribute("aria-busy") === "true", "UX: al enviar el botón se deshabilita y muestra «Enviando…»");
+    ok(f.dialog.open === true, "UX: mientras procesa, el diálogo sigue abierto");
+    release(); for (let i = 0; i < 6; i++) await drain();
+    ok(win.fetches.length === 1 && win.fetches[0].url === api.SEND_URL, "UX: «Enviar» envía directo y el doble clic produce UN solo request");
     const p = params(win.fetches[0].body);
     ok(/^[A-Za-z0-9_-]{8,64}$/.test(p.operation_id[0]) && p.recipients[0] === "ana@danwor.com" && p.profile_ids[0] === "p1" && p.graph_token[0] === "delegated-token",
        "11: viajan identidad de operación, destinatarios, ids de candidatos y token delegado");
     ok(!Object.keys(p).some(k => /url|link|href/i.test(k)), "2: el navegador no envía enlaces: el servidor los resuelve");
-    ok(api._state().sent === true && f.send.disabled === true && /Correo enviado a 1 destinatario/.test(f.sendStatus.textContent), "14: 202 → enviado, botón bloqueado");
-    api.doSend(doc, win); await drain();
-    ok(win.fetches.length === 1, "11: después de enviado no se reenvía desde el mismo diálogo");
-    const firstOp = p.operation_id[0];
+    ok(p.message[0] === f.intro.value || /^Hola Ana,/.test(p.message[0]), "correo: el cuerpo viaja solo (saludo + texto del usuario)");
+    ok(!/https?:\/\//.test(p.message[0]) && !/Ana Candidata/.test(p.message[0]) && p.closing[0] === "Saludos", "correo: sin lista ni URLs en el cuerpo; el cierre viaja aparte");
+    ok(f.dialog.open === false && f.dialog.closed === 1 && f.content.children.length === 0, "UX: 202 cierra el diálogo y limpia su contenido");
+    const box = f.toast.children[0];
+    ok(box && box.className === "callout callout--success callout--feedback" && box.getAttribute("role") === "status"
+       && box.textContent === "Correo aceptado para envío a 1 destinatario.", "UX: toast de éxito FUERA del diálogo, con el patrón compartido (aceptado, no «entregado»)");
+    ok(api._state().operationId === "" && api._state().recipients.length === 0, "UX: el estado local del diálogo queda limpio");
+    eq(api.acceptedText(3), "Correo aceptado para envío a 3 destinatarios.", "UX: plural correcto");
+  }
+  {
+    const { doc, f } = dialog();
+    const win = makeWin(() => ({ status: 200, data: { status: "accepted" } }));
+    api.initShare(doc, store(), win);
+    const firstOp = api._state().operationId;
     api.initShare(doc, store(), win);                                                            // reabrir el diálogo = envío deliberado nuevo
     ok(api._state().operationId !== firstOp && api._state().sent === false, "12: cada apertura del diálogo tiene una identidad de operación nueva");
   }
 
   // ── 13 + 15 · resultados del servidor ──
+  // errores: el diálogo NO se cierra, se conserva todo; incierto/fallido bloquean el reenvío con la misma operación
   for (const [data, sent, rx, label] of [
     [{ status: "uncertain" }, true, /sin confirmación de Microsoft/, "15: incierto → bloqueado, sin reintento automático"],
     [{ status: "failed", message: "El servicio de correo rechazó el envío." }, true, /rechazó/, "13: rechazo de Graph → bloqueado"],
@@ -174,8 +191,14 @@ const params = body => { const out = {}; for (const kv of body.split("&")) { con
     const win = makeWin(() => ({ status: 200, data }));
     api.initShare(doc, store(), win);
     api.addRecipient(doc, { email: "ana@danwor.com", name: "Ana" });
+    f.subject.value = "Asunto editado"; f.outro.value = "Cierre editado";
+    const op = api._state().operationId;
     api.doSend(doc, win); for (let i = 0; i < 6; i++) await drain();
     ok(api._state().sent === sent && rx.test(f.sendStatus.textContent), label);
+    ok(f.dialog.open === true && f.toast.children.length === 0, label + " · el diálogo sigue abierto y sin toast de éxito");
+    ok(f.subject.value === "Asunto editado" && f.outro.value === "Cierre editado" && api._state().recipients.length === 1 && api._state().operationId === op,
+       label + " · se conservan contenido, destinatarios y la MISMA operación");
+    ok(f.send.disabled === sent && f.send.textContent === "Enviar", label + (sent ? " · sin reenvío inseguro" : " · se puede corregir y reintentar"));
   }
 
   // ── sin token delegado no se envía ──
@@ -260,7 +283,7 @@ const params = body => { const out = {}; for (const kv of body.split("&")) { con
     api.addRecipient(doc, { email: "jperez@danwor.com", name: "José Pérez Núñez" });
     api.doSend(doc, win); for (let i = 0; i < 6; i++) await drain();
     const sent = params(win.fetches[1].body);
-    ok(win.fetches.length === 2 && win.fetches[1].url === api.SEND_URL && sent.recipients[0] === "jperez@danwor.com" && directoryAsked === 0 && api._state().sent === true,
+    ok(win.fetches.length === 2 && win.fetches[1].url === api.SEND_URL && sent.recipients[0] === "jperez@danwor.com" && directoryAsked === 0 && f.dialog.open === false,
        "allowlist: envía solo el correo (el nombre es presentación) y sin token de directorio");
   }
   {

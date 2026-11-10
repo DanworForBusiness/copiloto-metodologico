@@ -521,7 +521,7 @@ def test_dialog_ux_closure_controls_and_texts(graph, monkeypatch, provider):
     labels = [m for m in ("Cerrar", "Copiar mensaje", ">Enviar<") if m in actions]
     assert labels == ["Cerrar", "Copiar mensaje", ">Enviar<"]
     assert actions.index("Copiar mensaje") < actions.index(">Enviar<") and actions.count("<button") == 3 and "<a " not in actions
-    assert "data-share-confirm-go" in html and "Confirmar envío" in html                               # la confirmación explícita sigue
+    assert "data-share-confirm" not in html and "Confirmar envío" not in html                         # «Enviar» envía directo: sin confirmación secundaria
 
 
 def test_email_keeps_the_sharepoint_permissions_note_and_validation_is_unchanged(allowlist):
@@ -529,3 +529,38 @@ def test_email_keeps_the_sharepoint_permissions_note_and_validation_is_unchanged
     assert r.json()["status"] == "accepted" and r.json()["invalid"] == ["externo@gmail.com"] and to_of(allowlist) == [HC]
     html = html_of(allowlist)
     assert "permisos de SharePoint del destinatario" in html and "Hola Helena" in html                  # la nota vive en el correo; el saludo viaja en el mensaje
+
+
+
+# ── contenido del correo: cuerpo del usuario → lista ÚNICA de candidatos → cierre; sin texto fijo ni URLs en el cuerpo visible ──────────────
+LONG = SP + "Documentos%20compartidos/Carpeta%20de%20candidatos/2026/" + "subcarpeta-con-nombre-largo/" * 4 + "CV_Candidato_Con_Nombre_Largo.pdf?web=1"
+
+
+def test_mail_body_has_user_text_single_candidate_list_and_closing_after_it(allowlist):
+    a = candidate("Ana", "Larga", web_url=LONG)
+    b = candidate("Bruno", "Corto", web_url=SP + "b.pdf")
+    body = "Hola Helena, te comparto los siguientes perfiles de candidatos (los enlaces abren el CV en SharePoint con tus permisos):"
+    r = send(client(), [a, b], [HC, "compacto.usuario@danwor.com"], graph_token="", message=body, closing="Quedo atento/a." + chr(10) + "Saludos.")
+    assert r.json()["status"] == "accepted" and to_of(allowlist) == [HC, "compacto.usuario@danwor.com"]
+    html = html_of(allowlist)
+    assert "Capital Humano comparte los siguientes perfiles" not in html                                 # sin texto introductorio fijo
+    assert html.index("Hola Helena,") < html.index("Ana Larga") < html.index("Bruno Corto") < html.index("Quedo atento/a.")   # cuerpo → lista → cierre
+    assert html.count("Ana Larga") == 1 and html.count("Bruno Corto") == 1                               # cada candidato una sola vez
+    assert html.count("Abrir CV en SharePoint") == 2 and f'href="{LONG}"' in html and f'href="{SP}b.pdf"' in html   # enlaces funcionales, del modelo
+    visible = __import__("re").sub(r"<[^>]+>", " ", html)
+    assert "https://" not in visible                                                                      # ninguna URL técnica en el texto visible
+    assert html.index("Quedo atento/a.") < html.index("permisos de SharePoint del destinatario")         # la nota de permisos sigue al final
+
+
+def test_mail_ignores_links_written_by_the_user_in_the_body(allowlist):
+    a = candidate("Ana", "Uno", web_url=SP + "ana.pdf")
+    send(client(), [a], [HC], graph_token="", message="Hola, mirá https://evil.example/cv.pdf y {Link}", closing="")
+    html = html_of(allowlist)
+    assert 'href="https://evil.example' not in html and html.count("<a ") == 1 and f'href="{SP}ana.pdf"' in html
+
+
+def test_default_text_is_singular_or_plural_by_candidate_count(graph):
+    one = client().post("/cchh/candidatos/compartir", data={"profile_ids": [candidate("Uno", "Solo")]}, headers=ORIGIN).text
+    two = client().post("/cchh/candidatos/compartir", data={"profile_ids": [candidate("Ana", "A"), candidate("Beto", "B")]}, headers=ORIGIN).text
+    assert "te comparto el siguiente perfil de candidato (el enlace abre" in one
+    assert "te comparto los siguientes perfiles de candidatos (los enlaces abren" in two

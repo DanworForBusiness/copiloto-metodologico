@@ -431,7 +431,7 @@
     refreshSend(doc);
   }
 
-  // Habilita «Enviar por correo» solo con: directorio disponible, mensaje listo (CVs elegidos) y ≥1 destinatario; nunca mientras hay un envío en curso o ya se envió.
+  // Habilita «Enviar» solo con: proveedor de destinatarios disponible, mensaje listo (CVs elegidos) y ≥1 destinatario; nunca mientras hay un envío en curso o ya se envió.
   function sendReady() {
     var model = resolveShare(shareState.items, shareState.choice);
     return shareState.directoryEnabled && !shareState.sending && !shareState.sent && shareReady(model) && shareState.recipients.length > 0;
@@ -439,32 +439,47 @@
 
   function refreshSend(doc) {
     var btn = shareField(doc, "data-share-send");
-    if (btn) btn.disabled = !sendReady();
-    if (!sendReady()) hideConfirm(doc);                                                           // si deja de estar listo, se cancela una confirmación abierta
+    if (!btn) return;
+    btn.disabled = !sendReady();
+    btn.textContent = shareState.sending ? "Enviando…" : "Enviar";                                // estado de procesamiento en el mismo botón
+    if (shareState.sending) btn.setAttribute("aria-busy", "true"); else btn.removeAttribute("aria-busy");
   }
 
-  function hideConfirm(doc) { var c = shareField(doc, "data-share-confirm"); if (c) c.hidden = true; }
-
-  function showConfirm(doc) {
-    if (!sendReady()) return;
-    var c = shareField(doc, "data-share-confirm"), msg = shareField(doc, "data-share-confirm-msg");
-    var n = shareState.recipients.length, shared = resolveShare(shareState.items, shareState.choice).included.length;
-    if (msg) msg.textContent = "Vas a enviar " + shared + (shared === 1 ? " perfil" : " perfiles") + " a " + n + (n === 1 ? " destinatario" : " destinatarios") + ". El correo sale desde el buzón institucional. ¿Confirmás?";
-    if (c) c.hidden = false;
+  // Resultado aceptado (Graph 202): se cierra el diálogo, se limpia su estado y el aviso va al toast transitorio de la página (patrón CCHH compartido).
+  function acceptedText(n) { return "Correo aceptado para envío a " + n + (n === 1 ? " destinatario." : " destinatarios."); }
+  function pageToast(doc, text) {
+    var host = doc.querySelector ? doc.querySelector("[data-hc-share-toast]") : null;
+    if (!host) return;
+    var box = doc.createElement("aside");
+    box.className = "callout callout--success callout--feedback";
+    box.setAttribute("role", "status");
+    box.textContent = text;
+    if (host.classList) host.classList.remove("is-dismissing");
+    if (host.replaceChildren) host.replaceChildren(box); else { host.textContent = ""; host.appendChild(box); }
+  }
+  function closeAfterAccepted(doc, n) {
+    var dialog = doc.getElementById("hc-share-dialog"), content = doc.getElementById("hc-share-content");
+    if (dialog && dialog.open && dialog.close) dialog.close();
+    if (content) content.textContent = "";
+    shareState = { items: [], choice: {}, recipients: [], directoryEnabled: false, provider: "directory", catalog: null, greeting: null,
+                   maxRecipients: 20, operationId: "", sending: false, sent: false, _searchSeq: 0 };
+    pageToast(doc, acceptedText(n));
   }
 
+  // «Enviar» envía directamente (sin confirmación secundaria): el usuario ya eligió perfiles, destinatarios y contenido; el servidor revalida todo.
+  // El botón se deshabilita en el acto (doble clic = un solo request) y el backend es idempotente por `operation_id`.
   function doSend(doc, win) {
     if (!sendReady()) return;
     shareState.sending = true;
     refreshSend(doc);
-    hideConfirm(doc);
-    sendStatus(doc, "Enviando…", false);
+    sendStatus(doc, "", false);
     var model = resolveShare(shareState.items, shareState.choice);
     directoryToken(win).then(function (token) {
       if (!token && needsToken()) { shareState.sending = false; sendStatus(doc, "No se pudo obtener autorización de Microsoft para validar los destinatarios.", true); refreshSend(doc); return; }
       var parts = ["operation_id=" + encodeURIComponent(shareState.operationId),
                    "subject=" + encodeURIComponent(fieldValue(doc, "data-share-subject")),
-                   "message=" + encodeURIComponent(buildPlain(model, fieldValue(doc, "data-share-intro"), fieldValue(doc, "data-share-outro"))),
+                   "message=" + encodeURIComponent(fieldValue(doc, "data-share-intro")),           // cuerpo del usuario (saludo + texto): los candidatos NO van acá
+                   "closing=" + encodeURIComponent(fieldValue(doc, "data-share-outro")),          // cierre del usuario (va DESPUÉS de la lista en el correo)
                    "choice=" + encodeURIComponent(JSON.stringify(shareState.choice || {})),
                    "graph_token=" + encodeURIComponent(token)];
       shareState.items.forEach(function (it) { parts.push("profile_ids=" + encodeURIComponent(it.id)); });
@@ -478,7 +493,7 @@
   function applySendOutcome(doc, win, res, data) {
     shareState.sending = false;
     var st = data.status;
-    if (st === "accepted") { shareState.sent = true; sendStatus(doc, "Correo enviado a " + shareState.recipients.length + (shareState.recipients.length === 1 ? " destinatario." : " destinatarios."), false); }
+    if (st === "accepted") { closeAfterAccepted(doc, (data.recipients || shareState.recipients).length); return; }
     else if (st === "duplicate") { shareState.sent = true; sendStatus(doc, "Este envío ya se había registrado; no se reenvió.", true); }
     else if (st === "uncertain") { shareState.sent = true; sendStatus(doc, "El envío quedó sin confirmación de Microsoft. No se reenvía automáticamente: verificá tu bandeja antes de reintentar.", true); }
     else if (st === "config_incomplete" || (data.reason === "audit_unavailable")) { sendStatus(doc, data.message || "No se pudo enviar por un problema de configuración. Nada fue enviado.", true); }      // nada enviado: se puede reintentar con el mismo operation_id
@@ -598,7 +613,7 @@
       if (t && t.matches && t.matches("[data-share-search]") && shareState.directoryEnabled && (t.value || "").trim().length >= MIN_QUERY) runSearch(doc, win);
     });
     doc.addEventListener("click", function (event) {
-      var t = event.target, el = t && t.closest ? t.closest("[data-hc-clear-selection], [data-hc-share-open], [data-hc-consolidate-open], [data-share-copy], [data-share-pick], [data-share-chip-remove], [data-share-send], [data-share-confirm-go], [data-share-confirm-cancel]") : null;
+      var t = event.target, el = t && t.closest ? t.closest("[data-hc-clear-selection], [data-hc-share-open], [data-hc-consolidate-open], [data-share-copy], [data-share-pick], [data-share-chip-remove], [data-share-send]") : null;
       if (!el) {
         var results = shareField(doc, "data-share-results");                                        // clic fuera del selector: cierra el desplegable
         if (results && !results.hidden && !(t && t.closest && t.closest("[data-share-recipients]"))) showResults(doc, false);
@@ -612,9 +627,7 @@
         return;
       }
       if (el.hasAttribute("data-share-chip-remove")) { removeRecipient(doc, el.getAttribute("data-share-chip-remove")); return; }
-      if (el.hasAttribute("data-share-send")) { showConfirm(doc); return; }
-      if (el.hasAttribute("data-share-confirm-cancel")) { hideConfirm(doc); return; }
-      if (el.hasAttribute("data-share-confirm-go")) { doSend(doc, win); return; }
+      if (el.hasAttribute("data-share-send")) { doSend(doc, win); return; }
       if (el.hasAttribute("data-hc-consolidate-open")) { openConsolidation(doc, store); return; }
       if (el.hasAttribute("data-hc-clear-selection")) { store.clear(); syncUI(doc, store); return; }
       if (el.hasAttribute("data-hc-share-open")) { openShare(doc, win, store); return; }
@@ -642,7 +655,7 @@
               syncUI: syncUI, keepInPlace: keepInPlace, refreshCopy: refreshCopy, greetingFor: greetingFor, applyGreeting: applyGreeting, initShare: initShare, openShare: openShare, wire: wire,
               MIN_QUERY: MIN_QUERY, DIRECTORY_URL: DIRECTORY_URL, SEND_URL: SEND_URL, CATALOG_URL: CATALOG_URL, loadCatalog: loadCatalog, catalogMatches: catalogMatches, newOperationId: newOperationId, renderChips: renderChips, addRecipient: addRecipient,
               removeRecipient: removeRecipient, renderResults: renderResults, runSearch: runSearch, blockDirectory: blockDirectory, sendReady: sendReady, refreshSend: refreshSend,
-              showConfirm: showConfirm, hideConfirm: hideConfirm, doSend: doSend, applySendOutcome: applySendOutcome,
+              doSend: doSend, applySendOutcome: applySendOutcome, acceptedText: acceptedText,
               _state: function () { return shareState; } };
   if (typeof window !== "undefined") {
     window.__cchhSelection = api;

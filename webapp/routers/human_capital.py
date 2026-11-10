@@ -1332,7 +1332,7 @@ def human_capital_profiles_share_dialog(request: Request, profile_ids: list[str]
         selection = human_capital_share.ShareSelection(reason=human_capital_share.REASON_SOURCE_ERROR)
     return templates.TemplateResponse(
         request=request, name="partials/human_capital_share_dialog_content.html",
-        context={"selection": selection, "subject": human_capital_share.DEFAULT_SUBJECT, "intro": human_capital_share.INTRO, "outro": human_capital_share.OUTRO,
+        context={"selection": selection, "subject": human_capital_share.DEFAULT_SUBJECT, "intro": human_capital_share.intro_for(len(selection.items)), "outro": human_capital_share.OUTRO,
                  "max_profiles": human_capital_share.MAX_SHARE_PROFILES, "directory_enabled": profile_send.recipients_enabled(),
                  "recipient_provider": profile_send.recipient_provider(), "max_recipients": profile_send.MAX_RECIPIENTS},
         headers=_NO_STORE,
@@ -1380,7 +1380,7 @@ def human_capital_share_catalog(request: Request, graph_token: str = Form("")):
 
 @router.post("/cchh/candidatos/compartir/enviar", include_in_schema=False)
 def human_capital_share_send(request: Request, profile_ids: list[str] = Form([]), recipients: list[str] = Form([]),
-                             subject: str = Form(""), message: str = Form(""), choice: str = Form("{}"),
+                             subject: str = Form(""), message: str = Form(""), closing: str = Form(""), choice: str = Form("{}"),
                              operation_id: str = Form(""), graph_token: str = Form("")):
     """Envío MANUAL de perfiles por correo (buzón institucional, client credentials). El usuario confirmó explícitamente. El backend valida
     candidatos (existentes + enlaces del sistema) y destinatarios (identidades corporativas del directorio). Anti doble-envío por `operation_id`."""
@@ -1402,7 +1402,7 @@ def human_capital_share_send(request: Request, profile_ids: list[str] = Form([])
     actor = str(user.get("email") or user.get("sub") or user.get("name") or "")
     try:
         out = profile_send.send_profiles(operation_id=operation_id.strip(), actor=actor, profile_ids=profile_ids, recipient_emails=recipients,
-                                         subject=subject, message=message, choice=choice_map, delegated_token=graph_token,
+                                         subject=subject, message=message, closing=closing, choice=choice_map, delegated_token=graph_token,
                                          get_profile=human_capital_service.get_profile, list_documents=profile_document_service.list_documents_for_profile)
     except profile_send.DirectorySearchUnavailable:
         return JSONResponse({"status": "error", "message": "No se pudieron validar los destinatarios (permiso de directorio no concedido)."}, status_code=503, headers=_NO_STORE)

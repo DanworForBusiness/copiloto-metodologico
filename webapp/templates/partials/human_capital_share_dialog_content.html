@@ -52,14 +52,6 @@
   <p class="field-hint">«Copiar mensaje» pega los nombres como enlaces en Outlook.</p>
   <p class="field-hint" data-share-status role="status" hidden></p>
   <p class="field-hint" data-share-send-status role="status" aria-live="polite" hidden></p>
-  {# Confirmación explícita antes de enviar (acción irreversible: sale un correo real desde el buzón institucional). Evita el envío accidental; el botón «Confirmar envío» se bloquea mientras hay un envío en curso. #}
-  <div class="busqueda-contact__confirm feedback-field" data-share-confirm hidden>
-    <p class="field-hint field-hint--warn" data-share-confirm-msg></p>
-    <div class="busqueda-contact__actions">
-      <button type="button" class="btn-secondary" data-share-confirm-cancel>Cancelar</button>
-      <button type="button" class="btn-primary" data-share-confirm-go>Confirmar envío</button>
-    </div>
-  </div>
 </div>
 <div class="dw-confirm__actions busqueda-contact__actions">
   <form method="dialog"><button type="submit" class="btn-secondary">Cerrar</button></form>

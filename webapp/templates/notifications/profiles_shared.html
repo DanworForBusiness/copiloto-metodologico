@@ -1,11 +1,12 @@
 {#- Correo «Perfiles de candidatos» (acción MANUAL de Capital Humano → Compartir perfiles → Enviar por correo). Solo CONTENIDO: la cabecera
-    (identidad institucional + vertical Capital Humano) y el pie vienen de la base compartida `_layout.html`; la intro, de `_blocks.html`. Todos los
+    (identidad institucional + vertical Capital Humano) y el pie vienen de la base compartida `_layout.html`; el título, de `_blocks.html`. Orden:
+    cuerpo del usuario (saludo + texto) → lista ÚNICA de candidatos → cierre del usuario → nota de permisos. Sin texto introductorio fijo. Todos los
     valores llegan escapados por Jinja; los enlaces de CV ya vienen validados (`human_capital_share.safe_cv_url`) y apuntan al CV existente en
     SharePoint (nunca enlaces anónimos ni adjuntos). Sin datos de contacto del candidato: solo nombre + enlace. -#}
 {% extends "notifications/_layout.html" %}
 {% import "notifications/_blocks.html" as blocks %}
 {% block content %}
-{{ blocks.intro(title, "Capital Humano comparte los siguientes perfiles de candidatos. Los enlaces abren el CV en SharePoint.") }}
+{{ blocks.intro(title, "") }}
 {% if d.message %}
       <tr><td style="padding:0 24px 8px;">
         <p style="margin:0;font-size:14px;line-height:1.5;color:#202124;white-space:pre-line;">{{ d.message }}</p>
@@ -20,6 +21,9 @@
           </tr>
           {%- endfor %}
         </table>
+        {%- if d.closing %}
+        <p style="margin:16px 0 0;font-size:14px;line-height:1.5;color:#202124;white-space:pre-line;">{{ d.closing }}</p>
+        {%- endif %}
         <p style="margin:14px 0 0;font-size:12px;color:#7a7a82;">{{ d.note }}</p>
       </td></tr>
 {% endblock %}

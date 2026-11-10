@@ -251,11 +251,14 @@ def resolve_links(selection: human_capital_share.ShareSelection, choice: dict | 
     return included, omitted
 
 
-def build_graph_message(included: list[dict], recipients: list[dict], subject: str, message: str) -> dict:
-    """Mensaje Graph `sendMail` con la plantilla institucional (identidad Capital Humano). Valores escapados por Jinja; enlaces ya validados."""
+def build_graph_message(included: list[dict], recipients: list[dict], subject: str, message: str, closing: str = "") -> dict:
+    """Mensaje Graph `sendMail` con la plantilla institucional (identidad Capital Humano): cuerpo del usuario (saludo + texto) → lista ÚNICA de
+    candidatos (nombre + «Abrir CV en SharePoint», desde el modelo ya validado: nunca desde lo que escribió el usuario) → cierre del usuario →
+    nota de permisos. Valores escapados por Jinja; enlaces ya validados; sin URLs técnicas en el texto visible."""
     html = templates.env.get_template(TEMPLATE).render(
         title=TITLE, brand=dict(notifications.INSTITUTIONAL), vertical=workspaces.brand_identity("human-capital"),
-        d={"candidates": included, "message": (message or "").strip(), "note": SHAREPOINT_NOTE})
+        d={"candidates": included, "message": (message or "").strip()[:MESSAGE_MAX], "closing": (closing or "").strip()[:MESSAGE_MAX],
+           "note": SHAREPOINT_NOTE})
     subj = (subject or DEFAULT_SUBJECT).strip()[:SUBJECT_MAX] or DEFAULT_SUBJECT
     return {"message": {"subject": subj, "body": {"contentType": "HTML", "content": html},
                         "toRecipients": [{"emailAddress": {"address": r["email"]}} for r in recipients]}}
@@ -332,7 +335,7 @@ def read_audit(operation_id: str) -> dict:
 
 # ───────────────────────── orquestación ─────────────────────────
 
-def send_profiles(*, operation_id: str, actor: str, profile_ids: list[str], recipient_emails: list[str], subject: str, message: str,
+def send_profiles(*, operation_id: str, actor: str, profile_ids: list[str], recipient_emails: list[str], subject: str, message: str, closing: str = "",
                   choice: dict | None, delegated_token: str, get_profile, list_documents) -> dict:
     """Flujo completo (lo invoca la ruta): resolver candidatos → resolver enlaces → validar destinatarios (directorio) → auditar intención
     (create-only) → armar + enviar → auditar resultado. Devuelve un dict de estado para la UI. Nunca lanza por errores esperados."""
@@ -362,7 +365,7 @@ def send_profiles(*, operation_id: str, actor: str, profile_ids: list[str], reci
         return {"status": "duplicate", "message": "Este envío ya se había registrado.", "prior_outcome": prior.get("outcome")}
     except SendAuditUnavailable as exc:
         return {"status": "error", "reason": "audit_unavailable", "message": "No se pudo registrar la operación de forma durable; no se envió nada."}
-    state, detail = send_graph_message(build_graph_message(included, recipients, subject, message))
+    state, detail = send_graph_message(build_graph_message(included, recipients, subject, message, closing))
     elapsed = int((time.monotonic() - started) * 1000)
     try:
         write_result(operation_id, outcome=state, detail=detail, elapsed_ms=elapsed)
