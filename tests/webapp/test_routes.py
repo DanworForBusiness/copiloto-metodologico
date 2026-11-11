@@ -82,7 +82,7 @@ def test_auth_config_returns_azure_ids():
     # ADICIONAL que la escritura de documentos de Capital Humano pide,
     # expuesto acá porque un scope string no es un secreto y `hub_auth.js`
     # (estático, sin backend propio) no puede leer un env var directamente.
-    assert set(body) == {"enabled", "tenant_id", "client_id", "hc_document_write_scope"}
+    assert set(body) == {"enabled", "tenant_id", "client_id", "hc_document_write_scope", "hc_directory_search_scope"}   # + scope delegado del selector de Compartir perfiles (no es secreto)
 
 def test_auth_me_authenticated():
     response = client.get("/api/auth/me")
