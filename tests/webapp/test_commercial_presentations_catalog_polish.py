@@ -24,7 +24,7 @@ VANTURE_CSS = (VANTURE / "vanture.css").read_text(encoding="utf-8")
 
 
 def _cells(tr):
-    return [td.get_text(" ", strip=True) for td in tr.select("td")]
+    return [td.get_text(" ", strip=True) for td in tr.select("td:not(.hc-select-col)")]           # la columna de selección (solo Presentaciones) no es dato
 
 
 def test_every_empty_last_edit_date_shows_the_release_date_without_mutating_anything(world):
@@ -51,12 +51,13 @@ def test_the_components_table_has_no_provenance_column_and_the_two_tables_share_
     soup = _catalog(world)
     pres, comp = soup.select_one("#cp-catalog-table"), soup.select_one("#cc-catalog-table")
     assert [th.get_text(strip=True) for th in comp.select("thead th")] == ["Componente", "Región", "Responsable", "Última edición", "Acciones"]
-    assert [th.get_text(strip=True) for th in pres.select("thead th")] == ["Presentación", "Origen", "Responsable", "Última edición", "Acciones"]
-    for table in (pres, comp):
-        assert "cp-catalog" in table["class"] and len(table.select("colgroup > col")) == 5 and not [c for c in table.select("colgroup > col") if c.has_attr("style")]     # sin anchos propios por tabla
-        assert [th["class"] for th in table.select("thead th")] == [["left"]] * 4 + [["center"]]               # misma alineación
+    assert [th.get_text(strip=True) for th in pres.select("thead th:not(.hc-select-col)")] == ["Presentación", "Origen", "Responsable", "Última edición", "Acciones"]
+    assert pres.select_one("thead th.hc-select-col [data-cp-select-page]") is not None and comp.select_one(".hc-select-col") is None   # selección múltiple solo en Presentaciones (primera columna)
+    for table, extra in ((pres, 1), (comp, 0)):
+        assert "cp-catalog" in table["class"] and len(table.select("colgroup > col")) == 5 + extra and not [c for c in table.select("colgroup > col") if c.has_attr("style")]     # sin anchos propios por tabla
+        assert [th["class"] for th in table.select("thead th:not(.hc-select-col)")] == [["left"]] * 4 + [["center"]]               # misma alineación
         for tr in table.select("tbody tr"):
-            assert [td["class"] for td in tr.select("td")] == [["left"]] * 4 + [["center"]]
+            assert [td["class"] for td in tr.select("td:not(.hc-select-col)")] == [["left"]] * 4 + [["center"]]
     assert len(re.findall(r"cp-catalog col:nth-child\(\d\)", CSS)) == 5                                     # el contrato de columnas existe UNA vez y lo consumen las dos tablas
     assert "Procedencia" not in comp.get_text()
 

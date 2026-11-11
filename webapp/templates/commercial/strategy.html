@@ -364,6 +364,8 @@
 {% endif %}
 {% endmacro %}
 
+{# Selector y diálogo de Compartir: reutilizan las hojas de CCHH/Operaciones (mismo patrón que Operaciones → Solicitudes), en el <head>. #}
+{% block head_styles %}<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}"><link rel="stylesheet" href="{{ url_for('static', path='operations_solicitudes.css') }}?v={{ static_version }}">{% endblock %}
 {% block body %}
 <div
   x-data="copilotLayout('commercial')"
@@ -1210,8 +1212,6 @@
 <link rel="stylesheet" href="{{ url_for('static', path='commercial.css') }}?v={{ static_version }}">
 <link rel="stylesheet" href="{{ url_for('static', path='commercial_strategy.css') }}?v={{ static_version }}">
 {% include "partials/commercial_share_dialog.html" %}
-<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}">
-<link rel="stylesheet" href="{{ url_for('static', path='operations_solicitudes.css') }}?v={{ static_version }}">
 <script src="{{ url_for('static', path='share_recipients.js') }}?v={{ static_version }}" defer></script>
 <script src="{{ url_for('static', path='commercial_share.js') }}?v={{ static_version }}" defer></script>
 {% endblock %}

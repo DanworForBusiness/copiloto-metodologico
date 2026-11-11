@@ -2,6 +2,8 @@
 {% from "partials/platform_topbar.html" import platform_topbar %}
 {% from "partials/workspace_shell.html" import sidebar_resize_handle %}
 {% block title %}{{ presentation.title }} · Presentaciones · Comercial · Danwor{% endblock %}
+{# Selector y diálogo de Compartir: reutilizan las hojas de CCHH/Operaciones (mismo patrón que Operaciones → Solicitudes), en el <head>. #}
+{% block head_styles %}<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}"><link rel="stylesheet" href="{{ url_for('static', path='operations_solicitudes.css') }}?v={{ static_version }}">{% endblock %}
 {% block body %}
 <div
   x-data="copilotLayout('commercial')"
@@ -55,8 +57,6 @@
 
 {% include "partials/commercial_presentation_copy_dialog.html" %}
 {% include "partials/commercial_share_dialog.html" %}
-<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}">
-<link rel="stylesheet" href="{{ url_for('static', path='operations_solicitudes.css') }}?v={{ static_version }}">
 <link rel="stylesheet" href="{{ url_for('static', path='commercial.css') }}?v={{ static_version }}">
 <script src="{{ url_for('static', path='commercial_presentations.js') }}?v={{ static_version }}"></script>
 <script src="{{ url_for('static', path='share_recipients.js') }}?v={{ static_version }}" defer></script>
