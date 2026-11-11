@@ -143,7 +143,7 @@ def test_the_detail_actions_use_the_native_segmented_control_and_edit_and_delete
         group = soup.select_one(".cp-toolbar > .dashboard-view-switch.dashboard-view-switch--scroll[role=group]")
         assert group is not None and not soup.select(".cp-toolbar .btn-primary, .cp-toolbar .btn-secondary")      # primitivo nativo, no botones sueltos que lo imiten
         items = group.find_all(["a", "button"], recursive=False)
-        assert [i.text.strip() for i in items] == ["Presentar", "Copiar enlace", "Copiar como nueva", "Editar", "Eliminar"]
+        assert [i.text.strip() for i in items] == ["Presentar", "Compartir", "Copiar como nueva", "Editar", "Eliminar"]
         assert items[0].name == "a" and "is-active" in items[0]["class"] and items[0]["target"] == "_blank"
         assert all(not i.has_attr("disabled") for i in items[:3])
         edit, delete = items[3], items[4]

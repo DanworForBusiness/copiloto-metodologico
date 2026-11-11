@@ -1,0 +1,46 @@
+{#- Diálogo ÚNICO «Compartir» de Gestión Comercial: 02. Estrategia, presentación individual y presentaciones seleccionadas (lo abre
+    `commercial_share.js` con el contexto del disparador `[data-cshare-open]`). Dos opciones en el MISMO diálogo: «Copiar enlace» (las mismas URLs
+    de siempre; con varias presentaciones, título + enlace por línea) y «Enviar» (correo institucional a destinatarios corporativos de Comercial).
+    Contenedor y piezas del Hub reutilizados tal cual: `<dialog class="dw-confirm busqueda-dialog busqueda-contact-dialog hc-share-dialog">` y el
+    selector de destinatarios de CCHH (marcado `data-share-*`, `share_recipients.js`). Las rutas son las de la vertical (servidor); el navegador no
+    elige contexto ni aporta URLs: el envío manda `kind` + ids y el servidor resuelve los enlaces. Requiere `commercial_share` (dialog_context). -#}
+{% set cs = commercial_share %}
+<dialog class="dw-confirm busqueda-dialog busqueda-contact-dialog hc-share-dialog" id="cshare-dialog" aria-labelledby="cshare-title"
+        data-cshare-root data-catalog-url="{{ cs.catalog_url }}" data-directory-url="{{ cs.directory_url }}" data-send-url="{{ cs.send_url }}"
+        data-directory-enabled="{{ '1' if cs.directory_enabled else '' }}" data-recipient-provider="{{ cs.recipient_provider or 'directory' }}"
+        data-send-enabled="{{ '1' if cs.send_enabled else '' }}" data-max-recipients="{{ cs.max_recipients }}" data-max-items="{{ cs.max_items }}">
+  <div class="dw-confirm__body busqueda-contact">
+    <h2 class="dw-confirm__title" id="cshare-title" data-cshare-title>Compartir</h2>
+    <p class="field-hint busqueda-contact__context">Quien lo reciba lo abre con su propia sesión del Hub: no se crean enlaces nuevos ni se cambian permisos.</p>
+    <ul class="hc-share-list" data-cshare-items aria-label="Lo que se comparte"></ul>
+    <div class="feedback-field" data-share-recipients>
+      <label for="cshare-dest" id="cshare-dest-label">Enviar por correo a</label>
+      <ul class="hc-share-chips" data-share-chips aria-live="polite" aria-labelledby="cshare-dest-label"></ul>
+      <div class="solicitudes-person-control">
+        <input id="cshare-dest" type="text" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false"
+               aria-controls="cshare-dest-list" placeholder="Buscá por nombre o correo (mín. 3 caracteres)" data-share-search>
+        <div id="cshare-dest-results" class="solicitudes-person-results filter-toolbar-card" data-share-results hidden>
+          <p class="field-hint" data-share-results-hint role="status"></p>
+          <div id="cshare-dest-list" role="listbox" aria-label="Destinatarios de Gestión Comercial" data-share-results-list></div>
+        </div>
+      </div>
+      <p class="field-hint field-hint--warn" data-share-dir-blocked{% if cs.directory_enabled %} hidden{% endif %}>La búsqueda de destinatarios corporativos todavía no está habilitada. Podés usar «Copiar enlace».</p>
+      {% if not cs.send_enabled %}<p class="field-hint field-hint--warn" data-cshare-send-disabled>{{ cs.send_disabled_message }}</p>{% endif %}
+    </div>
+    <div class="feedback-field">
+      <label for="cshare-subject">Asunto</label>
+      <input id="cshare-subject" type="text" maxlength="200" autocomplete="off" data-cshare-subject>
+    </div>
+    <div class="feedback-field">
+      <label for="cshare-message">Mensaje</label>
+      <textarea id="cshare-message" rows="4" maxlength="5000" data-cshare-message></textarea>
+      <p class="field-hint">Los enlaces se agregan solos debajo del mensaje, como «Abrir en el Hub».</p>
+    </div>
+    <p class="field-hint" data-cshare-status role="status" aria-live="polite" hidden></p>
+  </div>
+  <div class="dw-confirm__actions busqueda-contact__actions">
+    <form method="dialog"><button type="submit" class="btn-secondary">Cerrar</button></form>
+    <button type="button" class="btn-secondary" data-cshare-copy>Copiar enlace</button>
+    <button type="button" class="btn-primary" data-cshare-send disabled>Enviar</button>
+  </div>
+</dialog>

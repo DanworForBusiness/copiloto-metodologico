@@ -35,7 +35,7 @@
     <div class="cp-toolbar">
       <div class="dashboard-view-switch dashboard-view-switch--scroll" role="group" aria-label="Acciones de la presentación">
         <a class="is-active" href="{{ share_path }}" target="_blank" rel="noopener">Presentar</a>
-        <button type="button" data-cp-copy-link="{{ share_path }}">Copiar enlace</button>
+        <button type="button" data-cshare-open data-cshare-kind="presentations" data-cshare-items='{{ [{"id": presentation.presentation_id, "title": presentation.title, "path": share_path}] | tojson | forceescape }}'>Compartir</button>
         <button type="button" data-cp-copy-open data-cp-id="{{ presentation.presentation_id }}" data-cp-title="Copia de {{ presentation.title }}">Copiar como nueva</button>
         {% if can_edit %}<a href="/comercial/presentaciones/{{ presentation.presentation_id }}/editar">Editar</a>{% else %}<button type="button" disabled title="{{ 'Las presentaciones institucionales son de solo lectura' if presentation.is_seed else 'Solo el responsable de la copia puede editarla' }}" aria-label="Editar no disponible: {{ 'las presentaciones institucionales son de solo lectura' if presentation.is_seed else 'solo el responsable de la copia puede editarla' }}">Editar</button>{% endif %}
         {% if can_delete %}<button type="button" data-cp-delete="{{ presentation.presentation_id }}" data-cp-title="{{ presentation.title }}">Eliminar</button>{% else %}<button type="button" disabled title="{{ 'Las presentaciones institucionales no se eliminan' if presentation.is_seed else 'Solo el responsable de la copia o el dueño de la app pueden eliminarla' }}" aria-label="Eliminar no disponible: {{ 'las presentaciones institucionales no se eliminan' if presentation.is_seed else 'solo el responsable de la copia o el dueño de la app pueden eliminarla' }}">Eliminar</button>{% endif %}
@@ -54,6 +54,11 @@
 </div>
 
 {% include "partials/commercial_presentation_copy_dialog.html" %}
+{% include "partials/commercial_share_dialog.html" %}
+<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}">
+<link rel="stylesheet" href="{{ url_for('static', path='operations_solicitudes.css') }}?v={{ static_version }}">
 <link rel="stylesheet" href="{{ url_for('static', path='commercial.css') }}?v={{ static_version }}">
 <script src="{{ url_for('static', path='commercial_presentations.js') }}?v={{ static_version }}"></script>
+<script src="{{ url_for('static', path='share_recipients.js') }}?v={{ static_version }}" defer></script>
+<script src="{{ url_for('static', path='commercial_share.js') }}?v={{ static_version }}" defer></script>
 {% endblock %}
