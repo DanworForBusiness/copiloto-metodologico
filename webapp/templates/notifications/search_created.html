@@ -1,0 +1,18 @@
+{#- Correo «Nueva búsqueda de recurso» (evento `operations.search.created`, Operaciones → Capital Humano). Solo el CONTENIDO del evento:
+    la cabecera (identidad institucional + vertical) y el pie vienen de la base compartida `_layout.html`; tabla y botón, de `_blocks.html`.
+    Todos los valores llegan escapados por el autoescape de Jinja. Sin datos de candidatos ni contenido interno de CCHH (JD/palabras clave). -#}
+{% extends "notifications/_layout.html" %}
+{% import "notifications/_blocks.html" as blocks %}
+{% block content %}
+{{ blocks.intro(title, "Operaciones registró una nueva búsqueda de recurso en " ~ vertical.accent ~ " → Búsquedas, que requiere gestión de Capital Humano.") }}
+{{ blocks.details([
+      ("Búsqueda", "#" ~ (d.id or "")),
+      ("Puesto o perfil", d.puesto),
+      ("Proyecto / cliente", d.area_consultora),
+      ("Área solicitante", d.area),
+      ("Modalidad", d.modalidad),
+      ("Solicitante", d.requester),
+      ("Fecha de creación", d.created),
+    ]) }}
+{{ blocks.hub_button(d.url, "Ver la búsqueda en el Hub", brand) }}
+{% endblock %}

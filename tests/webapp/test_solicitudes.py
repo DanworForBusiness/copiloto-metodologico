@@ -596,3 +596,27 @@ def test_nine_column_table_dates_snapshot_sort_and_pagination(monkeypatch):
         assert service.form_values(rows[0]["fields"])[service.PLANNED] == "2021-11-03"
     finally:
         snapshot.invalidate(actor)
+
+
+def test_loaders_without_delegated_token_offer_the_shared_graph_recovery(monkeypatch):
+    """Enlace profundo en una pestaña nueva (cache MSAL por pestaña): sin token, el cargador ofrece «Autorizar con Microsoft» que reemite
+    EL MISMO request (misma solicitud, mismo modo, mismo target) por el mecanismo compartido de `hub_auth.js`; nunca consulta Graph."""
+    from fastapi.testclient import TestClient
+    from webapp.main import app
+    from webapp.routers import solicitudes
+
+    monkeypatch.setattr(solicitudes, "_user", lambda request: {"sub": "test-actor"})
+    monkeypatch.setattr(repository, "read_item", lambda *args: (_ for _ in ()).throw(AssertionError("sin token no se consulta Graph")))
+    client = TestClient(app)
+    cases = {
+        "/operaciones/solicitudes/11/detalle": 'hx-post="/operaciones/solicitudes/11/detalle"',
+        "/operaciones/solicitudes/11/detalle?mode=display": 'hx-post="/operaciones/solicitudes/11/detalle?mode=display"',
+        "/operaciones/solicitudes/nueva/datos": 'hx-post="/operaciones/solicitudes/nueva/datos"',
+        "/operaciones/solicitudes/data": 'hx-post="/operaciones/solicitudes/data"',
+    }
+    for path, retry in cases.items():
+        html = client.post(path, data={"graph_token": ""}).text
+        assert "data-graph-auth-recovery" in html, path
+        assert "Autorizar con Microsoft" in html, path
+        assert retry in html and 'hx-trigger="dw-graph-authorized"' in html and 'hx-target="#solicitudes-panel"' in html, path
+        assert "data-dw-graph-reauth" in html and "data-dw-graph-token" in html, path

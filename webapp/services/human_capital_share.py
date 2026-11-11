@@ -27,6 +27,12 @@ _LABEL_MAX = 80
 
 DEFAULT_SUBJECT = "Perfiles de candidatos | Capital Humano"
 INTRO = "Hola, te comparto los siguientes perfiles de candidatos (los enlaces abren el CV en SharePoint con tus permisos):"
+INTRO_ONE = "Hola, te comparto el siguiente perfil de candidato (el enlace abre el CV en SharePoint con tus permisos):"
+
+
+def intro_for(count: int) -> str:
+    """Texto inicial por defecto del mensaje, en singular o plural según los candidatos del diálogo (el usuario lo puede editar)."""
+    return INTRO_ONE if count == 1 else INTRO
 OUTRO = "Quedo atento/a a tus comentarios.\nSaludos."
 
 REASON_EMPTY = "empty"

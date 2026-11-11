@@ -34,7 +34,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from core.content_registry import DEFAULT_PACK
 from webapp import access as app_access, hub_metrics_access, operations_access, same_origin_guard, workspaces
-from webapp.services import auth_service, busqueda_repository, human_capital_catalog_repository, human_capital_service, pagination, search_text
+from webapp.services import auth_service, busqueda_repository, human_capital_catalog_repository, human_capital_service, notifications, pagination, search_text
 from webapp.services.activity_catalog import AREA_CCHH, OUTCOME_SUCCESS, SCOPE_HUMAN_CAPITAL
 from webapp.services.activity_service import log_activity
 from webapp.templating import templates
@@ -315,6 +315,31 @@ def operations_busqueda_new_page(request: Request):
     return _render_form(request, user, mode="nueva", values={"seniority": []}, submission_id=str(uuid.uuid4()))
 
 
+def _announce_search_created(view: dict, actor: str, origin: str) -> None:
+    """Evento `operations.search.created`: SOLO tras la creación DURABLE de una búsqueda desde Operaciones (ya persistida por
+    `create_solicitud`). La notificación es ACCESORIA: nunca afecta el alta. La idempotencia de «un solo correo» la garantiza el
+    registro durable por `busqueda_id` del servicio de notificaciones (un reenvío idempotente del alta reemite con la misma clave
+    → `duplicate`, sin segundo correo), independiente de la idempotencia de negocio del alta. Capital Humano es el destinatario
+    (To `NOTIFICATIONS_HC_RECIPIENTS`), sin copia. Solo datos NO sensibles: nada de candidatos, JD ni palabras clave."""
+    if not notifications.enabled():                                # apagadas: el alta se comporta exactamente como siempre
+        return
+    try:
+        req = view.get("requerimiento") or {}
+        bid = view.get("busqueda_id")
+        notifications.emit("operations.search.created", str(bid), {
+            "id": bid,
+            "puesto": str(view.get("nombre_puesto") or ""),
+            "area_consultora": str(view.get("area_consultora") or ""),
+            "area": str(req.get("area_departamento") or ""),
+            "modalidad": str(view.get("modalidad") or ""),
+            "requester": str(actor or view.get("solicitante") or ""),
+            "created": str(view.get("fecha_apertura") or ""),
+            "url": notifications.hub_link(f"{BASE_PATH}/{bid}", origin),
+        }, origin=origin)
+    except Exception as exc:                                       # noqa: BLE001 — accesoria: el alta ya está confirmada
+        _logger.warning("operation=create_search notification=not_emitted busqueda=%s error=%s", view.get("busqueda_id"), type(exc).__name__)
+
+
 @router.post(f"{BASE_PATH}/nueva", response_class=HTMLResponse, include_in_schema=False)
 async def operations_busqueda_new_submit(request: Request):
     user, actor = _authorize_write(request)
@@ -343,6 +368,9 @@ async def operations_busqueda_new_submit(request: Request):
         return _again(_MSG_STORAGE, 503)
     except ValueError as exc:
         return _again(str(exc), 422)
+    # Notificación gobernada a Capital Humano (accesoria; idempotencia por registro durable de busqueda_id, no por el alta).
+    origin = request.headers.get("origin") or f"{request.url.scheme}://{request.url.netloc}"   # same-origin ya validado en _authorize_write
+    _announce_search_created(view, actor, origin)
     # Métricas de Uso v2 (fase 2): acción de la vertical CCHH (misma atribución que el page_view de /operaciones/busquedas), sin contenido.
     log_activity("cchh.search_requested", user=user, scope=SCOPE_HUMAN_CAPITAL, area=AREA_CCHH, outcome=OUTCOME_SUCCESS)
     return RedirectResponse(url=f"{BASE_PATH}/{view['busqueda_id']}?ok=enviada", status_code=303)
@@ -478,7 +506,9 @@ async def operations_busqueda_delete(request: Request, busqueda_id: str):
         return _render_detail(request, user, view, 503, error=_MSG_STORAGE)
     except ValueError as exc:
         return _render_detail(request, user, view, 422, error=str(exc))
-    return RedirectResponse(url=f"{BASE_PATH}?ok=eliminada", status_code=303)
+    # Vuelve al listado EN EL MISMO CONTEXTO (filtros/página) si la acción vino de él (`?return_to=` validado); si no, al listado base.
+    target = pagination.list_return_context(request.query_params, BASE_PATH)["return_to"] or f"{BASE_PATH}?ok=eliminada"
+    return RedirectResponse(url=target, status_code=303)
 
 
 @router.post(BASE_PATH + "/{busqueda_id}/cancelar", response_class=HTMLResponse, include_in_schema=False)

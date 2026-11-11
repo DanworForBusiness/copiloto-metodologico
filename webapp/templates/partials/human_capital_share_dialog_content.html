@@ -1,8 +1,8 @@
 {# Contenido del diálogo «Compartir perfiles» (CCHH → Candidatos): se pide POR DEMANDA al accionar (POST /cchh/candidatos/compartir, solo ids) y trae, resueltos en servidor, el nombre y los CVs asociados de
-   cada candidato (`selection.items`: {id, name, docs:[{id, label, url}]}). Es una AYUDA para redactar —MISMO patrón que «Contactar al candidato» del Pipeline (`busqueda-contact*`)—: nada se envía ni se
-   registra desde acá; «Copiar mensaje» y «Abrir Outlook» (`mailto:`) son acciones explícitas del usuario. Los enlaces apuntan al CV físico en SharePoint (la `web_url` ya guardada de cada documento; nunca una
-   ruta construida ni un enlace anónimo); con VARIOS CVs el usuario elige cuál compartir. La vista previa se arma en el navegador con `createElement`/`textContent` (sin `innerHTML` con datos); el comportamiento
-   (elección de CV, HTML + texto plano al copiar, límite del `mailto:`) lo da `human_capital_candidates_selection.js`. #}
+   cada candidato (`selection.items`: {id, name, docs:[{id, label, url}]}). Acciones: «Copiar mensaje» (ayuda para redactar, no registra nada) y «Enviar» (correo institucional con confirmación
+   explícita, ver `human_capital_profile_send`). Los enlaces apuntan al CV físico en SharePoint (la `web_url` ya guardada de cada documento; nunca una ruta construida ni un enlace anónimo); con VARIOS CVs
+   el usuario elige cuál compartir. La vista previa se arma en el navegador con `createElement`/`textContent` (sin `innerHTML` con datos); el comportamiento (elección de CV, HTML + texto plano al copiar,
+   destinatarios, saludo personalizado, envío) lo da `human_capital_candidates_selection.js`. #}
 {% if not selection.ok %}
 <div class="dw-confirm__body">
   <h2 class="dw-confirm__title" id="hc-share-title">Compartir perfiles</h2>
@@ -12,16 +12,31 @@
   <form method="dialog"><button type="submit" class="btn-secondary">Cerrar</button></form>
 </div>
 {% else %}
-<div class="dw-confirm__body busqueda-contact" data-share-root data-default-subject="{{ subject }}" data-intro="{{ intro }}" data-outro="{{ outro }}">
+<div class="dw-confirm__body busqueda-contact" data-share-root data-default-subject="{{ subject }}" data-intro="{{ intro }}" data-outro="{{ outro }}"
+     data-directory-enabled="{{ '1' if directory_enabled else '' }}" data-recipient-provider="{{ recipient_provider or 'directory' }}" data-send-enabled="{{ '1' if send_enabled else '' }}" data-max-recipients="{{ max_recipients }}">
   <h2 class="dw-confirm__title" id="hc-share-title">Compartir {{ selection.items | length }} perfil{{ '' if selection.items | length == 1 else 'es' }}</h2>
   <p class="field-hint busqueda-contact__context">Cada nombre enlaza al CV en SharePoint. Quien lo reciba lo abre con sus propios permisos de SharePoint: no se crean enlaces nuevos ni se cambian permisos. No se incluyen datos de contacto.</p>
   {% if selection.unavailable %}<p class="field-hint field-hint--warn" data-share-unavailable-note>{{ selection.unavailable | length }} candidato{{ ' ya no está disponible y se quitó' if selection.unavailable | length == 1 else 's ya no están disponibles y se quitaron' }} de la selección.</p>{% endif %}
+  {# Destinatarios corporativos: se buscan EN VIVO en el directorio Microsoft Entra con la identidad delegada del usuario (mín. 3 caracteres; chips con quitar). El backend revalida cada
+     identidad contra el directorio antes de enviar; no hay destinatarios arbitrarios. Mismo look que el selector de colaboradores de Operaciones (clases `solicitudes-person-*`), pero manejado por
+     el JS del diálogo (el contenido se inyecta con innerHTML, sin Alpine). Si no hay proveedor de destinatarios utilizable, el bloque queda deshabilitado con un aviso, sin romper «Copiar mensaje». #}
+  <div class="feedback-field" data-share-recipients>
+    <label for="hc-share-dest" id="hc-share-dest-label">Enviar por correo a</label>
+    <ul class="hc-share-chips" data-share-chips aria-live="polite" aria-labelledby="hc-share-dest-label"></ul>
+    <div class="solicitudes-person-control">
+      <input id="hc-share-dest" type="text" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false"
+             aria-controls="hc-share-dest-list" placeholder="Buscá por nombre o correo (mín. 3 caracteres)" data-share-search>
+      <div id="hc-share-dest-results" class="solicitudes-person-results filter-toolbar-card" data-share-results hidden>
+        <p class="field-hint" data-share-results-hint role="status"></p>
+        <div id="hc-share-dest-list" role="listbox" aria-label="Resultados del directorio corporativo" data-share-results-list></div>
+      </div>
+    </div>
+    <p class="field-hint field-hint--warn" data-share-dir-blocked{% if directory_enabled %} hidden{% endif %}>La búsqueda de destinatarios corporativos todavía no está habilitada (permiso de directorio pendiente). Podés usar «Copiar mensaje».</p>
+    {% if not send_enabled %}<p class="field-hint field-hint--warn" data-share-send-disabled>{{ send_disabled_message }}</p>{% endif %}
+  </div>
   <div class="feedback-field">
     <label for="hc-share-asunto">Asunto</label>
-    <div class="busqueda-contact__inline">
-      <input id="hc-share-asunto" type="text" data-share-subject autocomplete="off">
-      <button type="button" class="btn-secondary busqueda-contact__copy" data-share-copy="asunto">Copiar</button>
-    </div>
+    <input id="hc-share-asunto" type="text" data-share-subject autocomplete="off">
   </div>
   <div class="feedback-field">
     <span class="hc-share-label" id="hc-share-message-label">Mensaje</span>
@@ -35,14 +50,14 @@
     <p class="field-hint hc-msg__hint">Editá el saludo y el cierre. Los candidatos se generan solos: cada <code>{Link}</code> es el enlace al CV de ese candidato y, al copiar, el nombre queda como hipervínculo.</p>
   </div>
   <p class="field-hint field-hint--warn" data-share-pending role="status" hidden></p>
-  <p class="field-hint">«Copiar mensaje» pega los nombres como enlaces en Outlook. «Abrir Outlook» solo admite texto plano, con las URLs completas (los enlaces de correo no admiten formato). Ninguno envía nada.</p>
-  <p class="field-hint field-hint--warn" data-share-note hidden></p>
+  <p class="field-hint">«Copiar mensaje» pega los nombres como enlaces en Outlook.</p>
   <p class="field-hint" data-share-status role="status" hidden></p>
+  <p class="field-hint" data-share-send-status role="status" aria-live="polite" hidden></p>
 </div>
 <div class="dw-confirm__actions busqueda-contact__actions">
   <form method="dialog"><button type="submit" class="btn-secondary">Cerrar</button></form>
   <button type="button" class="btn-secondary" data-share-copy="mensaje">Copiar mensaje</button>
-  <a class="btn-primary" data-share-open href="#">Abrir Outlook</a>
+  <button type="button" class="btn-primary" data-share-send disabled>Enviar</button>
 </div>
 <script type="application/json" data-share-items>{{ selection.items | tojson }}</script>
 <script type="application/json" data-share-unavailable>{{ selection.unavailable | tojson }}</script>

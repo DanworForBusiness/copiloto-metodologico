@@ -46,7 +46,7 @@ from webapp.routers.landing import render_landing
 from webapp.safe_redirect import safe_internal_next
 from webapp.services import auth_service
 from webapp.templating import templates
-from webapp.workspaces import available_workspaces
+from webapp.workspaces import WORKSPACE_CARD_COPY, available_workspaces
 
 router = APIRouter()
 
@@ -87,71 +87,7 @@ _ONEDANWOR_LANDING_COPY = {
 # lo comunica. La capacidad de eyebrow por card SIGUE disponible — el
 # template conserva `{% if card.meta.eyebrow %}` — esto es una decisión de
 # CONTENIDO (ningún valor todavía), no una remoción de la feature.
-_WORKSPACE_CARD_COPY = {
-    "copilot": {
-        "eyebrow": None,
-        "title": "Copiloto Metodológico",
-        "accent": "Arquitecto Danwor",
-        "description": (
-            "Un entorno guiado para recorrer nuestro marco metodológico, consultar "
-            "decisiones técnicas y acelerar entregables con criterio arquitectónico "
-            "y mirada Danwor."
-        ),
-        "features": [
-            "Marco metodológico navegable",
-            "Árboles de decisión y asistencia IA",
-            "Criterios técnicos para proyectos SAP",
-        ],
-    },
-    "operations": {
-        "eyebrow": None,
-        "title": "Gestión Inteligente",
-        "accent": "Operaciones",
-        "description": (
-            "El espacio operativo de Danwor: gestión y analítica interna, hoy con "
-            "Staffing y asignaciones como primera capacidad implementada."
-        ),
-        "features": [
-            "Staffing y asignaciones",
-            "Gestión de proyectos",
-            "Analítica operativa",
-        ],
-    },
-    "commercial": {
-        "eyebrow": None,
-        "title": "Gestión Comercial",
-        "accent": "CRM Danwor",
-        "description": (
-            "Un espacio para gestionar oportunidades, seguir la actividad del CRM y "
-            "convertir la información comercial en decisiones accionables."
-        ),
-        "features": [
-            "Pipeline y oportunidades",
-            "Seguimiento de actividad comercial",
-            "Indicadores y analítica CRM",
-        ],
-    },
-    # Capital Humano: se anuncian SOLO las capacidades ya integradas en main
-    # (Base de CVs/Candidatos, Búsquedas, Entrevistas, Onboarding y Avisos),
-    # agrupadas en tres frases al estilo de los demás tiles (descripción de una
-    # oración + 3 capacidades). Indicadores NO se menciona mientras no esté
-    # publicado en main: este dict es presentación pura, nunca una promesa de
-    # funcionalidad (MISMO criterio que el resto de las entradas).
-    "human-capital": {
-        "eyebrow": None,
-        "title": "Capital Humano",
-        "accent": "Selección e Incorporación",
-        "description": (
-            "Un espacio para gestionar el ciclo de selección: banco de CVs, "
-            "búsquedas, entrevistas e incorporación."
-        ),
-        "features": [
-            "Banco de CVs y candidatos",
-            "Búsquedas y entrevistas",
-            "Onboarding y avisos",
-        ],
-    },
-}
+_WORKSPACE_CARD_COPY = WORKSPACE_CARD_COPY   # fuente única: el registro compartido de verticales (webapp/workspaces.py)
 
 
 def _resolve_onedanwor(request: Request, pack: str, next: str):

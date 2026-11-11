@@ -7,6 +7,7 @@ import time
 from uuid import uuid4
 from urllib.error import HTTPError
 
+from webapp.services import notifications
 from webapp.services import solicitudes_repository as repository
 from webapp.services import solicitudes_service as service
 from webapp.services import solicitudes_snapshot
@@ -19,6 +20,8 @@ _lock = threading.Lock()
 _tickets = {}
 TICKET_TTL = 3600
 TICKET_LIMIT = 1024
+CREATED_EVENT = "operations.architecture_request.created"
+DESCRIPTION_EXCERPT = 600
 
 
 class SubmissionError(ValueError):
@@ -86,7 +89,7 @@ def payload(submitted, options, columns):
     return {"fields": fields}
 
 
-def create(actor, ticket, token, submitted):
+def create(actor, ticket, token, submitted, *, origin=None):
     """Consume a server-issued ticket before POST; never replay an uncertain POST.
 
     Tickets belong to the process that issued them. After restart or on another
@@ -132,6 +135,7 @@ def create(actor, ticket, token, submitted):
         with _lock:
             record["state"] = "confirmed"
         outcome = "confirmed"
+        _announce_created(actor, item_id, observed, options, origin)
         return item_id
     except HTTPError as exc:
         with _lock:
@@ -149,3 +153,37 @@ def create(actor, ticket, token, submitted):
         logging.getLogger("danwor.solicitudes.audit").info(
             "actor=%s operation=create outcome=%s correlation=%s", actor, outcome, ticket,
         )
+
+
+def _announce_created(actor, item_id, observed, options, origin):
+    """Evento de negocio `operations.architecture_request.created`: SOLO tras la confirmación durable en SharePoint (la relectura coincidió) y
+    solo en la PRIMERA confirmación del ticket (un reenvío del mismo formulario devuelve el id antes de llegar acá). Operaciones solo describe
+    la solicitud con sus datos reales; el envío, los destinatarios y los reintentos son del servicio de notificaciones. Nunca afecta el alta."""
+    if not notifications.enabled():                                # apagadas: el alta se comporta exactamente como siempre (ni siquiera se arman datos)
+        return
+    try:
+        fields = observed.get("fields") or {}
+        description = notifications.readable_text(fields.get(service.DESCRIPTION), DESCRIPTION_EXCERPT)   # texto legible: párrafos y saltos conservados
+        notifications.emit(CREATED_EVENT, item_id, {
+            "id": item_id,
+            "title": str(fields.get("Title") or ""),
+            "project": service.project_label(fields, (options or {}).get(service.PROJECT)),
+            "priority": str(fields.get("Prioridad") or ""),
+            "status": str(fields.get(service.STATUS) or ""),
+            "requester": str(actor or ""),
+            "created": _business_time(observed.get("createdDateTime")),
+            "description": description,
+            "url": notifications.hub_link(f"/operaciones/solicitudes/{item_id}/editar", origin),
+        }, origin=origin)
+    except Exception as exc:                                      # noqa: BLE001 — la notificación es accesoria: el alta ya está confirmada
+        logging.getLogger("danwor.solicitudes.audit").warning("operation=create notification=not_emitted item=%s error=%s", item_id, type(exc).__name__)
+
+
+def _business_time(value):
+    from datetime import datetime
+    from webapp.services.busqueda_repository import BUSINESS_TZ
+    try:
+        moment = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return ""
+    return moment.astimezone(BUSINESS_TZ).strftime("%d/%m/%Y %H:%M")

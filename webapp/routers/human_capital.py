@@ -107,6 +107,7 @@ from __future__ import annotations
 from datetime import datetime
 
 import asyncio
+import json
 import logging
 import threading
 
@@ -126,7 +127,8 @@ from webapp.services import (
 )
 from webapp.services import cv_history_acceptance, cv_history_drafts, cv_history_import, cv_history_import_exec, cv_history_inventory, cv_history_manifest, cv_history_pilot, cv_history_review
 from webapp.services import cv_inbox
-from webapp.services import human_capital_contact, human_capital_export, human_capital_share, profile_consolidation_service
+from webapp.services import human_capital_contact, human_capital_export, human_capital_profile_send as profile_send, human_capital_share, profile_consolidation_service
+from webapp.services import notifications
 from webapp.services import scoring_engine, scoring_evaluation_repository, scoring_grid_repository, scoring_service
 from webapp.services.activity_catalog import (
     AREA_CCHH, OUTCOME_FAILED, OUTCOME_PARTIAL, OUTCOME_REJECTED, OUTCOME_SUCCESS, SCOPE_HUMAN_CAPITAL,
@@ -1331,10 +1333,84 @@ def human_capital_profiles_share_dialog(request: Request, profile_ids: list[str]
         selection = human_capital_share.ShareSelection(reason=human_capital_share.REASON_SOURCE_ERROR)
     return templates.TemplateResponse(
         request=request, name="partials/human_capital_share_dialog_content.html",
-        context={"selection": selection, "subject": human_capital_share.DEFAULT_SUBJECT, "intro": human_capital_share.INTRO, "outro": human_capital_share.OUTRO,
-                 "max_profiles": human_capital_share.MAX_SHARE_PROFILES},
+        context={"selection": selection, "subject": human_capital_share.DEFAULT_SUBJECT, "intro": human_capital_share.intro_for(len(selection.items)), "outro": human_capital_share.OUTRO,
+                 "max_profiles": human_capital_share.MAX_SHARE_PROFILES, "directory_enabled": profile_send.recipients_enabled(),
+                 "recipient_provider": profile_send.recipient_provider(), "max_recipients": profile_send.MAX_RECIPIENTS,
+                 "send_enabled": notifications.enabled(), "send_disabled_message": profile_send.DISABLED_MESSAGE},
         headers=_NO_STORE,
     )
+
+
+@router.post("/cchh/candidatos/compartir/destinatarios", include_in_schema=False)
+def human_capital_share_recipients(request: Request, q: str = Form(""), graph_token: str = Form("")):
+    """Búsqueda de destinatarios corporativos en el directorio Microsoft Entra, con el token DELEGADO del usuario (solo lectura). ≥3 caracteres.
+    Si el permiso de directorio no está concedido (`HC_DIRECTORY_SEARCH_SCOPE` vacío) o Graph responde 403, la búsqueda queda bloqueada con mensaje claro; el resto del diálogo sigue funcionando."""
+    if not auth_service.session_user(request):
+        return JSONResponse({"error": "Sin sesión"}, status_code=401)
+    if not human_capital_access.is_human_capital_authorized(request):
+        return JSONResponse({"error": "No autorizado"}, status_code=403)
+    if not same_origin_guard.is_same_origin_write(request):
+        return JSONResponse({"error": "Origen no permitido"}, status_code=403)
+    if not profile_send.recipients_enabled():
+        return JSONResponse({"blocked": True, "message": "La búsqueda de destinatarios corporativos todavía no está habilitada (permiso de directorio pendiente)."}, status_code=503, headers=_NO_STORE)
+    if profile_send.needs_delegated_token() and not graph_token:
+        return JSONResponse({"error": "Sin autorización de Microsoft"}, status_code=401, headers=_NO_STORE)
+    try:
+        results = profile_send.search_recipients(q, graph_token)
+    except profile_send.DirectorySearchUnavailable:
+        return JSONResponse({"blocked": True, "message": "El Hub todavía no tiene permiso para buscar en el directorio corporativo."}, status_code=503, headers=_NO_STORE)
+    except profile_send.DirectoryError:
+        return JSONResponse({"error": "No se pudo consultar el directorio en este momento. Reintentá."}, status_code=502, headers=_NO_STORE)
+    return JSONResponse({"results": results}, headers=_NO_STORE)
+
+
+@router.post("/cchh/candidatos/compartir/catalogo", include_in_schema=False)
+def human_capital_share_catalog(request: Request, graph_token: str = Form("")):
+    """Proveedor TRANSITORIO «allowlist»: catálogo de destinatarios (solo `HUMAN_CAPITAL_ALLOWED_USERS`) con nombres del padrón de personal,
+    UNA vez por apertura del selector (el navegador filtra en memoria). El token DELEGADO base de lectura es opcional: sin él, o si SharePoint
+    falla, los nombres quedan como el correo. Con el proveedor del directorio esta ruta no aplica."""
+    if not auth_service.session_user(request):
+        return JSONResponse({"error": "Sin sesión"}, status_code=401)
+    if not human_capital_access.is_human_capital_authorized(request):
+        return JSONResponse({"error": "No autorizado"}, status_code=403)
+    if not same_origin_guard.is_same_origin_write(request):
+        return JSONResponse({"error": "Origen no permitido"}, status_code=403)
+    if profile_send.recipient_provider() != profile_send.PROVIDER_ALLOWLIST:
+        return JSONResponse({"error": "No disponible con el proveedor de directorio"}, status_code=404, headers=_NO_STORE)
+    return JSONResponse(profile_send.allowlist_catalog(graph_token), headers=_NO_STORE)
+
+
+@router.post("/cchh/candidatos/compartir/enviar", include_in_schema=False)
+def human_capital_share_send(request: Request, profile_ids: list[str] = Form([]), recipients: list[str] = Form([]),
+                             subject: str = Form(""), message: str = Form(""), closing: str = Form(""), choice: str = Form("{}"),
+                             operation_id: str = Form(""), graph_token: str = Form("")):
+    """Envío MANUAL de perfiles por correo (buzón institucional, client credentials). El usuario confirmó explícitamente. El backend valida
+    candidatos (existentes + enlaces del sistema) y destinatarios (identidades corporativas del directorio). Anti doble-envío por `operation_id`."""
+    user = auth_service.session_user(request)
+    if not user:
+        return JSONResponse({"status": "error", "message": "Sin sesión"}, status_code=401)
+    if not human_capital_access.is_human_capital_authorized(request):
+        return JSONResponse({"status": "error", "message": "No autorizado"}, status_code=403)
+    if not same_origin_guard.is_same_origin_write(request):
+        return JSONResponse({"status": "error", "message": "Origen no permitido"}, status_code=403)
+    if profile_send.needs_delegated_token() and not graph_token:
+        return JSONResponse({"status": "error", "message": "Sin autorización de Microsoft para validar destinatarios."}, status_code=401, headers=_NO_STORE)
+    try:
+        choice_map = json.loads(choice) if choice else {}
+        if not isinstance(choice_map, dict):
+            choice_map = {}
+    except ValueError:
+        choice_map = {}
+    actor = str(user.get("email") or user.get("sub") or user.get("name") or "")
+    try:
+        out = profile_send.send_profiles(operation_id=operation_id.strip(), actor=actor, profile_ids=profile_ids, recipient_emails=recipients,
+                                         subject=subject, message=message, closing=closing, choice=choice_map, delegated_token=graph_token,
+                                         get_profile=human_capital_service.get_profile, list_documents=profile_document_service.list_documents_for_profile)
+    except profile_send.DirectorySearchUnavailable:
+        return JSONResponse({"status": "error", "message": "No se pudieron validar los destinatarios (permiso de directorio no concedido)."}, status_code=503, headers=_NO_STORE)
+    st = out.get("status")
+    code = 200 if st in ("accepted", "uncertain", "duplicate") else (503 if st in ("config_incomplete", "disabled") or out.get("reason") == "audit_unavailable" else 422)
+    return JSONResponse(out, status_code=code, headers=_NO_STORE)
 
 
 # ───────────────────────── Consolidar perfiles (solo APP_OWNER) ─────────────────────────

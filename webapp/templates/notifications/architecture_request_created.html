@@ -1,0 +1,18 @@
+{#- Correo «Nueva solicitud de arquitectura» (evento `operations.architecture_request.created`). Solo el CONTENIDO del evento: la cabecera
+    (identidad institucional + vertical) y el pie vienen de la base compartida `_layout.html`; tabla, notas y botón, de `_blocks.html`. Todos los
+    valores llegan escapados por el autoescape de Jinja; la descripción ya viene como texto plano legible (párrafos/saltos conservados). -#}
+{% extends "notifications/_layout.html" %}
+{% import "notifications/_blocks.html" as blocks %}
+{% block content %}
+{{ blocks.intro(title, "Se creó una nueva solicitud en " ~ vertical.accent ~ " → Solicitudes.") }}
+{{ blocks.details([
+      ("Solicitud", "#" ~ (d.id or "")),
+      ("Título", d.title),
+      ("Proyecto", d.project),
+      ("Prioridad", d.priority),
+      ("Status Arquitectura", d.status),
+      ("Solicitante", d.requester),
+      ("Fecha de creación", d.created),
+    ], [("Descripción de la demanda", d.description)]) }}
+{{ blocks.hub_button(d.url, "Ver la solicitud en el Hub", brand) }}
+{% endblock %}

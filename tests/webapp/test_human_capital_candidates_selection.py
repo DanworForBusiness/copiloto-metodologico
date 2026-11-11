@@ -295,7 +295,7 @@ def test_single_cv_links_to_the_stored_sharepoint_url_exactly_and_never_to_the_h
     add_doc(a["profile_id"], "d-ana", "cv.pdf", stored, uploaded_at="2026-10-01T10:00:00+00:00")
     html = share(client(), [a["profile_id"]]).text
     assert items_of(html) == [{"id": a["profile_id"], "name": "Ana Pérez", "docs": [{"id": "d-ana", "label": "cv.pdf · 2026-10-01", "url": stored}]}]
-    assert "Compartir 1 perfil" in html and "data-share-copy" in html and "Abrir Outlook" in html
+    assert "Compartir 1 perfil" in html and "data-share-copy" in html and "data-share-send" in html and "Abrir Outlook" not in html
     for leak in (a["email"], "+54 11 5555-0000", "nota privada", "tag-uno", "/editar", "linkedin.example", f"/cchh/candidatos/{a['profile_id']}"):
         assert leak not in html, leak
 
@@ -398,15 +398,18 @@ def test_share_never_writes_anything_and_does_not_log_or_audit():
     share(client(), [p["profile_id"]])
     assert data_digest() == before
     src = (_ROOT / "webapp/routers/human_capital.py").read_text(encoding="utf-8")
-    body = src[src.index("def human_capital_profiles_share_dialog"):src.index("_export_logger = logging.getLogger")]
+    # Solo la función del diálogo (hasta el siguiente decorador): las rutas de «Enviar por correo» (Caso B) que la siguen SÍ consultan el directorio,
+    # envían y auditan a propósito, y tienen su propia cobertura en test_profile_send.py.
+    start = src.index("def human_capital_profiles_share_dialog")
+    body = src[start:src.index("\n@router.", start)]
     assert "log_activity" not in body and "log_verbose" not in body and "human_capital_export" not in body          # «Compartir» no audita: solo ayuda a redactar (la auditoría durable es de «Descargar CVs»)
     assert "graph" not in body.lower() and "microsoft365" not in body                                                # no toca Graph: solo la metadata ya guardada
 
 
-def test_dialog_template_has_editable_subject_intro_outro_a_safe_preview_and_honest_outlook_note():
+def test_dialog_template_has_editable_subject_intro_outro_and_a_safe_preview():
     p = make_profile()
     html = share(client(), [p["profile_id"]]).text
-    for hook in ("data-share-subject", "data-share-intro", "data-share-outro", "data-share-list", "data-share-pending", 'data-share-copy="mensaje"', "data-share-open"):
+    for hook in ("data-share-subject", "data-share-intro", "data-share-outro", "data-share-list", "data-share-pending", 'data-share-copy="mensaje"'):
         assert hook in html, hook
     # UN solo mensaje a la vista (saludo + candidatos protegidos + cierre), sin los tres bloques con título
     assert html.count('id="hc-share-message-label">Mensaje<') == 1
@@ -419,7 +422,7 @@ def test_dialog_template_has_editable_subject_intro_outro_a_safe_preview_and_hon
     assert "contenteditable" not in html and "<textarea" not in ul and "{Link}" in html                                  # la sección de candidatos es de solo lectura; el marcador se explica en el texto de ayuda
     assert html.count("<textarea") == 2                                                                                   # solo saludo y cierre son editables
     assert "data-share-message" not in html and "<textarea id=\"hc-share-mensaje\"" not in html                    # ya no hay un textarea con el cuerpo en texto plano
-    assert "solo admite texto plano, con las URLs completas" in html and "los enlaces de correo no admiten formato" in html                          # límite real del mailto, dicho sin rodeos
+    assert "Abrir Outlook" not in html and "data-share-open" not in html and "mailto:" not in html                     # «Abrir Outlook» se retiró (cierre UX)
     assert "pega los nombres como enlaces en Outlook" in html
 
 

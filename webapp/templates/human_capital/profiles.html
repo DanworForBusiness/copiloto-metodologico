@@ -2,7 +2,7 @@
 {% from "partials/platform_topbar.html" import platform_topbar %}
 {% from "partials/workspace_shell.html" import sidebar_resize_handle %}
 {% block title %}Base de CVs · Capital Humano · Danwor{% endblock %}
-{% block head_styles %}<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}">{% endblock %}
+{% block head_styles %}<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}"><link rel="stylesheet" href="{{ url_for('static', path='operations_solicitudes.css') }}?v={{ static_version }}">{% endblock %}
 {% block body %}
 <div
   x-data="copilotLayout('human-capital')"
@@ -38,6 +38,9 @@
 <dialog class="dw-confirm busqueda-dialog busqueda-contact-dialog hc-share-dialog" id="hc-share-dialog" aria-labelledby="hc-share-title">
   <div id="hc-share-content"></div>
 </dialog>
+{# Resultado de «Enviar» (Compartir perfiles): el TOAST transitorio de CCHH, el MISMO de la Carga masiva (`.hc-catalog-refresh-feedback--topbar` + primitivo
+   `data-dw-auto-dismiss`): arriba, fijo, se cierra solo. Fuera del diálogo, que se cierra al aceptarse el envío. #}
+<div class="hc-catalog-refresh-feedback--topbar" aria-live="polite" data-dw-auto-dismiss="6000" data-dw-auto-dismiss-fade data-hc-share-toast></div>
 <script src="{{ url_for('static', path='table_selection.js') }}?v={{ static_version }}" defer></script>
 <script src="{{ url_for('static', path='human_capital_candidates_selection.js') }}?v={{ static_version }}" defer></script>
 {# Diálogo ÚNICO de «Descargar CVs» (resumen, confirmación, progreso y resultado; ver `human_capital_candidates_download.js`). Mismo contenedor `<dialog>` que «Compartir perfiles». #}

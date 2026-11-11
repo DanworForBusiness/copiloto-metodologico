@@ -1,0 +1,18 @@
+{#- Correo «Solicitud rechazada y derivada a Operaciones» (evento `operations.architecture_request.rejected`): Arquitectura e Innovación rechazó
+    la admisión (Status funnel «Solicitado» → «Rechazado, Aplica Operaciones») con el movimiento «Rechazo / Derivación a Operaciones» del
+    historial. Misma base (`_layout.html`) y mismos bloques (`_blocks.html`) que el resto de los correos; solo cambian título, descripción y
+    campos. El motivo es el registrado en el diálogo de rechazo, como texto plano escapado. -#}
+{% extends "notifications/_layout.html" %}
+{% import "notifications/_blocks.html" as blocks %}
+{% block content %}
+{{ blocks.intro(title, "Arquitectura e Innovación rechazó la admisión de esta solicitud y la derivó a " ~ vertical.accent ~ ". Revisá el motivo y definí cómo continuar.") }}
+{{ blocks.details([
+      ("Solicitud", "#" ~ (d.id or "")),
+      ("Título", d.title),
+      ("Proyecto", d.project),
+      ("Estado resultante", d.funnel),
+      ("Rechazada por", d.actor),
+      ("Fecha", d.rejected_at),
+    ], [("Motivo del rechazo", d.reason)]) }}
+{{ blocks.hub_button(d.url, "Ver la solicitud en el Hub", brand) }}
+{% endblock %}

@@ -300,6 +300,8 @@ def test_the_marker_is_declarative_and_carries_no_credential():
         "partials/solicitudes_bulk.html": 2,
         # Read-only history load/retry uses the same delegated read authority.
         "partials/solicitudes_history.html": 2,
+        # Shared recovery: «Autorizar con Microsoft» re-issues the same loader with the token the same hook injects after reauthentication.
+        "partials/graph_auth_recovery.html": 1,
         "partials/admin_apis_sync.html": 2,
         "partials/admin_panel.html": 4,
         "partials/human_capital_catalog_refresh_topbar.html": 1,

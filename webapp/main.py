@@ -224,6 +224,7 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             log.warning("restore en background falló: %s", exc)
         await _publication_boot_recovery()
+        await _notifications_boot()
 
     async def _publication_boot_recovery():
         """P1: una publicación que la caída del proceso dejó a medias se completa o se deshace VERIFICANDO Spaces, recién con el restore terminado (nunca antes)."""
@@ -233,6 +234,19 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             log.warning("recuperación de publicaciones al arranque falló: %s", exc)
 
+    async def _notifications_boot():
+        """Notificaciones por correo: reanuda intenciones pendientes de un proceso anterior (tras el restore, para ver las restauradas)."""
+        try:
+            from webapp.services import notifications
+            await asyncio.to_thread(notifications.resume_pending)
+        except Exception as exc:
+            log.warning("reanudación de notificaciones al arranque falló: %s", type(exc).__name__)
+
+    try:
+        from webapp.services import notifications as _notifications
+        _notifications.startup_check()                                    # error de configuración CLARO (solo nombres de variables); nunca impide arrancar
+    except Exception as exc:
+        log.warning("chequeo de notificaciones al arranque falló: %s", type(exc).__name__)
     log.info("persistencia: %s", remote_store.describe_mode())
     warning = remote_store.mode_warning()
     if warning:
@@ -248,6 +262,7 @@ async def lifespan(app: FastAPI):
         tasks.append(asyncio.create_task(remote_store.sync_loop()))
     else:
         await _publication_boot_recovery()
+        tasks.append(asyncio.create_task(_notifications_boot()))
     try:
         yield
     finally:

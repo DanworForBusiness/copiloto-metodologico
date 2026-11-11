@@ -45,6 +45,9 @@ CONTENT_PACK      = _env("DANWOR_CONTENT_PACK", "datasphere_core")
 CASE_LIBRARY_DIR  = BASE_DIR / "case_library"
 FEEDBACK_LOG_DIR  = BASE_DIR / "feedback_log"
 ACTIVITY_LOG_DIR  = BASE_DIR / "activity_log"
+# Registro DURABLE de notificaciones automáticas por correo (intención + resultado por evento de negocio; ver webapp/services/notifications.py).
+# Persistido con el MISMO mecanismo genérico (`remote_store.write_through`): figura en PERSIST_PATHS abajo. Sin secretos ni tokens.
+NOTIFICATIONS_DIR = BASE_DIR / "notifications"
 # Copia RUNTIME MUTABLE del documento de Estrategia Comercial (Commercial
 # Strategy edit persistence) — el YAML seedeado y committed (webapp/services/
 # commercial_strategy_data/) es SOLO el bootstrap inicial; una vez que existe
@@ -147,7 +150,7 @@ SPACES_SYNC_INTERVAL = int(_env("SPACES_SYNC_INTERVAL", "120"))  # segundos entr
 PERSIST_PATHS     = [p.strip() for p in _env(
     "SPACES_PERSIST_PATHS",
     "catalog_local,case_library,feedback_log,activity_log,reports,reporting_cache,human-capital,"
-    "commercial_strategy_runtime,commercial-licensing-priority,governed-assessments"
+    "commercial_strategy_runtime,commercial-licensing-priority,governed-assessments,notifications"
 ).split(",") if p.strip()]
 # ── Modo de persistencia (DANWOR_PERSISTENCE) ────────────────────────────────────────────────────────────────────────────
 # Las credenciales SPACES_* dicen qué está DISPONIBLE, no qué está AUTORIZADO: tenerlas en un `.env` local NO debe habilitar restore/sync/escrituras contra el
@@ -174,6 +177,24 @@ PERSISTENCE_MODE  = parse_persistence_mode(_env("DANWOR_PERSISTENCE", "local"))
 SPACES_CONFIGURED = bool(SPACES_ENDPOINT and SPACES_BUCKET and SPACES_KEY and SPACES_SECRET)   # credenciales DISPONIBLES (≠ autorización)
 PERSIST_ENABLED   = SPACES_CONFIGURED and PERSISTENCE_MODE == "remote"                         # persistencia remota COMPLETA autorizada (compat de consumidores)
 PERSIST_READ_ONLY = SPACES_CONFIGURED and PERSISTENCE_MODE == "read-only"                      # solo lectura remota explícita
+
+# ── Notificaciones automáticas por correo (Microsoft Graph, identidad de APLICACIÓN `Hub-Danwor-Notifications`) ─────────────────────────────────
+# Apagadas por defecto: sin NOTIFICATIONS_ENABLED=true el Hub funciona igual y no envía nada. Encendidas, la configuración obligatoria es TENANT_ID,
+# CLIENT_ID, CLIENT_SECRET (el Secret VALUE, no el Secret ID) y SENDER; si falta alguna, no se envía y se registra un error de configuración (sin valores).
+# El remitente y los destinatarios vienen SOLO de acá (nunca del frontend, de ALLOWED_USERS, APP_OWNER ni de los usuarios conectados).
+NOTIFICATIONS_ENABLED       = _env("NOTIFICATIONS_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
+NOTIFICATIONS_TENANT_ID     = os.getenv("NOTIFICATIONS_TENANT_ID", "").strip()
+NOTIFICATIONS_CLIENT_ID     = os.getenv("NOTIFICATIONS_CLIENT_ID", "").strip()
+NOTIFICATIONS_CLIENT_SECRET = os.getenv("NOTIFICATIONS_CLIENT_SECRET", "").strip()
+NOTIFICATIONS_SENDER        = os.getenv("NOTIFICATIONS_SENDER", "").strip()
+# Destinatarios por ÁREA (separados por coma o punto y coma). Cada evento declara en su política qué área va en To (quien debe actuar) y cuál en
+# Cc (quien originó o devolvió), ver EVENTS en webapp/services/notifications.py.
+NOTIFICATIONS_OPERATIONS_RECIPIENTS = os.getenv("NOTIFICATIONS_OPERATIONS_RECIPIENTS", "").strip()
+NOTIFICATIONS_ARQ_RECIPIENTS        = os.getenv("NOTIFICATIONS_ARQ_RECIPIENTS", "").strip()     # Arquitectura e Innovación
+NOTIFICATIONS_HC_RECIPIENTS         = os.getenv("NOTIFICATIONS_HC_RECIPIENTS", "").strip()      # Capital Humano: reservado, ningún evento todavía
+# URL pública del Hub para los enlaces de los correos (p. ej. https://hub.danwor.com). Opcional: sin ella se usa el origen YA validado (mismo origen)
+# del POST que originó el evento. Recomendada en producción.
+NOTIFICATIONS_HUB_BASE_URL  = os.getenv("NOTIFICATIONS_HUB_BASE_URL", "").strip().rstrip("/")
 
 # LLM
 MODEL        = _env("OPENAI_MODEL", "gpt-4o-mini")
@@ -349,6 +370,17 @@ HC_CATALOG_ITEM_ID      = _env("HC_CATALOG_ITEM_ID", "")
 # un backend env var que el JS estático no puede leer. Ausente = fail
 # closed (CONFIG_INCOMPLETE, ver profile_document_service.require_graph_config).
 HC_DOCUMENT_WRITE_SCOPE = _env("HC_DOCUMENT_WRITE_SCOPE", "")
+# Compartir perfiles → «Enviar por correo» (CCHH): scope DELEGADO ADICIONAL para que el selector busque usuarios del directorio Microsoft
+# Entra (`/users?$search`). El mínimo del endpoint es `User.ReadBasic.All` (sujeto a verificación real). VACÍO por defecto = búsqueda de
+# directorio EXPLÍCITAMENTE DESHABILITADA (prerequisito sin conceder): el resto del diálogo (Copiar, Abrir Outlook) sigue funcionando. No es
+# secreto: se expone vía `/api/auth/microsoft/config` para que `hub_auth.js` pida ESTE scope adicional, igual que `HC_DOCUMENT_WRITE_SCOPE`.
+# NUNCA se concede a la identidad técnica de notificaciones (client credentials, solo `Mail.Send`): la búsqueda usa el token DELEGADO del usuario.
+HC_DIRECTORY_SEARCH_SCOPE = _env("HC_DIRECTORY_SEARCH_SCOPE", "")
+# Proveedor de destinatarios de «Enviar por correo» — modalidad EXPLÍCITA (nunca un fallback automático ante errores de Graph):
+#   "directory" (default, definitivo): directorio Microsoft Entra con el token delegado (requiere HC_DIRECTORY_SEARCH_SCOPE consentido).
+#   "allowlist" (TRANSITORIO, retirable sin tocar la UI): catálogo gobernado = HUMAN_CAPITAL_ALLOWED_USERS (mismo parser y normalización
+#   que la admisión a Capital Humano: alias compacto + AUTH_DEFAULT_DOMAIN), solo direcciones del dominio corporativo. Sin destinatarios externos.
+HC_SHARE_RECIPIENTS_PROVIDER = _env("HC_SHARE_RECIPIENTS_PROVIDER", "directory").strip().lower()
 # Carga masiva de CVs — Excel modelo descargable (owner, paridad con la app
 # vigente). A diferencia de HC_SHAREPOINT_SITE_ID/DRIVE_ID/HC_CV_ROOT_ITEM_ID
 # arriba, esto NO es identidad Graph (site_id/drive_id/item_id) -- es

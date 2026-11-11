@@ -2,7 +2,7 @@
 //
 // Prueba el módulo `webapp/static/human_capital_candidates_selection.js` (CCHH · Candidatos: selección múltiple + «Compartir perfiles») contra un DOM mínimo propio (no hay jsdom en el
 // repo): almacén de ids en sessionStorage (solo ids, sin datos personales), casilla de encabezado SOLO sobre la página visible (tri-estado), persistencia entre «páginas» (re-render del
-// panel), contador y «Limpiar», límite de 25, enlaces al CV (validación, elección entre varios), mensaje HTML/texto plano, copiado con formato, límite práctico del `mailto:` y flujo del diálogo.
+// panel), contador y «Limpiar», límite de 25, enlaces al CV (validación, elección entre varios), mensaje HTML/texto plano, copiado con formato y flujo del diálogo.
 "use strict";
 const fs = require("fs");
 const path = require("path");
@@ -237,7 +237,7 @@ function wired(initialIds) {
   ok(ran, "F2: sin medición posible se ejecuta el cambio igual");
 }
 
-// ── G: enlaces al CV (validación), filas, mensaje HTML/plano y mailto ──────────────────────
+// ── G: enlaces al CV (validación), filas, mensaje HTML/plano ──────────────────────
 const SP = "https://danwor.sharepoint.com/sites/cchh/Shared%20Documents/";
 {
   // validación de URL: solo https://*.sharepoint.com sin credenciales ni caracteres peligrosos
@@ -283,13 +283,6 @@ const SP = "https://danwor.sharepoint.com/sites/cchh/Shared%20Documents/";
   ok(!hostile.includes("<script>") && !hostile.includes("<img") && hostile.includes("&lt;script&gt;") && hostile.includes("O&#39;Hara &lt;img src=x onerror=1&gt;") && hostile.includes("a &amp; b"), "G: nombres, intro y cierre se escapan en el HTML");
   eq(api.escapeHtml('<>&"\''), "&lt;&gt;&amp;&quot;&#39;", "G: escape de los cinco caracteres");
 
-  // mailto: texto plano
-  const url = api.mailtoUrl("Asunto & más", "linea 1\nlinea 2 100% #ok https://x/y");
-  ok(url.startsWith("mailto:?subject=Asunto%20%26%20m%C3%A1s&body="), "G: el asunto se codifica");
-  ok(url.includes("linea%201%0D%0Alinea%202%20100%25%20%23ok%20https://x/y"), "G: saltos de línea CRLF, %, # y & codificados; ':' y '/' sin inflar");
-  const fitsFor = n => api.mailtoFits("Perfiles", api.buildPlain({ included: Array.from({ length: n }, (_, k) => ({ name: `Candidato Numero ${k}`, url: SP + `Carpeta%20de%20candidato%20${k}/CV_Candidato_Numero_${k}_2026.pdf` })) }, "Intro", "Fin"));
-  ok(fitsFor(2) === true && fitsFor(25) === false, "G: pocos CVs entran en el límite práctico del mailto (URLs completas de SharePoint); 25 no");
-  ok(api.mailtoUrl("a", "b").length < api.MAILTO_MAX, "G: el límite práctico está declarado (≈1900)");
 }
 
 // ── H: diálogo: DOM, elección de CV, Outlook, copiado ──────────────────────────────────────
@@ -311,17 +304,17 @@ function shareDoc(opts) {
   const root = el(["[data-share-root]"], { "data-default-subject": "Perfiles", "data-intro": "Hola", "data-outro": "Chau" });
   const subject = el(["[data-share-subject]"]), intro = el(["[data-share-intro]"]), outro = el(["[data-share-outro]"]);
   const list = mini("ul"), note = el(["[data-share-note]"]), pend = el(["[data-share-pending]"]), stat = el(["[data-share-status]"]);
-  const link = el(["[data-share-open]"], { href: "#" }), copy = el(["[data-share-copy]"], { "data-share-copy": "mensaje" });
+  const copy = el(["[data-share-copy]"], { "data-share-copy": "mensaje" });
   const itemsEl = el([]); itemsEl.textContent = JSON.stringify(opts.items);
   const unavEl = el([]); unavEl.textContent = JSON.stringify(opts.unavailable || []);
-  // Estructura REAL de la plantilla: asunto/intro/lista/cierre/notas viven dentro de `data-share-root`; las acciones («Copiar mensaje», «Abrir Outlook») y los JSON quedan FUERA.
+  // Estructura REAL de la plantilla: asunto/intro/lista/cierre/notas viven dentro de `data-share-root`; las acciones («Copiar mensaje», «Enviar») y los JSON quedan FUERA.
   root.q = { "[data-share-subject]": subject, "[data-share-intro]": intro, "[data-share-outro]": outro, "[data-share-list]": list, "[data-share-note]": note, "[data-share-pending]": pend, "[data-share-status]": stat };
   const content = mini("div");
-  content.q = Object.assign({}, root.q, { "[data-share-root]": root, "[data-share-open]": link, '[data-share-copy="mensaje"]': copy, "[data-share-items]": itemsEl, "[data-share-unavailable]": unavEl });
+  content.q = Object.assign({}, root.q, { "[data-share-root]": root, '[data-share-copy="mensaje"]': copy, "[data-share-items]": itemsEl, "[data-share-unavailable]": unavEl });
   content.querySelector = sel => content.q[sel] || list.querySelector(sel);
   const base = pageDoc(opts.visible || []);
   const d = Object.assign(base, { getElementById: id => (id === "hc-share-content" ? content : null), createElement: tag => mini(tag) });
-  return { d, subject, intro, outro, list, link, copy, note, pend, stat };
+  return { d, subject, intro, outro, list, copy, note, pend, stat };
 }
 {
   const store = storeWith(makeStorage());
@@ -341,7 +334,7 @@ function shareDoc(opts) {
   const sel = s.list.querySelector('[data-share-choose="multi"]');
   ok(sel && sel.children.length === 4 && sel.value === "", "H: el candidato con varios CVs ofrece 'Elegir CV…', cada CV y 'No incluir' — sin nada elegido");
   ok(s.pend.hidden === false && /Falta elegir el CV de 1 candidato/.test(s.pend.textContent), "H: avisa que falta elegir el CV");
-  ok(s.copy.disabled === true && s.link.getAttribute("aria-disabled") === "true" && s.link.getAttribute("href") === "#", "H: mientras falte elegir, «Copiar mensaje» y «Abrir Outlook» están deshabilitados");
+  ok(s.copy.disabled === true, "H: mientras falte elegir, «Copiar mensaje» está deshabilitado");
   // textContent, nunca innerHTML con datos
   ok(!s.list.children.some(li => li.innerHTML), "H: la vista previa no usa innerHTML");
 }
@@ -368,29 +361,25 @@ function shareDoc(opts) {
     handlers.change({ target: select });
   };
   choose("d3");
-  ok(s.copy.disabled === false && s.pend.hidden === true && s.link.getAttribute("href").startsWith("mailto:?subject=Perfiles&body="), "H: al elegir el CV se habilitan las acciones");
-  const body = decodeURIComponent(s.link.getAttribute("href").split("&body=")[1]).replace(/\r\n/g, "\n");
-  ok(body.includes("- Beto: " + SP + "v.pdf") && body.includes("- Ana: " + SP + "a.pdf") && !body.includes("n.pdf"), "H: «Abrir Outlook» usa texto plano con las URLs completas del CV ELEGIDO (y de ningún otro)");
+  const plainNow = () => api.buildPlain(api.resolveShare(api._state().items, api._state().choice), s.intro.value, s.outro.value);
+  ok(s.copy.disabled === false && s.pend.hidden === true, "H: al elegir el CV se habilita «Copiar mensaje»");
+  const body = plainNow();
+  ok(body.includes("- Beto: " + SP + "v.pdf") && body.includes("- Ana: " + SP + "a.pdf") && !body.includes("n.pdf"), "H: el texto plano (copiado/envío) lleva las URLs completas del CV ELEGIDO (y de ningún otro)");
   const chosen = s.list.querySelector('[data-share-choose="multi"]');
   ok(chosen.focused === true, "H: tras elegir se conserva el foco en el selector");
   choose(api.SKIP);
-  ok(s.pend.hidden === true && !decodeURIComponent(s.link.getAttribute("href")).includes("Beto"), "H: «No incluir» saca al candidato del mensaje");
+  ok(s.pend.hidden === true && !plainNow().includes("Beto"), "H: «No incluir» saca al candidato del mensaje");
   choose("");
   ok(s.copy.disabled === true, "H: volver a «Elegir CV…» deja el mensaje otra vez incompleto");
   choose("d2");
-  // editar el asunto/introducción actualiza el mailto
+  // editar la introducción se refleja en el mensaje (y un mensaje largo ya no deshabilita nada: no hay `mailto:`)
   s.intro.value = "Intro nueva";
   s.intro.matches = sel => sel.split(",").map(x => x.trim()).includes("[data-share-intro]");
   handlers.input({ target: s.intro });
-  ok(decodeURIComponent(s.link.getAttribute("href")).includes("Intro nueva"), "H: la introducción editada se refleja en el mensaje");
-  // Outlook se deshabilita por longitud (con nota que manda a «Copiar mensaje»)
+  ok(plainNow().includes("Intro nueva"), "H: la introducción editada se refleja en el mensaje");
   s.intro.value = "x".repeat(2200);
   handlers.input({ target: s.intro });
-  ok(s.link.getAttribute("href") === "#" && s.link.getAttribute("aria-disabled") === "true" && s.link.classList.contains("is-disabled"), "H: si el mensaje es demasiado largo «Abrir Outlook» se deshabilita");
-  ok(s.note.hidden === false && /Copiar mensaje/.test(s.note.textContent) && /texto plano/.test(s.note.textContent) && s.copy.disabled === false, "H: con una nota honesta (el mailto es texto plano) y «Copiar mensaje» sigue disponible");
-  s.intro.value = "corto";
-  handlers.input({ target: s.intro });
-  ok(s.link.getAttribute("aria-disabled") === null && s.link.getAttribute("href").startsWith("mailto:") && s.note.hidden === true, "H: al acortar el mensaje se rehabilita");
+  ok(s.copy.disabled === false, "H: un mensaje largo sigue copiable (sin límite de `mailto:`)");
 }
 
 // ── H2: copiado del mensaje: text/html + text/plain y degradaciones ──────────────────────────
@@ -473,7 +462,6 @@ async function editSafety() {
   ok(!/Cata: https?:/.test(plain) && !/Cata/.test(html.replace(/- Cata: \{Link\}/, "")), "H3: Cata (sin CV) no recibe enlace aunque alguien escriba su nombre");
   const lines = plain.split("\n");
   ok(lines.filter(l => l === "- Ana: " + SP + "a.pdf").length === 1 && lines.filter(l => l === "- Beto: " + SP + "v.pdf").length === 1, "H3: el texto plano trae las líneas generadas exactas (URL completa del CV elegido)");
-  ok(decodeURIComponent(s.link.getAttribute("href")).includes("- Beto: " + SP + "v.pdf"), "H3: «Abrir Outlook» usa el mismo texto plano generado del modelo");
   // la sección de candidatos es de solo lectura: nada editable salvo los selectores de CV
   const nodes = []; const walk = n => { nodes.push(n); n.children.forEach(walk); }; walk(s.list);
   ok(!nodes.some(n => n.tag === "textarea" || n.tag === "input" || n.hasAttribute("contenteditable")), "H3: la sección de candidatos no contiene campos de texto ni contenteditable");

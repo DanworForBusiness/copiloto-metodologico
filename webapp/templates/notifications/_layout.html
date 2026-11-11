@@ -1,0 +1,55 @@
+{#- Base COMPARTIDA de los correos del Hub (webapp/services/notifications.py). Capas: identidad institucional (`brand`: marca «Danwor Hub», negro,
+    tinta, acento) → identidad de la vertical (`vertical.title` / `vertical.accent`, desde `webapp.workspaces.brand_identity`, los mismos metadatos de
+    la vertical en el Hub) → contenido del evento (`{% block content %}`) → datos de negocio (`d`). No conoce ninguna vertical por nombre.
+    HEADER: cabecera institucional horizontal (no una réplica de la tarjeta del landing): a la izquierda el lockup del Hub (ícono de 4 cuadrados +
+    «Danwor Hub», como `hub_brand_lockup()`), a la derecha la vertical en una línea («título · acento»), con el theme del Hub: fondo oscuro, peso
+    800 y letter-spacing compacto, tinta + acento institucional. El ícono se dibuja con una tabla 2×2 (los clientes de correo no muestran SVG en
+    línea): no depende de imágenes. Compatible con Outlook: tablas + estilos en línea, fuentes seguras (pila del Hub con fallback de sistema). -#}
+{%- set font = "'Segoe UI',Arial,Helvetica,sans-serif" -%}
+<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{ title }}</title>
+{#- Sin fuente web: el correo usa SOLO fuentes de sistema (`brand.font`, Segoe UI primero). Se prioriza la fidelidad del correo recibido (p. ej.
+    Outlook de Windows, motor Word) sobre la de la vista previa del navegador; el harness, que renderiza este mismo layout, reproduce el correo. #}
+</head>
+<body style="margin:0;padding:0;background:#f4f4f6;font-family:{{ font }};color:#202124;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f6;padding:24px 0;">
+  <tr><td align="center">
+    <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border:1px solid #e3e3e8;border-radius:10px;">
+      <tr><td style="padding:16px 24px;background:{{ brand.dark }};border-radius:10px 10px 0 0;">
+        {#- Dos bloques FLUIDOS (tablas con align left/right): en una línea en escritorio; en pantallas angostas la vertical pasa debajo de la marca,
+            sin media queries (técnica compatible con Outlook). -#}
+        <table role="presentation" align="left" cellpadding="0" cellspacing="0" style="margin:4px 16px 4px 0;">
+          <tr>
+            <td valign="middle" style="padding-right:7px;">
+              {#- ícono del Hub con las proporciones de `hub_icon()` a 1em (21px): 4 cuadrados de 7/24 con trazo 1.4/24 → 7px de lado exterior,
+                  borde 1px, 3px entre cuadrados (≈ la altura de mayúsculas del texto, centrado); separación ícono-texto 0.33em como `.hub-hero h1`. -#}
+              <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+                <td style="padding:0 3px 3px 0;"><div style="width:5px;height:5px;border:1px solid {{ brand.accent }};border-radius:2px;font-size:0;line-height:0;"></div></td>
+                <td style="padding:0 0 3px 0;"><div style="width:5px;height:5px;border:1px solid {{ brand.accent }};border-radius:2px;font-size:0;line-height:0;"></div></td>
+              </tr><tr>
+                <td style="padding:0 3px 0 0;"><div style="width:5px;height:5px;border:1px solid {{ brand.accent }};border-radius:2px;font-size:0;line-height:0;"></div></td>
+                <td style="padding:0;"><div style="width:5px;height:5px;border:1px solid {{ brand.accent }};border-radius:2px;font-size:0;line-height:0;"></div></td>
+              </tr></table>
+            </td>
+            <td valign="middle" style="white-space:nowrap;font-family:{{ brand.font }};font-size:21px;line-height:24px;mso-line-height-rule:exactly;font-weight:800;letter-spacing:-0.63px;color:{{ brand.ink }};">{{ brand.hub_name }}</td>
+          </tr>
+        </table>
+        <table role="presentation" align="right" cellpadding="0" cellspacing="0" style="margin:4px 0;">
+          <tr>
+            <td valign="middle" style="font-family:{{ brand.font }};font-size:18px;line-height:24px;mso-line-height-rule:exactly;font-weight:800;letter-spacing:-0.36px;color:{{ brand.ink }};">
+              {#- 3px menos que «Danwor Hub»: la marca del Hub manda y los nombres de vertical más largos entran en una sola línea -#}
+              <span style="white-space:nowrap;">{{ vertical.title }}</span><span style="color:{{ brand.muted }};font-weight:600;"> &middot; </span><span style="white-space:nowrap;color:{{ brand.accent }};">{{ vertical.accent }}</span>
+            </td>
+          </tr>
+        </table>
+      </td></tr>
+      {% block content %}{% endblock %}
+      <tr><td style="padding:14px 24px;border-top:1px solid #eeeef2;font-size:12px;color:#7a7a82;">
+        Comunicación automática del Hub Danwor. No respondas a este correo.
+      </td></tr>
+    </table>
+  </td></tr>
+</table>
+</body>
+</html>

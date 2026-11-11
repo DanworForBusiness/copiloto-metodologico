@@ -192,6 +192,22 @@ def graph_post_json(
         return json.loads(response.read().decode("utf-8"))
 
 
+def graph_post_accepted(
+    url: str, access_token: str, body: dict, *, timeout: int = DEFAULT_TIMEOUT,
+) -> int:
+    """POST JSON a Graph para operaciones que responden SIN cuerpo (p. ej. `sendMail` → 202 Accepted) y devuelve el código HTTP.
+    MISMO idioma que `graph_post_json` (urllib crudo, sin retry/backoff, `HTTPError`/`URLError` se propagan al caller); no intenta
+    decodificar JSON. Agregado para las notificaciones por correo (webapp/services/notifications.py): la política de reintentos y la
+    clasificación de errores viven en ese consumidor. NO loguea ni persiste el token ni el cuerpo."""
+    payload = json.dumps(body).encode("utf-8")
+    headers = graph_headers(access_token)
+    headers["Content-Type"] = "application/json"
+    request = urllib.request.Request(url, data=payload, headers=headers, method="POST")
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        response.read()
+        return int(response.status)
+
+
 def graph_put_bytes(
     url: str, access_token: str, data: bytes, *, content_type: str = "application/octet-stream",
     timeout: int = 30,

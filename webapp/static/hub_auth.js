@@ -398,6 +398,17 @@
     return delegatedWriteToken(() => "Sites.ReadWrite.All", opts, "solicitudes_write", true);
   };
 
+  // Capital Humano — Compartir perfiles: token DELEGADO para buscar
+  // destinatarios en el directorio corporativo (`/users?$search`). Pide el
+  // scope ADICIONAL `hc_directory_search_scope` (mínimo `User.ReadBasic.All`),
+  // servido por /api/auth/microsoft/config. Vacío → `_scope_not_configured`
+  // devuelve "" y la búsqueda queda bloqueada con mensaje claro (el router
+  // trata graph_token vacío como falta de autorización). recoverAccount=true:
+  // la búsqueda puede dispararse por gesto en un tab recién abierto.
+  window.dwHumanCapitalDirectoryToken = async function (opts) {
+    return delegatedWriteToken(() => cachedConfig && cachedConfig.hc_directory_search_scope, opts, "hc_directory", true);
+  };
+
   // ── LA ÚNICA PUERTA A LA INTERACCIÓN ──────────────────────────────────
   // Este es el ÚNICO lugar del proyecto que llama `acquireTokenPopup`
   // (GUARD 5, test_hub_auth_gesture.py — invariante deliberado: cada call
@@ -623,6 +634,38 @@
         resolved.set(elt, { token: token || "", diagnostic: diagnostic });
         try { event.detail.issueRequest(true); }
         catch (e) { resolved.delete(elt); }
+      });
+  });
+
+  // ── RECUPERACIÓN COMPARTIDA (partials/graph_auth_recovery.html) ────────
+  // El botón «Autorizar con Microsoft» que el servidor devuelve cuando un
+  // cargador `data-dw-graph-token` llegó sin token (p. ej. enlace profundo en
+  // una pestaña nueva: la cache MSAL es por pestaña). El CLICK es el gesto:
+  // delega en `dwGraphReauthenticate` (no hay otro popup) y, sólo si quedó
+  // lista, dispara `dw-graph-authorized` sobre el botón, cuyo hx-trigger
+  // reemite el MISMO request del cargador — que vuelve a pasar por el gate de
+  // arriba y lleva el token silencioso. Cancelar deja el cuadro como estaba;
+  // una respuesta sin token vuelve a traer el cuadro: no hay bucle.
+  document.addEventListener("click", function (event) {
+    const btn = event.target && event.target.closest && event.target.closest("[data-dw-graph-reauth]");
+    if (!btn || btn.disabled) return;
+    event.preventDefault();
+    const box = btn.closest("[data-graph-auth-recovery]");
+    const status = box && box.querySelector("[data-dw-graph-reauth-status]");
+    btn.disabled = true;
+    if (status) status.textContent = "Esperando la autorización de Microsoft…";
+    Promise.resolve()
+      .then(() => window.dwGraphReauthenticate())
+      .catch(() => false)
+      .then((ok) => {
+        if (ok && window.htmx) {
+          if (status) status.textContent = "Autorización lista. Cargando…";
+          btn.disabled = false;   // htmx no emite desde un elemento deshabilitado
+          window.htmx.trigger(btn, "dw-graph-authorized");
+          return;
+        }
+        btn.disabled = false;
+        if (status) status.textContent = "No se completó la autorización. Podés volver a intentarlo.";
       });
   });
 
