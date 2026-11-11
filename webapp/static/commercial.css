@@ -1005,8 +1005,6 @@ table.dashboard-table.commercial-creadas-table td:nth-child(4) { width: auto; }
 #cp-catalog-table col:nth-child(5) { width: 12%; }
 #cp-catalog-table col:nth-child(6) { width: 252px; }
 #cp-catalog-table tbody tr.is-selected > td { background: rgba(231, 176, 8, .07); }
-#cp-catalog-panel [data-cp-filter] + .hc-selection-bar { margin-top: 12px; }   /* filtro → selección: 12px, MISMO respiro que Operaciones → Solicitudes */
-#cp-catalog-panel .hc-selection-bar:not([hidden]) + .dashboard-sections { margin-top: 14px; }   /* selección → agrupador: los 14px de la barra (como Solicitudes); sin selección rige el 26px filtro → agrupador */
 /* Vista previa de un componente (diálogo «Ver»): iframe del renderer real; sin borde propio de tarjeta, mismo trazo discontinuo que las demás zonas de vista previa. */
 .cc-preview-box { position: relative; overflow: hidden; width: 100%; min-height: 120px; border: 1px dashed rgba(128,128,128,.4); border-radius: 8px; }
 .cc-preview-frame { display: block; width: 1260px; height: 640px; border: 0; background: transparent; transform-origin: 0 0; }   /* 1260 = ancho de referencia: el de la slide de la presentación (contenedor de 1180 + 40 de margen a cada lado) */

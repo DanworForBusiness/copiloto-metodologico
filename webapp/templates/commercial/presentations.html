@@ -44,12 +44,6 @@
         <input id="cp-search-q" name="q" type="text" autocomplete="off" placeholder="Título, descripción, autor..." data-cp-search-input>
       </div>
     </form>
-    {# Selección múltiple: MISMO patrón que Operaciones → Solicitudes (barra `selection_bar` + `table_selection.js`, ver `commercial_share.js`). Oculta sin selección. #}
-    {% call selection_bar('cp', 'Selección de presentaciones') %}
-      <button type="button" class="btn-primary" data-cshare-open="selection" disabled>
-        <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4"/></svg>Compartir presentaciones</button>
-      <button type="button" class="whatsnew-filter__clear" data-cp-clear-selection aria-label="Limpiar selección">✕ Limpiar</button>
-    {% endcall %}
 
     {# Agrupador del Hub (`.dashboard-section`, tools.css) con el MISMO encabezado que CCHH → Candidatos: caret + título + contador `.dashboard-section__count` a la derecha. Tabla dentro del cuerpo. #}
     <div class="dashboard-sections">
@@ -60,6 +54,12 @@
         <span class="dashboard-section__count" role="status" aria-live="polite" data-cp-count data-cp-singular="presentación" data-cp-plural="presentaciones">{{ rows | length }} presentaci{{ 'ón' if rows | length == 1 else 'ones' }}</span>
       </summary>
       <div class="dashboard-section__body">
+    {# Selección múltiple: barra `selection_bar` DENTRO del agrupador, antes de la tabla (MISMA ubicación que CCHH → Candidatos); `table_selection.js` + `commercial_share.js`. Oculta sin selección. #}
+    {% call selection_bar('cp', 'Selección de presentaciones') %}
+      <button type="button" class="btn-primary" data-cshare-open="selection" disabled>
+        <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4"/></svg>Compartir presentaciones</button>
+      <button type="button" class="whatsnew-filter__clear" data-cp-clear-selection aria-label="Limpiar selección">✕ Limpiar</button>
+    {% endcall %}
     <div class="matrix-scroll" data-cp-table-wrap>
     <table class="dashboard-table cp-catalog" id="cp-catalog-table">
       {# Anchos por columna: el contrato de `.cp-catalog` (commercial.css) es COMÚN a las dos colecciones; acá solo se declaran las columnas. #}

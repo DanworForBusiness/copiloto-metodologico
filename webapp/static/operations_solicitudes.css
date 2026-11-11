@@ -110,4 +110,3 @@ table.solicitudes-history-table td:last-child { white-space: normal; overflow-wr
 .solicitudes-kpis { margin-top: 0; }
 /* Filtros + barra contextual de seleccionadas: dos `.filter-toolbar-card` hermanos. Misma separación que el Hub usa entre cards apiladas
    (`.filter-toolbar-card + .filter-toolbar-card`, tools.css); sin márgenes negativos ni cambios de borde/radio/altura. */
-.solicitudes-filters + .hc-selection-bar { margin-top: 12px; }
