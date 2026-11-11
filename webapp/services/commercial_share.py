@@ -41,7 +41,10 @@ SUBJECT_MAX = 200
 MESSAGE_MAX = 5000
 OPERATION_ID_RE = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
 DISABLED_MESSAGE = "El envío por correo institucional está deshabilitado. Podés usar «Copiar enlace»."
-NOTE = "Quien lo reciba lo abre con su propia sesión del Hub: no se crean enlaces nuevos ni se cambian permisos."
+# Limitación conocida (aceptada): compartir NO concede acceso. Las rutas son las existentes y requieren sesión del Hub: `/presentaciones/<id>`
+# exige acceso a Copiloto o Academy (ALLOWED_USERS ∪ ACADEMY_USERS) y `/comercial/estrategia`, acceso a Comercial. No son enlaces anónimos.
+NOTE = ("Compartir no concede acceso: quien lo reciba lo abre con su propia sesión del Hub (las presentaciones requieren acceso a Copiloto o Academy; "
+        "la Estrategia, a Comercial). No se crean enlaces nuevos ni se cambian permisos.")
 
 
 def presentation_path(presentation_id: str) -> str:

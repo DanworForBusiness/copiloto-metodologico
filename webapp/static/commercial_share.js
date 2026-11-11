@@ -176,6 +176,7 @@
     var visible = TS.syncRows(view, store, { row: "row", page: "page", attribute: "data-cp-select" });                // encabezado: SOLO lo visible (lleno / parcial / vacío)
     var size = store.size();
     b.hidden = size === 0;
+    if (size === 0) { var r = doc.getElementById("cp-catalog-panel") && doc.getElementById("cp-catalog-panel").querySelector("[data-cp-scroll-reserve]"); if (r) r.style.height = "0px"; }
     b.querySelector("[data-cp-selection-count]").textContent = size;
     b.querySelector("[data-cp-selection-label]").textContent = size === 1 ? "presentación seleccionada" : "presentaciones seleccionadas";
     var outside = size - visible.visibleSelected;
@@ -200,11 +201,32 @@
     syncSelection();
   }
 
+  // Reserva de recorrido: con pocas filas la página entra entera en `#content` (scrollHeight = clientHeight) y `keepInPlace` no tiene hacia
+  // dónde compensar la barra que aparece, así que la tabla «bajaba». Si tras compensar la fila igual se movió, se agrega al final del panel
+  // EXACTAMENTE lo que falta y se desplaza: el título del agrupador sube y la fila queda quieta (misma experiencia que CCHH / Solicitudes).
+  // Sin selección la reserva vuelve a 0 y el navegador ajusta el scroll solo.
+  function reserve() {
+    var panel = doc.getElementById("cp-catalog-panel");
+    if (!panel) return null;
+    var r = panel.querySelector("[data-cp-scroll-reserve]");
+    if (!r) { r = doc.createElement("div"); r.setAttribute("data-cp-scroll-reserve", ""); r.setAttribute("aria-hidden", "true"); panel.appendChild(r); }
+    return r;
+  }
+  function keepRowInPlace(anchor, change) {
+    var measurable = anchor && anchor.getBoundingClientRect;
+    var before = measurable ? anchor.getBoundingClientRect().top : 0;
+    win.dwTableSelection.keepInPlace(doc, anchor, change);
+    if (!measurable || !anchor.isConnected) return;
+    var drift = anchor.getBoundingClientRect().top - before, sc = doc.getElementById("content"), r = drift > 0 ? reserve() : null;
+    if (!sc || !r) return;
+    r.style.height = ((parseFloat(r.style.height) || 0) + drift) + "px";
+    sc.scrollTop += drift;
+  }
   // Fila → esa presentación; encabezado → SOLO las visibles (la búsqueda nunca selecciona filas ocultas).
   function toggle(box) {
     if (!store || !box) return;
     var ids = box.hasAttribute("data-cp-select") ? [idOf(box)] : visibleBoxes().map(idOf);
-    win.dwTableSelection.keepInPlace(doc, box.closest ? box.closest("tr") : null, function () { if (box.checked) store.add(ids); else store.remove(ids); syncSelection(); });
+    keepRowInPlace(box.closest ? box.closest("tr") : null, function () { if (box.checked) store.add(ids); else store.remove(ids); syncSelection(); });
   }
   function clearSelection() { if (store) { store.clear(); syncSelection(); } }
   doc.addEventListener("change", function (ev) {
