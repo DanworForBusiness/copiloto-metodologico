@@ -11,7 +11,7 @@
   <form method="dialog"><button type="submit" class="btn-secondary">Cerrar</button></form>
 </div>
 {% else %}
-<div class="dw-confirm__body busqueda-contact" data-contact-root data-has-whatsapp="{{ '1' if view.has_whatsapp else '0' }}" data-has-email="{{ '1' if view.has_email else '0' }}"
+<div class="dw-confirm__body busqueda-contact" data-contact-root data-send-url="{{ send_url }}" data-send-enabled="{{ '1' if send_enabled else '' }}" data-has-whatsapp="{{ '1' if view.has_whatsapp else '0' }}" data-has-email="{{ '1' if view.has_email else '0' }}"
      data-whatsapp-digits="{{ view.whatsapp_digits }}" data-email="{{ view.email }}" data-default-channel="{{ view.default_channel }}" data-event-url="{{ event_url }}">
   <h2 class="dw-confirm__title" id="busqueda-contact-title">Contactar a {{ view.nombre }}</h2>
   <p class="field-hint busqueda-contact__context">{% if view.puesto %}Proceso: <strong>{{ view.puesto }}</strong>{% endif %}{% if view.etapa %} · Etapa: {{ view.etapa }}{% endif %}</p>
@@ -62,16 +62,18 @@
   <div class="feedback-field">
     <label for="busqueda-contact-mensaje">Mensaje</label>
     <textarea id="busqueda-contact-mensaje" rows="9" data-contact-mensaje></textarea>
-    <p class="field-hint">Es un texto sugerido: revisalo y completalo antes de enviarlo. Abrir WhatsApp o el correo no envía nada: en el historial queda solo que copiaste el mensaje o abriste el canal, nunca como enviado.</p>
+    <p class="field-hint">Es un texto sugerido: revisalo y completalo antes de enviarlo. Con Mail, «Enviar» lo manda desde el correo institucional al email registrado del candidato; abrir WhatsApp no envía nada (en el historial queda que abriste el canal o copiaste el mensaje, nunca como enviado).</p>
+    {% if not send_enabled %}<p class="field-hint field-hint--warn" data-contact-send-disabled>El envío por correo institucional está deshabilitado. Podés usar «Copiar mensaje».</p>{% endif %}
   </div>
   <p class="field-hint field-hint--warn" data-contact-note hidden></p>
   <p class="field-hint field-hint--warn" data-contact-log-note role="status" hidden></p>
+  <p class="field-hint" data-contact-send-status role="status" aria-live="polite" hidden></p>
 </div>
 <div class="dw-confirm__actions busqueda-contact__actions">
   <form method="dialog"><button type="submit" class="btn-secondary">Cerrar</button></form>
   <button type="button" class="btn-secondary" data-contact-copy="mensaje">Copiar mensaje</button>
   <a class="btn-primary" data-contact-open="whatsapp" href="#" target="_blank" rel="noopener noreferrer" hidden>Abrir en WhatsApp</a>
-  <a class="btn-primary" data-contact-open="mail" href="#" hidden>Abrir en correo</a>
+  <button type="button" class="btn-primary" data-contact-send hidden disabled>Enviar</button>
 </div>
 <script type="application/json" data-contact-messages>{{ view.messages | tojson }}</script>
 {% endif %}

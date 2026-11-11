@@ -439,7 +439,8 @@ def _find_app(doc: dict, application_id: str) -> dict:
 CANDIDATO_ASOCIADO, CANDIDATO_ETAPA, CANDIDATO_FINALIZADO, CANDIDATO_DESVINCULADO = "candidato_asociado", "candidato_etapa", "candidato_finalizado", "candidato_desvinculado"
 CANDIDATO_CONTACTO = "candidato_contacto"      # trazabilidad de comunicaciones preparadas desde el diálogo «Contactar» (NO es un movimiento del pipeline ni un envío)
 CANDIDATO_EVENTOS = (CANDIDATO_ASOCIADO, CANDIDATO_ETAPA, CANDIDATO_FINALIZADO, CANDIDATO_DESVINCULADO, CANDIDATO_CONTACTO)
-CONTACTO_ACCIONES = ("mensaje_copiado", "canal_abierto", "apertura_solicitada")
+CONTACTO_ACCIONES = ("mensaje_copiado", "canal_abierto", "apertura_solicitada",
+                     "correo_aceptado", "correo_fallido", "correo_incierto")   # envío institucional (Mail → Enviar): resultado de Graph, nunca «entregado»
 _CONTACTO_VENTANA_DUPLICADO_S = 3        # misma acción (mismo ejecutor/candidato/situación/canal) dentro de esta ventana = doble clic / reintento: no se vuelve a registrar
 
 
