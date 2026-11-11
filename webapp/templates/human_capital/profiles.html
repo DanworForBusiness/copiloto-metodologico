@@ -42,6 +42,7 @@
    `data-dw-auto-dismiss`): arriba, fijo, se cierra solo. Fuera del diálogo, que se cierra al aceptarse el envío. #}
 <div class="hc-catalog-refresh-feedback--topbar" aria-live="polite" data-dw-auto-dismiss="6000" data-dw-auto-dismiss-fade data-hc-share-toast></div>
 <script src="{{ url_for('static', path='table_selection.js') }}?v={{ static_version }}" defer></script>
+<script src="{{ url_for('static', path='share_recipients.js') }}?v={{ static_version }}" defer></script>
 <script src="{{ url_for('static', path='human_capital_candidates_selection.js') }}?v={{ static_version }}" defer></script>
 {# Diálogo ÚNICO de «Descargar CVs» (resumen, confirmación, progreso y resultado; ver `human_capital_candidates_download.js`). Mismo contenedor `<dialog>` que «Compartir perfiles». #}
 <dialog class="dw-confirm busqueda-dialog busqueda-contact-dialog hc-share-dialog hc-download-dialog" id="hc-download-dialog" aria-labelledby="hc-download-title">
