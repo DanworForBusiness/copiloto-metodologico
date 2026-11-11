@@ -52,7 +52,7 @@ from config import FEEDBACK_LOG_DIR
 from core import remote_store
 from core.content_registry import DEFAULT_PACK
 from webapp import commercial_access, same_origin_guard, workspaces
-from webapp.services import auth_service, commercial_strategy_editing, commercial_strategy_markup
+from webapp.services import auth_service, commercial_share, commercial_strategy_editing, commercial_strategy_markup
 from webapp.services.activity_context import AREA_STRATEGY, SCOPE_COMMERCIAL
 from webapp.services.activity_service import log_activity
 from webapp.services.commercial_strategy_editing import ValidationError
@@ -295,6 +295,8 @@ def commercial_strategy_page(request: Request):
             # desde el MISMO resolver que usan los 3 endpoints HTMX de
             # feedback más abajo (`feedback_subject_for_section`).
             "feedback_subjects": {sid: feedback_subject_for_section(sid) for sid in _FEEDBACK_SECTIONS},
+            # Diálogo ÚNICO «Compartir» de Comercial (Enviar por correo + Copiar enlace), ver `commercial_share`.
+            "commercial_share": commercial_share.dialog_context(),
         },
     )
 

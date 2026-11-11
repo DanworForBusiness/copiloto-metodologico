@@ -364,6 +364,8 @@
 {% endif %}
 {% endmacro %}
 
+{# Selector y diálogo de Compartir: reutilizan las hojas de CCHH/Operaciones (mismo patrón que Operaciones → Solicitudes), en el <head>. #}
+{% block head_styles %}<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}"><link rel="stylesheet" href="{{ url_for('static', path='operations_solicitudes.css') }}?v={{ static_version }}">{% endblock %}
 {% block body %}
 <div
   x-data="copilotLayout('commercial')"
@@ -539,7 +541,7 @@
          }); })"
     >
       {#- Fila de acciones arriba a la DERECHA del contenido (mismo patrón que Capital Humano: `.hc-profiles-hero-actions`, alto 38px). «Editar» (solo `can_edit`) conserva su comportamiento;
-          «Compartir» es la acción destacada (`.btn-primary`, el naranja del Hub) y la ve CUALQUIER visitante autorizado a Comercial: solo copia la URL de esta página (`commercial_strategy_share.js`);
+          «Compartir» es la acción destacada (`.btn-primary`, el naranja del Hub) y la ve CUALQUIER visitante autorizado a Comercial: abre el diálogo ÚNICO de Compartir de Comercial (`commercial_share.js`: «Enviar por correo» o «Copiar enlace» con la URL de esta página);
           no concede acceso, quien la abre pasa por la sesión/autorización normal del Hub. El aviso transitorio reutiliza `.cp-toast` (commercial.css) + `data-dw-auto-dismiss` (app.js). #}
       <div class="cs-actions">
         {% if can_edit %}
@@ -553,7 +555,7 @@
           </button>
         </div>
         {% endif %}
-        <button type="button" class="btn-primary" id="cs-share-btn" data-cs-copy-link="/comercial/estrategia">
+        <button type="button" class="btn-primary" id="cs-share-btn" data-cshare-open data-cshare-kind="strategy" data-cshare-items='[{"id": "estrategia", "title": "Estrategia comercial", "path": "/comercial/estrategia"}]'>
           <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4"/><path d="M15.4 6.5l-6.8 4"/></svg>
           Compartir
         </button>
@@ -1209,5 +1211,7 @@
 
 <link rel="stylesheet" href="{{ url_for('static', path='commercial.css') }}?v={{ static_version }}">
 <link rel="stylesheet" href="{{ url_for('static', path='commercial_strategy.css') }}?v={{ static_version }}">
-<script defer src="{{ url_for('static', path='commercial_strategy_share.js') }}?v={{ static_version }}"></script>
+{% include "partials/commercial_share_dialog.html" %}
+<script src="{{ url_for('static', path='share_recipients.js') }}?v={{ static_version }}" defer></script>
+<script src="{{ url_for('static', path='commercial_share.js') }}?v={{ static_version }}" defer></script>
 {% endblock %}

@@ -1688,8 +1688,8 @@ def test_section_feedback_route_never_checks_can_edit_strategy_user():
 
 def test_share_button_is_visible_to_every_authorized_visitor_without_the_edit_ui():
     text = client.get("/comercial/estrategia").text
-    assert 'id="cs-share-btn"' in text and 'data-cs-copy-link="/comercial/estrategia"' in text
-    assert "commercial_strategy_share.js" in text
+    assert 'id="cs-share-btn"' in text and 'data-cshare-kind="strategy"' in text and '"path": "/comercial/estrategia"' in text
+    assert "commercial_share.js" in text and 'id="cshare-dialog"' in text   # diálogo ÚNICO de Compartir de Comercial (Enviar por correo + Copiar enlace)
     assert "data-cs-status" in text and 'data-dw-auto-dismiss="4000"' in text   # aviso transitorio: primitivo del Hub
     # no abre la edición a quien no puede editar
     for banned in ("cs-edit-toggle", "cs-edit-toolbar", ">Editar<", "cs-save-btn"):
@@ -1707,15 +1707,16 @@ def test_actions_row_keeps_edit_for_the_owner_and_puts_share_as_the_highlighted_
 
 def test_share_link_is_a_plain_path_with_no_query_or_credentials_and_the_route_keeps_its_auth():
     text = client.get("/comercial/estrategia").text
-    assert 'data-cs-copy-link="/comercial/estrategia"' in text
+    assert '"path": "/comercial/estrategia"}' in text   # «Copiar enlace» del diálogo copia esta MISMA ruta (sin query ni credenciales)
     anonymous = TestClient(app, follow_redirects=False).get("/comercial/estrategia")
     assert anonymous.status_code in (302, 303, 307, 401, 403)   # el enlace NO evita la autorización normal
 
 
 def test_share_script_uses_hub_primitives_and_never_innerhtml():
-    js = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "commercial_strategy_share.js").read_text(encoding="utf-8")
-    assert "copyTextToClipboard" in js and "[data-cs-status]" in js and "textContent" in js
-    assert "innerHTML" not in js and "setTimeout" not in js   # el auto-cierre lo da `data-dw-auto-dismiss`
+    js = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "commercial_share.js").read_text(encoding="utf-8")
+    assert "copyTextToClipboard" in js and "[data-cs-status]" in js and "textContent" in js and "win.location.origin + it.path" in js
+    toast = js.split("function toast(")[1].split("function status(")[0]
+    assert "innerHTML" not in js and "setTimeout" not in toast   # el auto-cierre lo da `data-dw-auto-dismiss`
 
 def test_actions_row_is_out_of_flow_so_the_content_aligns_with_the_rest_of_commercial():
     css = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "commercial_strategy.css").read_text(encoding="utf-8")

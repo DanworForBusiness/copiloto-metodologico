@@ -15,7 +15,7 @@ function ok(cond, label) { if (!cond) { failures++; console.log(`FAIL: ${label}`
 function eq(a, b, label) { ok(JSON.stringify(a) === JSON.stringify(b), `${label} (esperado ${JSON.stringify(b)}, real ${JSON.stringify(a)})`); }
 
 const STATIC = path.resolve(__dirname, "..", "..", "webapp", "static");
-const SRC = fs.readFileSync(path.join(STATIC, "table_selection.js"), "utf-8") + "\n" + fs.readFileSync(path.join(STATIC, "human_capital_candidates_selection.js"), "utf-8");
+const SRC = fs.readFileSync(path.join(STATIC, "table_selection.js"), "utf-8") + "\n" + fs.readFileSync(path.join(STATIC, "share_recipients.js"), "utf-8") + "\n" + fs.readFileSync(path.join(STATIC, "human_capital_candidates_selection.js"), "utf-8");
 const sandbox = { window: {}, console };
 vm.createContext(sandbox);
 vm.runInContext(SRC, sandbox, { filename: "human_capital_candidates_selection.js" });

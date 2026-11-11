@@ -385,6 +385,7 @@ def test_profiles_templates_add_no_own_js():
     scripts = BeautifulSoup(_PROFILES_HTML, "html.parser").select("script[src]")
     assert [script["src"] for script in scripts] == [
         "{{ url_for('static', path='table_selection.js') }}?v={{ static_version }}",
+        "{{ url_for('static', path='share_recipients.js') }}?v={{ static_version }}",   # selector de destinatarios transversal (antes del adaptador de CCHH)
         "{{ url_for('static', path='human_capital_candidates_selection.js') }}?v={{ static_version }}",
         "{{ url_for('static', path='human_capital_candidates_download.js') }}?v={{ static_version }}",
     ]

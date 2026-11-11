@@ -29,13 +29,14 @@ import json
 import logging
 import uuid
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from core.content_registry import DEFAULT_PACK
 from webapp import commercial_access, same_origin_guard, workspaces
 from webapp.services import auth_service
 from webapp.services import commercial_presentations as presentations
+from webapp.services import commercial_share, share_recipients
 from webapp.services.activity_context import AREA_PRESENTATIONS, EVENT_PAGE_VIEW, SCOPE_COMMERCIAL
 from webapp.services.activity_service import log_activity
 from webapp.services.module_registry import CM03_MODULE_ID
@@ -212,7 +213,8 @@ def presentations_catalog(request: Request):
         components = []
     return templates.TemplateResponse(
         request=request, name="commercial/presentations.html",
-        context=_shell_context(request, user, rows=rows, components=components, error_state=error_state, max_title=presentations.MAX_TITLE, max_desc=presentations.MAX_COMPONENT_DESC), headers=_NO_STORE,
+        context=_shell_context(request, user, rows=rows, components=components, error_state=error_state, max_title=presentations.MAX_TITLE, max_desc=presentations.MAX_COMPONENT_DESC,
+                               commercial_share=commercial_share.dialog_context()), headers=_NO_STORE,
     )
 
 
@@ -229,9 +231,76 @@ def presentation_detail(request: Request, presentation_id: str):
         request=request, name="commercial/presentation_detail.html",
         context=_shell_context(request, user, presentation={**view, "updated_label": _date_dmy(view.get("updated_at"))}, share_path=_share_path(presentation_id),
                                can_edit=presentations.can_edit_presentation_user(user, view), can_delete=presentations.can_delete_presentation_user(user, view),
-                               max_title=presentations.MAX_TITLE),
+                               max_title=presentations.MAX_TITLE, commercial_share=commercial_share.dialog_context()),
         headers=_NO_STORE,
     )
+
+
+# ── Compartir (Estrategia / presentación / selección) → Enviar por correo ──────────────────────────────────────────────────
+# Contexto de destinatarios FIJO de la vertical (`commercial` = COMMERCIAL_ALLOWED_USERS): lo decide esta ruta, nunca el navegador. Sesión + Comercial +
+# mismo origen. Los enlaces los resuelve `commercial_share` desde `kind` + ids (los del navegador nunca se usan como URL).
+
+def _share_guard(request: Request):
+    user = auth_service.session_user(request)
+    if not user:
+        return None, JSONResponse({"status": "error", "message": "Sin sesión"}, status_code=401)
+    if not commercial_access.is_commercial_authorized_user(user):
+        return None, JSONResponse({"status": "error", "message": "No autorizado"}, status_code=403)
+    if not same_origin_guard.is_same_origin_write(request):
+        return None, JSONResponse({"status": "error", "message": "Origen no permitido"}, status_code=403)
+    return user, None
+
+
+@router.post("/comercial/compartir/catalogo", include_in_schema=False)
+def commercial_share_catalog(request: Request, graph_token: str = Form("")):
+    """Proveedor «allowlist»: catálogo de destinatarios de Comercial (solo `COMMERCIAL_ALLOWED_USERS`) con nombres del padrón, UNA vez por apertura."""
+    _user, denied = _share_guard(request)
+    if denied:
+        return denied
+    if share_recipients.recipient_provider() != share_recipients.PROVIDER_ALLOWLIST:
+        return JSONResponse({"error": "No disponible con el proveedor de directorio"}, status_code=404, headers=_NO_STORE)
+    return JSONResponse(share_recipients.allowlist_catalog(commercial_share.CONTEXT, graph_token), headers=_NO_STORE)
+
+
+@router.post("/comercial/compartir/destinatarios", include_in_schema=False)
+def commercial_share_recipients(request: Request, q: str = Form(""), graph_token: str = Form("")):
+    """Búsqueda server-side de destinatarios (proveedor «directory» con token delegado; «allowlist» filtra la lista de Comercial)."""
+    _user, denied = _share_guard(request)
+    if denied:
+        return denied
+    if not share_recipients.recipients_enabled(commercial_share.CONTEXT):
+        return JSONResponse({"blocked": True, "message": "La búsqueda de destinatarios corporativos todavía no está habilitada."}, status_code=503, headers=_NO_STORE)
+    if share_recipients.needs_delegated_token() and not graph_token:
+        return JSONResponse({"error": "Sin autorización de Microsoft"}, status_code=401, headers=_NO_STORE)
+    try:
+        results = share_recipients.search_recipients(commercial_share.CONTEXT, q, graph_token)
+    except share_recipients.DirectorySearchUnavailable:
+        return JSONResponse({"blocked": True, "message": "El Hub todavía no tiene permiso para buscar en el directorio corporativo."}, status_code=503, headers=_NO_STORE)
+    except share_recipients.DirectoryError:
+        return JSONResponse({"error": "No se pudo consultar el directorio en este momento. Reintentá."}, status_code=502, headers=_NO_STORE)
+    return JSONResponse({"results": results}, headers=_NO_STORE)
+
+
+@router.post("/comercial/compartir/enviar", include_in_schema=False)
+def commercial_share_send(request: Request, kind: str = Form(""), presentation_ids: list[str] = Form([]), recipients: list[str] = Form([]),
+                          subject: str = Form(""), message: str = Form(""), operation_id: str = Form(""), graph_token: str = Form("")):
+    """«Compartir» → «Enviar»: correo institucional (sin confirmación secundaria). Idempotente por `operation_id` (auditoría durable)."""
+    user, denied = _share_guard(request)
+    if denied:
+        return denied
+    if share_recipients.needs_delegated_token() and not graph_token:
+        return JSONResponse({"status": "error", "message": "Sin autorización de Microsoft para validar destinatarios."}, status_code=401, headers=_NO_STORE)
+    actor = str(user.get("email") or user.get("sub") or user.get("name") or "")
+    origin = request.headers.get("origin") or f"{request.url.scheme}://{request.url.netloc}"     # mismo origen ya validado
+    try:
+        out = commercial_share.send_share(operation_id=operation_id.strip(), actor=actor, kind=kind, presentation_ids=presentation_ids,
+                                          recipient_emails=recipients, subject=subject, message=message, delegated_token=graph_token,
+                                          origin=origin, get_presentation=presentations.get)
+    except share_recipients.DirectorySearchUnavailable:
+        return JSONResponse({"status": "error", "message": "No se pudieron validar los destinatarios (permiso de directorio no concedido)."}, status_code=503, headers=_NO_STORE)
+    st = out.get("status")
+    code = 200 if st in ("accepted", "uncertain", "duplicate") else (503 if st in ("config_incomplete", "disabled") or out.get("reason") == "audit_unavailable" else 422)
+    return JSONResponse(out, status_code=code, headers=_NO_STORE)
 
 
 # ── R5 — formulario de edición ────────────────────────────────────────────────────────────────────────────────────────────

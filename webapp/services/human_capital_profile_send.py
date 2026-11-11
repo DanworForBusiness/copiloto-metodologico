@@ -49,201 +49,38 @@ _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _SEARCH_SAFE = re.compile(r'[\\"]')                                  # se quitan comillas/backslash del término $search
 OPERATION_ID_RE = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
 
-PROVIDER_DIRECTORY = "directory"
-PROVIDER_ALLOWLIST = "allowlist"
+# ── Destinatarios: capacidad TRANSVERSAL (`share_recipients`); Compartir perfiles es el contexto Capital Humano ──
+from webapp.services import share_recipients as _sr
+from webapp.services.share_recipients import (  # noqa: E402,F401 — reexportados (API y costuras de tests existentes)
+    PROVIDER_ALLOWLIST, PROVIDER_DIRECTORY, DirectoryError, DirectorySearchUnavailable, directory_scope, needs_delegated_token,
+    recipient_provider, roster_names, search_directory, validate_recipients,
+)
 
-
-def recipient_provider() -> str:
-    """Proveedor de destinatarios EXPLÍCITO (`HC_SHARE_RECIPIENTS_PROVIDER`). Cualquier valor distinto de "allowlist" es el directorio: el
-    catálogo local nunca se activa por un error de Graph ni por omisión."""
-    value = str(getattr(config, "HC_SHARE_RECIPIENTS_PROVIDER", "") or "").strip().lower()
-    return PROVIDER_ALLOWLIST if value == PROVIDER_ALLOWLIST else PROVIDER_DIRECTORY
+CONTEXT = _sr.CONTEXT_HUMAN_CAPITAL
 
 
 def allowlist_recipients() -> list[dict]:
-    """Catálogo gobernado TRANSITORIO: los usuarios de `HUMAN_CAPITAL_ALLOWED_USERS` (mismo parser/normalización que la admisión a Capital
-    Humano). Solo direcciones válidas del dominio corporativo (`AUTH_DEFAULT_DOMAIN`): nada externo. Sin nombres gobernados en el Hub → el
-    nombre visible es el correo."""
-    from webapp.services import auth_service
-    domain = str(getattr(config, "AUTH_DEFAULT_DOMAIN", "") or "danwor.com").strip().lower().lstrip("@")
-    # «ALL» es un valor especial del parser compartido (solo se rechaza cuando es la lista entera): mezclado en la lista se normalizaría a
-    # `all@<dominio>`, que nunca es un destinatario legítimo → se excluye.
-    emails = sorted(e for e in auth_service._human_capital_set()
-                    if _EMAIL_RE.match(e) and e.rsplit("@", 1)[1] == domain and e.rsplit("@", 1)[0] != "all")
-    return [{"name": e, "email": e} for e in emails]
+    return _sr.allowlist_recipients(CONTEXT)
 
 
-def _valid_name(value, email: str) -> str:
-    """Nombre confiable para mostrar: no vacío, no es un correo ni el propio correo. Nunca se deduce del alias."""
-    name = str(value or "").strip()
-    return "" if not name or "@" in name or name.lower() == email else name
-
-
-def roster_names(token: str) -> dict[str, str]:
-    """correo (minúsculas) → nombre para PRESENTACIÓN, con prioridad: (1) lista Colaboradores del sitio Gestión (padrón de personal),
-    (2) `Title` de la User Information List del mismo sitio (nombre visible sincronizado del perfil de Microsoft) cuando Colaboradores no
-    tiene un nombre válido; (3) sin nombre → el llamador muestra el correo. UNA lectura de cada lista con el token DELEGADO base de lectura
-    (`Sites.Read.All`, ya concedido), vía `ReportingRepository.get_people_names` (misma regla de identidad que Reporting, sin duplicarla ni
-    cambiar su mapa funcional). Nunca agrega destinatarios: solo nombra a quien ya está en la allowlist. Ante cualquier falla devuelve {}."""
-    if not token:
-        return {}
-    try:
-        from webapp.services.reporting_repository import ReportingRepository
-        colaboradores, user_info = ReportingRepository().get_people_names(token)
-        names: dict[str, str] = {}
-        for email in set(colaboradores) | set(user_info):
-            chosen = _valid_name(colaboradores.get(email), email) or _valid_name(user_info.get(email), email)
-            if chosen:
-                names[email] = chosen
-        return names
-    except Exception as exc:                                         # noqa: BLE001 — presentación accesoria: nunca bloquea la selección
-        _logger.info("operation=cv_share roster_names_unavailable error=%s", type(exc).__name__)
-        return {}
-
-
-def allowlist_catalog(token: str, *, names=roster_names) -> dict:
-    """Catálogo del proveedor «allowlist» para UNA apertura del selector: SOLO las identidades de `HUMAN_CAPITAL_ALLOWED_USERS` (el padrón
-    nunca agrega destinatarios), con su nombre del padrón cuando existe; si no, el correo. Se pide una vez por apertura y se filtra en memoria."""
-    rows = allowlist_recipients()
-    roster = names(token) if rows else {}
-    out = [{"name": (roster.get(r["email"]) or "").strip() or r["email"], "email": r["email"]} for r in rows]
-    return {"recipients": out, "names_resolved": sum(1 for r in out if r["name"] != r["email"])}
+def allowlist_catalog(token: str) -> dict:
+    return _sr.allowlist_catalog(CONTEXT, token)
 
 
 def recipients_enabled() -> bool:
-    """¿Hay un proveedor de destinatarios utilizable? Directorio: scope delegado configurado. Catálogo: al menos una dirección corporativa."""
-    if recipient_provider() == PROVIDER_ALLOWLIST:
-        return bool(allowlist_recipients())
-    return bool(directory_scope())
-
-
-def needs_delegated_token() -> bool:
-    """Solo el directorio consulta Microsoft con la identidad delegada; el catálogo gobernado se resuelve en el servidor."""
-    return recipient_provider() == PROVIDER_DIRECTORY
+    return _sr.recipients_enabled(CONTEXT)
 
 
 def search_recipients(query: str, token: str) -> list[dict]:
-    """Búsqueda del selector según el proveedor explícito. Misma forma de resultado ([{name, email}]) y mismo mínimo de caracteres."""
-    if recipient_provider() == PROVIDER_ALLOWLIST:
-        q = (query or "").strip().lower()
-        if len(q) < MIN_QUERY:
-            return []
-        return [r for r in allowlist_recipients() if q in r["email"]][:MAX_RESULTS]
-    return search_directory(query, token)
-
-
-def directory_scope() -> str:
-    """Scope delegado para buscar el directorio (`/users?$search`), leído en cada llamada. No es secreto; se expone vía la config de auth para
-    que el frontend lo pida al token delegado. Vacío = búsqueda DESHABILITADA (prerequisito `User.ReadBasic.All` sin conceder)."""
-    return str(getattr(config, "HC_DIRECTORY_SEARCH_SCOPE", "") or "").strip()
+    return _sr.search_recipients(CONTEXT, query, token)
 
 
 class ProfileSendError(RuntimeError):
     """Base (fail-closed)."""
 
 
-class DirectorySearchUnavailable(ProfileSendError):
-    """El directorio no se pudo consultar por permisos (403/401): prerequisito `User.ReadBasic.All` sin conceder, o token sin ese scope."""
-
-
-class DirectoryError(ProfileSendError):
-    """Error transitorio/indeterminado consultando el directorio."""
-
-
 class SendAuditUnavailable(ProfileSendError):
     """La auditoría durable no se pudo confirmar: el envío no empieza (fail-closed)."""
-
-
-# ───────────────────────── directorio (token DELEGADO) ─────────────────────────
-
-def _dedup(rows: list[dict]) -> list[dict]:
-    out: list[dict] = []
-    seen: set[str] = set()
-    for r in rows:
-        key = r["email"].lower()
-        if key not in seen:
-            seen.add(key)
-            out.append(r)
-    return out
-
-
-def _row(u: dict) -> dict | None:
-    email = str(u.get("mail") or u.get("userPrincipalName") or "").strip()
-    if not email or not _EMAIL_RE.match(email):
-        return None
-    return {"name": str(u.get("displayName") or email).strip(), "email": email}
-
-
-def search_directory(query: str, token: str, *, fetch=microsoft365.graph_get_json) -> list[dict]:
-    """Usuarios corporativos que coinciden con `query` (nombre o correo), vía Graph `/users?$search` con el token DELEGADO. ≥3 caracteres.
-    `DirectorySearchUnavailable` si falta permiso (403/401); `DirectoryError` ante fallo transitorio. Nunca lanza por query corta (devuelve [])."""
-    if not directory_scope():
-        raise DirectorySearchUnavailable("búsqueda de directorio deshabilitada: falta conceder el permiso delegado (HC_DIRECTORY_SEARCH_SCOPE vacío)")
-    q = _SEARCH_SAFE.sub("", (query or "").strip())
-    if len(q) < MIN_QUERY:
-        return []
-    url = GRAPH_USERS_SEARCH.format(q=quote(q), top=MAX_RESULTS)
-    try:
-        data = fetch(url, token, extra_headers={"ConsistencyLevel": "eventual"})
-    except HTTPError as exc:
-        if exc.code in (401, 403):
-            raise DirectorySearchUnavailable(f"sin permiso para consultar el directorio (HTTP {exc.code})") from exc
-        raise DirectoryError(f"error consultando el directorio (HTTP {exc.code})") from exc
-    except (URLError, TimeoutError, OSError, ValueError) as exc:
-        raise DirectoryError(f"no se pudo consultar el directorio ({type(exc).__name__})") from exc
-    rows = [r for r in (_row(u) for u in (data.get("value") or [])) if r is not None]
-    return _dedup(rows)[:MAX_RESULTS]
-
-
-def validate_recipients(emails: list[str], token: str, *, fetch=microsoft365.graph_get_json) -> tuple[list[dict], list[str]]:
-    """Valida CADA destinatario contra el proveedor explícito (el backend no confía en el autocomplete). Directorio: resuelve `/users/{email}`
-    con el token DELEGADO; un 403/401 → `DirectorySearchUnavailable` (no se puede validar ⇒ no se envía). Catálogo: la dirección tiene que estar
-    en el catálogo gobernado. Devuelve (válidos [{name,email}], inválidos [email])."""
-    if recipient_provider() == PROVIDER_ALLOWLIST:
-        return _validate_allowlist(emails)
-    valid: list[dict] = []
-    invalid: list[str] = []
-    seen: set[str] = set()
-    for raw in emails or []:
-        email = str(raw or "").strip()
-        key = email.lower()
-        if not email or not _EMAIL_RE.match(email) or key in seen:
-            if email and key not in seen:
-                invalid.append(email)
-            seen.add(key)
-            continue
-        seen.add(key)
-        try:
-            u = fetch(GRAPH_USER_GET.format(id=quote(email, safe="@")), token)
-        except HTTPError as exc:
-            if exc.code in (401, 403):
-                raise DirectorySearchUnavailable(f"sin permiso para validar destinatarios (HTTP {exc.code})") from exc
-            invalid.append(email)                                    # 404/400/… = no es una identidad válida
-            continue
-        except (URLError, TimeoutError, OSError, ValueError):
-            invalid.append(email)
-            continue
-        row = _row(u)
-        valid.append(row if row is not None else {"name": email, "email": email})
-    return _dedup(valid), invalid
-
-
-def _validate_allowlist(emails: list[str]) -> tuple[list[dict], list[str]]:
-    catalog = {r["email"]: r for r in allowlist_recipients()}
-    valid: list[dict] = []
-    invalid: list[str] = []
-    seen: set[str] = set()
-    for raw in emails or []:
-        email = str(raw or "").strip()
-        key = email.lower()
-        if not email or key in seen:
-            continue
-        seen.add(key)
-        if key in catalog:
-            valid.append(catalog[key])
-        else:
-            invalid.append(email)
-    return valid, invalid
 
 
 # ───────────────────────── armado del correo ─────────────────────────
@@ -368,7 +205,7 @@ def send_profiles(*, operation_id: str, actor: str, profile_ids: list[str], reci
     included, omitted = resolve_links(selection, choice)
     if not included:
         return {"status": "error", "reason": "no_links", "message": "Ninguno de los candidatos seleccionados tiene un CV con enlace disponible para compartir."}
-    recipients, invalid = validate_recipients(recipient_emails, delegated_token)
+    recipients, invalid = validate_recipients(recipient_emails, delegated_token, context=CONTEXT)
     if not recipients:
         return {"status": "error", "reason": "no_recipients", "message": "No hay destinatarios corporativos válidos seleccionados.",
                 "invalid": invalid}

@@ -22,6 +22,13 @@
     <div class="feedback-field feedback-field--wide"><label for="sol-q">Buscar</label><input id="sol-q" autocomplete="off" type="text" name="q" value="{{ query }}" placeholder="Solicitud, proyecto o descripción…" hx-post="/operaciones/solicitudes/data" hx-trigger="input changed delay:500ms" hx-include="closest form" hx-vals='{"page_vigentes":1,"page_cerradas":1}'></div>
     <button type="button" class="whatsnew-filter__clear" hx-post="/operaciones/solicitudes/data" hx-params="none">✕ Limpiar</button>
 </form>
+<div class="dashboard-sections" data-dashboard-key="ops-solicitudes" data-persist-collapse>
+{% for group in groups %}
+{% set rows = group.rows %}{% set pager = group.pager %}{% set sort = group.sort %}{% set direction = group.direction %}
+<details class="dashboard-section" id="solicitudes-{{ group.key }}" data-section-id="solicitudes-{{ group.key }}" data-persist-collapse{% if group.key == 'vigentes' or not groups[0].count %} open{% endif %}>
+{% set _kpi_here = kpi and not error and group.key == 'vigentes' %}
+<summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">{{ group.title }}</span>{% if not error %}<span class="dashboard-section__count">{{ group.count }} solicitud{{ 'es' if group.count != 1 }}{% if _kpi_here %} <span class="dashboard-subhead__filter">· {{ kpi_label }}</span>{% endif %}</span>{% endif %}{% if _kpi_here %}<button type="button" class="panel-close" hx-post="/operaciones/solicitudes/data" hx-target="#solicitudes-panel" hx-include="#solicitudes-filters" hx-vals='{"kpi": "", "page_vigentes": 1}' hx-sync="#solicitudes-filters:replace" data-dw-graph-token aria-label="Quitar el filtro" title="Quitar el filtro y volver a todas las vigentes" @click.prevent data-sol-clear-kpi>&times;</button>{% endif %}</summary><div class="dashboard-section__body">
+{% if group.key == 'vigentes' %}{# Barra contextual de selección DENTRO del agrupador, primera en su cuerpo: MISMA ubicación que CCHH → Candidatos. #}
 {% call selection_bar('sol', 'Selección de solicitudes', {'data-sol-scope':selection_scope, 'data-sol-universe':universe_ids | tojson, 'data-sol-source-ok':'no' if error else 'yes'}) %}
   <button type="button" class="btn-primary" data-sol-action="compartir" data-dw-graph-token hx-post="/operaciones/solicitudes/bulk/compartir" hx-target="#solicitudes-bulk-content" hx-sync="#solicitudes-bulk-content:drop">
     <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4"/></svg>Compartir solicitudes</button>
@@ -29,12 +36,7 @@
   <button type="button" class="btn-secondary" data-sol-action="consolidar" data-dw-graph-token hx-post="/operaciones/solicitudes/bulk/consolidar" hx-target="#solicitudes-bulk-content" hx-sync="#solicitudes-bulk-content:drop"><svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>Consolidar solicitudes</button>
   <button type="button" class="whatsnew-filter__clear" data-sol-clear-selection aria-label="Limpiar selección">✕ Limpiar</button>
 {% endcall %}
-<div class="dashboard-sections" data-dashboard-key="ops-solicitudes" data-persist-collapse>
-{% for group in groups %}
-{% set rows = group.rows %}{% set pager = group.pager %}{% set sort = group.sort %}{% set direction = group.direction %}
-<details class="dashboard-section" id="solicitudes-{{ group.key }}" data-section-id="solicitudes-{{ group.key }}" data-persist-collapse{% if group.key == 'vigentes' or not groups[0].count %} open{% endif %}>
-{% set _kpi_here = kpi and not error and group.key == 'vigentes' %}
-<summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">{{ group.title }}</span>{% if not error %}<span class="dashboard-section__count">{{ group.count }} solicitud{{ 'es' if group.count != 1 }}{% if _kpi_here %} <span class="dashboard-subhead__filter">· {{ kpi_label }}</span>{% endif %}</span>{% endif %}{% if _kpi_here %}<button type="button" class="panel-close" hx-post="/operaciones/solicitudes/data" hx-target="#solicitudes-panel" hx-include="#solicitudes-filters" hx-vals='{"kpi": "", "page_vigentes": 1}' hx-sync="#solicitudes-filters:replace" data-dw-graph-token aria-label="Quitar el filtro" title="Quitar el filtro y volver a todas las vigentes" @click.prevent data-sol-clear-kpi>&times;</button>{% endif %}</summary><div class="dashboard-section__body">
+{% endif %}
 {% if group.key == 'vigentes' %}{# Indicadores operativos de las solicitudes VIGENTES, dentro de su contenedor: el MISMO primitivo `.activity-kpi-grid`/`.activity-kpi` de Carga masiva (CCHH). Se calculan
    sobre las vigentes con filtros y búsqueda, antes de paginar (`solicitudes_service.kpi_counts`). Sin una lectura confirmada de SharePoint muestran «—», nunca un cero. #}
 <div class="activity-kpi-grid solicitudes-kpis" data-solicitudes-kpis{% if not kpis %} data-kpis-unavailable{% endif %}>

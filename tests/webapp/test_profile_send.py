@@ -87,7 +87,7 @@ def graph(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "PERSISTENCE_MODE", "local")
     for name, value in {"NOTIFICATIONS_TENANT_ID": "tenant-x", "NOTIFICATIONS_CLIENT_ID": "client-x", "NOTIFICATIONS_CLIENT_SECRET": SECRET,
                         "NOTIFICATIONS_SENDER": "hub-notifications@danwor.com", "HC_DIRECTORY_SEARCH_SCOPE": "User.ReadBasic.All",
-                        "HC_SHARE_RECIPIENTS_PROVIDER": "directory", "NOTIFICATIONS_ENABLED": True}.items():                                  # explícito: nunca hereda el .env local
+                        "HC_SHARE_RECIPIENTS_PROVIDER": "directory", "SHARE_RECIPIENTS_PROVIDER": "", "NOTIFICATIONS_ENABLED": True}.items():                                  # explícito: nunca hereda el .env local
         monkeypatch.setattr(config, name, value, raising=False)
     g = _Graph()
     monkeypatch.setitem(profile_send.search_directory.__kwdefaults__, "fetch", g.fetch)

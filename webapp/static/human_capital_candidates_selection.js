@@ -209,31 +209,15 @@
     if (copy) copy.disabled = !shareReady(resolveShare(shareState.items, shareState.choice));
   }
 
-  // ── Saludo personalizado ──
-  // El saludo es el texto del campo de saludo hasta su PRIMERA coma («Hola,» / «Hola Brian,»). Un destinatario con nombre verificado (padrón
-  // corporativo o directorio: lo resuelve el servidor, nunca se deduce del alias) → «Hola <Nombre>,»; cero, varios o sin nombre → «Hola,».
-  // Solo se reemplaza el saludo si sigue siendo el último generado automáticamente: si el usuario lo cambió, se respeta; el resto del texto
-  // (lo que sigue a la coma) nunca se toca. Es presentación: el envío valida destinatarios en el servidor como siempre.
-  function firstName(person) {
-    var name = String((person && person.name) || "").trim();
-    if (!name || name.toLowerCase() === String(person.email || "").toLowerCase() || name.indexOf("@") !== -1) return "";
-    return name.split(/\s+/)[0];
-  }
-  function greetingFor(recipients) {
-    var first = recipients.length === 1 ? firstName(recipients[0]) : "";
-    return first ? "Hola " + first + "," : "Hola,";
-  }
-  function currentGreeting(text) { var i = String(text || "").indexOf(","); return i === -1 ? null : text.slice(0, i + 1); }
-  function applyGreeting(doc) {
-    var intro = shareField(doc, "data-share-intro");
-    if (!intro || shareState.greeting === null) return;
-    if (currentGreeting(intro.value) !== shareState.greeting) { shareState.greeting = null; return; }      // lo editó el usuario: se respeta
-    var next = greetingFor(shareState.recipients);
-    if (next === shareState.greeting) return;
-    intro.value = next + intro.value.slice(shareState.greeting.length);
-    shareState.greeting = next;
-  }
-
+  // ── Destinatarios: módulo TRANSVERSAL `share_recipients.js` (cargado antes que este); acá solo el adaptador (host) del diálogo de CCHH ──
+  function SR() { return window.dwShareRecipients; }
+  var HOST = { state: function () { return shareState; }, field: function (doc, attr) { return shareField(doc, attr); },
+               refresh: function (doc) { refreshSend(doc); }, status: function (doc, text, warn) { sendStatus(doc, text, warn); },
+               urls: { catalog: CATALOG_URL, directory: DIRECTORY_URL }, introAttr: "data-share-intro", directoryTokenFn: "dwHumanCapitalDirectoryToken" };
+  function firstName(person) { return SR().firstName(person); }
+  function greetingFor(recipients) { return SR().greetingFor(recipients); }
+  function currentGreeting(text) { return SR().currentGreeting(text); }
+  function applyGreeting(doc) { return SR().applyGreeting(HOST, doc); }
   function refreshShare(doc, focusId) {
     var model = resolveShare(shareState.items, shareState.choice);
     renderList(doc, rowsModel(shareState.items, shareState.choice), focusId);
@@ -273,32 +257,9 @@
     if (shareState.provider === "allowlist" && shareState.directoryEnabled) loadCatalog(doc, win);
   }
 
-  // «allowlist»: UNA lectura por apertura (catálogo = HUMAN_CAPITAL_ALLOWED_USERS + nombres del padrón con el token base de lectura). Si el
-  // token o SharePoint fallan, el servidor devuelve igual los correos; si la ruta misma falla, la búsqueda informa y se puede reabrir.
-  function loadCatalog(doc, win) {
-    var opened = shareState;
-    var tokenFn = win.dwGraphToken;
-    return Promise.resolve(tokenFn ? tokenFn() : "").catch(function () { return ""; }).then(function (token) {
-      return win.fetch(CATALOG_URL, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                                      body: "graph_token=" + encodeURIComponent(token || "") });
-    }).then(function (res) { return res.ok ? res.json() : { recipients: [] }; }).then(function (data) {
-      if (shareState !== opened) return;                                                         // el diálogo se reabrió mientras cargaba
-      shareState.catalog = (data && data.recipients) || [];
-      var input = shareField(doc, "data-share-search");
-      if (input && (input.value || "").trim().length >= MIN_QUERY) runSearch(doc, win);
-    }).catch(function () { if (shareState === opened) shareState.catalog = []; });
-  }
-
-  function fold(text) { return String(text || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase(); }
-
-  // Coincidencia en memoria: nombre, apellido (cualquier palabra del nombre), alias (parte local) o correo; sin distinguir acentos.
-  function catalogMatches(q) {
-    var needle = fold(q);
-    return (shareState.catalog || []).filter(function (p) {
-      var email = fold(p.email), alias = email.split("@")[0];
-      return fold(p.name).indexOf(needle) !== -1 || email.indexOf(needle) !== -1 || alias.indexOf(needle) !== -1;
-    });
-  }
+  function loadCatalog(doc, win) { return SR().loadCatalog(HOST, doc, win); }
+  function fold(text) { return SR().fold(text); }
+  function catalogMatches(q) { return SR().catalogMatches(HOST, q); }
 
   // ───────────────────────── destinatarios: directorio en vivo + chips + envío ─────────────────────────
   function newOperationId(win) {
@@ -313,124 +274,16 @@
     if (s.classList) { if (warn) s.classList.add("field-hint--warn"); else s.classList.remove("field-hint--warn"); }
   }
 
-  function hasRecipient(email) {
-    var key = String(email || "").toLowerCase();
-    return shareState.recipients.some(function (r) { return r.email.toLowerCase() === key; });
-  }
-
-  function renderChips(doc) {
-    var list = shareField(doc, "data-share-chips");
-    if (!list) return;
-    list.textContent = "";
-    shareState.recipients.forEach(function (r) {
-      var li = doc.createElement("li");
-      li.className = "hc-share-chip";
-      var name = doc.createElement("span");
-      name.className = "hc-share-chip__label";
-      name.textContent = r.name && r.name !== r.email ? (r.name + " · " + r.email) : r.email;
-      li.appendChild(name);
-      var btn = doc.createElement("button");
-      btn.type = "button"; btn.className = "hc-share-chip__remove";
-      btn.setAttribute("data-share-chip-remove", r.email);
-      btn.setAttribute("aria-label", "Quitar a " + (r.name || r.email));
-      btn.title = "Quitar";
-      btn.textContent = "×";
-      li.appendChild(btn);
-      list.appendChild(li);
-    });
-  }
-
-  function addRecipient(doc, person) {
-    if (!person || !person.email || hasRecipient(person.email)) return;
-    if (shareState.recipients.length >= shareState.maxRecipients) { sendStatus(doc, "Se pueden agregar hasta " + shareState.maxRecipients + " destinatarios.", true); return; }
-    shareState.recipients.push({ name: person.name || person.email, email: person.email });
-    renderChips(doc);
-    applyGreeting(doc);
-    refreshSend(doc);
-  }
-
-  function removeRecipient(doc, email) {
-    var key = String(email || "").toLowerCase();
-    shareState.recipients = shareState.recipients.filter(function (r) { return r.email.toLowerCase() !== key; });
-    renderChips(doc);
-    applyGreeting(doc);
-    refreshSend(doc);
-  }
-
-  function showResults(doc, show) {
-    var box = shareField(doc, "data-share-results"), input = shareField(doc, "data-share-search");
-    if (box) box.hidden = !show;
-    if (input) input.setAttribute("aria-expanded", show ? "true" : "false");
-  }
-
-  function renderResults(doc, rows) {
-    var listEl = shareField(doc, "data-share-results-list"), hint = shareField(doc, "data-share-results-hint");
-    if (!listEl) return;
-    listEl.textContent = "";
-    rows.forEach(function (p) {
-      var opt = doc.createElement("div");
-      opt.setAttribute("role", "option");
-      opt.setAttribute("data-share-pick", p.email);
-      opt.setAttribute("data-share-pick-name", p.name || p.email);
-      opt.setAttribute("aria-selected", hasRecipient(p.email) ? "true" : "false");
-      if (p.name && p.name !== p.email) {                                                         // «Nombre Apellido» y debajo el correo
-        var nameEl = doc.createElement("span"); nameEl.className = "hc-share-option__name"; nameEl.textContent = p.name;
-        var mailEl = doc.createElement("span"); mailEl.className = "hc-share-option__email"; mailEl.textContent = p.email;
-        opt.appendChild(nameEl); opt.appendChild(mailEl);
-      } else {
-        opt.textContent = p.email;
-      }
-      listEl.appendChild(opt);
-    });
-    if (hint) { hint.textContent = rows.length ? "" : "Sin coincidencias en el directorio."; hint.hidden = rows.length > 0; }
-  }
-
-  // Proveedor «allowlist» (catálogo gobernado transitorio): el servidor resuelve y valida sin Microsoft → no se pide token delegado.
-  function directoryToken(win) {
-    if (shareState.provider === "allowlist") return Promise.resolve("");
-    var tokenFn = win.dwHumanCapitalDirectoryToken;
-    return Promise.resolve(tokenFn ? tokenFn() : "");
-  }
-  function needsToken() { return shareState.provider !== "allowlist"; }
-
-  // Búsqueda con rebote: pide un token DELEGADO (`dwHumanCapitalDirectoryToken`) y consulta el directorio. 503 = bloqueado por permiso; se muestra el aviso y se deshabilita.
-  function runSearch(doc, win) {
-    var input = shareField(doc, "data-share-search");
-    if (!input) return;
-    var q = (input.value || "").trim();
-    var hint = shareField(doc, "data-share-results-hint");
-    if (q.length < MIN_QUERY) { renderResults(doc, []); if (hint) { hint.textContent = "Escribí al menos " + MIN_QUERY + " caracteres para buscar."; hint.hidden = false; } showResults(doc, true); return; }
-    if (shareState.provider === "allowlist") {                                                  // filtro en memoria: sin consultas por tecla
-      if (shareState.catalog === null) { renderResults(doc, []); if (hint) { hint.textContent = "Cargando destinatarios…"; hint.hidden = false; } showResults(doc, true); return; }
-      renderResults(doc, catalogMatches(q)); showResults(doc, true); return;
-    }
-    if (hint) { hint.textContent = "Buscando…"; hint.hidden = false; }
-    showResults(doc, true);
-    var seq = ++shareState._searchSeq;
-    directoryToken(win).then(function (token) {
-      if (seq !== shareState._searchSeq) return;                                                  // llegó tarde: hay una búsqueda más nueva
-      if (!token && needsToken()) { blockDirectory(doc, "No se pudo obtener autorización de Microsoft para buscar en el directorio."); return; }
-      var body = "q=" + encodeURIComponent(q) + "&graph_token=" + encodeURIComponent(token);
-      return win.fetch(DIRECTORY_URL, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: body })
-        .then(function (res) { return res.json().then(function (data) { return { res: res, data: data }; }, function () { return { res: res, data: {} }; }); })
-        .then(function (r) {
-          if (seq !== shareState._searchSeq) return;
-          if (r.res.status === 401) { blockDirectory(doc, "Tu sesión de Microsoft venció. Reingresá y reintentá la búsqueda."); return; }
-          if (r.res.status === 503 || (r.data && r.data.blocked)) { blockDirectory(doc, (r.data && r.data.message) || "La búsqueda de destinatarios no está habilitada."); return; }
-          if (!r.res.ok) { if (hint) { hint.textContent = "No se pudo consultar el directorio. Reintentá."; hint.hidden = false; } return; }
-          renderResults(doc, (r.data && r.data.results) || []);
-        });
-    }).catch(function () { if (seq === shareState._searchSeq && hint) { hint.textContent = "No se pudo consultar el directorio. Reintentá."; hint.hidden = false; } });
-  }
-
-  function blockDirectory(doc, message) {
-    shareState.directoryEnabled = false;
-    var note = shareField(doc, "data-share-dir-blocked"), input = shareField(doc, "data-share-search");
-    if (note) { note.textContent = message || "La búsqueda de destinatarios no está habilitada."; note.hidden = false; }
-    if (input) input.disabled = true;
-    showResults(doc, false);
-    refreshSend(doc);
-  }
+  function hasRecipient(email) { return SR().hasRecipient(HOST, email); }
+  function renderChips(doc) { return SR().renderChips(HOST, doc); }
+  function addRecipient(doc, person) { return SR().addRecipient(HOST, doc, person); }
+  function removeRecipient(doc, email) { return SR().removeRecipient(HOST, doc, email); }
+  function showResults(doc, show) { return SR().showResults(HOST, doc, show); }
+  function renderResults(doc, rows) { return SR().renderResults(HOST, doc, rows); }
+  function directoryToken(win) { return SR().directoryToken(HOST, win); }
+  function needsToken() { return SR().needsToken(HOST); }
+  function runSearch(doc, win) { return SR().runSearch(HOST, doc, win); }
+  function blockDirectory(doc, message) { return SR().blockDirectory(HOST, doc, message); }
 
   // Habilita «Enviar» solo con: proveedor de destinatarios disponible, mensaje listo (CVs elegidos) y ≥1 destinatario; nunca mientras hay un envío en curso o ya se envió.
   function sendReady() {

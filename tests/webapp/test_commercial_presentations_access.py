@@ -272,6 +272,10 @@ def test_t7_the_router_exposes_exactly_the_fourteen_contract_routes_and_none_to_
         ("POST", "/comercial/componentes/duplicar"),
         ("POST", "/comercial/componentes/{component_id}"),
         ("POST", "/comercial/componentes/{component_id}/eliminar"),
+        # «Compartir» de Comercial por correo (Estrategia / presentación / selección): destinatarios y envío, NUNCA administración de templates o seeds.
+        ("POST", "/comercial/compartir/catalogo"),
+        ("POST", "/comercial/compartir/destinatarios"),
+        ("POST", "/comercial/compartir/enviar"),
     }
     assert not any(m in {"PUT", "PATCH", "DELETE"} for m, _ in exposed)
 

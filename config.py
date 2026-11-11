@@ -380,7 +380,11 @@ HC_DIRECTORY_SEARCH_SCOPE = _env("HC_DIRECTORY_SEARCH_SCOPE", "")
 #   "directory" (default, definitivo): directorio Microsoft Entra con el token delegado (requiere HC_DIRECTORY_SEARCH_SCOPE consentido).
 #   "allowlist" (TRANSITORIO, retirable sin tocar la UI): catálogo gobernado = HUMAN_CAPITAL_ALLOWED_USERS (mismo parser y normalización
 #   que la admisión a Capital Humano: alias compacto + AUTH_DEFAULT_DOMAIN), solo direcciones del dominio corporativo. Sin destinatarios externos.
-HC_SHARE_RECIPIENTS_PROVIDER = _env("HC_SHARE_RECIPIENTS_PROVIDER", "directory").strip().lower()
+# TRANSVERSAL (todas las verticales con «Compartir»): `SHARE_RECIPIENTS_PROVIDER` = directory (default) | allowlist (la allowlist de admisión de
+# la vertical de la operación, resuelta por el backend). `HC_SHARE_RECIPIENTS_PROVIDER` queda SOLO como compatibilidad transitoria (se lee si el
+# nombre nuevo no está definido); retirarlo cuando el entorno use `SHARE_RECIPIENTS_PROVIDER`.
+SHARE_RECIPIENTS_PROVIDER = _env("SHARE_RECIPIENTS_PROVIDER", "").strip().lower()
+HC_SHARE_RECIPIENTS_PROVIDER = _env("HC_SHARE_RECIPIENTS_PROVIDER", "").strip().lower()
 # Carga masiva de CVs — Excel modelo descargable (owner, paridad con la app
 # vigente). A diferencia de HC_SHAREPOINT_SITE_ID/DRIVE_ID/HC_CV_ROOT_ITEM_ID
 # arriba, esto NO es identidad Graph (site_id/drive_id/item_id) -- es
