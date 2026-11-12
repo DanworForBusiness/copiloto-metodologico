@@ -575,10 +575,32 @@ def _timenotes_compute(request: Request, graph_token: str, semana: str, estados:
 _TN_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
+def _attach_notif_states(data: dict) -> None:
+    """Reconcilia la columna Notificación con la AUDITORÍA durable (fuente única) por (semana, colaborador). Dimensión SEPARADA: no toca el cálculo de
+    cumplimiento, las horas, la elegibilidad ni las excepciones permanentes. Fail-closed: si la auditoría no se puede verificar, marca
+    `notif_estado='no_verificable'` (nunca un falso «Pendiente»)."""
+    sem = data.get("semana") or {}
+    cols = data.get("colaboradores") or []
+    if not cols:
+        return
+    try:
+        states = timenotes_send.read_week_states(sem.get("inicio", ""), sem.get("fin", ""), [c.get("email", "") for c in cols])
+    except Exception:   # noqa: BLE001 — cualquier fallo de lectura es fail-closed, no un falso Pendiente
+        for c in cols:
+            c["notif_estado"] = "no_verificable"
+        return
+    for c in cols:
+        st = states.get(str(c.get("email", "")).strip().lower())
+        if st:
+            c["notif_estado"] = st
+
+
 def _timenotes_with_exceptions(data: dict) -> dict:
     """Aplica las excepciones PERMANENTES (store `timenotes_exceptions`) al resultado ya calculado: saca a los exceptuados de Colaboradores, recalcula
     el resumen sobre los restantes y arma `excepciones` = TODAS las entradas del registro (también las de quien no está en el padrón de la semana),
     cada una con su fila calculada si existe. No altera el cálculo de horas."""
+    if data.get("status") == timenotes_service.STATUS_OK:
+        _attach_notif_states(data)   # Notificación desde la auditoría durable (fuente única); dimensión independiente del cálculo y de las excepciones
     try:
         excluded = timenotes_exceptions.list_emails(strict=True)
     except timenotes_exceptions.ExceptionsUnavailable as exc:
