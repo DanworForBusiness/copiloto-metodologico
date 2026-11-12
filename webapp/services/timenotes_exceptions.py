@@ -43,9 +43,10 @@ def _read(*, strict: bool = False) -> dict:
         return {}
 
 
-def list_emails() -> set[str]:
-    """Conjunto de emails (minúsculas) excluidos."""
-    return {str(e).strip().lower() for e in (_read().get("emails") or []) if e}
+def list_emails(*, strict: bool = False) -> set[str]:
+    """Conjunto de emails (minúsculas) excluidos. `strict=True` (camino de ENVÍO): un registro existente pero ilegible NO se trata como «sin
+    excepciones» (eso podría notificar a un excluido) → lanza `ExceptionsUnavailable` para que el envío se bloquee (fail-closed)."""
+    return {str(e).strip().lower() for e in (_read(strict=strict).get("emails") or []) if e}
 
 
 def entries() -> list[dict]:

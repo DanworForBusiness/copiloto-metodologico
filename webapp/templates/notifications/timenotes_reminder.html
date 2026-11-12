@@ -1,7 +1,7 @@
 {#- Correo «Recordatorio de carga de horas» (Operaciones → Carga de Horas, acción MANUAL del usuario; individual o lote de N individuales).
     La cabecera (identidad institucional + vertical Operaciones) y el pie vienen de la base compartida `_layout.html`; tabla y botón, de
     `_blocks.html`. Todos los valores llegan escapados por el autoescape de Jinja. Dato personal mínimo: solo el resumen de horas del propio
-    destinatario (exigibles / registradas / faltantes). En modo prueba el asunto se marca [PRUEBA] y el envío se redirige (ver timenotes_send). -#}
+    destinatario (exigibles / registradas / faltantes). El envío es real al correo corporativo del colaborador (del padrón); gated por NOTIFICATIONS_ENABLED (ver timenotes_send). -#}
 {% extends "notifications/_layout.html" %}
 {% import "notifications/_blocks.html" as blocks %}
 {% block content %}

@@ -100,8 +100,7 @@
      data-feriados-detalle="{% for f in (_fer.lista or []) %}{{ f.fecha }} {{ f.descripcion }}{% if f.tipos %} ({{ f.tipos | join(', ') }}){% endif %}{% if not loop.last %}; {% endif %}{% endfor %}"
      data-simulacion="{{ '1' if data.simulacion else '' }}"
      data-enabled="{{ '1' if data.notifications_enabled else '' }}"
-     data-test-recipient="{{ data.test_recipient or '' }}"
-     data-test-mode="{{ '1' if data.test_mode else '' }}"
+     data-excepciones-ok="{{ '' if data.excepciones_no_verificable else '1' }}"
      data-estados-ok="{{ '1' if data.estados_disponibles else '' }}"
      data-inactivos="{{ '1' if data.incluye_inactivos else '' }}"
      data-estados-default="Activo">
@@ -122,6 +121,9 @@
   {% endif %}
   {% if not data.notifications_enabled %}
   <p class="staffing-absence-error" role="status">El envío de correos está deshabilitado en este entorno (NOTIFICATIONS_ENABLED=false): podés revisar el cumplimiento y previsualizar los mensajes, pero no se enviará ningún correo.</p>
+  {% endif %}
+  {% if data.excepciones_no_verificable %}
+  <p class="staffing-absence-error" role="status">No se pudo verificar el registro de excepciones permanentes: por seguridad no se envían recordatorios hasta poder leerlo (un error de lectura NO se interpreta como «sin excepciones»). Reintentá en unos minutos.{% if data.excepciones_detalle %} ({{ data.excepciones_detalle }}){% endif %}</p>
   {% endif %}
 
   {# Barra de filtros — MISMO patrón que Capital Humano → Candidatos (`form.hc-profile-filters.filter-toolbar-card` + `.feedback-field` +

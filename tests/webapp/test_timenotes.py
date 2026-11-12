@@ -153,19 +153,25 @@ def audit_dir(tmp_path, monkeypatch):
     return tmp_path
 
 
-def _one(transport, *, test_mode=False, email="ana@danwor.com"):
+def _one(transport, *, email="ana@danwor.com"):
     return S.send_one(colaborador_email=email, nombre="Ana", semana=SEMANA, exigibles=40, registradas=16, faltantes=24,
-                      actor="op@danwor.com", test_mode=test_mode, enabled=lambda: True, missing=lambda: False, transport=transport)
+                      actor="op@danwor.com", enabled=lambda: True, missing=lambda: False, transport=transport)
 
 
-def test_test_mode_redirects_to_the_actor_and_tags_subject(audit_dir):
+def test_real_send_goes_to_the_collaborator_without_test_prefix(audit_dir):
     seen = {}
     def tx(msg): seen["msg"] = msg; return ("accepted", "HTTP 202")
-    r = _one(tx, test_mode=True)                              # actor = op@danwor.com (ver _one)
-    assert r["status"] == "accepted" and r["recipient"] == "op@danwor.com"
-    assert seen["msg"]["message"]["toRecipients"][0]["emailAddress"]["address"] == "op@danwor.com"
-    assert seen["msg"]["message"]["subject"].startswith("[PRUEBA]")
+    r = _one(tx)                                              # actor = op@danwor.com, pero el destinatario es el colaborador
+    assert r["status"] == "accepted" and r["recipient"] == "ana@danwor.com"
+    assert seen["msg"]["message"]["toRecipients"][0]["emailAddress"]["address"] == "ana@danwor.com"
+    assert not seen["msg"]["message"]["subject"].startswith("[PRUEBA]") and "[PRUEBA]" not in seen["msg"]["message"]["subject"]
+    assert not seen["msg"]["message"].get("ccRecipients") and not seen["msg"]["message"].get("bccRecipients")   # sin copia oculta al actor
     assert "24 h" in seen["msg"]["message"]["body"]["content"]
+
+
+def test_no_only_test_mode_attribute_remains():
+    # El flujo operativo ya no tiene imposición de modo prueba (se retiró ONLY_TEST_MODE y effective_test_mode).
+    assert not hasattr(S, "ONLY_TEST_MODE") and not hasattr(S, "effective_test_mode")
 
 
 def test_resolve_site_id_reuses_the_absence_operations_site():
@@ -184,13 +190,6 @@ def test_download_builds_the_operations_site_content_url():
     assert "Time%20Logs%20Reports.csv" in cap["url"]
 
 
-def test_personalized_real_send_goes_to_the_collaborator(audit_dir):
-    seen = {}
-    def tx(msg): seen["msg"] = msg; return ("accepted", "HTTP 202")
-    r = _one(tx, test_mode=False)
-    assert r["recipient"] == "ana@danwor.com" and not seen["msg"]["message"]["subject"].startswith("[PRUEBA]")
-
-
 def test_duplicate_protection_blocks_resend(audit_dir):
     calls = []
     def tx(msg): calls.append(msg); return ("accepted", "HTTP 202")
@@ -207,22 +206,23 @@ def test_uncertain_is_not_auto_retried(audit_dir):
 
 def test_disabled_writes_no_intent(audit_dir):
     r = S.send_one(colaborador_email="ana@danwor.com", nombre="Ana", semana=SEMANA, exigibles=40, registradas=0, faltantes=40,
-                   actor="op", test_mode=False, enabled=lambda: False, missing=lambda: False, transport=lambda m: ("accepted", ""))
+                   actor="op", enabled=lambda: False, missing=lambda: False, transport=lambda m: ("accepted", ""))
     assert r["status"] == "disabled"
-    assert not (S.audit_root() / S.operation_id_for("2026-11-02", "2026-11-06", "ana@danwor.com", test_mode=False)).exists()
+    assert not (S.audit_root() / S.operation_id_for("2026-11-02", "2026-11-06", "ana@danwor.com")).exists()
 
 
-def test_operation_id_distinguishes_test_and_real():
-    real = S.operation_id_for("2026-11-02", "2026-11-06", "ana@danwor.com", test_mode=False)
-    test = S.operation_id_for("2026-11-02", "2026-11-06", "ana@danwor.com", test_mode=True)
-    assert real != test and real.endswith("-real") and test.endswith("-test")
+def test_operation_id_deterministic_per_week_and_email():
+    a = S.operation_id_for("2026-11-02", "2026-11-06", "ana@danwor.com")
+    assert a == S.operation_id_for("2026-11-02", "2026-11-06", "ana@danwor.com")          # determinístico (anti-duplicado)
+    assert a != S.operation_id_for("2026-11-09", "2026-11-13", "ana@danwor.com")          # otra semana, otra clave
+    assert a != S.operation_id_for("2026-11-02", "2026-11-06", "beto@danwor.com")         # otro colaborador, otra clave
 
 
 def test_batch_runs_n_individual_sends(audit_dir):
     def tx(msg): return ("accepted", "HTTP 202")
     out = S.send_batch([{"email": "a@danwor.com", "nombre": "A", "exigibles": 40, "registradas": 0, "faltantes": 40},
                         {"email": "b@danwor.com", "nombre": "B", "exigibles": 40, "registradas": 10, "faltantes": 30}],
-                       semana=SEMANA, actor="op", test_mode=False, enabled=lambda: True, missing=lambda: False, transport=tx)
+                       semana=SEMANA, actor="op", enabled=lambda: True, missing=lambda: False, transport=tx)
     assert out["resumen"]["total"] == 2 and out["resumen"].get("accepted") == 2
     assert len(out["resultados"]) == 2
 
@@ -258,13 +258,12 @@ def test_notify_blocks_when_source_invalid(monkeypatch):
 def test_notify_skips_non_notificable_and_sends_only_eligible(monkeypatch):
     sent = {}
     monkeypatch.setattr("webapp.routers.staffing.timenotes_service.build_compliance", lambda **k: _ok_compliance())
-    def fake_batch(dest, **k): sent["dest"] = dest; sent["test_mode"] = k.get("test_mode"); return {"resultados": [], "resumen": {"total": len(dest)}}
+    def fake_batch(dest, **k): sent["dest"] = dest; return {"resultados": [], "resumen": {"total": len(dest)}}
     monkeypatch.setattr("webapp.routers.staffing.timenotes_send.send_batch", fake_batch)
-    r = ops().post(NOTIFY, data={"graph_token": "t", "confirm": "yes", "test_mode": "true",
+    r = ops().post(NOTIFY, data={"graph_token": "t", "confirm": "yes",
                                  "emails": ["ana@danwor.com", "beto@danwor.com"]}, headers=ORIGIN)
     assert r.status_code == 200
     assert [d["email"] for d in sent["dest"]] == ["ana@danwor.com"]        # beto (cumple) se omite
-    assert sent["test_mode"] is True
     assert any(s["email"] == "beto@danwor.com" and s["reason"] == "sin_faltantes" for s in r.json()["skipped"])
 
 
@@ -328,6 +327,39 @@ def test_notify_revalidates_exceptions_server_side(monkeypatch, audit_dir):
     r = ops().post(NOTIFY, data={"graph_token": "t", "confirm": "yes", "emails": ["ana@danwor.com"]}, headers=ORIGIN)
     assert r.status_code == 422 and "dest" not in called                                      # nadie elegible: Ana está exceptuada
     assert r.json()["skipped"] == [{"email": "ana@danwor.com", "reason": "en_excepciones"}]
+
+
+def _corrupt_exceptions(audit_dir):
+    p = audit_dir / "operations" / "timenotes" / "exceptions.json"
+    p.parent.mkdir(parents=True)
+    p.write_text("{corrupto", encoding="utf-8")
+    return p
+
+
+def test_list_emails_strict_raises_on_unreadable_register(audit_dir):
+    _corrupt_exceptions(audit_dir)
+    assert X.list_emails() == set()                           # lectura tolerante (vista): no rompe la pantalla
+    with pytest.raises(X.ExceptionsUnavailable):
+        X.list_emails(strict=True)                            # camino de envío: fail-closed, NO «sin excepciones»
+
+
+def test_notify_blocks_when_exceptions_register_unverifiable(monkeypatch, audit_dir):
+    # Registro existente pero ilegible: por seguridad no se envía nada (podría haber un excluido adentro) y el transporte nunca se invoca.
+    _corrupt_exceptions(audit_dir)
+    monkeypatch.setattr("webapp.routers.staffing.timenotes_service.build_compliance", lambda **k: _ok_compliance())
+    called = {}
+    monkeypatch.setattr("webapp.routers.staffing.timenotes_send.send_batch", lambda dest, **k: called.setdefault("dest", dest))
+    r = ops().post(NOTIFY, data={"graph_token": "t", "confirm": "yes", "emails": ["ana@danwor.com"]}, headers=ORIGIN)
+    assert r.status_code == 422 and r.json()["reason"] == "excepciones_no_verificables"
+    assert "dest" not in called                               # no se tocó el transporte
+
+
+def test_data_panel_flags_and_blocks_when_exceptions_unverifiable(monkeypatch, audit_dir):
+    _corrupt_exceptions(audit_dir)
+    monkeypatch.setattr("webapp.routers.staffing.timenotes_service.build_compliance", lambda **k: _ok_compliance())
+    html = ops().post(DATA, data={"graph_token": "t"}, headers=ORIGIN).text
+    assert 'data-excepciones-ok="1"' not in html              # el botón Notificar queda deshabilitado (fail-closed)
+    assert "No se pudo verificar el registro de excepciones" in html
 
 
 def test_panel_renders_exceptions_container_separately(monkeypatch, audit_dir):
@@ -445,32 +477,34 @@ def test_panel_renders_estado_filter_with_activo_by_default(monkeypatch, audit_d
     assert 'data-tn-estados="Activo"' in html and 'data-estados-ok="1"' in html
 
 
-# ═══════════════════════ prueba controlada: el servidor impone el modo prueba ═══════════════════════
+# ═══════════════════════ envío REAL (sin modo prueba en el flujo operativo) ═══════════════════════
 
-def test_server_forces_test_mode_even_if_client_asks_for_real(monkeypatch, audit_dir):
+def test_notify_sends_to_the_collaborator_padron_email(monkeypatch, audit_dir):
     monkeypatch.setattr("webapp.routers.staffing.timenotes_service.build_compliance", lambda **k: _ok_compliance())
-    seen = {}
-    def fake_batch(dest, **k): seen.update(k); return {"resultados": [], "resumen": {"total": len(dest)}}
+    sent = {}
+    def fake_batch(dest, **k): sent["dest"] = dest; return {"resultados": [], "resumen": {"total": len(dest)}}
     monkeypatch.setattr("webapp.routers.staffing.timenotes_send.send_batch", fake_batch)
-    r = ops().post(NOTIFY, data={"graph_token": "t", "confirm": "yes", "test_mode": "false", "emails": ["ana@danwor.com"]}, headers=ORIGIN)
-    assert r.status_code == 200 and seen["test_mode"] is True and r.json()["test_mode"] is True
-    assert S.ONLY_TEST_MODE is True
+    r = ops().post(NOTIFY, data={"graph_token": "t", "confirm": "yes", "emails": ["ana@danwor.com"]}, headers=ORIGIN)
+    assert r.status_code == 200
+    assert [d["email"] for d in sent["dest"]] == ["ana@danwor.com"]         # destinatario = email del padrón (no el actor)
+    assert "test_mode" not in r.json()                                      # el flujo operativo ya no expone modo prueba
+
+
+def test_browser_cannot_inject_an_arbitrary_recipient(monkeypatch, audit_dir):
+    # El destinatario sale del padrón recalculado en servidor (by_email), NUNCA de lo que manda el navegador: un email ajeno se omite.
+    monkeypatch.setattr("webapp.routers.staffing.timenotes_service.build_compliance", lambda **k: _ok_compliance())
+    sent = {}
+    monkeypatch.setattr("webapp.routers.staffing.timenotes_send.send_batch",
+                        lambda dest, **k: (sent.setdefault("dest", dest), {"resultados": [], "resumen": {"total": len(dest)}})[1])
+    r = ops().post(NOTIFY, data={"graph_token": "t", "confirm": "yes", "emails": ["atacante@externo.com"]}, headers=ORIGIN)
+    assert r.status_code == 422 and sent.get("dest") is None
+    assert any(s["email"] == "atacante@externo.com" and s["reason"] == "fuera_del_padron" for s in r.json()["skipped"])
 
 
 def test_panel_has_no_test_mode_switch(monkeypatch, audit_dir):
     monkeypatch.setattr("webapp.routers.staffing.timenotes_service.build_compliance", lambda **k: _ok_compliance())
     html = ops().post(DATA, data={"graph_token": "t"}, headers=ORIGIN).text
-    assert "data-tn-test-mode" not in html and "Modo prueba" not in html and 'data-test-mode="1"' in html
-
-
-def test_test_mode_message_goes_only_to_actor(audit_dir):
-    sent = {}
-    def tx(msg): sent["msg"] = msg; return ("accepted", "HTTP 202")
-    out = S.send_one(colaborador_email="ana@danwor.com", nombre="Ana", semana=SEMANA, exigibles=40, registradas=16, faltantes=24,
-                     actor="owner@danwor.com", test_mode=True, enabled=lambda: True, missing=lambda: False, transport=tx)
-    to = [r["emailAddress"]["address"] for r in sent["msg"]["message"]["toRecipients"]]
-    assert to == ["owner@danwor.com"] and "ana@danwor.com" not in str(sent["msg"]["message"].get("ccRecipients", "")) + str(sent["msg"]["message"].get("bccRecipients", ""))
-    assert sent["msg"]["message"]["subject"].startswith("[PRUEBA] ") and out["recipient"] == "owner@danwor.com"
+    assert "data-tn-test-mode" not in html and "Modo prueba" not in html and "[PRUEBA]" not in html
 
 
 def test_panel_rerender_keeps_the_requested_estados_checked(monkeypatch, audit_dir):
@@ -561,7 +595,8 @@ def test_preview_action_hidden_but_endpoint_kept(monkeypatch, audit_dir):
     assert "data-tn-preview=" not in html and 'data-tn-exc-add="ana@danwor.com"' in html     # sin «ojo»; «Mover a excepciones» sigue
     assert 'id="tn-preview-dialog"' in html                                                  # el diálogo se conserva
     r = ops().post("/operaciones/staffing/carga-horas/preview", data={"graph_token": "t", "email": "ana@danwor.com"}, headers=ORIGIN)
-    assert r.status_code == 200 and r.json()["subject"].startswith("[PRUEBA] ")             # el endpoint sigue operativo
+    assert r.status_code == 200 and r.json()["subject"].startswith("Recordatorio de carga de horas")  # endpoint operativo, asunto real (sin [PRUEBA])
+    assert "[PRUEBA]" not in r.json()["subject"]
 
 
 # ═══════════════════════ Horas base de consulta (simulación) ═══════════════════════

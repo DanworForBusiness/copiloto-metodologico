@@ -579,7 +579,14 @@ def _timenotes_with_exceptions(data: dict) -> dict:
     """Aplica las excepciones PERMANENTES (store `timenotes_exceptions`) al resultado ya calculado: saca a los exceptuados de Colaboradores, recalcula
     el resumen sobre los restantes y arma `excepciones` = TODAS las entradas del registro (también las de quien no está en el padrón de la semana),
     cada una con su fila calculada si existe. No altera el cálculo de horas."""
-    excluded = timenotes_exceptions.list_emails()
+    try:
+        excluded = timenotes_exceptions.list_emails(strict=True)
+    except timenotes_exceptions.ExceptionsUnavailable as exc:
+        # Fail-closed: si el registro de excepciones existe pero no se puede verificar, NO se excluye a ciegas y se BLOQUEA el envío (la UI avisa;
+        # `notificar` responde 422). Nunca se trata un error de lectura como «sin excepciones».
+        data["excepciones_no_verificable"] = True
+        data["excepciones_detalle"] = str(exc)
+        return data
     data = timenotes_exceptions.apply(data, excluded)
     if data.get("status") == timenotes_service.STATUS_OK:
         rows = {c["email"]: c for c in data.get("excepciones_manuales_rows") or []}
@@ -620,13 +627,11 @@ def timenotes_data(request: Request, graph_token: str = Form(""), semana: str = 
     presentes = {e for c in data.get("colaboradores") or [] for e in (c.get("estados") or [])}
     data["estados_opciones"] = list(timenotes_service.ESTADOS_CONOCIDOS) + sorted(presentes - set(timenotes_service.ESTADOS_CONOCIDOS))
     data["notifications_enabled"] = notifications.enabled()
-    data["test_recipient"] = _timenotes_actor(request)        # modo prueba redirige a la propia casilla del usuario (sin config)
-    data["test_mode"] = timenotes_send.effective_test_mode(None)
     return templates.TemplateResponse(request=request, name="operations/timenotes_panel.html", context={"data": data})
 
 
 @router.post("/operaciones/staffing/carga-horas/preview", include_in_schema=False)
-def timenotes_preview(request: Request, graph_token: str = Form(""), email: str = Form(""), semana: str = Form(""), test_mode: str = Form("true")):
+def timenotes_preview(request: Request, graph_token: str = Form(""), email: str = Form(""), semana: str = Form("")):
     """Previsualización del correo de UN colaborador (revisión antes de enviar). Recalcula en servidor: nunca arma el mensaje con números del cliente."""
     redirect = _require_operations_session(request, next_path="/operaciones/staffing/asignaciones")
     if redirect is not None:
@@ -646,19 +651,18 @@ def timenotes_preview(request: Request, graph_token: str = Form(""), email: str 
         return JSONResponse({"error": "Colaborador no encontrado en el padrón de la semana."}, status_code=404)
     if not c.get("obligacion", True):
         return JSONResponse({"error": "Sin mínimo semanal definido para este colaborador (disponibilidad: " + str(c.get("disponibilidad") or "Sin dato") + "): no corresponde un recordatorio."}, status_code=409)
-    tmode = timenotes_send.effective_test_mode(test_mode)
-    recipient, err = timenotes_send.resolve_recipient(c["email"], test_mode=tmode, actor=_timenotes_actor(request))
+    recipient, err = timenotes_send.resolve_recipient(c["email"])
     msg = timenotes_send.build_message(
         colaborador_email=c["email"], nombre=c["nombre"], semana_label=data["semana"]["label"],
         exigibles=c["horas_exigibles"], registradas=c["horas_registradas"], faltantes=c["faltantes"],
-        recipient=recipient or c["email"], test_mode=tmode)
+        recipient=recipient or c["email"])
     return JSONResponse({"subject": msg["message"]["subject"], "html": msg["message"]["body"]["content"],
-                         "recipient": recipient, "test_mode": tmode, "recipient_error": err})
+                         "recipient": recipient, "recipient_error": err})
 
 
 @router.post("/operaciones/staffing/carga-horas/notificar", include_in_schema=False)
 def timenotes_notify(request: Request, graph_token: str = Form(""), semana: str = Form(""),
-                     test_mode: str = Form("true"), confirm: str = Form(""), emails: list[str] = Form([]),
+                     confirm: str = Form(""), emails: list[str] = Form([]),
                      estados: list[str] = Form([]), estados_presentes: str = Form(""), horas_base: str = Form(""),
                      feriados_tipos: list[str] = Form([])):
     """Envío MANUAL (individual o lote). Recalcula en servidor y SOLO notifica a colaboradores elegibles (faltantes y sin excepción pendiente):
@@ -694,7 +698,13 @@ def timenotes_notify(request: Request, graph_token: str = Form(""), semana: str 
                             status_code=422)
 
     # Revalidación en servidor: las excepciones permanentes vigentes AL MOMENTO DEL ENVÍO se excluyen siempre (aunque el cliente las mande).
-    excluded = timenotes_exceptions.list_emails()
+    # Fail-closed: si el registro de excepciones existe pero NO se puede verificar, no se envía nada (evita notificar a un excluido).
+    try:
+        excluded = timenotes_exceptions.list_emails(strict=True)
+    except timenotes_exceptions.ExceptionsUnavailable as exc:
+        return JSONResponse({"status": "blocked", "reason": "excepciones_no_verificables",
+                             "message": "No se puede notificar: no se pudo verificar el registro de excepciones permanentes. " + str(exc)},
+                            status_code=422)
     by_email = {c["email"]: c for c in data["colaboradores"]}
     requested = [e.strip().lower() for e in (emails or []) if e and e.strip()]
     destinatarios, skipped = [], []
@@ -716,9 +726,8 @@ def timenotes_notify(request: Request, graph_token: str = Form(""), semana: str 
     if not destinatarios:
         return JSONResponse({"status": "nada", "message": "No hay destinatarios elegibles para notificar.", "skipped": skipped}, status_code=422)
 
-    tmode = timenotes_send.effective_test_mode(test_mode)
-    batch = timenotes_send.send_batch(destinatarios, semana=data["semana"], actor=_timenotes_actor(request), test_mode=tmode)
-    return JSONResponse({"status": "ok", "test_mode": tmode, "skipped": skipped, **batch})
+    batch = timenotes_send.send_batch(destinatarios, semana=data["semana"], actor=_timenotes_actor(request))
+    return JSONResponse({"status": "ok", "skipped": skipped, **batch})
 
 
 def _timenotes_exception_guard(request: Request):

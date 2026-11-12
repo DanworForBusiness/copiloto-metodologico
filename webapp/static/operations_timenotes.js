@@ -158,8 +158,8 @@
     if (hint) hint.textContent = outside > 0 ? outside + " fuera de este filtro" : "";
     var nb = r.querySelector("[data-tn-notify]");
     if (nb && !nb.getAttribute("data-tn-busy")) {
-      var sim = r.getAttribute("data-simulacion") === "1";
-      nb.disabled = size === 0 || sim;                                          // simulación de horas base: sin envíos
+      var blocked = r.getAttribute("data-simulacion") === "1" || r.getAttribute("data-excepciones-ok") !== "1";
+      nb.disabled = size === 0 || blocked;                                      // simulación o registro de excepciones no verificable: sin envíos
       if (sim) nb.title = "Simulación de horas base: volvé a 40 h para notificar."; else nb.removeAttribute("title");
     }
   }
@@ -226,7 +226,7 @@
         .then(function (x) {
           if (!current()) return;                                                 // diálogo cerrado u otro colaborador: respuesta descartada
           if (!x.ok) { fail((x.d && x.d.error) || "Intentá de nuevo en unos minutos."); return; }
-          if (subj) subj.textContent = "Asunto: " + x.d.subject + (x.d.test_mode ? "  ·  Destinatario (prueba): " + (x.d.recipient || "—") : "");
+          if (subj) subj.textContent = "Asunto: " + x.d.subject + (x.d.recipient ? "  ·  Destinatario: " + x.d.recipient : "");
           if (bodyEl) {
             bodyEl.textContent = "";
             var frame = doc.createElement("iframe");
@@ -244,14 +244,11 @@
     var emails = selected();
     if (!emails.length) return;
     if (r.getAttribute("data-simulacion") === "1") { feedback(doc, "No se envían recordatorios en simulación.", "Volvé a 40 h de base para notificar.", "punch"); return; }
-    var testMode = r.getAttribute("data-test-mode") === "1";                       // informado por el servidor (sin interruptor en la UI)
-    var testTo = r.getAttribute("data-test-recipient") || "";
-    if (testMode && !testTo) { feedback(doc, "No se puede enviar la prueba", "Tu sesión no tiene un correo válido para recibirla. No se envió nada.", "warn"); return; }
+    if (r.getAttribute("data-excepciones-ok") !== "1") { feedback(doc, "No se puede notificar.", "No se pudo verificar el registro de excepciones permanentes; reintentá en unos minutos.", "warn"); return; }
     var n = emails.length;
     var msg = (n === 1 ? "Vas a enviar un recordatorio de carga de horas al colaborador seleccionado."
                        : "Vas a enviar recordatorios de carga de horas a " + n + " colaboradores seleccionados.") +
-              (testMode ? "\n\nEnvío de prueba: " + (n === 1 ? "el correo llegará" : "los correos llegarán") + " solo a tu casilla (" + testTo + "), no " + (n === 1 ? "al colaborador" : "a los colaboradores") + "." : "") +
-              "\n\n¿Confirmás el envío?";
+              "\n\nCada correo se envía al email corporativo del colaborador. ¿Confirmás el envío?";
     var ask = win.dwConfirm ? win.dwConfirm({ title: "Enviar recordatorios", message: msg, confirmLabel: "Enviar", cancelLabel: "Cancelar", okClass: "btn-primary" })
                             : Promise.resolve(win.confirm(msg));
     Promise.resolve(ask).then(function (ok) { if (ok) doNotify(doc, win, r, emails); });
@@ -296,9 +293,9 @@
       var row = r.querySelector('[data-tn-email="' + (res.colaborador || "").replace(/"/g, "") + '"]');
       var cell = row && row.querySelector("[data-tn-notif-state]");
       var ok = res.status === "accepted" || res.status === "duplicate";
-      // Texto corto (la columna es angosta y el badge recorta); la prueba se distingue por el tono secundario azul y el detalle va en el tooltip.
-      setBadge(cell, ok && res.test_mode ? "blue" : (TONES[res.status] || "grey"), LABELS[res.status] || res.status);
-      if (cell) cell.title = (res.test_mode ? "Envío de prueba" : "Envío") + (res.recipient ? " · destinatario efectivo: " + res.recipient : "") +
+      // Texto corto (la columna es angosta y el badge recorta); el detalle va en el tooltip.
+      setBadge(cell, TONES[res.status] || "grey", LABELS[res.status] || res.status);
+      if (cell) cell.title = "Envío" + (res.recipient ? " · destinatario: " + res.recipient : "") +
                              (res.status === "uncertain" ? " · no reintentar sin verificar" : "") + (res.status === "accepted" ? " · Microsoft aceptó el envío (no confirma entrega)" : "");
     });
     var m = resultMessage(x.d);
@@ -310,11 +307,10 @@
   function resultMessage(d) {
     var rs = d.resumen || {}, total = rs.total || 0, acc = rs.accepted || 0, dup = rs.duplicate || 0, fail = (rs.failed || 0) + (rs.error || 0) + (rs.config_incomplete || 0),
         unc = rs.uncertain || 0, dis = rs.disabled || 0, skipped = (d.skipped || []).length;
-    var prueba = d.test_mode ? " Envío de prueba: se dirigió a tu casilla, no " + (total === 1 ? "al colaborador." : "a los colaboradores.") : "";
     var omit = skipped ? " " + skipped + (skipped === 1 ? " colaborador omitido" : " colaboradores omitidos") + " por no ser elegible." : "";
     if (total && acc === total) {
       return { tone: "success", title: total === 1 ? "Microsoft aceptó el envío del recordatorio." : "Microsoft aceptó el envío de " + total + " recordatorios.",
-               text: (prueba + omit).trim() };
+               text: omit.trim() };
     }
     if (total && dup === total) return { tone: "punch", title: total === 1 ? "El recordatorio ya se había enviado." : "Los recordatorios ya se habían enviado.", text: "No se reenvió." + omit };
     if (total && unc === total) return { tone: "punch", title: total === 1 ? "Envío sin confirmación de Microsoft." : "Envíos sin confirmación de Microsoft.", text: "No se reenvía automáticamente: verificá antes de reintentar." + omit };
