@@ -249,7 +249,9 @@ def test_panel_without_results_still_renders_the_bar_so_a_cross_filter_selection
 
 def test_selection_bar_css_hides_for_real_and_does_not_redefine_the_shared_clear_component():
     css = (_ROOT / "webapp" / "static" / "human_capital.css").read_text(encoding="utf-8")
-    assert ".hc-selection-bar[hidden] { display: none; }" in css                       # `display:flex` de la barra pisaría el atributo `hidden`
+    shared = (_ROOT / "webapp" / "static" / "tools.css").read_text(encoding="utf-8")   # la barra genérica vive en tools.css (componente transversal)
+    assert ".hc-selection-bar[hidden] { display: none; }" in shared                    # `display:flex` de la barra pisaría el atributo `hidden`
+    assert ".hc-selection-bar {" not in css                                             # sin una segunda definición en la hoja de CCHH
     assert not re.search(r"(^|\n)\s*\.whatsnew-filter__clear\s*(\{|,|:)", css)          # el estilo base vive en tools.css; acá solo el ajuste de alineación dentro de la barra
     assert "whatsnew-filter__clear" not in css                                          # ni siquiera un ajuste de alineación: el «✕ Limpiar» de la barra es EXACTAMENTE el de los filtros
     assert ".hc-selection-bar button:disabled" not in css and ".hc-selection-bar .whatsnew-filter__clear {" not in css

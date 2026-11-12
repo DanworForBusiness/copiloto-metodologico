@@ -150,7 +150,12 @@ SPACES_SYNC_INTERVAL = int(_env("SPACES_SYNC_INTERVAL", "120"))  # segundos entr
 PERSIST_PATHS     = [p.strip() for p in _env(
     "SPACES_PERSIST_PATHS",
     "catalog_local,case_library,feedback_log,activity_log,reports,reporting_cache,human-capital,"
-    "commercial_strategy_runtime,commercial-licensing-priority,governed-assessments,notifications"
+    "commercial_strategy_runtime,commercial-licensing-priority,governed-assessments,notifications,"
+    # Carga de Horas (Operaciones → Asignaciones): excepciones permanentes + auditoría de recordatorios
+    # (`operations/timenotes/`). DEPLOYMENT: si el entorno YA define `SPACES_PERSIST_PATHS` explícito (override
+    # de este default), hay que SUMAR "operations/timenotes" a esa variable en DO, o el FS efímero perdería las
+    # excepciones y la auditoría en cada redeploy. Mismo criterio que "notifications"/"human-capital" arriba.
+    "operations/timenotes"
 ).split(",") if p.strip()]
 # ── Modo de persistencia (DANWOR_PERSISTENCE) ────────────────────────────────────────────────────────────────────────────
 # Las credenciales SPACES_* dicen qué está DISPONIBLE, no qué está AUTORIZADO: tenerlas en un `.env` local NO debe habilitar restore/sync/escrituras contra el

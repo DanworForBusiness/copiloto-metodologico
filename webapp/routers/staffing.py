@@ -67,14 +67,16 @@ página real se re-inicializa y dispara su propio POST de HTMX fresco).
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from core.content_registry import DEFAULT_PACK
-from webapp import hub_metrics_access, operations_access, workspaces
+from webapp import hub_metrics_access, operations_access, same_origin_guard, workspaces
 from webapp.services import auth_service, feedback_store
+from webapp.services import timenotes_service, timenotes_send, timenotes_exceptions, notifications
 from webapp.services.activity_service import log_activity, log_verbose
 from webapp.services.activity_context import (
     SCOPE_OPERATIONS, AREA_STAFFING,
@@ -509,3 +511,263 @@ def staffing_page_compat():
 @router.post("/operations/staffing/data", include_in_schema=False)
 def staffing_data_compat():
     return RedirectResponse("/operaciones/staffing/asignaciones/data", status_code=307)
+
+
+# ───────────────────────── Carga de Horas (Operaciones → 01. Asignaciones → vista «Carga de Horas») ─────────────────────────
+# Vista alternativa del MISMO módulo (OP01), seleccionable con la botonera `.dashboard-view-switch` del hero. Reemplaza SOLO el contenido central
+# (`#staffing-rows`); la navegación, la cabecera y la vista Asignaciones no cambian. Cálculo en `timenotes_service` (independiente de UI y envío);
+# envío en `timenotes_send` (reusa `institutional_mail`). Lectura con el MISMO token delegado base que Staffing (`data-dw-graph-token`).
+
+def _timenotes_week(semana: str):
+    """`semana` = una fecha YYYY-MM-DD dentro de la semana deseada; vacío = semana anterior completa (L–V)."""
+    s = (semana or "").strip()
+    if s:
+        try:
+            return timenotes_service.week_range(datetime.strptime(s, "%Y-%m-%d").date())
+        except ValueError:
+            pass
+    return timenotes_service.previous_week()
+
+
+def _timenotes_actor(request: Request) -> str:
+    u = auth_service.session_user(request) or {}
+    return str(u.get("email") or u.get("username") or u.get("sub") or "")
+
+
+def _timenotes_estados(estados: list[str], presentes: str) -> list[str]:
+    """Estados de asignación elegidos en el filtro (P7). Sin el marcador `estados_presentes` (primer ingreso / cliente viejo) → default (Activo).
+    Con el marcador, la lista se respeta tal cual (incluso vacía)."""
+    if not presentes:
+        return list(timenotes_service.ESTADOS_DEFAULT)
+    return [e.strip() for e in (estados or []) if e and e.strip()]
+
+
+def _timenotes_cache_scope(request: Request):
+    # MISMA identidad estable de sesión que usa Asignaciones para su cache de dimensiones (nunca el graph_token).
+    user = auth_service.session_user(request) or {}
+    return str(user.get("username") or user.get("email") or user.get("sub") or "") or None
+
+
+def _timenotes_horas_base(raw: str) -> float:
+    """Horas base de CONSULTA (simulación, owner 2026-11-12): 1–80 h en pasos de 0,5; vacío/ inválido → la regla vigente (40 h)."""
+    try:
+        v = round(float(str(raw or "").replace(",", ".")) * 2) / 2
+    except ValueError:
+        return timenotes_service.WEEKLY_HOURS
+    return v if 1 <= v <= 80 else timenotes_service.WEEKLY_HOURS
+
+
+def _timenotes_feriados(tipos: list[str], presentes: str) -> tuple:
+    """Tipos de feriado elegidos. Sin el marcador del form (primer ingreso / cliente viejo) → regla operativa (solo Inamovible)."""
+    if not presentes:
+        return timenotes_service.HOLIDAY_TYPES_DEFAULT
+    return timenotes_service.holiday_types_selection(tipos)
+
+
+def _timenotes_compute(request: Request, graph_token: str, semana: str, estados: list[str], weekly_hours: float | None = None,
+                       holiday_types: tuple | None = None) -> dict:
+    # `weekly_hours` SOLO lo pasa la vista (simulación); el envío y la previsualización calculan siempre con la regla vigente (40 h).
+    return timenotes_service.build_compliance(
+        token=graph_token, week=_timenotes_week(semana), weekly_hours=weekly_hours, holiday_types=holiday_types,
+        include_inactive=timenotes_service.estados_requieren_inactivos(estados), cache_scope=_timenotes_cache_scope(request))
+
+
+_TN_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _timenotes_with_exceptions(data: dict) -> dict:
+    """Aplica las excepciones PERMANENTES (store `timenotes_exceptions`) al resultado ya calculado: saca a los exceptuados de Colaboradores, recalcula
+    el resumen sobre los restantes y arma `excepciones` = TODAS las entradas del registro (también las de quien no está en el padrón de la semana),
+    cada una con su fila calculada si existe. No altera el cálculo de horas."""
+    try:
+        excluded = timenotes_exceptions.list_emails(strict=True)
+    except timenotes_exceptions.ExceptionsUnavailable as exc:
+        # Fail-closed: si el registro de excepciones existe pero no se puede verificar, NO se excluye a ciegas y se BLOQUEA el envío (la UI avisa;
+        # `notificar` responde 422). Nunca se trata un error de lectura como «sin excepciones».
+        data["excepciones_no_verificable"] = True
+        data["excepciones_detalle"] = str(exc)
+        return data
+    data = timenotes_exceptions.apply(data, excluded)
+    if data.get("status") == timenotes_service.STATUS_OK:
+        rows = {c["email"]: c for c in data.get("excepciones_manuales_rows") or []}
+        data["excepciones"] = [dict(e, fila=rows.get(e["email"])) for e in timenotes_exceptions.entries()
+                               if not timenotes_service.is_non_collaborator(e["email"])]
+    return data
+
+
+@router.post("/operaciones/staffing/carga-horas/data", response_class=HTMLResponse, include_in_schema=False)
+def timenotes_data(request: Request, graph_token: str = Form(""), semana: str = Form(""),
+                   estados: list[str] = Form([]), estados_presentes: str = Form(""),
+                   disponibilidad: str = Form(""), cumplimiento: str = Form(""), q: str = Form(""), horas_base: str = Form(""),
+                   feriados_tipos: list[str] = Form([])):
+    """Panel de cumplimiento (HTMX → `#staffing-rows`). Sin token: ofrece la recuperación Graph compartida (mismo criterio que Asignaciones)."""
+    redirect = _require_operations_session(request, next_path="/operaciones/staffing/asignaciones")
+    if redirect is not None:
+        return redirect
+    if not graph_token:
+        return templates.TemplateResponse(request=request, name="operations/timenotes_panel.html", context={"data": {"status": "missing_token"}})
+    sel = _timenotes_estados(estados, estados_presentes)
+    hb = _timenotes_horas_base(horas_base)
+    tipos = _timenotes_feriados(feriados_tipos, estados_presentes)
+    data = _timenotes_with_exceptions(_timenotes_compute(request, graph_token, semana, sel, weekly_hours=hb, holiday_types=tipos))
+    # Simulación = cualquier consulta distinta de la regla operativa (40 h + feriados Inamovible): se ve, pero no se notifica.
+    data["feriados_tipos_sel"] = list(tipos)
+    data["simulacion_motivos"] = ([f"horas base {hb:g} h"] if hb != timenotes_service.WEEKLY_HOURS else []) + \
+        ([("feriados: " + (", ".join(tipos) or "ninguno"))] if tipos != timenotes_service.HOLIDAY_TYPES_DEFAULT else [])
+    data["simulacion"] = bool(data["simulacion_motivos"])
+    data["estados_sel"] = sel
+    # Filtros locales: viajan con el form para CONSERVARSE en recargas (semana / Estado con historial). Primer ingreso → valores aprobados.
+    data["filtros"] = {
+        "disponibilidad": (disponibilidad or "").strip() if estados_presentes else timenotes_service.DISPONIBILIDAD_DEFAULT,
+        "cumplimiento": (cumplimiento or "").strip() if estados_presentes else "faltantes",
+        "q": (q or "").strip()[:120],
+    }
+    disp = {c.get("disponibilidad") for c in data.get("colaboradores") or [] if c.get("disponibilidad")}
+    data["disponibilidad_opciones"] = sorted(disp | {timenotes_service.DISPONIBILIDAD_DEFAULT})
+    presentes = {e for c in data.get("colaboradores") or [] for e in (c.get("estados") or [])}
+    data["estados_opciones"] = list(timenotes_service.ESTADOS_CONOCIDOS) + sorted(presentes - set(timenotes_service.ESTADOS_CONOCIDOS))
+    data["notifications_enabled"] = notifications.enabled()
+    return templates.TemplateResponse(request=request, name="operations/timenotes_panel.html", context={"data": data})
+
+
+@router.post("/operaciones/staffing/carga-horas/preview", include_in_schema=False)
+def timenotes_preview(request: Request, graph_token: str = Form(""), email: str = Form(""), semana: str = Form("")):
+    """Previsualización del correo de UN colaborador (revisión antes de enviar). Recalcula en servidor: nunca arma el mensaje con números del cliente."""
+    redirect = _require_operations_session(request, next_path="/operaciones/staffing/asignaciones")
+    if redirect is not None:
+        return redirect
+    if not same_origin_guard.is_same_origin_write(request):
+        return JSONResponse({"error": "Origen no permitido"}, status_code=403)
+    if not graph_token:
+        return JSONResponse({"error": "Sin autorización de Microsoft"}, status_code=401)
+    data = timenotes_service.build_compliance(token=graph_token, week=_timenotes_week(semana))
+    if data["status"] != timenotes_service.STATUS_OK:
+        return JSONResponse({"error": "No se puede previsualizar: los datos de origen no son válidos.", "reason": data["status"]}, status_code=422)
+    target = (email or "").strip().lower()
+    if target in timenotes_exceptions.list_emails():
+        return JSONResponse({"error": "El colaborador está en Excepciones: no recibe recordatorios."}, status_code=409)
+    c = next((x for x in data["colaboradores"] if x["email"] == target), None)
+    if c is None:
+        return JSONResponse({"error": "Colaborador no encontrado en el padrón de la semana."}, status_code=404)
+    if not c.get("obligacion", True):
+        return JSONResponse({"error": "Sin mínimo semanal definido para este colaborador (disponibilidad: " + str(c.get("disponibilidad") or "Sin dato") + "): no corresponde un recordatorio."}, status_code=409)
+    recipient, err = timenotes_send.resolve_recipient(c["email"])
+    msg = timenotes_send.build_message(
+        colaborador_email=c["email"], nombre=c["nombre"], semana_label=data["semana"]["label"],
+        exigibles=c["horas_exigibles"], registradas=c["horas_registradas"], faltantes=c["faltantes"],
+        recipient=recipient or c["email"])
+    return JSONResponse({"subject": msg["message"]["subject"], "html": msg["message"]["body"]["content"],
+                         "recipient": recipient, "recipient_error": err})
+
+
+@router.post("/operaciones/staffing/carga-horas/notificar", include_in_schema=False)
+def timenotes_notify(request: Request, graph_token: str = Form(""), semana: str = Form(""),
+                     confirm: str = Form(""), emails: list[str] = Form([]),
+                     estados: list[str] = Form([]), estados_presentes: str = Form(""), horas_base: str = Form(""),
+                     feriados_tipos: list[str] = Form([])):
+    """Envío MANUAL (individual o lote). Recalcula en servidor y SOLO notifica a colaboradores elegibles (faltantes y sin excepción pendiente):
+    nunca notifica con datos inválidos/incompletos ni a quien tiene una excepción a revisar. Confirmación explícita obligatoria."""
+    redirect = _require_operations_session(request, next_path="/operaciones/staffing/asignaciones")
+    if redirect is not None:
+        return redirect
+    if not same_origin_guard.is_same_origin_write(request):
+        return JSONResponse({"status": "error", "message": "Origen no permitido"}, status_code=403)
+    if str(confirm).lower() not in {"yes", "true", "1", "on"}:
+        return JSONResponse({"status": "error", "message": "Falta la confirmación explícita del envío."}, status_code=400)
+    if not graph_token:
+        return JSONResponse({"status": "error", "message": "Sin autorización de Microsoft."}, status_code=401)
+
+    if (horas_base and _timenotes_horas_base(horas_base) != timenotes_service.WEEKLY_HOURS) or \
+            (estados_presentes and _timenotes_feriados(feriados_tipos, estados_presentes) != timenotes_service.HOLIDAY_TYPES_DEFAULT):
+        return JSONResponse({"status": "blocked", "reason": "simulacion",
+                             "message": "La vista está en simulación (horas base o tipos de feriado distintos de la regla): no se envían recordatorios. Volvé a 40 h y solo Inamovible para notificar."},
+                            status_code=409)
+    sel = set(_timenotes_estados(estados, estados_presentes))
+    data = _timenotes_compute(request, graph_token, semana, sel)          # SIEMPRE con la regla vigente (40 h), nunca con la simulación
+    if data["status"] == timenotes_service.STATUS_OK and not (data.get("feriados") or {}).get("verificado", True):
+        return JSONResponse({"status": "blocked", "reason": "feriados_no_verificados",
+                             "message": "No se puede notificar: el calendario de feriados no se pudo validar. " + str((data.get("feriados") or {}).get("detalle") or "")},
+                            status_code=422)
+    if data["status"] == timenotes_service.STATUS_OK and not data.get("estados_disponibles"):
+        return JSONResponse({"status": "blocked", "reason": "estados_no_disponibles",
+                             "message": "No se puede notificar: no se pudo verificar el estado de asignación de los colaboradores."},
+                            status_code=422)
+    if data["status"] != timenotes_service.STATUS_OK:
+        return JSONResponse({"status": "blocked", "reason": data["status"],
+                             "message": "No se puede notificar: los datos de origen no son válidos o están incompletos. " + str(data.get("detalle") or "")},
+                            status_code=422)
+
+    # Revalidación en servidor: las excepciones permanentes vigentes AL MOMENTO DEL ENVÍO se excluyen siempre (aunque el cliente las mande).
+    # Fail-closed: si el registro de excepciones existe pero NO se puede verificar, no se envía nada (evita notificar a un excluido).
+    try:
+        excluded = timenotes_exceptions.list_emails(strict=True)
+    except timenotes_exceptions.ExceptionsUnavailable as exc:
+        return JSONResponse({"status": "blocked", "reason": "excepciones_no_verificables",
+                             "message": "No se puede notificar: no se pudo verificar el registro de excepciones permanentes. " + str(exc)},
+                            status_code=422)
+    by_email = {c["email"]: c for c in data["colaboradores"]}
+    requested = [e.strip().lower() for e in (emails or []) if e and e.strip()]
+    destinatarios, skipped = [], []
+    for e in requested:
+        c = by_email.get(e)
+        if e in excluded:
+            skipped.append({"email": e, "reason": "en_excepciones"})
+        elif c is not None and not c.get("obligacion", True):
+            skipped.append({"email": e, "reason": "sin_obligacion_definida"})   # Part Time / sin dato: sin mínimo semanal aprobado
+        elif c is not None and not (set(c.get("estados") or []) & sel):
+            skipped.append({"email": e, "reason": "fuera_del_estado"})     # revalidación: fuera del universo de Estado elegido
+        elif c is None:
+            skipped.append({"email": e, "reason": "fuera_del_padron"})
+        elif not c["notificable"]:
+            skipped.append({"email": e, "reason": "con_excepcion_a_revisar" if c["revisar_excepcion"] else "sin_faltantes"})
+        else:
+            destinatarios.append({"email": c["email"], "nombre": c["nombre"], "exigibles": c["horas_exigibles"],
+                                  "registradas": c["horas_registradas"], "faltantes": c["faltantes"]})
+    if not destinatarios:
+        return JSONResponse({"status": "nada", "message": "No hay destinatarios elegibles para notificar.", "skipped": skipped}, status_code=422)
+
+    batch = timenotes_send.send_batch(destinatarios, semana=data["semana"], actor=_timenotes_actor(request))
+    return JSONResponse({"status": "ok", "skipped": skipped, **batch})
+
+
+def _timenotes_exception_guard(request: Request):
+    redirect = _require_operations_session(request, next_path="/operaciones/staffing/asignaciones")
+    if redirect is not None:
+        return redirect
+    if not same_origin_guard.is_same_origin_write(request):
+        return JSONResponse({"status": "error", "message": "Origen no permitido"}, status_code=403)
+    return None
+
+
+@router.post("/operaciones/staffing/carga-horas/excepciones/mover", include_in_schema=False)
+def timenotes_exception_add(request: Request, email: str = Form(""), nombre: str = Form("")):
+    """«Mover a excepciones»: alta PERMANENTE del colaborador en el registro durable (hasta reincorporarlo). No toca el CSV ni el padrón; el
+    envío vuelve a validar el registro en servidor (`notificar`)."""
+    blocked = _timenotes_exception_guard(request)
+    if blocked is not None:
+        return blocked
+    em = (email or "").strip().lower()
+    if not _TN_EMAIL_RE.match(em):
+        return JSONResponse({"status": "error", "message": "Email inválido."}, status_code=400)
+    try:
+        timenotes_exceptions.add([{"email": em, "nombre": (nombre or "").strip()[:200]}], actor=_timenotes_actor(request))
+    except timenotes_exceptions.ExceptionsUnavailable as exc:
+        return JSONResponse({"status": "error", "message": f"No se pudo guardar la excepción ({exc}). No se aplicó ningún cambio."}, status_code=503)
+    entry = next((e for e in timenotes_exceptions.entries() if e["email"] == em), None)
+    return JSONResponse({"status": "ok", "entry": entry})
+
+
+@router.post("/operaciones/staffing/carga-horas/excepciones/devolver", include_in_schema=False)
+def timenotes_exception_remove(request: Request, email: str = Form("")):
+    """«Reincorporar»: quita al colaborador del registro de excepciones (queda constancia de la baja en el historial)."""
+    blocked = _timenotes_exception_guard(request)
+    if blocked is not None:
+        return blocked
+    em = (email or "").strip().lower()
+    if not em:
+        return JSONResponse({"status": "error", "message": "Falta el email."}, status_code=400)
+    try:
+        timenotes_exceptions.remove([em], actor=_timenotes_actor(request))
+    except timenotes_exceptions.ExceptionsUnavailable as exc:
+        return JSONResponse({"status": "error", "message": f"No se pudo actualizar el registro ({exc}). No se aplicó ningún cambio."}, status_code=503)
+    return JSONResponse({"status": "ok", "email": em})

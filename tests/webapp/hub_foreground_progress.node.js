@@ -139,6 +139,20 @@ assertEqual(fill.style.width, widthBefore, "F: un elemento no relacionado con #s
 dispatch("htmx:beforeRequest", { elt: undefined });
 assertEqual(fill.style.width, widthBefore, "F: un evento htmx sin elt (defensivo) tampoco activa la barra");
 
+// ============================================================================
+// G — Carga de Horas: la botonera del hero dispara FUERA de #staffing-rows con target #staffing-rows → arranca/limpia la MISMA barra con su
+//     key propia ("timenotes"); Asignaciones por la botonera conserva "assignments".
+// ============================================================================
+const heroBtn = fakeElt([]);
+dispatch("htmx:beforeRequest", { elt: heroBtn, target: fakeElt(["#staffing-rows"]), pathInfo: { requestPath: "/operaciones/staffing/carga-horas/data" } });
+assertTrue(fill.style.width !== "0%", "G: la botonera (target #staffing-rows) arranca la barra en Carga de Horas");
+dispatch("htmx:afterRequest", { elt: heroBtn, target: fakeElt(["#staffing-rows"]), pathInfo: { requestPath: "/operaciones/staffing/carga-horas/data" }, successful: true });
+assertEqual(fill.style.width, "0%", "G: al completar Carga de Horas la barra se libera");
+assertTrue(!!store["dw-hub-progress-estimate:timenotes"], "G: el éxito grabó el estimate propio de 'timenotes'");
+dispatch("htmx:beforeRequest", { elt: heroBtn, target: fakeElt(["#staffing-rows"]), pathInfo: { requestPath: "/operaciones/staffing/asignaciones/data" } });
+dispatch("htmx:afterRequest", { elt: heroBtn, target: fakeElt(["#staffing-rows"]), pathInfo: { requestPath: "/operaciones/staffing/asignaciones/data" }, successful: true });
+assertEqual(fill.style.width, "0%", "G: volver a Asignaciones por la botonera usa la key 'assignments' y libera la barra");
+
 if (failures > 0) {
   console.log(`${failures} Hub Foreground Progress boundary invariant(s) FAILED`);
   process.exit(1);

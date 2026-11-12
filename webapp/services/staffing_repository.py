@@ -377,6 +377,21 @@ ABSENCE_HOURS_PER_DAY = 8
 # nunca sobrevive más allá de eso (ver `AbsencePeriod`).
 _ABSENCE_REQUIRED_HEADERS = ("Apellido", "Nombre", "Motivo", "Desde", "Hasta", "Estado")
 _ABSENCE_DIAS_HEADER = "Días"
+# Nombres ALTERNATIVOS explícitos de columnas del contrato (2026-11-12): Operaciones renombró en `Solicitudes.xlsx` Desde→«Inicio»,
+# Hasta→«Finalización» y Días→«Consumo». Lista cerrada (no hay coincidencia aproximada): el resto del contrato, los requeridos y la regla
+# Estado=Aprobada no cambian. Los labels de diagnóstico (`missing_fields`) siguen siendo los nombres canónicos.
+_ABSENCE_HEADER_ALIASES = {"Desde": ("Desde", "Inicio"), "Hasta": ("Hasta", "Finalización"), _ABSENCE_DIAS_HEADER: (_ABSENCE_DIAS_HEADER, "Consumo")}
+
+
+def _absence_canonical_index(header_index: dict) -> dict:
+    """{nombre real → índice} → {nombre canónico → índice}, resolviendo los alias en orden (el canónico gana si ambos existen)."""
+    out = dict(header_index)
+    for canonical, names in _ABSENCE_HEADER_ALIASES.items():
+        for name in names:
+            if name in header_index:
+                out[canonical] = header_index[name]
+                break
+    return out
 
 # Approved Absence Overlay — Concept Classification (ver HANDOFF): TODO
 # Motivo aprobado se clasifica server-side en exactamente UNO de estos 4
@@ -588,7 +603,8 @@ def _select_absence_worksheet(workbook) -> str:
     if ABSENCE_WORKSHEET_NAME in workbook.sheetnames:
         return ABSENCE_WORKSHEET_NAME
     required = set(_ABSENCE_REQUIRED_HEADERS)
-    candidates = [name for name in workbook.sheetnames if required <= _header_names(workbook[name])]
+    candidates = [name for name in workbook.sheetnames
+                  if required <= set(_absence_canonical_index({h: 0 for h in _header_names(workbook[name])}))]
     if len(candidates) == 1:
         return candidates[0]
     if candidates:
@@ -625,6 +641,7 @@ def _parse_absence_workbook(data: bytes) -> tuple[list, dict]:
             name = "" if cell is None else str(cell).strip()
             if name and name not in header_index:
                 header_index[name] = idx
+        header_index = _absence_canonical_index(header_index)                    # alias explícitos (Inicio/Finalización/Consumo)
         missing = [h for h in _ABSENCE_REQUIRED_HEADERS if h not in header_index]
         if missing:
             raise AbsenceSchemaError(stage="headers", missing_fields=missing, ambiguous_fields=[])
@@ -1376,6 +1393,32 @@ class StaffingRepository:
             "workbook_hit": outcome != "computed",
         }
         return periods
+
+    def get_consultant_availability(self, access_token: str, *, cache_scope: str | None = None) -> dict[str, str]:
+        """id del ítem de Colaboradores → «Disponibilidad de asignación» (passthrough del choice: Full Time / Part Time; vacío → "").
+        Campo POR COLABORADOR (no por asignación ni por semana). Reusa `_fetch_colaboradores_delta` (con `cache_scope`: la MISMA key que
+        `get_allocations` ya calentó en la sesión) o el `$select` title+disponibilidad. Sin el mapeo configurado → RuntimeError (el llamador
+        lo informa como no disponible; nunca se asume una disponibilidad)."""
+        site_id = self._require_site_id()
+        mapping = self.field_mapping
+        if not mapping.colaborador_title or not mapping.colaborador_disponibilidad:
+            raise RuntimeError("Falta el mapeo de Colaboradores (title / disponibilidad) para resolver la disponibilidad de asignación.")
+        if cache_scope is not None:
+            items = self._fetch_colaboradores_delta(
+                "colaboradores_identity", site_id, mapping, access_token, cache_scope=cache_scope,
+            )
+        else:
+            items = self._timed_fetch(
+                "colaboradores_identity",
+                _list_items_url(site_id, self.colaboradores_list_id, [mapping.colaborador_title, mapping.colaborador_disponibilidad]),
+                access_token,
+            )
+        out: dict[str, str] = {}
+        for item in items:
+            cid = str(item.get("id") or "")
+            if cid:
+                out[cid] = (_resolved_title(item, mapping.colaborador_disponibilidad) or "").strip()
+        return out
 
     def get_consultants(self, access_token: str, *, cache_scope: str | None = None) -> list[tuple[str, str]]:
         """SOLO Colaboradores (id, nombre) — universo de identidad para el

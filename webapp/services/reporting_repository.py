@@ -225,10 +225,11 @@ def user_info_identity(fields: dict | None, *, allow_email_field: bool = False) 
     return ""
 
 
-def _colaboradores_map(items: list[dict], userinfo_items: list[dict]) -> dict[str, str]:
-    """Email → nombre de Consultor (Colaboradores.LookupId → User Information List → `Name`). Criterio funcional de Reporting, SIN cambios."""
+def _colaboradores_entries(items: list[dict], userinfo_items: list[dict]) -> list[tuple[str, str, str]]:
+    """(email, nombre de Consultor, id del ítem de Colaboradores) — recorrido ÚNICO del padrón (Colaboradores.LookupId → User Information
+    List → `Name`). El id del ítem es la MISMA identidad que usan las Asignaciones de Staffing (`StaffingAllocationRecord.consultant_id`)."""
     email_by_id = {_text(it.get("id")): user_info_identity(it.get("fields")) for it in userinfo_items}
-    mapping: dict[str, str] = {}
+    out: list[tuple[str, str, str]] = []
     for it in items:
         fields = it.get("fields") or {}
         title = _first(fields, *COLAB_TITLE)
@@ -238,8 +239,13 @@ def _colaboradores_map(items: list[dict], userinfo_items: list[dict]) -> dict[st
         email = email_by_id.get(lookup_id) or ""
         if "@" not in email:
             continue
-        mapping[email] = title
-    return mapping
+        out.append((email, title, _text(it.get("id"))))
+    return out
+
+
+def _colaboradores_map(items: list[dict], userinfo_items: list[dict]) -> dict[str, str]:
+    """Email → nombre de Consultor (Colaboradores.LookupId → User Information List → `Name`). Criterio funcional de Reporting, SIN cambios."""
+    return {email: title for email, title, _item_id in _colaboradores_entries(items, userinfo_items)}
 
 
 def _user_info_titles(userinfo_items: list[dict]) -> dict[str, str]:
@@ -2167,6 +2173,16 @@ class ReportingRepository:
         mapping = _colaboradores_map(items, userinfo_items)
         timer.total()
         return mapping
+
+    def get_colaboradores_padron(self, access_token: str) -> tuple[dict[str, str], dict[str, str]]:
+        """(email→nombre —IDÉNTICO a `get_colaboradores_email_map`—, email→id del ítem de Colaboradores) con las MISMAS dos lecturas. El id
+        permite unir el padrón con las Asignaciones de Staffing por identidad exacta (Carga de Horas → filtro Estado), nunca por nombre."""
+        self._token = access_token
+        site_id = self._require_site_id()
+        items = self._items(site_id, self.colaboradores_list_id, "colaboradores")
+        userinfo_items = self._items(site_id, self.user_information_list_id, "user_information")
+        entries = _colaboradores_entries(items, userinfo_items)
+        return {e: t for e, t, _ in entries}, {e: i for e, _, i in entries}
 
     def get_people_names(self, access_token: str) -> tuple[dict[str, str], dict[str, str]]:
         """(Colaboradores email→nombre —IDÉNTICO a `get_colaboradores_email_map`—, User Information List email→`Title`) con UNA lectura de

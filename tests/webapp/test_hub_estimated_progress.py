@@ -420,10 +420,12 @@ def test_staffing_first_load_is_htmx_driven_and_wires_the_shared_boundary():
     # El listener vive en app.js (compartido, NUNCA un archivo propio de
     # Staffing) y detecta la request por el ELEMENTO que la disparó — nunca
     # asumiendo "cualquier fetch Graph es foreground".
-    assert 'event.detail.elt?.closest("#staffing-rows")' in _APP_JS
-    assert 'HubForegroundProgress.begin("assignments")' in _APP_JS
-    assert 'HubForegroundProgress.complete("assignments")' in _APP_JS
-    assert 'HubForegroundProgress.fail("assignments")' in _APP_JS
+    # Carga de Horas (botonera del hero, FUERA de #staffing-rows) se reconoce por TARGET; key propia "timenotes".
+    assert 'detail?.elt?.closest?.("#staffing-rows") || detail?.target?.closest?.("#staffing-rows")' in _APP_JS
+    assert '"timenotes" : "assignments"' in _APP_JS
+    assert "HubForegroundProgress.begin(key)" in _APP_JS
+    assert "HubForegroundProgress.complete(key)" in _APP_JS
+    assert "HubForegroundProgress.fail(key)" in _APP_JS
 
 
 def test_staffing_html_contains_no_progress_markup_of_its_own():
