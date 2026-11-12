@@ -800,3 +800,77 @@ def test_holiday_type_selection_is_simulation_and_blocks_notification(monkeypatc
     seen.clear()
     ok = ops().post(NOTIFY, data=dict(base, confirm="yes", emails=["ana@danwor.com"], feriados_tipos=["Inamovible"]), headers=ORIGIN)
     assert ok.status_code == 200 and seen["holiday_types"] is None                         # el envío calcula con la regla operativa
+
+
+# ═══════════════════ reconciliación del badge Notificación con la auditoría durable (fuente única, #3) ═══════════════════
+import json as _json  # noqa: E402
+import re as _re      # noqa: E402
+
+
+def _write_op(*, status=None, intent=True, corrupt=False, email="ana@danwor.com", semana=SEMANA):
+    op = S.audit_root() / S.operation_id_for(semana["inicio"], semana["fin"], email)
+    op.mkdir(parents=True, exist_ok=True)
+    if intent:
+        (op / "intent.json").write_text('{"schema": 1}', encoding="utf-8")
+    if corrupt:
+        (op / "result.json").write_text("{corrupto", encoding="utf-8")
+    elif status is not None:
+        (op / "result.json").write_text(_json.dumps({"outcome": status}), encoding="utf-8")
+    return op
+
+
+def test_read_week_states_maps_outcomes_and_is_fail_closed(audit_dir):
+    _write_op(status="accepted", email="ana@danwor.com")
+    _write_op(status="uncertain", email="beto@danwor.com")
+    _write_op(status="failed", email="caro@danwor.com")
+    _write_op(status=None, intent=True, email="dani@danwor.com")       # intent sin result
+    _write_op(corrupt=True, email="eva@danwor.com")                    # auditoría ilegible
+    st = S.read_week_states(SEMANA["inicio"], SEMANA["fin"],
+                            ["ana@danwor.com", "beto@danwor.com", "caro@danwor.com", "dani@danwor.com", "eva@danwor.com", "zoe@danwor.com"])
+    assert st == {"ana@danwor.com": "enviada", "beto@danwor.com": "incierta", "caro@danwor.com": "fallida",
+                  "dani@danwor.com": "sin_confirmar", "eva@danwor.com": "no_verificable"}
+    assert "zoe@danwor.com" not in st                                  # inexistente (archivo ausente) != no disponible (ilegible)
+
+
+def test_read_week_states_is_week_scoped(audit_dir):
+    _write_op(status="accepted", email="ana@danwor.com", semana=SEMANA)
+    assert S.read_week_states("2026-11-09", "2026-11-13", ["ana@danwor.com"]) == {}   # otra semana: estado independiente
+
+
+def test_panel_badge_reflects_audit_and_survives_refresh(monkeypatch, audit_dir):
+    monkeypatch.setattr("webapp.routers.staffing.timenotes_service.build_compliance", lambda **k: _ok_compliance())
+    _write_op(status="accepted", email="ana@danwor.com")
+    h1 = ops().post(DATA, data={"graph_token": "t"}, headers=ORIGIN).text
+    assert _re.search(r'--green"[^>]*>Enviada<', h1)                   # ana: Enviada (verde) desde la auditoría
+    h2 = ops().post(DATA, data={"graph_token": "t"}, headers=ORIGIN).text   # refrescar
+    assert _re.search(r'--green"[^>]*>Enviada<', h2)                   # sigue Enviada (no vuelve a Pendiente)
+
+
+def test_panel_without_prior_op_keeps_default(monkeypatch, audit_dir):
+    monkeypatch.setattr("webapp.routers.staffing.timenotes_service.build_compliance", lambda **k: _ok_compliance())
+    html = ops().post(DATA, data={"graph_token": "t"}, headers=ORIGIN).text
+    assert ">Enviada<" not in html and ">Pendiente<" in html          # cero operaciones: comportamiento actual intacto
+
+
+def test_panel_corrupt_audit_is_fail_closed_not_pendiente(monkeypatch, audit_dir):
+    monkeypatch.setattr("webapp.routers.staffing.timenotes_service.build_compliance", lambda **k: _ok_compliance())
+    _write_op(corrupt=True, email="ana@danwor.com")
+    html = ops().post(DATA, data={"graph_token": "t"}, headers=ORIGIN).text
+    assert ">No verificable<" in html                                 # fail-closed: NO un falso Pendiente para ana
+    assert not _re.search(r'data-tn-email="ana@danwor.com".*?>Pendiente<', html, _re.S)
+
+
+def test_badge_matches_idempotency_same_durable_source(audit_dir):
+    _write_op(status="accepted", email="ana@danwor.com")              # operación previa accepted
+    assert S.read_week_states(SEMANA["inicio"], SEMANA["fin"], ["ana@danwor.com"]) == {"ana@danwor.com": "enviada"}
+    out = _one(lambda m: ("accepted", "HTTP 202"))                    # reintento real: colisiona con el intent previo
+    assert out["status"] == "duplicate"                               # misma fuente durable: panel=Enviada y reintento=duplicado
+
+
+def test_notif_state_is_independent_of_compliance_and_exceptions(audit_dir):
+    # La lectura de notificación NO altera cumplimiento/horas: read_week_states es solo lectura y no muta la entrada.
+    _write_op(status="accepted", email="ana@danwor.com")
+    cols = [{"email": "ana@danwor.com", "horas_registradas": 16, "cumple": False}]
+    snapshot = _json.dumps(cols, sort_keys=True)
+    S.read_week_states(SEMANA["inicio"], SEMANA["fin"], [c["email"] for c in cols])
+    assert _json.dumps(cols, sort_keys=True) == snapshot

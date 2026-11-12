@@ -57,10 +57,18 @@
             {{ tn_badge('grey', 'Exceptuado', ' data-tn-exc-badge' ~ ('' if excepted else ' style="display:none"')) }}
             {% if not c.excepciones %}<span data-tn-exc-dash{% if excepted %} style="display:none"{% endif %}>—</span>{% endif %}
           </td>
-          {#- Notificación: Pendiente → gris · no elegible / exceptuado → gris (neutro). Los resultados del envío los pinta el JS con el MISMO badge. -#}
+          {#- Notificación: refleja la AUDITORÍA durable por (semana, colaborador) cuando hay operación previa (fuente única); si no, el estado por
+              defecto (Pendiente/No elegible/Provisional). Exceptuado se conserva (con traza del envío previo en el title). El JS pinta el resultado
+              post-envío con el MISMO badge. -#}
           {% set nd_text = 'Provisional' if (c.calculo_verificado is defined and not c.calculo_verificado and not (c.obligacion is defined and not c.obligacion)) else ('Pendiente' if c.notificable else 'No elegible') %}
           {% set nd_title = tn_alta(entry) if excepted else ('' if c.notificable else ('Cálculo provisional: calendario de feriados no verificado. No se envían recordatorios.' if nd_text == 'Provisional' else ('Tiene una ausencia a revisar' if c.revisar_excepcion else 'Cumple las horas'))) %}
-          <td class="left"><span class="dashboard-status-badge solicitudes-status-badge solicitudes-status-badge--grey" data-tn-notif-state data-tn-notif-default="{{ nd_text }}"{% if nd_title %} title="{{ nd_title }}"{% endif %}>{{ 'Exceptuado' if excepted else nd_text }}</span></td>
+          {% set TN_NOTIF = {'enviada':('Enviada','green'),'incierta':('Incierta','amber'),'fallida':('Fallida','red'),'sin_confirmar':('Sin confirmar','amber'),'no_verificable':('No verificable','grey')} %}
+          {% set TN_NOTIF_TITLE = {'enviada':'Microsoft aceptó el envío (no confirma entrega).','incierta':'Envío sin confirmación de Microsoft; no reintentar sin verificar.','fallida':'El servicio de correo rechazó el envío; ya hay un registro para esta semana (no se reenvía automáticamente).','sin_confirmar':'Intención registrada sin resultado confirmado; verificá antes de reintentar.','no_verificable':'No se pudo verificar el registro de envío de esta semana.'} %}
+          {% set ninfo = TN_NOTIF.get(c.notif_estado) if (c.notif_estado is defined) else none %}
+          {% set notif_tone = 'grey' if excepted else (ninfo[1] if ninfo else 'grey') %}
+          {% set notif_text = 'Exceptuado' if excepted else (ninfo[0] if ninfo else nd_text) %}
+          {% set notif_title = ((nd_title ~ (' · envío previo: ' ~ ninfo[0] if ninfo else '')) if excepted else (TN_NOTIF_TITLE.get(c.notif_estado) if ninfo else nd_title)) %}
+          <td class="left"><span class="dashboard-status-badge solicitudes-status-badge solicitudes-status-badge--{{ notif_tone }}" data-tn-notif-state data-tn-notif-default="{{ nd_text }}"{% if notif_title %} title="{{ notif_title }}"{% endif %}>{{ notif_text }}</span></td>
           <td class="center">{{ tn_actions(c, c.notificable, excepted) }}</td>
         </tr>
 {% endmacro %}

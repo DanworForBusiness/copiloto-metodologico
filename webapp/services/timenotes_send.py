@@ -46,6 +46,38 @@ def operation_id_for(week_start: str, week_end: str, email: str) -> str:
     return f"tn-{week_start}-{week_end}-{_sha8(email)}"
 
 
+# Estado de Notificación derivado de la AUDITORÍA durable (fuente única). `intent.json` por sí solo NO prueba que Microsoft aceptó el envío.
+_OUTCOME_STATE = {"accepted": "enviada", "uncertain": "incierta", "failed": "fallida", "error": "fallida", "config_incomplete": "fallida"}
+
+
+def read_week_states(week_start: str, week_end: str, emails) -> dict:
+    """{email_minúsculas: estado} para los `emails` dados en la semana (inicio, fin). Lectura LOCAL por RUTA EXACTA (`operation_id_for`): no escanea
+    el directorio ni descubre operaciones ajenas al universo consultado. Solo lectura; no toca la auditoría. Estados:
+      enviada (result.outcome=accepted) · incierta (uncertain) · fallida (failed/error/config_incomplete) · sin_confirmar (hay intent, no result) ·
+      no_verificable (la auditoría existe pero NO se pudo leer → fail-closed). Email AUSENTE del dict = sin operación previa (el panel usa su default).
+    Distingue «inexistente» (archivo ausente → ausente del dict) de «no disponible» (lectura falla → no_verificable)."""
+    out: dict[str, str] = {}
+    root = audit_root()
+    for email in emails or []:
+        em = str(email or "").strip().lower()
+        if not em:
+            continue
+        op_dir = root / operation_id_for(week_start, week_end, em)
+        try:
+            result = institutional_mail.read_json(op_dir / "result.json")
+        except (ValueError, OSError):
+            out[em] = "no_verificable"; continue
+        if result:
+            out[em] = _OUTCOME_STATE.get(str(result.get("outcome") or ""), "fallida"); continue
+        try:
+            intent = institutional_mail.read_json(op_dir / "intent.json")
+        except (ValueError, OSError):
+            out[em] = "no_verificable"; continue
+        if intent:
+            out[em] = "sin_confirmar"
+    return out
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
