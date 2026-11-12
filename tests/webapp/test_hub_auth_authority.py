@@ -267,7 +267,10 @@ def test_the_marker_is_declarative_and_carries_no_credential():
         inyecta el MISMO hook para crear el lote (piloto o importación) y para descargar los documentos (solo lectura); no obtienen ni guardan credenciales
       - partials/cv_history_exception_row.html -> «Ver CV original» de «Históricos sin validación» (1 por fila): token base de LECTURA (`Sites.Read.All`) que inyecta el MISMO hook para pedir a Graph
         solo el enlace de SharePoint del CV; no obtiene ni guarda credenciales, no descarga el archivo ni guarda la URL
-      - operations/staffing.html    -> asignaciones (1)
+      - operations/staffing.html    -> selector de vista + carga inicial de OP01 (3): botón «Asignaciones», botón «Carga de Horas» y la carga inicial de `#staffing-rows`; cada uno recarga el
+        contenido central vía HTMX con el token delegado que inyecta el MISMO hook; nada se guarda ni viaja en el markup
+      - operations/timenotes_panel.html -> panel de Carga de Horas (2): el filtro de Estado que recarga al cambiar (1) y el botón oculto de recarga tras mover/devolver excepciones (1); mismo hook,
+        token en el cuerpo del POST, nunca en la URL ni en el markup (el envío real de recordatorios usa el token de APLICACIÓN en el backend, no este marcador delegado)
       - human_capital/diagnostico_sharepoint.html -> inventario histórico de CVs, SOLO LECTURA (1): usa el token base de lectura (`Sites.Read.All`) que inyecta el MISMO hook;
         no obtiene ni guarda credenciales
       - partials/admin_panel.html   -> diagnóstico/refresh (3) + «Sincronizar solo APIs/CDS» (1)
@@ -291,7 +294,8 @@ def test_the_marker_is_declarative_and_carries_no_credential():
         "human_capital/diagnostico_sharepoint.html": 1,
         "partials/cv_history_run_panel.html": 2,
         "partials/cv_history_exception_row.html": 1,
-        "operations/staffing.html": 1,
+        "operations/staffing.html": 3,
+        "operations/timenotes_panel.html": 2,
         "operations/solicitudes.html": 2,
         "partials/pager.html": 1,
         # Three existing list consumers plus share, bulk preflight and consolidation preview.

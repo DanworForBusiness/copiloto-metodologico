@@ -43,7 +43,7 @@
       {# Botonera segmentada (primitivo compartido `.dashboard-view-switch`, el mismo de Gestión Comercial → CRM), en el margen superior derecho del
          hero —comparte la fila visual con el título/descripción vía posicionamiento absoluto, sin alterar los selectores del hero—. Selecciona la
          vista de OP01: «Asignaciones» (default, intacta) vs «Carga de Horas». Cada botón recarga SOLO el contenido central (`#staffing-rows`) vía
-         HTMX con el token delegado (`data-dw-graph-token`); el estado activo y el preloader los maneja operations_timenotes.js. #}
+         HTMX con el token Graph delegado (lo inyecta el hook, nunca viaja en el markup); el estado activo y el preloader los maneja operations_timenotes.js. #}
       <div class="dashboard-view-switch" id="opsb-viewswitch" role="group" aria-label="Vista de Asignaciones" style="position:absolute;top:0;right:0;">
         <button type="button" class="is-active" data-opsb-view="asignaciones" aria-pressed="true"
                 hx-post="/operaciones/staffing/asignaciones/data" hx-target="#staffing-rows" hx-swap="innerHTML" data-dw-graph-token>Asignaciones</button>
