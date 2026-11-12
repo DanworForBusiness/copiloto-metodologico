@@ -46,6 +46,19 @@ function makeRoot() {
   r.qa = { "[data-tn-feriado-opt]:checked": [], "[data-tn-estado-opt]:checked": [] };
   return { r, notifyBtn, status, cell };
 }
+function makeRootSel() {
+  // root con TODO el andamiaje de selección, para que syncSelection() NO retorne temprano y ejecute la rama de `sim` (data-simulacion).
+  const b = makeRoot();
+  const tb = makeEl("tbody"); tb.attrs = { "data-tn-tbody": "colaboradores" }; tb.qa = { "[data-tn-select]": [] };
+  b.r.q['[data-tn-tbody="colaboradores"]'] = tb;
+  b.r.q["[data-tn-select-page]"] = null;
+  ["[data-tn-selection-bar]", "[data-tn-selection-count]", "[data-tn-selection-label]", "[data-tn-selection-hint]"].forEach(s => { b.r.q[s] = makeEl("span"); });
+  return b;
+}
+function fakeTableSelection() {
+  const store = { reconcile() {}, size() { return 0; }, clear() {}, ids() { return []; }, has() { return false; }, add() {}, remove() {} };
+  return { createStore() { return store; }, keepInPlace() {}, syncRows() { return { visibleSelected: 0 }; } };
+}
 function makeDoc(r) { return { createElement: makeEl, querySelector(sel) { return sel === "[data-timenotes-root]" ? r : null; }, defaultView: null }; }
 function lastMsg(status) {
   const box = status.children[status.children.length - 1]; if (!box) return null;
@@ -112,6 +125,21 @@ function jsonRes(d, okFlag, st) { return Promise.resolve({ ok: okFlag !== false,
     const o = await run(() => jsonRes({ status: "ok", skipped: [], resultados: [{ colaborador: "ana@danwor.com", status: "uncertain" }], resumen: { total: 1, uncertain: 1 } }));
     ok(/sin confirmación/i.test(o.msg.title) && /no se reenvía automáticamente/i.test(o.msg.text), "7 uncertain: incierto, sin reintento");
     ok(o.cell.textContent === "Incierta" && o.calls() === 1, "7 uncertain: badge Incierta, 1 fetch (sin reintento)");
+  }
+
+  // 8) RECORRIDO REAL accepted → applyResults → clearSelection → syncSelection CON dwTableSelection presente.
+  //    Antes del fix, `if (sim)` en syncSelection lanzaba ReferenceError tras un accepted → la confirmación se perdía (render-error).
+  {
+    const apiSel = loadApi();
+    const { r, status, cell } = makeRootSel();
+    const win = { console, dwGraphToken: () => Promise.resolve("TOK"), dwTableSelection: fakeTableSelection(),
+                  fetch: () => jsonRes({ status: "ok", skipped: [], resultados: [{ colaborador: "ana@danwor.com", status: "accepted", recipient: "ana@danwor.com" }], resumen: { total: 1, accepted: 1 } }) };
+    apiSel.doNotify(makeDoc(r), win, r, ["ana@danwor.com"]);
+    for (let i = 0; i < 8; i++) await flush();
+    const m = lastMsg(status);
+    ok(/microsoft aceptó el envío/i.test(m.title) && m.tone === "success", "8 syncSelection: confirmación se CONSERVA (sin ReferenceError de `sim`)");
+    ok(!/actualizar la vista/i.test(m.text) && !/conexión se interrumpió/i.test(m.text), "8 syncSelection: no degrada a error de render/transporte");
+    ok(cell.textContent === "Enviada", "8 syncSelection: badge Enviada tras el recorrido completo");
   }
 
   if (failures === 0) console.log("ALL OPERATIONS TIMENOTES NOTIFY INVARIANTS PASSED");

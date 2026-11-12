@@ -158,7 +158,8 @@
     if (hint) hint.textContent = outside > 0 ? outside + " fuera de este filtro" : "";
     var nb = r.querySelector("[data-tn-notify]");
     if (nb && !nb.getAttribute("data-tn-busy")) {
-      var blocked = r.getAttribute("data-simulacion") === "1" || r.getAttribute("data-excepciones-ok") !== "1";
+      var sim = r.getAttribute("data-simulacion") === "1";
+      var blocked = sim || r.getAttribute("data-excepciones-ok") !== "1";
       nb.disabled = size === 0 || blocked;                                      // simulación o registro de excepciones no verificable: sin envíos
       if (sim) nb.title = "Simulación de horas base: volvé a 40 h para notificar."; else nb.removeAttribute("title");
     }

@@ -825,10 +825,11 @@ def test_read_week_states_maps_outcomes_and_is_fail_closed(audit_dir):
     _write_op(status="failed", email="caro@danwor.com")
     _write_op(status=None, intent=True, email="dani@danwor.com")       # intent sin result
     _write_op(corrupt=True, email="eva@danwor.com")                    # auditoría ilegible
+    _write_op(status="raro_desconocido", email="fio@danwor.com")       # outcome desconocido: no se asume fallo
     st = S.read_week_states(SEMANA["inicio"], SEMANA["fin"],
-                            ["ana@danwor.com", "beto@danwor.com", "caro@danwor.com", "dani@danwor.com", "eva@danwor.com", "zoe@danwor.com"])
+                            ["ana@danwor.com", "beto@danwor.com", "caro@danwor.com", "dani@danwor.com", "eva@danwor.com", "fio@danwor.com", "zoe@danwor.com"])
     assert st == {"ana@danwor.com": "enviada", "beto@danwor.com": "incierta", "caro@danwor.com": "fallida",
-                  "dani@danwor.com": "sin_confirmar", "eva@danwor.com": "no_verificable"}
+                  "dani@danwor.com": "sin_confirmar", "eva@danwor.com": "no_verificable", "fio@danwor.com": "no_verificable"}
     assert "zoe@danwor.com" not in st                                  # inexistente (archivo ausente) != no disponible (ilegible)
 
 

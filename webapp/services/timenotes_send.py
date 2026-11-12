@@ -68,7 +68,7 @@ def read_week_states(week_start: str, week_end: str, emails) -> dict:
         except (ValueError, OSError):
             out[em] = "no_verificable"; continue
         if result:
-            out[em] = _OUTCOME_STATE.get(str(result.get("outcome") or ""), "fallida"); continue
+            out[em] = _OUTCOME_STATE.get(str(result.get("outcome") or ""), "no_verificable"); continue   # outcome desconocido/vacío: no se asume fallo
         try:
             intent = institutional_mail.read_json(op_dir / "intent.json")
         except (ValueError, OSError):
