@@ -220,7 +220,7 @@
       if (!current()) return;
       if (!token) { fail("No se pudo obtener autorización de Microsoft."); return; }
       var body = "email=" + encodeURIComponent(email) + "&semana=" + encodeURIComponent(r.getAttribute("data-semana") || "") +
-                 "&graph_token=" + encodeURIComponent(token);                     // el modo (prueba) lo decide el servidor
+                 "&graph_token=" + encodeURIComponent(token);                     // el modo lo decide el servidor
       return win.fetch(PREVIEW_URL, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: body })
         .then(function (res) { return res.json().then(function (d) { return { ok: res.ok, d: d }; }); })
         .then(function (x) {
@@ -266,13 +266,28 @@
       parts.push("estados_presentes=1");
       estadosSel(r).forEach(function (s) { parts.push("estados=" + encodeURIComponent(s)); });
       return win.fetch(NOTIFY_URL, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: parts.join("&") })
-        .then(function (res) { return res.json().then(function (d) { return { ok: res.ok, d: d }; }); })
-        .then(function (x) { applyResults(doc, x); });
-    }).catch(function () { feedback(doc, "No se pudo confirmar el resultado del envío.", "La conexión se interrumpió. No se reenvía automáticamente: verificá antes de reintentar.", "punch"); if (notifyBtn) notifyBtn.disabled = false; });
+        // Parsing separado del transporte: si el cuerpo NO es JSON interpretable, igual hubo respuesta HTTP (no es "conexión interrumpida").
+        .then(function (res) { return res.json().then(function (d) { return { ok: res.ok, d: d }; }, function () { return { parseError: true, status: res.status }; }); })
+        .then(function (x) {
+          if (x.parseError) {   // respuesta no interpretable: el envío PUDO haberse procesado -> fail-closed, sin reenvío automático
+            feedback(doc, "No se pudo leer la confirmación del servidor.", "El envío pudo haberse procesado. Verificá el estado en la columna Notificación antes de reintentar; no se reenvía automáticamente.", "punch");
+            if (notifyBtn) notifyBtn.disabled = false; return;
+          }
+          try { applyResults(doc, x); }   // error de render AISLADO: nunca degrada un resultado ya recibido a "conexión interrumpida"
+          catch (e) {
+            if (win.console && win.console.error) win.console.error("timenotes applyResults", e);
+            feedback(doc, "Envío procesado.", "Se recibió la respuesta del servidor, pero hubo un problema al actualizar la vista. Recargá para ver el estado; no se reenvía automáticamente.", "punch");
+            if (notifyBtn) notifyBtn.disabled = false;
+          }
+        });
+    }).catch(function () {   // SOLO transporte real (fetch rechazado / token): no afirma éxito ni fracaso del envío
+      feedback(doc, "No se pudo confirmar el resultado del envío.", "La conexión se interrumpió. No se reenvía automáticamente: verificá antes de reintentar.", "punch");
+      if (notifyBtn) notifyBtn.disabled = false;
+    });
   }
 
   // Resultado del envío → badge de Solicitudes (`.solicitudes-status-badge--{tono}`): enviada verde · fallida rojo · incierta ámbar ·
-  // deshabilitado gris; en modo prueba la aceptación usa el tono secundario azul. El texto sigue siendo explícito.
+  // deshabilitado gris. El texto sigue siendo explícito.
   var LABELS = { accepted: "Enviada", duplicate: "Ya enviada", uncertain: "Incierta", failed: "Fallida",
                  disabled: "Envío deshabilitado", config_incomplete: "Config. incompleta", error: "Error" };
   var TONES = { accepted: "green", duplicate: "green", uncertain: "amber", failed: "red", disabled: "grey", config_incomplete: "red", error: "red" };
@@ -289,17 +304,19 @@
       var nb = r && r.querySelector("[data-tn-notify]"); if (nb) nb.disabled = false;
       return;
     }
-    (x.d.resultados || []).forEach(function (res) {
-      var row = r.querySelector('[data-tn-email="' + (res.colaborador || "").replace(/"/g, "") + '"]');
-      var cell = row && row.querySelector("[data-tn-notif-state]");
-      var ok = res.status === "accepted" || res.status === "duplicate";
-      // Texto corto (la columna es angosta y el badge recorta); el detalle va en el tooltip.
-      setBadge(cell, TONES[res.status] || "grey", LABELS[res.status] || res.status);
-      if (cell) cell.title = "Envío" + (res.recipient ? " · destinatario: " + res.recipient : "") +
-                             (res.status === "uncertain" ? " · no reintentar sin verificar" : "") + (res.status === "accepted" ? " · Microsoft aceptó el envío (no confirma entrega)" : "");
-    });
+    // Confirmación PRIMERO (resultado autoritativo del servidor): un fallo al pintar una fila no debe ocultarla ni degradarla.
     var m = resultMessage(x.d);
     feedback(doc, m.title, m.text, m.tone);
+    (x.d.resultados || []).forEach(function (res) {
+      try {
+        var row = r.querySelector('[data-tn-email="' + (res.colaborador || "").replace(/"/g, "") + '"]');
+        var cell = row && row.querySelector("[data-tn-notif-state]");
+        // Texto corto (la columna es angosta y el badge recorta); el detalle va en el tooltip.
+        setBadge(cell, TONES[res.status] || "grey", LABELS[res.status] || res.status);
+        if (cell) cell.title = "Envío" + (res.recipient ? " · destinatario: " + res.recipient : "") +
+                               (res.status === "uncertain" ? " · no reintentar sin verificar" : "") + (res.status === "accepted" ? " · Microsoft aceptó el envío (no confirma entrega)" : "");
+      } catch (e) { /* una fila cosmética que no se puede pintar no aborta el lote ni la confirmación */ }
+    });
     clearSelection(doc);
   }
 
@@ -323,7 +340,7 @@
     if (fail) parts.push(fail + (fail === 1 ? " fallido" : " fallidos"));
     if (dis) parts.push(dis + (dis === 1 ? " no enviado (deshabilitado)" : " no enviados (deshabilitado)"));
     return { tone: "punch", title: "Envío parcial de " + total + (total === 1 ? " recordatorio." : " recordatorios."),
-             text: parts.join(" · ") + "." + (unc ? " Los inciertos no se reenvían automáticamente." : "") + prueba + omit };
+             text: parts.join(" · ") + "." + (unc ? " Los inciertos no se reenvían automáticamente." : "") + omit };
   }
 
   // ───────────── excepciones permanentes (mover / reincorporar) ─────────────
@@ -521,6 +538,7 @@
     });
   }
 
+  if (typeof window !== "undefined") { window.__opsTimenotes = { doNotify: doNotify, applyResults: applyResults, resultMessage: resultMessage }; }  // seam de prueba (mismo patrón que window.__cchhSelection); no altera el flujo
   if (typeof window !== "undefined" && typeof document !== "undefined" && !window.__opsTimenotesWired) {
     window.__opsTimenotesWired = true;
     viewGuard(document);
