@@ -588,3 +588,35 @@ def test_get_consultants_excludes_rows_without_id_or_name(monkeypatch):
         ),
     )
     assert repo.get_consultants("tok") == []
+
+
+# ── Formato vigente de Operaciones (2026-11-12): Desde→Inicio, Hasta→Finalización, Días→Consumo («1 día») ──
+
+_HEADERS_2026 = ["Fecha de solicitud", "CUIL", "Legajo", "Apellido", "Nombre", "Código", "Motivo", "Comentario del empleado",
+                 "Inicio", "Finalización", "Consumo", "Estado", "Etiquetas"]
+
+
+def _row_2026(**kw):
+    base = {"Fecha de solicitud": "01/03/2026", "CUIL": "20-99887766-3", "Legajo": "LEG-4242", "Apellido": "Gómez", "Nombre": "Matías",
+            "Código": "VAC", "Motivo": "Vacaciones", "Comentario del empleado": "SECRETO", "Inicio": "10/03/2026",
+            "Finalización": "20/03/2026", "Consumo": "9 días", "Estado": "Aprobada", "Etiquetas": "ETIQUETA"}
+    base.update(kw)
+    return [base[h] for h in _HEADERS_2026]
+
+
+def test_current_operations_format_with_aliases_is_accepted():
+    data = _workbook_bytes([_row_2026(), _row_2026(Estado="Pendiente"), _row_2026(Estado="Cancelada", Apellido="Otro")], headers=_HEADERS_2026)
+    periods, funnel = repo_module._parse_absence_workbook(data)
+    assert funnel["eligible_periods"] == 1 and len(periods) == 1
+    p = periods[0]
+    assert (p.start_date, p.end_date, p.hours) == ("2026-03-10", "2026-03-20", 72)       # Consumo «9 días» → 9 × 8
+    assert "SECRETO" not in repr(p) and "20-99887766-3" not in repr(p)
+
+
+def test_current_format_on_another_sheet_name_is_selected_and_missing_still_fails():
+    ok = _workbook_bytes([_row_2026()], sheet_name="Hoja1", headers=_HEADERS_2026)
+    assert len(repo_module._parse_absence_workbook(ok)[0]) == 1
+    sin_fin = [h for h in _HEADERS_2026 if h != "Finalización"]
+    with pytest.raises(AbsenceSchemaError) as exc:
+        repo_module._parse_absence_workbook(_workbook_bytes([[1] * len(sin_fin)], headers=sin_fin))
+    assert exc.value.missing_fields == ["Hasta"]                                           # diagnóstico con el nombre canónico

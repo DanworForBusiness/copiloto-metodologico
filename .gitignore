@@ -68,3 +68,6 @@ scratch_preview.html
 human-capital/
 # Caché de reporting (derivable, runtime).
 reporting_cache/
+# Auditoría durable de Carga de Horas (envíos de recordatorios): runtime local,
+# vive en Spaces vía remote_store; nunca se versiona.
+operations/timenotes/

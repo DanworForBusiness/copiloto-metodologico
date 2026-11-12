@@ -3806,9 +3806,11 @@ const HubForegroundProgress = (() => {
     fill.style.width = keys.length ? active[keys[0]].controller.tick().percent + "%" : "0%";
   }
 
+  // Sin keys activas el tick solo apaga el timer: NO repinta. `complete`/`fail` ya dejaron la barra en 0% al liquidar; un repintado tardío
+  // (hasta 150ms después) pisaba el progreso de lectura que el scroll vuelve a pintar sobre el MISMO nodo (p. ej. tras alternar la vista).
   function sweepStep() {
+    if (!Object.keys(active).length) { if (timer) { clearInterval(timer); timer = null; } return; }
     paint();
-    if (!Object.keys(active).length && timer) { clearInterval(timer); timer = null; }
   }
 
   // Arranca (idempotente) la espera foreground de `key`. `seedMs` es el
@@ -3851,11 +3853,26 @@ const HubForegroundProgress = (() => {
 // prefetch de Reporting/Staffing NUNCA pasa por htmx con este id, así que
 // nunca activa esto). Sin seed histórico confiable todavía — 8000ms
 // (default de HubForegroundProgress.begin) y que EWMA aprenda.
+//
+// Carga de Horas (OP01, 2.ª vista): la botonera segmentada del hero dispara la request DESDE FUERA de `#staffing-rows` pero con target
+// `#staffing-rows` → se reconoce también por target. Key propia por operación ("timenotes": descarga del CSV de Time Notes, otra duración que
+// Asignaciones) para que el EWMA no mezcle. Al liquidar, se re-emite un `scroll` en document: el MISMO listener de progreso de lectura de
+// `copilotLayout().init()` vuelve a pintar la posición real del scroller (en vez de dejar la barra en 0 tras la carga).
+function staffingRowsRequestKey(detail) {
+  const inRows = detail?.elt?.closest?.("#staffing-rows") || detail?.target?.closest?.("#staffing-rows");
+  if (!inRows) return "";
+  return String(detail?.pathInfo?.requestPath || "").includes("/carga-horas/") ? "timenotes" : "assignments";
+}
 document.body.addEventListener("htmx:beforeRequest", event => {
-  if (event.detail.elt?.closest("#staffing-rows")) HubForegroundProgress.begin("assignments");
+  const key = staffingRowsRequestKey(event.detail);
+  if (key) HubForegroundProgress.begin(key);
 });
 document.body.addEventListener("htmx:afterRequest", event => {
-  if (!event.detail.elt?.closest("#staffing-rows")) return;
-  if (event.detail.successful) HubForegroundProgress.complete("assignments");
-  else HubForegroundProgress.fail("assignments");
+  const key = staffingRowsRequestKey(event.detail);
+  if (!key) return;
+  if (event.detail.successful) HubForegroundProgress.complete(key);
+  else HubForegroundProgress.fail(key);
+});
+document.body.addEventListener("htmx:afterSettle", event => {
+  if (staffingRowsRequestKey(event.detail)) document.dispatchEvent(new Event("scroll"));
 });

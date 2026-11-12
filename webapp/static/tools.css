@@ -613,8 +613,10 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
 .dashboard-section__caret { color: var(--gold); font-size: .8rem; width: 12px; }
 .dashboard-section__caret::before { content: "▸"; }
 .dashboard-section[open] > .dashboard-section__head .dashboard-section__caret::before { content: "▾"; }
-.dashboard-section__count { margin-left: auto; color: #7a7a82; font: 500 .7rem var(--mono); }
-.content-theme-dark .dashboard-section__count { color: #8b8b96; }
+/* Contador de sección: UNA sola definición transversal (consolidada desde human_capital.css, que la redefinía globalmente con peso 600 y
+   gris oscuro #9a9aa2 solo en las páginas que la cargaban: Solicitudes/CCHH/Presentaciones). Owner 2026-11-11: homologar Asignaciones y Carga de Horas. */
+.dashboard-section__count { margin-left: auto; color: #7a7a82; font: 600 .7rem var(--mono); }
+.content-theme-dark .dashboard-section__count { color: #9a9aa2; }
 /* Slot de ESTADO de la fila de disclosure (badge a la derecha): mismo mecanismo de alineación que `__count` (margin-left:auto);
    la separación con el conteo la da el `gap` del `__head`. Con conteo presente, el conteo toma el espacio libre y el estado
    queda a su derecha → estado consistentemente a la derecha. */
@@ -694,8 +696,49 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
    adoptarlo envolviendo su propia barra de filtros; no asume Alpine,
    HTMX, ni ningún modelo de datos particular. */
 .filter-toolbar-card { border: 1px solid rgba(128,128,128,.24); border-radius: 12px; padding: 20px 22px; }
+/* ═══ Aviso transitorio FLOTANTE (toast) TRANSVERSAL ═══
+   Contenedor `[data-dw-auto-dismiss]` (app.js `initAutoDismissFeedback`) con un `.callout.callout--feedback` adentro: centrado arriba de la
+   pantalla, fijo (no desplaza contenido), por encima de tooltips (z 30) y por debajo de `<dialog>`/lightbox. Movido TAL CUAL desde
+   human_capital.css (CCHH: actualizar catálogos, Compartir perfiles, Bandeja de CVs). `.dw-feedback-toast` = alias transversal para otras
+   verticales (Operaciones → Carga de Horas) sin depender de un nombre de CCHH. Comercial conserva su `.cp-toast` (commercial.css). */
+.hc-catalog-refresh-feedback--topbar:not(:empty), .dw-feedback-toast:not(:empty) {
+  position: fixed; top: 84px; left: 50%; transform: translateX(-50%); z-index: 100;
+  width: min(650px, calc(100vw - 32px));
+}
+/* (Su tipografía compacta va DESPUÉS del bloque `.callout--feedback`, abajo: misma especificidad, debe ganar por orden como antes en human_capital.css.) */
+/* ═══ Selección múltiple TRANSVERSAL (casilla + barra contextual) ═══
+   Componente compartido por CCHH → Candidatos, Operaciones → Solicitudes, Gestión Comercial → Presentaciones, Operaciones → Carga de Horas y la
+   Bandeja de CVs: macro `partials/table_selection_bar.html` + primitivas `table_selection.js`. Movido TAL CUAL desde human_capital.css (antes solo
+   lo recibían las páginas que cargaban esa hoja). Única diferencia: `.hc-selection-bar .hc-selection-bar__hint` sube especificidad para seguir
+   ganándole a `.field-hint` (human_capital.css, que se carga DESPUÉS de tools.css) como antes ganaba por orden dentro de la misma hoja.
+   El resaltado de fila seleccionada sigue por tabla en cada vertical; el genérico de abajo cubre solo filas con la columna de casillas del componente. */
+.hc-select-col { text-align: center; }
+.hc-select-col input[type="checkbox"] { width: 18px; height: 18px; margin: 0; accent-color: var(--gold); cursor: pointer; vertical-align: middle; }
+.hc-select-col input[type="checkbox"]:disabled { cursor: default; }
+tbody tr.is-selected:has(> td.hc-select-col) > td { background: rgba(231, 176, 8, .07); }
+.hc-selection-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 0 0 14px; padding: 10px 16px; }
+.hc-selection-bar[hidden] { display: none; }                   /* `display:flex` de la barra pisaría el atributo hidden: sin esto reservaría altura y márgenes con 0 seleccionados */
+.hc-selection-bar__count { font-size: .85rem; }
+.hc-selection-bar .hc-selection-bar__hint { margin: 0; flex: 1 1 200px; min-width: 0; }
+.hc-selection-bar__actions { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+.hc-selection-bar .btn-primary { display: inline-flex; align-items: center; gap: 6px; min-height: 0; padding: 6px 12px; font-size: .78rem; }
+.hc-selection-bar .btn-secondary { display: inline-flex; align-items: center; gap: 6px; min-height: 0; padding: 6px 12px; font-size: .78rem; color: inherit; background: transparent; border: 1px solid rgba(128, 128, 128, .45); }
+.hc-selection-bar .btn-secondary:hover:not(:disabled) { border-color: var(--gold); }
+@media (max-width: 640px) {
+  .hc-selection-bar__actions { margin-left: 0; width: 100%; }
+  .hc-select-col input[type="checkbox"] { width: 22px; height: 22px; }
+}
 /* Dentro del detalle del Catálogo (p. ej. Contratos Gobernados) la barra va justo debajo del separador del hero: aire arriba y abajo. */
 .catalog-detail > .filter-toolbar-card { margin: 24px 0 18px; }
+/* Operaciones → Asignaciones → Carga de Horas: MISMA convención por-panel que CCHH → Candidatos (`.module-hero + #hc-profiles-panel` 24px tras el
+   divisor del hero; `#hc-profiles-panel > * + *` 26px entre bloques). Acotada al panel de Carga de Horas: Asignaciones conserva su barra sticky. */
+.module-hero + #staffing-rows > [data-timenotes-root] { margin-top: 24px; }
+[data-timenotes-root] > * + * { margin-top: 26px; }
+/* Aviso (`.staffing-absence-error`) primero bajo el divisor: conserva SUS márgenes (8px arriba y abajo), igual que en Asignaciones. */
+.module-hero + #staffing-rows > [data-timenotes-root]:has(> .staffing-absence-error:first-child) { margin-top: 0; }
+[data-timenotes-root] > .staffing-absence-error, [data-timenotes-root] > .staffing-absence-error + * { margin-top: 8px; }
+/* Filtros → primer agrupador: el MISMO 12px que separa los `.dashboard-section` entre sí (su propio margin), no los 26px entre bloques. */
+[data-timenotes-root] > .dashboard-sections { margin-top: 0; }
 
 /* Capital Humano Phase 3.2 — barra de búsqueda/filtros compacta sobre el
    Banco de Perfiles: layout mínimo (flex-wrap), reusa .feedback-field/
@@ -714,11 +757,13 @@ button.catalog-back { border: 0; background: transparent; cursor: pointer; font-
    (CCHH, Operaciones, Comercial → Presentaciones) la vea igual sin cargar la hoja de otra vertical. El ANCHO sigue siendo del flex item `.feedback-field` y de `width:100%` (abajo): esta
    regla es solo apariencia (un `min-width` acá desbordó una vez la celda compacta de `<select>`). */
 .hc-profile-filters input[type="text"],
+.hc-profile-filters input[type="date"],
 .hc-profile-filters select {
   padding: 8px 11px; border: 1px solid rgba(128,128,128,.35);
   border-radius: 8px; background: transparent; color: #1f1f24; font: .8rem var(--sans);
 }
 .content-theme-dark .hc-profile-filters input[type="text"],
+.content-theme-dark .hc-profile-filters input[type="date"],
 .content-theme-dark .hc-profile-filters select { color: #e4e4ec; }
 .hc-profile-filters input:focus, .hc-profile-filters select:focus {
   outline: none; border-color: var(--gold); box-shadow: 0 0 0 3px rgba(231,176,8,.18);
@@ -2844,6 +2889,12 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 .callout--feedback .callout__title { font-size: .82rem; font-weight: 700; }
 .callout--feedback .callout__body, .callout--feedback .callout__body p { font-size: inherit; line-height: inherit; }
 .callout--feedback .callout__body p { margin: 0 0 6px; }
+/* Aviso transitorio flotante (ver «Aviso transitorio FLOTANTE» arriba): tipografía compacta, ubicada acá para ganarle por orden al bloque `.callout--feedback`. */
+.hc-catalog-refresh-feedback--topbar .callout__title, .dw-feedback-toast .callout__title { font-size: .85rem; }
+.hc-catalog-refresh-feedback--topbar .callout__body,
+.hc-catalog-refresh-feedback--topbar .dashboard-empty p,
+.dw-feedback-toast .callout__body,
+.dw-feedback-toast .dashboard-empty p { font-size: .78rem; line-height: 1.5; }
 .callout--success { --callout-accent: #22a85a; }
 .callout--punch { --callout-accent: #d3a000; }
 .callout--warn { --callout-accent: #d64c5f; }
@@ -3205,6 +3256,8 @@ details:not([open]) > summary > .panel-close[data-asr-close] { display: none; }
 .asr-subid { margin: 0 0 2px; }
 .asr-subid code { font: 600 .82rem var(--mono); color: var(--soft); overflow-wrap: anywhere; }
 .asr-hero .hero-meta { margin-top: 12px; }
+/* Metadatos contextuales del hero de Operaciones → Asignaciones / Carga de Horas: MISMA separación compacta que el hero de Assessment (12px). */
+.module-hero > [data-opsb-hero-meta] { margin-top: 12px; }
 
 /* Botón de generar/regenerar con carga INTEGRADA: el propio botón recibe `.htmx-request` al disparar; muestra spinner +
    "Generando informe…" y oculta el label; sin segundo texto flotante. Ancho estable; deshabilitado legible (no al 30%). */

@@ -127,7 +127,7 @@
         <span class="dashboard-section__grip" aria-hidden="true">⋮⋮</span>
         <span class="dashboard-section__caret"></span>
         <span class="dashboard-section__title">Resumen</span>
-        <span class="dashboard-section__count" x-text="filteredAssignments.length + ' asignación(es)'"></span>
+        <span class="dashboard-section__count" x-text="filteredAssignments.length + (filteredAssignments.length === 1 ? ' asignación' : ' asignaciones')"></span>
       </summary>
       <div class="dashboard-section__body">
         <div class="activity-kpi-grid">
@@ -193,7 +193,7 @@
         <span class="dashboard-section__grip" aria-hidden="true">⋮⋮</span>
         <span class="dashboard-section__caret"></span>
         <span class="dashboard-section__title">Timeline de asignaciones</span>
-        <span class="dashboard-section__count" x-text="timelineGroups.length + (groupBy === 'project' ? ' proyecto(s)' : ' consultor(es)')"></span>
+        <span class="dashboard-section__count" x-text="timelineGroups.length + (groupBy === 'project' ? (timelineGroups.length === 1 ? ' proyecto' : ' proyectos') : (timelineGroups.length === 1 ? ' consultor' : ' consultores'))"></span>
       </summary>
       <div class="dashboard-section__body">
         {# Summary Tile Filters — indicador "Filtrado por…" (§8/§15 del
@@ -365,7 +365,7 @@
         <span class="dashboard-section__grip" aria-hidden="true">⋮⋮</span>
         <span class="dashboard-section__caret"></span>
         <span class="dashboard-section__title">Detalle de asignaciones</span>
-        <span class="dashboard-section__count" x-text="aggregatedDetailRows.length + ' consultor(es)'"></span>
+        <span class="dashboard-section__count" x-text="aggregatedDetailRows.length + (aggregatedDetailRows.length === 1 ? ' consultor' : ' consultores')"></span>
       </summary>
       <div class="dashboard-section__body">
         <div class="staffing-detail-toolbar">

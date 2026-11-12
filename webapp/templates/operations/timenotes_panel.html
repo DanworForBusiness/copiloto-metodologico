@@ -1,0 +1,358 @@
+{# timenotes_panel.html — vista «Carga de Horas» (Operaciones · OP01). Fragmento servido por POST /operaciones/staffing/carga-horas/data,
+   swapeado dentro de #staffing-rows (ver operations/staffing.html). Recibe `data` (contrato de timenotes_service.build_compliance).
+   Estados fail-safe: sin token (recuperación Graph compartida), error_lectura / csv_incompleto / padron_no_disponible → NO se muestran datos ni
+   controles de envío (no se notifica con información inválida o incompleta). El comportamiento de selección/envío lo da operations_timenotes.js. #}
+{% from "partials/graph_auth_recovery.html" import graph_auth_recovery %}
+{% from "partials/table_selection_bar.html" import selection_bar %}
+{#- Fila de colaborador: MISMA estructura en Colaboradores y Excepciones → el JS mueve la fila entre tablas sin re-descargar el CSV. Lleva AMBAS
+    acciones (mover / reincorporar) y el JS alterna su visibilidad (`style.display`: `.table-action-btn` fija su `display`, el atributo `hidden` no alcanza) según la tabla. -#}
+{% macro tn_colgroup() %}<colgroup><col style="width:44px"><col style="width:17%"><col style="width:17%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:11%"><col style="width:10%"><col style="width:9%"><col style="width:72px"></colgroup>{% endmacro %}
+{% macro tn_headers() %}<th class="left">Colaborador</th><th class="left">Email</th><th class="left">Registradas</th><th class="left">Exigibles</th><th class="left">Faltantes</th><th class="left">Cumplimiento</th><th class="left">Excepción</th><th class="left">Notificación</th><th class="center">Acciones</th>{% endmacro %}
+{% macro tn_alta(e) %}{% if e %}Excepción permanente{% if e.added_by %} · alta por {{ e.added_by }}{% endif %}{% if e.added_at %} · {{ e.added_at | ops_datetime }}{% endif %}{% endif %}{% endmacro %}
+{% macro tn_actions(c, notificable, excepted) -%}
+<div class="dw-row-actions">
+  {#- «Revisar mensaje» (preview) RETIRADO temporalmente de la UI (decisión 2026-11-12: poco valor frente a la tabla, ~8 s de demora).
+      Endpoint `/carga-horas/preview`, servicio, diálogo `#tn-preview-dialog` y `preview()` en JS se conservan intactos. -#}
+  {#- MISMO ícono/tooltip/posición que «Mover a sin prioridad» / «Restaurar» de CRM → Licencias (COMMERCIAL_TABLE_ACTION_ICONS archive/restore). -#}
+  <button type="button" class="table-action-btn chart-tooltip-anchor" data-tn-exc-add="{{ c.email }}" aria-label="Mover a excepciones"{% if excepted %} style="display:none"{% endif %}><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8"/><path d="M10 13h4"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Mover a excepciones</p></span></button>
+  <button type="button" class="table-action-btn chart-tooltip-anchor" data-tn-exc-remove="{{ c.email }}" aria-label="Reincorporar a colaboradores"{% if not excepted %} style="display:none"{% endif %}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Reincorporar a colaboradores</p></span></button>
+</div>
+{%- endmacro %}
+{#- Badge operativo — MISMO contrato visual que Operaciones → 03. Solicitudes (`partials/solicitudes_badge.html`: `.dashboard-status-badge` +
+    `.solicitudes-status-badge--{red|amber|grey|green|blue|violet}`, operations_solicitudes.css). Sin clases ni colores nuevos: el texto sigue
+    siendo explícito; el color solo refuerza. -#}
+{% macro tn_badge(tone, text, attrs="") %}<span class="dashboard-status-badge solicitudes-status-badge solicitudes-status-badge--{{ tone }}"{{ attrs | safe }}>{{ text }}</span>{% endmacro %}
+{% macro tn_hours(v) %}{{ '%g' | format(v | round(1)) }}{% endmacro %}
+{% macro tn_row(c, excepted, entry=None) %}
+        <tr data-tn-email="{{ c.email }}" data-tn-nombre="{{ c.nombre }}" data-tn-notificable="{{ '1' if c.notificable else '' }}"
+            data-tn-cumple="{{ '1' if c.cumple else '' }}" data-tn-faltantes="{{ '1' if c.faltantes > 0 else '' }}" data-tn-sin-registros="{{ '1' if c.sin_registros else '' }}" data-tn-revisar="{{ '1' if c.revisar_excepcion else '' }}"
+            data-tn-estados="{{ (c.estados or []) | join('|') }}" data-tn-disp="{{ c.disponibilidad or 'Sin dato' }}"
+            data-tn-estado="{% if c.obligacion is defined and not c.obligacion %}sin_obligacion{% else %}{{ 'cumple' if c.cumple else 'faltantes' }}{{ ' sin_registros' if c.sin_registros else '' }}{% endif %}{{ ' excepcion' if c.revisar_excepcion else '' }}">
+          <td class="center hc-select-col">
+            {% if c.notificable %}
+            <input type="checkbox" data-tn-select="{{ c.email }}" aria-label="Seleccionar a {{ c.nombre }}"{% if excepted %} disabled hidden{% endif %}>
+            {% else %}
+            <input type="checkbox" disabled aria-label="No notificable" title="{{ 'Sin mínimo semanal definido' if (c.obligacion is defined and not c.obligacion) else ('Cálculo provisional: calendario de feriados no verificado' if (c.calculo_verificado is defined and not c.calculo_verificado) else ('Tiene una excepción a revisar' if c.revisar_excepcion else ('Cumple las horas' if c.cumple else 'Sin faltantes'))) }}"{% if excepted %} hidden{% endif %}>
+            {% endif %}
+          </td>
+          <td class="left"><div class="dw-idcell"><span class="dw-idcell__name">{{ c.nombre }}</span></div></td>
+          <td class="left">{{ c.email }}</td>
+          <td class="left">{{ c.horas_registradas | round(1) }} h</td>
+          {% set sin_oblig = c.obligacion is defined and not c.obligacion %}
+          {% set sin_verif = (not sin_oblig) and c.calculo_verificado is defined and not c.calculo_verificado %}
+          <td class="left"{% if sin_verif %} title="Provisional: base sin descontar feriados (calendario no verificado)."{% endif %}>{% if sin_oblig %}—{% else %}{{ c.horas_exigibles | round(1) }} h{% endif %}</td>
+          <td class="left"{% if sin_verif %} title="Provisional: calculado sin descontar feriados."{% endif %}>{% if sin_oblig %}—{% else %}{{ c.faltantes | round(1) }} h{% endif %}</td>
+          {#- Cumplimiento (solo representación; el cálculo no cambia): Cumple → verde · Sin registros → rojo · Faltan X h → ámbar si el faltante
+              es < 50 % de las exigibles, rojo si es ≥ 50 %. -#}
+          {#- Sin obligación semanal definida (Part Time / sin dato de disponibilidad): neutro, nunca un incumplimiento contra 40 h. -#}
+          <td class="left">
+            {% if sin_oblig %}{{ tn_badge('grey', 'Sin mínimo definido' if c.disponibilidad == 'Part Time' else 'Sin clasificación', ' title="Disponibilidad de asignación: ' ~ (c.disponibilidad or 'Sin dato') ~ '"') }}
+            {% elif c.cumple %}{{ tn_badge('green', 'Cumple') }}
+            {% elif c.sin_registros %}{{ tn_badge('red', 'Sin registros') }}
+            {% else %}{{ tn_badge('red' if (c.horas_exigibles and c.faltantes >= 0.5 * c.horas_exigibles) else 'amber', 'Faltan ' ~ tn_hours(c.faltantes) ~ ' h') }}{% endif %}
+          </td>
+          {#- Excepción: neutro (gris). «Revisar» = ausencia temporal de Staffing; «Exceptuado» = excepción permanente (el JS lo alterna al mover). -#}
+          <td class="left">
+            {% if c.excepciones %}<span class="dashboard-status-badge solicitudes-status-badge solicitudes-status-badge--grey" title="{% for e in c.excepciones %}{{ e.motivo }} ({{ e.desde }}→{{ e.hasta }}){% if not loop.last %}; {% endif %}{% endfor %}">Revisar</span>{% endif %}
+            {{ tn_badge('grey', 'Exceptuado', ' data-tn-exc-badge' ~ ('' if excepted else ' style="display:none"')) }}
+            {% if not c.excepciones %}<span data-tn-exc-dash{% if excepted %} style="display:none"{% endif %}>—</span>{% endif %}
+          </td>
+          {#- Notificación: Pendiente → gris · no elegible / exceptuado → gris (neutro). Los resultados del envío los pinta el JS con el MISMO badge. -#}
+          {% set nd_text = 'Provisional' if (c.calculo_verificado is defined and not c.calculo_verificado and not (c.obligacion is defined and not c.obligacion)) else ('Pendiente' if c.notificable else 'No elegible') %}
+          {% set nd_title = tn_alta(entry) if excepted else ('' if c.notificable else ('Cálculo provisional: calendario de feriados no verificado. No se envían recordatorios.' if nd_text == 'Provisional' else ('Tiene una ausencia a revisar' if c.revisar_excepcion else 'Cumple las horas'))) %}
+          <td class="left"><span class="dashboard-status-badge solicitudes-status-badge solicitudes-status-badge--grey" data-tn-notif-state data-tn-notif-default="{{ nd_text }}"{% if nd_title %} title="{{ nd_title }}"{% endif %}>{{ 'Exceptuado' if excepted else nd_text }}</span></td>
+          <td class="center">{{ tn_actions(c, c.notificable, excepted) }}</td>
+        </tr>
+{% endmacro %}
+{% if data.status == "missing_token" %}
+{{ graph_auth_recovery("/operaciones/staffing/carga-horas/data", "#staffing-rows", message="Para ver la Carga de Horas, autorizá el acceso a Microsoft en esta pestaña.") }}
+{% elif data.status == "error_lectura" %}
+<div class="dashboard-empty" data-error-kind="source"><span class="dashboard-empty__label">No disponible{% if data.http_status %} (HTTP {{ data.http_status }}){% endif %}</span><p>{{ data.detalle or "No se pudo leer el archivo de Time Notes desde SharePoint en este momento." }} Esto NO significa que nadie haya cargado horas.</p></div>
+{% if data.diagnostico %}
+<div class="filter-toolbar-card" style="margin-top:12px;">
+  <p class="field-hint"><strong>Diagnóstico del origen (solo lectura):</strong>
+    Drive: <code>{{ data.diagnostico.drive.name if data.diagnostico.drive else '—' }}</code>
+    · Carpeta: <code>{{ data.diagnostico.carpeta }}</code>{% if data.diagnostico.detalle %} · {{ data.diagnostico.detalle }}{% endif %}</p>
+  {% if data.diagnostico.archivos is not none %}
+  <p class="field-hint">Archivos encontrados en la carpeta ({{ data.diagnostico.archivos | length }}):</p>
+  <ul class="hc-share-list">
+    {% for a in data.diagnostico.archivos %}<li>{{ '📁 ' if a.es_carpeta else '' }}{{ a.name }}</li>{% else %}<li>(carpeta vacía o inaccesible)</li>{% endfor %}
+  </ul>
+  <p class="field-hint">Si el CSV figura con otro nombre/ubicación acá, pasámelo y ajusto únicamente <code>SHAREPOINT_TIMELOGS_CSV_PATH</code>.</p>
+  {% endif %}
+</div>
+{% endif %}
+{% elif data.status == "csv_incompleto" %}
+<div class="dashboard-empty" data-error-kind="source"><span class="dashboard-empty__label">Fuente incompleta</span><p>{{ data.detalle }} No se puede calcular el cumplimiento ni notificar con datos incompletos.{% if data.columnas_encontradas %} <br><span class="field-hint">Columnas encontradas: {{ data.columnas_encontradas | join(', ') }}</span>{% endif %}</p></div>
+{% elif data.status == "padron_no_disponible" %}
+<div class="dashboard-empty" data-error-kind="source"><span class="dashboard-empty__label">Padrón no disponible</span><p>No se pudo resolver el padrón de colaboradores desde SharePoint. Reintentá en unos minutos.</p></div>
+{% else %}
+<div data-timenotes-root
+     data-semana="{{ data.semana.inicio }}"
+     data-semana-label="{{ data.semana.label }}"
+     data-fuente="{{ (data.csv_actualizado | ops_datetime) if data.csv_actualizado else 'no verificable' }}"
+     data-horas-base="{{ '%g' | format(data.horas_base) }}"
+     data-fuente-url="{{ data.csv_web_url or '' }}"
+     {% set _fer = data.feriados or {} %}
+     data-feriados-ok="{{ '1' if (_fer.verificado is not defined or _fer.verificado) else '' }}"
+     data-feriados-n="{{ _fer.cantidad or 0 }}"
+     data-feriados-desc="{{ '%g' | format(_fer.descuento_h or 0) }}"
+     data-feriados-detalle="{% for f in (_fer.lista or []) %}{{ f.fecha }} {{ f.descripcion }}{% if f.tipos %} ({{ f.tipos | join(', ') }}){% endif %}{% if not loop.last %}; {% endif %}{% endfor %}"
+     data-simulacion="{{ '1' if data.simulacion else '' }}"
+     data-enabled="{{ '1' if data.notifications_enabled else '' }}"
+     data-test-recipient="{{ data.test_recipient or '' }}"
+     data-test-mode="{{ '1' if data.test_mode else '' }}"
+     data-estados-ok="{{ '1' if data.estados_disponibles else '' }}"
+     data-inactivos="{{ '1' if data.incluye_inactivos else '' }}"
+     data-estados-default="Activo">
+
+  {# Aviso de entorno: MISMO formato que el aviso no bloqueante de Ausencias en Asignaciones (`.staffing-absence-error`), primer bloque bajo el
+     divisor del hero y antes de los filtros (owner, homologación visual). #}
+  {% if data.estados_disponibles is defined and not data.estados_disponibles %}
+  <p class="staffing-absence-error" role="status">No se pudo leer el estado de las asignaciones en Staffing: el filtro Estado no está disponible y no se puede notificar. Reintentá en unos minutos.</p>
+  {% endif %}
+  {% if data.disponibilidad_disponible is defined and not data.disponibilidad_disponible %}
+  <p class="staffing-absence-error" role="status">No se pudo leer la disponibilidad de asignación en Staffing: no se determinan incumplimientos ni se envían recordatorios. Reintentá en unos minutos.</p>
+  {% endif %}
+  {% if data.feriados is defined and data.feriados and not data.feriados.verificado %}
+  <p class="staffing-absence-error" role="status">Cálculo provisional: no se pudo validar el calendario de feriados ({{ data.feriados.detalle or data.feriados.estado }}). Las horas exigibles, faltantes y el cumplimiento se muestran contra la base SIN descontar feriados y no se envían recordatorios hasta contar con «Feriados Nacionales.xlsx» válido.</p>
+  {% endif %}
+  {% if data.simulacion %}
+  <p class="staffing-absence-error" role="status">Simulación ({{ (data.simulacion_motivos or ['horas base ' ~ ('%g' | format(data.horas_base)) ~ ' h']) | join(' · ') }}): los valores son de consulta y no se envían recordatorios. La regla vigente es 40 h de base y feriados Inamovible; volvé a esos valores para notificar.</p>
+  {% endif %}
+  {% if not data.notifications_enabled %}
+  <p class="staffing-absence-error" role="status">El envío de correos está deshabilitado en este entorno (NOTIFICATIONS_ENABLED=false): podés revisar el cumplimiento y previsualizar los mensajes, pero no se enviará ningún correo.</p>
+  {% endif %}
+
+  {# Barra de filtros — MISMO patrón que Capital Humano → Candidatos (`form.hc-profile-filters.filter-toolbar-card` + `.feedback-field` +
+     `.whatsnew-filter__clear`). Orientada a la interacción (sin metadatos: esos van al hero). Semana recarga en servidor (cambia la fuente);
+     Buscar y Cumplimiento filtran EN CLIENTE las filas ya cargadas (no re-descargan el CSV ni alteran el cálculo). #}
+  {# + `.staffing-filter-bar` (MISMO contrato que Asignaciones): con el stack de checkboxes de Estado, todas las labels arrancan en la MISMA línea
+     superior (align-items:flex-start) y «Limpiar» va como acción a la derecha (`.staffing-filter-bar__clear`). #}
+  <form class="hc-profile-filters filter-toolbar-card staffing-filter-bar" data-tn-filters onsubmit="return false">
+    {# Anchos: MISMO contrato que CCHH → Candidatos — selects/fecha a ancho natural (`--auto`, nunca truncan su opción más larga), pilas de
+       casillas como «Indicadores» (`--indicators`), y Buscar (`--wide`) consume el espacio restante; gap uniforme de la barra. #}
+    <div class="feedback-field feedback-field--auto">
+      <label for="tn-semana">Semana</label>
+      <input id="tn-semana" type="date" name="semana" value="{{ data.semana.inicio }}" autocomplete="off"
+             hx-post="/operaciones/staffing/carga-horas/data" hx-target="#staffing-rows" hx-swap="innerHTML" hx-sync="closest form:replace"
+             hx-trigger="change" data-dw-graph-token>
+    </div>
+    <div class="feedback-field feedback-field--wide">
+      <label for="tn-q">Buscar colaborador</label>
+      <input id="tn-q" type="text" name="q" autocomplete="off" placeholder="Nombre o email..." data-tn-search value="{{ (data.filtros or {}).q or '' }}">
+    </div>
+    <div class="feedback-field feedback-field--auto">
+      <label for="tn-estado">Compliance</label>
+      {% set f_cum = (data.filtros or {}).cumplimiento if data.filtros is defined else 'faltantes' %}
+      <select id="tn-estado" name="cumplimiento" data-tn-filter-estado>
+        <option value="faltantes"{% if f_cum == 'faltantes' %} selected{% endif %}>Incumplimientos</option>
+        <option value=""{% if f_cum == '' %} selected{% endif %}>Todos</option>
+        <option value="cumple"{% if f_cum == 'cumple' %} selected{% endif %}>Cumplimiento</option>
+        <option value="sin_registros"{% if f_cum == 'sin_registros' %} selected{% endif %}>Sin registros</option>
+        <option value="excepcion"{% if f_cum == 'excepcion' %} selected{% endif %}>Con excepción</option>
+      </select>
+    </div>
+    {# Disponibilidad de asignación — MISMAS opciones y semántica que Operaciones → Asignaciones («Todos» + valores reales de Colaboradores;
+       vacío = «Sin dato»). Default Full Time: único universo con obligación semanal definida (40 h). Filtro LOCAL (sin consultar SharePoint). #}
+    {% set f_disp = (data.filtros or {}).disponibilidad if data.filtros is defined else 'Full Time' %}
+    <div class="feedback-field feedback-field--auto">
+      <label for="tn-disp">Disponibilidad de asignación</label>
+      <select id="tn-disp" name="disponibilidad" data-tn-filter-disp data-tn-disp-default="Full Time">
+        <option value=""{% if f_disp == '' %} selected{% endif %}>Todos</option>
+        {% for v in (data.disponibilidad_opciones if data.disponibilidad_opciones is defined else ['Full Time']) %}
+        <option value="{{ v }}"{% if f_disp == v %} selected{% endif %}>{{ v }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {# Estado de ASIGNACIÓN (P7) — MISMO grupo de checkboxes que Operaciones → Asignaciones. Viaja con el form (semana / recarga). Filtra en
+       cliente el universo (KPIs incluidos); Inactivo y «Sin estado» piden una única recarga con el historial de Inactivos (igual que
+       Asignaciones). El envío revalida el Estado en servidor. #}
+    {% set est_sel = data.estados_sel if data.estados_sel is defined else ['Activo'] %}
+    <div class="feedback-field feedback-field--indicators" data-tn-estado-field>
+      <label>Estado</label>
+      <input type="hidden" name="estados_presentes" value="1">
+      <div class="dashboard-checkbox-group" role="group" aria-label="Estado de asignación">
+        {% for s in (data.estados_opciones if data.estados_opciones is defined else ['Activo', 'Tentativo', 'Inactivo', 'Sin estado']) %}
+        <label class="dashboard-checkbox-option"><input type="checkbox" name="estados" value="{{ s }}" data-tn-estado-opt aria-label="Estado {{ s }}"{% if s in est_sel %} checked{% endif %}{% if data.estados_disponibles is defined and not data.estados_disponibles %} disabled{% endif %}><span>{{ s }}</span></label>
+        {% endfor %}
+      </div>
+    </div>
+    {# Feriados — MISMO grupo de checkboxes que Estado. Tipos del archivo de Operaciones; default operativo: solo Inamovible. Cambiar la
+       selección recalcula en servidor (preloader, «la última gana»); una selección distinta de la regla es simulación (sin envíos). #}
+    {% set fer_sel = data.feriados_tipos_sel if data.feriados_tipos_sel is defined else ['Inamovible'] %}
+    <div class="feedback-field feedback-field--indicators" data-tn-feriados-field>
+      <label>Feriados</label>
+      <div class="dashboard-checkbox-group" role="group" aria-label="Tipos de feriado que descuentan horas">
+        {% for t in ['Inamovible', 'No laborable', 'Turistico'] %}
+        <label class="dashboard-checkbox-option"><input type="checkbox" name="feriados_tipos" value="{{ t }}" data-tn-feriado-opt aria-label="Feriados {{ t }}"{% if t in fer_sel %} checked{% endif %}><span>{{ t }}</span></label>
+        {% endfor %}
+      </div>
+    </div>
+    <button type="button" class="whatsnew-filter__clear staffing-filter-bar__clear" data-tn-clear-filters>✕ Limpiar</button>
+    {# Horas base de consulta: viaja con el form (recarga/semana); la edita el control del Resumen. #}
+    <input type="hidden" name="horas_base" value="{{ '%g' | format(data.horas_base) }}" data-tn-horas-base-value>
+    {# Recarga del panel por Estado (Inactivo / «Sin estado» piden el historial). `hx-sync="closest form:replace"`: MISMA cola que Semana; un
+       cambio nuevo aborta la consulta en curso, así el resultado final corresponde SIEMPRE a la última selección. #}
+    <button type="button" hidden data-tn-reload hx-post="/operaciones/staffing/carga-horas/data" hx-target="#staffing-rows" hx-swap="innerHTML" hx-sync="closest form:replace" data-dw-graph-token></button>
+  </form>
+
+  {# Secciones MOVIBLES como Asignaciones: un solo `.dashboard-sections[data-dashboard-key]`, cada encabezado `draggable` + grip `⋮⋮` (reorder/collapse por `initDashboardSections`, app.js). #}
+  <div class="dashboard-sections" data-dashboard-key="ops-timenotes" data-persist-collapse>
+    {# Resumen — MISMO `details.dashboard-section` + `.activity-kpi-grid` que Asignaciones. KPIs GLOBALES del universo Colaboradores (sin
+       excepciones permanentes): NO dependen de los filtros de la tabla; el JS los recalcula solo cuando una fila entra/sale de Excepciones. #}
+    <details class="dashboard-section" data-section-id="resumen" open>
+      <summary class="dashboard-section__head" draggable="true">
+        <span class="dashboard-section__grip" aria-hidden="true">⋮⋮</span>
+        <span class="dashboard-section__caret"></span>
+        <span class="dashboard-section__title">Resumen</span>
+        <span class="dashboard-section__count" data-tn-kpi-count>{{ data.resumen.esperados }} colaborador{{ '' if data.resumen.esperados == 1 else 'es' }}</span>
+      </summary>
+      <div class="dashboard-section__body">
+        <div class="activity-kpi-grid" role="group" aria-label="Resumen de cumplimiento">
+          <div class="activity-kpi"><span class="activity-kpi__value" data-tn-kpi="esperados">{{ data.resumen.esperados }}</span><span class="activity-kpi__label">Colaboradores{% if data.feriados is defined and data.feriados and not data.feriados.verificado %} (provisional){% endif %}</span></div>
+          <div class="activity-kpi"><span class="activity-kpi__value" data-tn-kpi="cumplen">{{ data.resumen.cumplen }}</span><span class="activity-kpi__label">En cumplimiento{% if data.feriados is defined and data.feriados and not data.feriados.verificado %} (provisional){% endif %}</span></div>
+          <div class="activity-kpi"><span class="activity-kpi__value" data-tn-kpi="con_faltantes">{{ data.resumen.con_faltantes }}</span><span class="activity-kpi__label">En incumplimiento{% if data.feriados is defined and data.feriados and not data.feriados.verificado %} (provisional){% endif %}</span></div>
+        </div>
+      </div>
+    </details>
+    {# Bloque Colaboradores — MISMO patrón que Capital Humano → Candidatos: encabezado con contador › barra contextual de selección
+       (`selection_bar`, oculta hasta seleccionar) › tabla integrada en el MISMO contenedor. Contador dinámico: «N colaboradores» sin filtros,
+       «V de N colaboradores» con filtros (visibles vs universo). #}
+    <details class="dashboard-section" data-section-id="colaboradores" open>
+      <summary class="dashboard-section__head" draggable="true">
+        <span class="dashboard-section__grip" aria-hidden="true">⋮⋮</span>
+        <span class="dashboard-section__caret"></span>
+        <span class="dashboard-section__title">Colaboradores</span>
+        {% set _exig_help = "Horas exigibles (Full Time): horas base × (5 − feriados aplicables) ÷ 5. Cuentan los feriados de «Feriados Nacionales.xlsx» (Operaciones) de los tipos elegidos en «Feriados» (regla operativa: Inamovible) que caen de lunes a viernes en la semana consultada; una fecha descuenta una sola vez. Part Time y Sin dato: sin mínimo definido." %}
+        <span class="chart-tooltip-anchor">
+          <button type="button" class="activity-kpi__info" aria-label="{{ _exig_help }}">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 7.8v.2"/></svg>
+          </button>
+          <span class="chart-tooltip"><p>{{ _exig_help }}</p></span>
+        </span>
+        <span class="dashboard-section__count" role="status" aria-live="polite" data-tn-count="colaboradores">{{ data.colaboradores | length }} colaborador{{ '' if data.colaboradores | length == 1 else 'es' }}</span>
+      </summary>
+      <div class="dashboard-section__body">
+  {# Barra en UNA fila (MISMO macro/clases que Presentaciones y Candidatos): contador a la izquierda, acciones a la derecha. El modo prueba
+     reutiliza el primitivo de checkbox del Hub `.dashboard-checkbox-option` (sin estilos inline); «Notificar» usa el MISMO contrato visual que
+     «Compartir presentaciones» (`.btn-primary`); «Limpiar» el compartido `.whatsnew-filter__clear`. #}
+        {# Horas base de CONSULTA (arriba de la tabla de Colaboradores, como «Ausencias» arriba del Timeline) — MISMO control compacto que «Ausencias · últimos N día(s)» de Asignaciones (`.staffing-timeline-toolbar` +
+           `.staffing-detail-toolbar__n`). Simulación: recalcula en servidor exigibles/faltantes/cumplimiento/KPIs; NO cambia la obligación
+           (40 h Full Time) y con un valor distinto de 40 no se envían recordatorios. #}
+        <div class="staffing-timeline-toolbar">
+          <label class="staffing-detail-toolbar__n" title="Horas semanales con las que se consulta el cumplimiento. Es una simulación: la obligación vigente de los Full Time sigue siendo 40 h y con otro valor no se envían recordatorios.">
+            <span>Horas base ·</span>
+            <input type="number" min="1" max="80" step="0.5" value="{{ '%g' | format(data.horas_base) }}" data-tn-horas-base aria-label="Horas base de consulta">
+            <span>h</span>
+          </label>
+        </div>
+  {% call selection_bar("tn", "Selección de colaboradores") %}
+      <button type="button" class="btn-primary" data-tn-notify>Notificar seleccionados</button>
+      <button type="button" class="whatsnew-filter__clear" data-tn-clear-selection aria-label="Limpiar selección">✕ Limpiar</button>
+  {% endcall %}
+  <div class="matrix-scroll" data-tn-table-wrap>
+    <table class="dashboard-table" id="tn-table">
+      {{ tn_colgroup() }}
+      <thead>
+        <tr>
+          <th class="center hc-select-col"><input type="checkbox" data-tn-select-page aria-label="Seleccionar todos los colaboradores elegibles visibles"></th>
+          {{ tn_headers() }}
+        </tr>
+      </thead>
+      <tbody data-tn-tbody="colaboradores">
+        {% for c in data.colaboradores %}{{ tn_row(c, false) }}{% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="dashboard-empty" data-empty-kind="no_matches" data-tn-empty hidden>
+    <span class="dashboard-empty__label">Sin resultados</span>
+    <p>Ningún colaborador coincide con los filtros aplicados.</p>
+  </div>
+      </div>
+    </details>
+    {# Excepciones PERMANENTES (manuales) — MISMO `details.dashboard-section` + tabla homogénea. Exceptuados = no reciben recordatorios en
+       ninguna semana hasta reincorporarlos. Distintas de las ausencias de Staffing (columna «Excepción» → «Revisar»). Sin filtros de tabla. #}
+    <details class="dashboard-section" data-section-id="excepciones" open>
+      <summary class="dashboard-section__head" draggable="true">
+        <span class="dashboard-section__grip" aria-hidden="true">⋮⋮</span>
+        <span class="dashboard-section__caret"></span>
+        <span class="dashboard-section__title">Excepciones</span>
+        {# Ayuda contextual como TOOLTIP del colapsable (MISMO primitivo `(i)` del Hub que CCHH → Búsquedas: `.chart-tooltip-anchor` +
+           `.activity-kpi__info` + `.chart-tooltip`); el copy va también en `aria-label`. #}
+        {% set _exc_help = "Colaboradores excluidos de forma permanente de los recordatorios de carga de horas (todas las semanas, hasta reincorporarlos). No se modifica el CSV ni el padrón." %}
+        <span class="chart-tooltip-anchor">
+          <button type="button" class="activity-kpi__info" aria-label="{{ _exc_help }}">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 7.8v.2"/></svg>
+          </button>
+          <span class="chart-tooltip"><p>{{ _exc_help }}</p></span>
+        </span>
+        <span class="dashboard-section__count" role="status" aria-live="polite" data-tn-count="excepciones">{{ (data.excepciones or []) | length }} excepci{{ 'ón' if (data.excepciones or []) | length == 1 else 'ones' }}</span>
+      </summary>
+      <div class="dashboard-section__body">
+  <div class="matrix-scroll" data-tn-exc-wrap{% if not data.excepciones %} hidden{% endif %}>
+    <table class="dashboard-table" id="tn-exc-table">
+      {{ tn_colgroup() }}
+      <thead>
+        <tr>
+          <th class="center hc-select-col"></th>
+          {{ tn_headers() }}
+        </tr>
+      </thead>
+      <tbody data-tn-tbody="excepciones">
+        {% for e in (data.excepciones or []) %}
+        {% if e.fila %}{{ tn_row(e.fila, true, e) }}{% else %}
+        <tr data-tn-email="{{ e.email }}" data-tn-nombre="{{ e.nombre }}" data-tn-fuera-padron="1">
+          <td class="center hc-select-col"></td>
+          <td class="left"><div class="dw-idcell"><span class="dw-idcell__name">{{ e.nombre }}</span></div></td>
+          <td class="left">{{ e.email }}</td>
+          <td class="left" colspan="5"><span class="dashboard-table-muted">Sin datos esta semana (no figura en el padrón)</span></td>
+          <td class="left"><span class="dashboard-status-badge solicitudes-status-badge solicitudes-status-badge--grey" data-tn-notif-state title="{{ tn_alta(e) }}">Exceptuado</span></td>
+          <td class="center">{{ tn_actions(e, false, true) }}</td>
+        </tr>
+        {% endif %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="dashboard-empty" data-empty-kind="none" data-tn-exc-empty{% if data.excepciones %} hidden{% endif %}>
+    <span class="dashboard-empty__label">Sin excepciones</span>
+    <p>Usá «Mover a excepciones» en la columna Acciones para excluir a un colaborador de los recordatorios.</p>
+  </div>
+      </div>
+    </details>
+  </div>
+
+  {% if data.calidad and (data.calidad.filas_fecha_ilegible or data.calidad.filas_duracion_ilegible) %}
+  <p class="field-hint field-hint--warn">Calidad del CSV: {{ data.calidad.filas_fecha_ilegible }} fila(s) con fecha ilegible y {{ data.calidad.filas_duracion_ilegible }} con duración ilegible se descartaron (no se asumen como 0). Revisá el archivo si el número es alto.</p>
+  {% endif %}
+
+  {% if data.no_asociables %}
+  <details class="dashboard-section" style="margin-top:12px;">
+    <summary class="dashboard-section__head"><span class="dashboard-section__title">Registros sin colaborador del padrón ({{ data.no_asociables | length }})</span></summary>
+    <div class="dashboard-section__body">
+      <p class="field-hint">Horas cargadas con un email que no está en el padrón de colaboradores — no se notifican. Revisar si corresponde actualizar el padrón.</p>
+      <ul class="hc-share-list">
+        {% for r in data.no_asociables %}<li>{{ r.email }} — {{ r.horas | round(1) }} h</li>{% endfor %}
+      </ul>
+    </div>
+  </details>
+  {% endif %}
+
+  {# Feedback de resultado de acciones (excepciones, envío): el MISMO toast transitorio del Hub que CCHH (Compartir perfiles / Bandeja de CVs),
+     por su alias transversal `.dw-feedback-toast` (tools.css):
+     contenedor `[data-dw-auto-dismiss]` + `data-dw-auto-dismiss-fade` (app.js `initAutoDismissFeedback`: se cierra solo o con clic afuera) y
+     markup `.callout.callout--feedback`. Fuera de las tablas: no desplaza contenido; los estados persistentes siguen en la columna Notificación. #}
+  <div class="dw-feedback-toast" aria-live="polite" data-dw-auto-dismiss="6000" data-dw-auto-dismiss-fade data-tn-status></div>
+
+  {# Diálogo de previsualización del mensaje (revisión antes de enviar). #}
+  <dialog id="tn-preview-dialog" class="dw-confirm busqueda-dialog">
+    <div class="dw-confirm__body">
+      <h2 class="dw-confirm__title">Previsualización del correo</h2>
+      <p class="field-hint" data-tn-preview-subject></p>
+      <div data-tn-preview-body style="border:1px solid rgba(128,128,128,.28);border-radius:8px;max-height:52vh;overflow:auto;background:#fff;"></div>
+    </div>
+    <div class="dw-confirm__actions"><form method="dialog"><button type="submit" class="btn-secondary">Cerrar</button></form></div>
+  </dialog>
+</div>
+{% endif %}

@@ -148,8 +148,7 @@
 /* Conteo de candidatos en el HEADER del panel (T2): arriba-derecha dentro del
    `.dashboard-section__head` compartido (`margin-left:auto` lo empuja al
    extremo, después del título). Registro tipográfico discreto (mono/soft). */
-.dashboard-section__count { margin-left: auto; color: #7a7a82; font: 600 .7rem var(--mono); }
-.content-theme-dark .dashboard-section__count { color: #9a9aa2; }
+/* (Definición consolidada en tools.css — misma regla, ya no se redefine acá.) */
 
 /* Cabecera de Base de CVs (h1+subtítulo a la izquierda, "Carga masiva" +
    "+ Cargar CV" a la derecha): MISMO layout que la app de referencia
@@ -189,19 +188,14 @@
    encima de contenido de página/tooltips (`.chart-tooltip` usa 30), por
    debajo del lightbox/`<dialog>` nativo (9999 / top-layer) -- un modal
    real SIEMPRE gana sobre este aviso transitorio. */
-.hc-catalog-refresh-feedback--topbar:not(:empty) {
-  position: fixed; top: 84px; left: 50%; transform: translateX(-50%); z-index: 100;
-  width: min(650px, calc(100vw - 32px));
-}
+/* (Posicionamiento flotante consolidado en tools.css — «Aviso transitorio flotante», MISMAS reglas; `.hc-catalog-refresh-feedback--topbar`
+   sigue siendo la clase de CCHH y comparte la regla con el alias transversal `.dw-feedback-toast`.) */
 /* Tipografía compacta (owner: "la font size del detalle es más grande que
    el estándar del hub") -- `.callout__body p` no trae font-size propio
    (hereda el body de página, 1rem/16px), correcto para un callout DENTRO
    del contenido, pero se ve sobredimensionado en un aviso chico/transitorio
    como este. Sólo escopeado acá -- `.callout` en el resto del Hub queda
    intacto. */
-.hc-catalog-refresh-feedback--topbar .callout__title { font-size: .85rem; }
-.hc-catalog-refresh-feedback--topbar .callout__body,
-.hc-catalog-refresh-feedback--topbar .dashboard-empty p { font-size: .78rem; line-height: 1.5; }
 .hc-profiles-hero-actions .btn-primary, .hc-profiles-hero-actions .btn-secondary,
 [data-hc-profile-new-form] .callout[data-advisory-kind="possible_duplicate"] .feedback-form-actions .btn-primary,
 [data-hc-profile-new-form] .callout[data-advisory-kind="possible_duplicate"] .feedback-form-actions .btn-secondary {
@@ -736,21 +730,12 @@ table.dashboard-table[data-exceptions-rows] th:is(:nth-child(2), :nth-child(3)) 
 
 /* ═══ CCHH · Candidatos: selección múltiple, «Compartir perfiles» y ficha de consulta ═══
    Casilla del Hub (accent = --gold), barra contextual sobre el MISMO `.filter-toolbar-card`, valores de solo lectura con los neutros del Hub (mismos bordes/colores que los campos). */
-.hc-select-col { text-align: center; }
-.hc-select-col input[type="checkbox"] { width: 18px; height: 18px; margin: 0; accent-color: var(--gold); cursor: pointer; vertical-align: middle; }
-.hc-select-col input[type="checkbox"]:disabled { cursor: default; }
+/* Casilla y barra contextual GENÉRICAS (`.hc-select-col`, `.hc-selection-bar*`): viven en tools.css (componente transversal de selección: Candidatos,
+   Solicitudes, Presentaciones, Carga de Horas, Bandeja de CVs). Acá quedan solo los ajustes propios de las tablas de CCHH/Solicitudes. */
 #hc-candidatos-table th.hc-select-col, #hc-candidatos-table td.hc-select-col { padding-left: 10px; padding-right: 6px; }
 #hc-candidatos-table tbody tr.is-selected > td,
 .solicitudes-table tbody tr.is-selected > td { background: rgba(231, 176, 8, .07); }
-.hc-selection-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 0 0 14px; padding: 10px 16px; }
-.hc-selection-bar[hidden] { display: none; }                   /* `display:flex` de la barra pisaría el atributo hidden: sin esto reservaría altura y márgenes con 0 seleccionados */
-.hc-selection-bar__count { font-size: .85rem; }
-.hc-selection-bar__hint { margin: 0; flex: 1 1 200px; min-width: 0; }
-.hc-selection-bar__actions { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
-.hc-selection-bar .btn-primary { display: inline-flex; align-items: center; gap: 6px; min-height: 0; padding: 6px 12px; font-size: .78rem; }
 @media (max-width: 640px) {
-  .hc-selection-bar__actions { margin-left: 0; width: 100%; }
-  .hc-select-col input[type="checkbox"] { width: 22px; height: 22px; }
   #hc-candidatos-table { min-width: 640px; }                      /* con la columna de casillas la tabla no entra en ~275px: desplaza horizontalmente dentro de `.matrix-scroll` en vez de aplastar las columnas */
 }
 .hc-share-dialog a.btn-primary.is-disabled { opacity: .45; pointer-events: none; }
@@ -784,8 +769,6 @@ table.dashboard-table[data-exceptions-rows] th:is(:nth-child(2), :nth-child(3)) 
 .content-theme-dark .hc-share-list li.is-muted { color: #9a9aa6; }
 .hc-share-list select { display: block; width: 100%; max-width: 100%; margin-top: 4px; box-sizing: border-box; padding: 6px 8px; border: 1px solid rgba(128, 128, 128, .35); border-radius: 8px; background: transparent; color: inherit; font-size: .8rem; }
 .hc-share-dialog button:disabled { opacity: .5; cursor: not-allowed; }
-.hc-selection-bar .btn-secondary { display: inline-flex; align-items: center; gap: 6px; min-height: 0; padding: 6px 12px; font-size: .78rem; color: inherit; background: transparent; border: 1px solid rgba(128, 128, 128, .45); }
-.hc-selection-bar .btn-secondary:hover:not(:disabled) { border-color: var(--gold); }
 .hc-dl-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin: 0 0 12px; padding: 0; }
 .hc-dl-stats > div { padding: 10px 12px; border: 1px solid rgba(128, 128, 128, .28); border-radius: 8px; }
 .hc-dl-stats dt { margin: 0 0 4px; color: #55555c; font-size: .7rem; font-weight: 650; }
