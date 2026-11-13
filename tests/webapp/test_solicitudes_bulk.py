@@ -362,3 +362,11 @@ def test_multi_field_invalid_id_or_protected_field_cannot_write(lab):
         p = bulk.prepare('actor', 'fake', ['1'])
         with pytest.raises(ValueError): bulk.review('actor', p['id'], 'fake', '__multiple__', changes)
     assert not lab['writes']
+
+
+@pytest.fixture(autouse=True)
+def _authorized_workflow_actor(monkeypatch):
+    # These transport/workflow regressions assume an authorized Architecture actor.
+    # Real creator/assignee/owner policy is covered in test_solicitudes_permissions.py.
+    from webapp.services import solicitudes_repository
+    monkeypatch.setattr(solicitudes_repository, "edit_permissions", lambda *args: (True, True))

@@ -11,6 +11,7 @@ function note(auto=false,controls=false){
   setAttribute:k=>attrs.add(k),matches:()=>auto,
   querySelector:s=>s.startsWith('input')?(controls?{}:null):s.startsWith(':scope')?this:null,
   appendChild(button){this.close=button;button.closest=()=>this;},
+  prepend(icon){this.icon=icon;},
   remove(){this.removed=true;},replaceChildren(){this.close=null;this.textContent='';},
   controls,
  };
@@ -24,7 +25,8 @@ function harness(url){
  };
  function add(auto=false,controls=false){
   const n=note(auto,controls);
-  n.querySelector=s=>s.startsWith('input')?(controls?{}:null):s.startsWith(':scope')?n.close:null;
+  n.querySelector=s=>s.startsWith('input')?(controls?{}:null):s.startsWith(':scope')?n.close:s.startsWith('.callout__icon')?n.icon:null;
+  n.matches=s=>s==='[data-dw-auto-dismiss]'?auto:false;
   notices.push(n);return n;
  }
  const initial=add(),toast=add(true),form=add(false,true);
@@ -41,5 +43,10 @@ const fresh=h.add();h.refresh();assert.ok(fresh.close,'Dynamic HTMX feedback is 
 function click(n){h.events.click({target:{closest:()=>n.close},preventDefault(){},stopPropagation(){}});}
 click(h.initial);assert.ok(h.initial.removed);
 click(h.toast);assert.equal(h.toast.textContent,'');assert.equal(h.toast.removed,false,'Keep the auto-dismiss host for future messages');
-const other=harness('/operaciones/solicitudes');assert.equal(other.initial.close,null);
+const operations=harness('/operaciones/solicitudes');
+assert.ok(operations.initial.close);assert.ok(operations.initial.icon);
+const opsIcon=operations.initial.icon;operations.refresh();assert.equal(operations.initial.icon,opsIcon,'No duplicate feedback icons');
+assert.equal(operations.form.close,null,'Forms remain intact in Operations');
+const dynamic=operations.add();operations.refresh();assert.ok(dynamic.close);assert.ok(dynamic.icon);
+const other=harness('/comercial/crm');assert.equal(other.initial.close,null);
 console.log('CCHH notices: dynamic close, no duplicates, preserved timers/hosts and vertical isolation OK');

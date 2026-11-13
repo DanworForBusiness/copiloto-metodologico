@@ -73,7 +73,7 @@ def graph(monkeypatch, tmp_path):
 @pytest.fixture
 def sharepoint(monkeypatch, submitted):  # noqa: F811
     created = []
-    fields = {**submitted, service.PROJECT + "LookupId": "4", "Prioridad": "Alta",
+    fields = {**submitted, service.STATUS: "Pendiente", service.PROJECT + "LookupId": "4", "Prioridad": "Alta",
               service.DESCRIPTION: "<div>Necesitamos <b>modelar</b> &amp; publicar</div>"}
     monkeypatch.setattr(repository, "create_item", lambda token, body: created.append(body) or {"id": "7"})
     monkeypatch.setattr(repository, "read_item", lambda token, item_id: {"id": "7", "createdDateTime": "2026-11-10T15:30:00Z", "fields": fields})
@@ -94,6 +94,37 @@ def _http(code, retry_after=None):
     return urllib.error.HTTPError("https://graph.microsoft.com/x", code, "x", headers, None)
 
 
+@pytest.mark.parametrize('event,setting,other',[
+    ('operations.architecture_request.created','NOTIFICATIONS_ARQ_RECIPIENTS','NOTIFICATIONS_OPERATIONS_RECIPIENTS'),
+    ('operations.architecture_request.rejected','NOTIFICATIONS_OPERATIONS_RECIPIENTS','NOTIFICATIONS_ARQ_RECIPIENTS'),
+])
+def test_request_events_use_only_their_configured_group(graph,monkeypatch,event,setting,other):
+    monkeypatch.setattr(config,setting,'shared@example.com; first@example.com, second@example.com; FIRST@example.com')
+    monkeypatch.setattr(config,other,'shared@example.com; excluded@example.com')
+    assert notifications.emit(event,'scope-test',{'id':'scope-test'})=='queued'
+    message=graph.calls[0]['body']['message']
+    assert [r['emailAddress']['address'] for r in message['toRecipients']]==['shared@example.com','first@example.com','second@example.com']
+    assert 'ccRecipients' not in message and 'bccRecipients' not in message
+    assert 'excluded@example.com' not in json.dumps(message)
+    assert _record(event,'scope-test')['state']=='accepted'
+    monkeypatch.setattr(config,setting,'')
+    assert notifications.emit(event,'empty-scope',{'id':'empty-scope'})=='no_recipients'
+    assert len(graph.calls)==1
+
+
+@pytest.mark.parametrize('failure',['post_rejected','confirmation_failed'])
+def test_unsuccessful_creation_never_emits_created_email(client,submitted,graph,sharepoint,monkeypatch,failure):
+    if failure=='post_rejected':
+        def reject(*args):
+            raise _http(400)
+        monkeypatch.setattr(repository,'create_item',reject)
+    else:
+        monkeypatch.setattr(repository,'read_item',lambda *args:{'id':'7','fields':{**submitted,service.STATUS:'Planificado'}})
+    _create(client,submitted)
+    assert graph.calls==[]
+    assert not notifications.record_path('operations.architecture_request.created','7').exists()
+
+
 # 1–6 · alta confirmada → una intención, remitente/destinatarios gobernados, asunto/contenido y enlace
 def test_confirmed_creation_sends_one_governed_notification(client, submitted, graph, sharepoint):  # noqa: F811
     response, _ = _create(client, submitted)
@@ -104,7 +135,7 @@ def test_confirmed_creation_sends_one_governed_notification(client, submitted, g
     assert call["url"] == "https://graph.microsoft.com/v1.0/users/hub-notifications@danwor.com/sendMail"
     message = call["body"]["message"]
     assert [r["emailAddress"]["address"] for r in message["toRecipients"]] == ["arquitectura@example.com", "innovacion@example.com"]   # actúa Arquitectura
-    assert [r["emailAddress"]["address"] for r in message["ccRecipients"]] == ["operaciones@example.com"]                              # Operaciones, informada
+    assert "ccRecipients" not in message and "bccRecipients" not in message
     assert message["subject"] == "Nueva solicitud de arquitectura | Operaciones | Solicitud #7"
     html = message["body"]["content"]
     assert message["body"]["contentType"] == "HTML"
@@ -119,7 +150,7 @@ def test_confirmed_creation_sends_one_governed_notification(client, submitted, g
 def test_recipients_never_come_from_access_lists_or_the_frontend(client, submitted, graph, sharepoint):  # noqa: F811
     _create(client, {**submitted})
     addresses = json.dumps(graph.calls[0]["body"])
-    assert "intruso@example.com" not in addresses and "owner@example.com" not in addresses and "create-test" not in json.dumps(graph.calls[0]["body"]["message"]["toRecipients"] + graph.calls[0]["body"]["message"]["ccRecipients"])
+    assert "intruso@example.com" not in addresses and "owner@example.com" not in addresses and "create-test" not in json.dumps(graph.calls[0]["body"]["message"]["toRecipients"])
 
 
 def test_configured_base_url_wins_for_the_link(client, submitted, graph, sharepoint, monkeypatch):  # noqa: F811

@@ -57,9 +57,11 @@
   function requestError(event) {
     if (event.detail?.target?.id !== 'solicitudes-bulk-content') return;
     const content = document.getElementById('solicitudes-bulk-content');
-    const text = document.createElement('p'); text.className = 'field-hint';
+    const text = document.createElement('p');
     const form = event.detail?.elt?.closest('form');
     const planId = form?.querySelector('[name=plan_id]')?.value;
+    text.className = 'callout callout--feedback callout--' + (planId ? 'punch' : 'warn');
+    text.setAttribute('role', 'alert');
     text.textContent = planId ? 'No se pudo confirmar la respuesta. No reenvíes el lote; consultá sus resultados.' : 'No se pudo completar la consulta. Conservamos la selección; verificá tu sesión y reintentá.';
     const button = document.createElement('button'); button.type = 'button'; button.className = 'btn-secondary';
     button.dataset.solDialogClose = ''; button.textContent = 'Cerrar';
@@ -94,7 +96,9 @@
       dialog.querySelector('#sol-share-message').value + '\n\n' + links.map(link => '- ' + link.title + ': ' + link.url).join('\n');
     let copied = false;
     try { copied = await copyTextToClipboard(text); } catch (_) { /* feedback below */ }
-    dialog.querySelector('[data-sol-copy-status]').textContent = copied ? 'Copiado al portapapeles.' : 'No se pudo copiar. Seleccioná los enlaces y copialos manualmente.';
+    const status = dialog.querySelector('[data-sol-copy-status]');
+    status.className = 'callout callout--feedback callout--' + (copied ? 'success' : 'warn');
+    status.textContent = copied ? 'Copiado al portapapeles.' : 'No se pudo copiar. Seleccioná los enlaces y copialos manualmente.';
   });
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', sync); else sync();
 })();

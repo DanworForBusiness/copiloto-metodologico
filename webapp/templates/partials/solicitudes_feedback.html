@@ -1,9 +1,10 @@
-<div class="callout{% if state in ('saved', 'deleted') %} callout--success{% else %} callout--punch{% endif %} callout--feedback"
+<div class="callout callout--{{ 'success' if state in ('saved', 'deleted') else 'punch' if state in ('conflict', 'uncertain') else 'warn' }} callout--feedback"
      {% if rejection %}data-solicitudes-rejection{% endif %}
      {% if state in ('saved', 'deleted') %}data-solicitudes-saved role="status" aria-live="polite"{% endif %}
      {% if state in ('conflict', 'uncertain') %}data-solicitudes-review{% endif %}>
   <div class="callout__body field-hint">
-    <p>{% if state in ('saved', 'deleted') %}<span aria-hidden="true">✓</span> {% endif %}{{ message }}{% if state == 'saved' %} · <a href="/operaciones/solicitudes/{{ item_id }}/editar">Recargar solicitud</a>{% endif %}</p>
+    <p>{{ message }}{% if state == 'saved' %} · <a href="/operaciones/solicitudes/{{ item_id }}/editar">Recargar solicitud</a>{% endif %}</p>
+    {% if rejection and state != 'saved' %}<p data-solicitudes-notification="{{ notification_state }}">{{ notification_message }}</p>{% endif %}
     {% if state in ('conflict', 'uncertain') %}
       <a href="/operaciones/solicitudes/{{ item_id }}/editar" target="_blank" rel="noopener">Consultar valores vigentes en otra pestaña</a>
       {% if is_list %}<p>El listado conserva sus datos. Consultá la versión vigente antes de reintentar.</p>
@@ -13,5 +14,10 @@
     {% endif %}
   </div>
 </div>
+{% if rejection and state == 'saved' %}
+<div class="callout callout--{{ 'success' if notification_state == 'accepted' else 'warn' if notification_state in ('failed', 'config_incomplete', 'error') else 'punch' }} callout--feedback" role="status">
+  <div class="callout__body"><p data-solicitudes-notification="{{ notification_state }}">{{ notification_message }}</p></div>
+</div>
+{% endif %}
 {% if refresh_hero %}{% include "partials/solicitudes_detail_hero.html" %}{% endif %}
 {% if refresh_history %}{% include "partials/solicitudes_history.html" %}{% endif %}

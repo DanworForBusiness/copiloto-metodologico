@@ -823,5 +823,3 @@ table.dashboard-table[data-cvinbox-rows] tr.hc-inbox-review-row > td { border-to
 [data-cvinbox-toast].hc-catalog-refresh-feedback--topbar:not(:empty) { width: max-content; max-width: calc(100vw - 32px); }
 /* `.asr-generate:disabled` (tools.css) fuerza opacidad plena para que se vea el spinner durante la carga; deshabilitado SIN carga (falta la confirmación) recupera el aspecto deshabilitado del Hub. */
 .hc-inbox-buttons .asr-generate:disabled:not(.htmx-request), .hc-selection-bar .asr-generate:disabled:not(.htmx-request) { opacity: .45; cursor: not-allowed; }
-.hc-notice--dismissible { position: relative; padding-inline-end: 3rem; }
-.hc-notice--dismissible > .hc-notice-close { position: absolute; inset-inline-end: .5rem; top: .5rem; }

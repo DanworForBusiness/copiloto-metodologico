@@ -3196,6 +3196,8 @@ details:not([open]) > summary > .panel-close[data-asr-close] { display: none; }
 .content-theme-dark .feedback-error:is([data-dsp-failed], [data-dsa-failed], [data-op-failed]) { --dw-notice-ink: #e08a8a; }
 .feedback-error:is([data-dsp-failed], [data-dsa-failed], [data-op-failed]) strong { color: var(--dw-notice-ink); }
 /* 3) Cierre manual de CCHH (`.hc-notice-close`, app.js): misma «✕» discreta que el banner. */
+.hc-notice--dismissible, .callout.hc-notice--dismissible, .dashboard-empty.hc-notice--dismissible { position: relative; padding-inline-end: 3rem; }
+.hc-notice--dismissible > .hc-notice-close { position: absolute; inset-inline-end: .5rem; top: .5rem; }
 .hc-notice--dismissible > .hc-notice-close { border: 0; background: transparent; color: #7a7a82; font-size: .9rem; line-height: 1; padding: 4px 7px; border-radius: 6px; }
 .content-theme-dark .hc-notice--dismissible > .hc-notice-close { color: #9a9aa2; }
 .hc-notice--dismissible > .hc-notice-close:hover { color: inherit; background: rgba(128,128,128,.16); }

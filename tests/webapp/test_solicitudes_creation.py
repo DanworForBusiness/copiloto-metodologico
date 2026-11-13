@@ -38,7 +38,7 @@ def catalogs():
 
 @pytest.fixture
 def submitted():
-    return {"Title": "Solicitud simulada", service.STATUS: "Pendiente", service.ASSIGNEES: []}
+    return {"Title": "Solicitud simulada"}
 
 
 @pytest.fixture
@@ -53,23 +53,25 @@ def test_initial_form_reuses_edit_controls(client):
     html = client.post("/operaciones/solicitudes/nueva/datos", data={"graph_token": "fake"}).text
     assert 'id="sol-title" type="text" name="Title" value="" required maxlength="255"' in html
     assert '>Crear solicitud</button>' in html
-    assert 'value="Pendiente" selected' in html
-    assert '<option value="Planificado">Planificado</option>' in html
+    assert 'data-architecture-after-creation' in html
+    for field in (service.STATUS, service.ASSIGNEES, service.ACTUAL, service.COMMENTS):
+        assert f'name="{field}"' not in html
+    assert 'id="sol-status"' not in html
     assert 'name="submission_id"' in html and 'name="etag"' not in html
-    assert html.count('role="combobox"') == 2
+    assert html.count('role="combobox"') == 1  # Proyecto; assignment is managed after creation.
     assert 'data-solicitudes-write-token' in html
     assert 'name="Created"' not in html
     assert '@beforeunload.window' in html
 
 
 def test_payload_uses_lookup_ids_dates_safe_text_and_omits_managed_defaults(schema, catalogs, submitted):
-    submitted.update({service.PROJECT: "4", service.ASSIGNEES: ["9"], service.PLANNED: "2026-11-04",
+    submitted.update({service.PROJECT: "4", service.PLANNED: "2026-11-04",
                       service.DESCRIPTION: "<script>& texto\nOtra línea"})
     fields = creation.payload(submitted, catalogs, schema)["fields"]
     assert fields["Title"] == "Solicitud simulada"
     assert fields[service.PROJECT + "LookupId"] == "4"
-    assert fields[service.ASSIGNEES + "LookupId"] == ["9"]
-    assert fields[service.ASSIGNEES + "LookupId@odata.type"] == "Collection(Edm.String)"
+    assert fields[service.STATUS] == "Pendiente"
+    assert service.ASSIGNEES + "LookupId" not in fields
     assert fields[service.PLANNED] == "2026-11-04T00:00:00Z"
     assert fields[service.DESCRIPTION] == "<div>&lt;script&gt;&amp; texto<br>Otra línea</div>"
     assert service.FUNNEL not in fields
@@ -104,7 +106,7 @@ def test_success_duplicate_and_snapshot_invalidation(client, monkeypatch, submit
     calls = []
     invalidated = []
     monkeypatch.setattr(repository, "create_item", lambda token, body: calls.append(body) or {"id": "7"})
-    monkeypatch.setattr(repository, "read_item", lambda token, item_id: {"id": "7", "fields": submitted})
+    monkeypatch.setattr(repository, "read_item", lambda token, item_id: {"id": "7", "fields": {**submitted, service.STATUS: "Pendiente"}})
     monkeypatch.setattr(creation.solicitudes_snapshot, "invalidate", invalidated.append)
     ticket = creation.issue("create-test")
     data = {**submitted, "graph_token": "fake-secret", "submission_id": ticket}
@@ -173,7 +175,7 @@ def test_concurrent_submits_and_other_actor_are_rejected(client, monkeypatch, su
         assert release.wait(5)
         return {"id": "8"}
     monkeypatch.setattr(repository, "create_item", create_item)
-    monkeypatch.setattr(repository, "read_item", lambda *args: {"id": "8", "fields": submitted})
+    monkeypatch.setattr(repository, "read_item", lambda *args: {"id": "8", "fields": {**submitted, service.STATUS: "Pendiente"}})
     ticket = creation.issue("create-test")
     with ThreadPoolExecutor() as pool:
         first = pool.submit(creation.create, "create-test", ticket, "fake", submitted)
@@ -226,7 +228,7 @@ def test_failed_confirmation_cannot_issue_second_post(client, monkeypatch, submi
 def test_invalid_form_can_be_corrected_with_same_ticket(client, monkeypatch, submitted):
     posts = []
     monkeypatch.setattr(repository, "create_item", lambda *args: posts.append(1) or {"id": "8"})
-    monkeypatch.setattr(repository, "read_item", lambda *args: {"id": "8", "fields": submitted})
+    monkeypatch.setattr(repository, "read_item", lambda *args: {"id": "8", "fields": {**submitted, service.STATUS: "Pendiente"}})
     ticket = creation.issue("create-test")
     with pytest.raises(ValueError):
         creation.create("create-test", ticket, "fake", {**submitted, "Title": ""})

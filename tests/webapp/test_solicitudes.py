@@ -1,3 +1,4 @@
+import pytest
 from webapp.services import solicitudes_repository as repository
 from webapp.services import solicitudes_service as service
 
@@ -620,3 +621,11 @@ def test_loaders_without_delegated_token_offer_the_shared_graph_recovery(monkeyp
         assert "Autorizar con Microsoft" in html, path
         assert retry in html and 'hx-trigger="dw-graph-authorized"' in html and 'hx-target="#solicitudes-panel"' in html, path
         assert "data-dw-graph-reauth" in html and "data-dw-graph-token" in html, path
+
+
+@pytest.fixture(autouse=True)
+def _authorized_workflow_actor(monkeypatch):
+    # These transport/workflow regressions assume an authorized Architecture actor.
+    # Real creator/assignee/owner policy is covered in test_solicitudes_permissions.py.
+    from webapp.services import solicitudes_repository
+    monkeypatch.setattr(solicitudes_repository, "edit_permissions", lambda *args: (True, True))

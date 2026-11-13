@@ -30,12 +30,12 @@
     </section>
 
     {% if mode == 'corregir' and view and view.observacion %}
-    <div class="methodology"><div class="callout callout--warn callout--feedback" data-observacion><div class="callout__head"><strong class="callout__title">Observación de Capital Humano</strong></div><div class="callout__body"><p>{{ view.observacion.motivo }}</p></div></div></div>
+    <div class="methodology"><div class="callout callout--punch callout--feedback" data-observacion><div class="callout__head"><strong class="callout__title">Observación de Capital Humano</strong></div><div class="callout__body"><p>{{ view.observacion.motivo }}</p></div></div></div>
     {% endif %}
     {% if error %}<div class="dashboard-empty" data-error-kind="validation" role="alert"><span class="dashboard-empty__label">No se envió</span><p>{{ error }}</p></div>{% endif %}
-    {% if warning %}<div class="methodology"><div class="callout callout--warn callout--feedback" role="alert"><div class="callout__body"><p>{{ warning }}</p></div></div></div>{% endif %}
+    {% if warning %}<div class="methodology"><div class="callout callout--punch callout--feedback" role="alert"><div class="callout__body"><p>{{ warning }}</p></div></div></div>{% endif %}
     {% if catalog_areas_missing or catalog_seniority_missing or catalog_contrato_missing %}
-    <div class="methodology"><div class="callout callout--warn callout--feedback"><div class="callout__body"><p>Los catálogos de {{ ([('áreas' if catalog_areas_missing else ''), ('seniority' if catalog_seniority_missing else ''), ('modalidad de contratación' if catalog_contrato_missing else '')] | select | join(', ')) }} todavía no están disponibles, así que no se puede completar este dato. Avisá a Capital Humano para que los actualice.</p></div></div></div>
+    <div class="methodology"><div class="callout callout--punch callout--feedback"><div class="callout__body"><p>Los catálogos de {{ ([('áreas' if catalog_areas_missing else ''), ('seniority' if catalog_seniority_missing else ''), ('modalidad de contratación' if catalog_contrato_missing else '')] | select | join(', ')) }} todavía no están disponibles, así que no se puede completar este dato. Avisá a Capital Humano para que los actualice.</p></div></div></div>
     {% endif %}
 
     <form method="post" action="{{ '/operaciones/busquedas/nueva' if mode == 'nueva' else '/operaciones/busquedas/' ~ view.busqueda_id ~ '/editar' }}"

@@ -1391,7 +1391,7 @@ function reportingAuthRequiredHtml() {
   // cargado— para resolver algo que sólo necesitaba renovar la autorización de
   // datos. Cerrar sesión sigue siendo una intención distinta, con su botón en
   // el topbar.
-  return `<div class="dashboard-empty"><span class="dashboard-empty__label">Sesión de datos</span>`
+  return `<div class="dashboard-empty" role="alert" data-error-kind="auth"><span class="dashboard-empty__label">Sesión de datos</span>`
     + `<p>Tu sesión de datos con Microsoft necesita renovarse. `
     + `<button type="button" class="dashboard-subhead__reset" onclick="reportingReauthenticate()">Renovar sesión</button></p></div>`;
 }
@@ -1454,7 +1454,7 @@ function reportingSourceErrorHtml(label, { retry = true } = {}) {
   const action = (retry && !state.reportingConfigIncomplete)
     ? ` <button type="button" class="dashboard-subhead__reset" onclick="reportingRetryTab()">Reintentar</button>`
     : "";
-  return `<div class="dashboard-empty"><span class="dashboard-empty__label">No disponible</span>`
+  return `<div class="dashboard-empty" role="alert" data-error-kind="source"><span class="dashboard-empty__label">No disponible</span>`
     + `<p>No pudimos cargar ${esc(label)}.${action}</p></div>`;
 }
 

@@ -32,14 +32,16 @@
 
   <main id="content" class="module-content module-content--compact-heroes">
     <section class="module-hero" style="position:relative;">
-      <p class="eyebrow">Staffing</p>
-      {# El título, la descripción y los metadatos se actualizan según la vista activa de la botonera (operations_timenotes.js), de forma inmediata
-         y reversible. Asignaciones es el estado por defecto (contenido literal de siempre). #}
-      <h1 data-opsb-hero-title>Asignaciones</h1>
-      <p class="hero-lead full-page-subtitle" data-opsb-hero-desc>Analítica operativa de asignaciones por consultor y proyecto — línea de tiempo, disponibilidad de asignación y detalle, con datos en tiempo real desde SharePoint.</p>
-      {# Metadatos contextuales (solo en «Carga de Horas»): MISMO primitivo `.hero-meta` que el encabezado de Assessment del Copiloto (compacto,
-         horizontal, jerarquía secundaria). Lo puebla el JS con los valores dinámicos del panel; oculto en Asignaciones. #}
-      <div class="hero-meta" data-opsb-hero-meta hidden></div>
+      <div class="hc-profiles-hero-text">
+        <p class="eyebrow">Staffing</p>
+        {# El título, la descripción y los metadatos se actualizan según la vista activa de la botonera (operations_timenotes.js), de forma inmediata
+           y reversible. Asignaciones es el estado por defecto (contenido literal de siempre). #}
+        <h1 data-opsb-hero-title>Asignaciones</h1>
+        <p class="hero-lead full-page-subtitle" data-opsb-hero-desc>Analítica operativa de asignaciones por consultor y proyecto — línea de tiempo, disponibilidad de asignación y detalle, con datos en tiempo real desde SharePoint.</p>
+        {# Metadatos contextuales (solo en «Carga de Horas»): MISMO primitivo `.hero-meta` que el encabezado de Assessment del Copiloto (compacto,
+           horizontal, jerarquía secundaria). Lo puebla el JS con los valores dinámicos del panel; oculto en Asignaciones. #}
+        <div class="hero-meta" data-opsb-hero-meta hidden></div>
+      </div>
       {# Botonera segmentada (primitivo compartido `.dashboard-view-switch`, el mismo de Gestión Comercial → CRM), en el margen superior derecho del
          hero —comparte la fila visual con el título/descripción vía posicionamiento absoluto, sin alterar los selectores del hero—. Selecciona la
          vista de OP01: «Asignaciones» (default, intacta) vs «Carga de Horas». Cada botón recarga SOLO el contenido central (`#staffing-rows`) vía

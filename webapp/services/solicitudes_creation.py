@@ -13,8 +13,7 @@ from webapp.services import solicitudes_service as service
 from webapp.services import solicitudes_snapshot
 
 CREATE_FIELDS = (
-    "Title", service.STATUS, "Prioridad", service.PROJECT, service.ASSIGNEES,
-    service.PLANNED, service.ACTUAL, service.DESCRIPTION, service.COMMENTS,
+    "Title", "Prioridad", service.PROJECT, service.PLANNED, service.DESCRIPTION,
 )
 _lock = threading.Lock()
 _tickets = {}
@@ -48,6 +47,7 @@ def payload(submitted, options, columns):
     """Validate against current column definitions; let SharePoint supply defaults."""
     if set(submitted) - set(CREATE_FIELDS):
         raise ValueError("El alta contiene campos no permitidos.")
+    submitted = {**submitted, service.STATUS: "Pendiente"}
     title = submitted.get("Title", "").strip()
     if not title:
         raise ValueError("Ingresá el título de la solicitud.")
@@ -78,7 +78,7 @@ def payload(submitted, options, columns):
     if not definitions[service.ASSIGNEES]["lookup"].get("allowMultipleValues", False):
         raise ValueError("La cardinalidad de Colaborador asignado cambió en SharePoint.")
     for name, definition in definitions.items():
-        if (name not in CREATE_FIELDS and definition.get("required")
+        if (name not in expected and definition.get("required")
                 and not definition.get("readOnly") and "calculated" not in definition
                 and not definition.get("defaultValue")):
             raise ValueError("SharePoint requiere un campo adicional sin valor predeterminado. Revisá el contrato del alta antes de crear.")
@@ -129,6 +129,7 @@ def create(actor, ticket, token, submitted, *, origin=None):
         observed = repository.read_item(token, item_id)
         actual = service.form_values(observed["fields"])
         if (str(observed.get("id")) != item_id
+                or actual[service.STATUS] != "Pendiente"
                 or observed["fields"].get("Title") != body["fields"]["Title"]
                 or service.changes(actual, {key: value for key, value in submitted.items() if key != "Title" and value}, options)):
             raise UncertainCreation()

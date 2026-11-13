@@ -4,7 +4,7 @@
 {% if message and mode != 'error' %}<div class="callout callout--punch callout--feedback"><div class="callout__body field-hint"><p>{{ message }}</p></div></div>{% endif %}
 {% if authorize and mode != 'error' %}{% include "partials/solicitudes_write_authorize.html" %}{% endif %}
 {% if mode == 'error' %}
-  <div class="callout callout--punch callout--feedback"><div class="callout__body field-hint"><p>{{ message }}</p></div></div>
+  <div class="callout callout--warn callout--feedback" role="alert"><div class="callout__body field-hint"><p>{{ message }}</p></div></div>
   {% if authorize %}{% include "partials/solicitudes_write_authorize.html" %}{% endif %}
 {% elif mode == 'share' %}
   <p class="field-hint">Los enlaces requieren acceso a Operaciones y permisos de lectura en SharePoint.</p>
@@ -41,7 +41,7 @@
   <p class="field-hint">Revisá los valores. La operación no es transaccional: cada registro tiene su propio resultado.</p>
   {% if plan.rows | selectattr('derived') | list %}<div class="callout callout--punch callout--feedback"><div class="callout__body field-hint"><p>Los registros señalados como «Aprobación de admisión» pasarán de Solicitado a Aprobado para Arquitectura en el mismo PATCH. La confirmación incluye ese cambio derivado.</p></div></div>{% endif %}
   {% else %}
-  <p role="status">{{ counts.get('confirmed',0) }} confirmadas · {{ counts.get('unchanged',0) }} sin cambios · {{ counts.get('conflict',0)+counts.get('rejected',0)+counts.get('uncertain',0) }} fallidas{% if plan.state != 'complete' %} · Procesando…{% endif %}</p>
+  <p class="callout callout--feedback callout--{{ 'punch' if plan.state != 'complete' or counts.get('uncertain',0) or (counts.get('confirmed',0) and (counts.get('conflict',0) or counts.get('rejected',0))) else 'warn' if counts.get('conflict',0) or counts.get('rejected',0) else 'success' }}" role="status">{{ counts.get('confirmed',0) }} confirmadas · {{ counts.get('unchanged',0) }} sin cambios · {{ counts.get('conflict',0)+counts.get('rejected',0) }} con conflicto o rechazadas · {{ counts.get('uncertain',0) }} sin confirmar{% if plan.state != 'complete' %} · Procesando…{% endif %}</p>
   {% endif %}
   <div class="matrix-scroll"><table class="dashboard-table solicitudes-history-table"><thead><tr><th class="left">Solicitud</th><th class="left">Antes</th><th class="left">Después</th><th class="left">Resultado / revisión</th></tr></thead><tbody>
     {% for row in plan.rows %}<tr><td class="left">#{{ row.id }} · {{ row.title }}</td><td class="left">{{ row.before }}</td><td class="left">{{ row.after }}</td><td class="left">{{ status_labels[row.status] }}{% if row.derived %} · Aprobación de admisión{% endif %}{% if row.message %}<br>{{ row.message }}{% endif %}</td></tr>{% endfor %}

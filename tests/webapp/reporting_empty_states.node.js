@@ -171,6 +171,7 @@ TABS.forEach(([fnName, arrName, statusKey]) => {
   assertTrue(!html.includes("empty-note"), `E: ${fnName} sin texto plano`);
   assertTrue(html.includes('<div class="dashboard-empty">'),
     `E: ${fnName} usa el primitivo compartido`);
+  assertTrue(!html.includes('data-error-kind='), `E: ${fnName} no marca cero filas como error`);
   assertTrue(html.includes('class="dashboard-empty__label">Sin resultados<'),
     `E: ${fnName} lleva el eyebrow compartido`);
   assertTrue(html.includes("Sin filas para los filtros actuales."),
@@ -183,7 +184,7 @@ TABS.forEach(([fnName, arrName, statusKey]) => {
 // el estado de cero-filas, y se distingue por el eyebrow: "No disponible"
 // (falla de carga) vs "Sin resultados" (cero filas legitimas).
 const errHtml = vm.runInContext("reportingSourceErrorHtml", sandbox)("los datos de Cartera");
-assertTrue(errHtml.includes('<div class="dashboard-empty">'),
+assertTrue(errHtml.includes('<div class="dashboard-empty" role="alert" data-error-kind="source">'),
   "F: el estado de error usa el primitivo COMPARTIDO del Hub");
 assertTrue(errHtml.includes('class="dashboard-empty__label">No disponible<'),
   "F: y lo distingue con el eyebrow 'No disponible'");
