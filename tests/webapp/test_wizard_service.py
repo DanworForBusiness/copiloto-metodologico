@@ -66,10 +66,28 @@ def test_flujos_sap_abab_full_path_to_leaf():
     run = store.start(tree)
     store.answer(run.id, "Sí")            # -> q2_origen
     store.answer(run.id, "SAP/ABAP")      # -> q2_b
-    store.answer(run.id, "Sí")            # -> leaf_replication_flow
+    store.answer(run.id, "Sí")            # -> q2_b2 (la fuente admite Replication Flow con delta)
+    store.answer(run.id, "No")            # -> leaf_replication_flow (sin transformación adicional)
     assert run.error == ""
     assert run.leaf is not None
     assert run.current == "leaf_replication_flow"
+
+
+def test_flujos_sap_delta_never_reaches_no_delta_leaves():
+    """Regresión de q2_b: con delta pedido desde SAP/ABAP ninguna ruta termina en una hoja pensada para cargas sin delta."""
+    tree = WizardStore().tree_by_id("m04_flujos_de_datos")
+    nodes, leaves = tree["nodes"], tree["leaves"]
+
+    def reachable(node):
+        if node in leaves:
+            return {node}
+        return set().union(*(reachable(dst) for dst in nodes[node]["next"].values()))
+
+    assert nodes["q1_delta"]["next"]["Sí"] == "q2_origen" and nodes["q2_origen"]["next"]["SAP/ABAP"] == "q2_b"
+    sap_delta = reachable("q2_b")
+    no_delta = reachable(nodes["q1_delta"]["next"]["No"])
+    assert sap_delta == {"leaf_replication_flow", "leaf_rf_mas_tf_delta", "leaf_revision_rf_tf", "leaf_revisar_extraccion_delta"}
+    assert not sap_delta & no_delta
 
 
 def test_choice_nodes_options_match_transition_keys():
