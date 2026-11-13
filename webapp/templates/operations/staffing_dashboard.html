@@ -11,11 +11,11 @@
    el filtrado (KPIs/timeline/disponibilidad/detalle) es client-side desde
    ahí; no hay una segunda request a Graph por cambio de filtro. #}
 {% if state == "missing_token" %}
-<p class="empty-panel">No pudimos obtener tu token de acceso a Microsoft. Volvé a iniciar sesión e intentá de nuevo.</p>
+<div class="dashboard-empty" role="alert" data-error-kind="auth"><span class="dashboard-empty__label">Autorización de Microsoft</span><p>No pudimos obtener tu token de acceso a Microsoft. Volvé a iniciar sesión e intentá de nuevo.</p></div>
 {% elif state == "config_incomplete" %}
-<p class="empty-panel">Staffing configuration incomplete — todavía falta terminar de configurar el origen de datos de Staffing.</p>
+<div class="dashboard-empty" role="alert" data-error-kind="configuration"><span class="dashboard-empty__label">Configuración incompleta</span><p>Staffing configuration incomplete — todavía falta terminar de configurar el origen de datos de Staffing.</p></div>
 {% elif state == "graph_error" %}
-<p class="empty-panel">No pudimos leer Staffing desde SharePoint en este momento. Probá de nuevo en unos minutos.</p>
+<div class="dashboard-empty" role="alert" data-error-kind="source"><span class="dashboard-empty__label">No disponible</span><p>No pudimos leer Staffing desde SharePoint en este momento. Probá de nuevo en unos minutos.</p></div>
 {% elif not payload.assignments %}
 <p class="empty-panel">No hay asignaciones para mostrar todavía.</p>
 {% else %}

@@ -161,6 +161,9 @@ def _one(row, plan, token, columns, options):
     result = dict(row)
     try:
         item = repository.read_item(token, row['id'])
+        can_edit, can_architecture = repository.edit_permissions(token, item, {'sub': plan['actor']})
+        if not can_edit or (not can_architecture and set(plan['targets']) & {service.STATUS, service.ASSIGNEES, service.ACTUAL, service.COMMENTS}):
+            raise ValueError('No autorizado para modificar esta solicitud o sus campos de Arquitectura.')
         etag = item.get('eTag') or item.get('@odata.etag')
         if not etag or etag == '*' or etag != row['etag']:
             result.update(status='conflict', message='La versión cambió desde la revisión; no se sobrescribió.')

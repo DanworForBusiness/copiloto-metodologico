@@ -93,7 +93,6 @@ EVENTS: dict[str, EventSpec] = {
     "operations.architecture_request.created": EventSpec(
         workspace="operations",
         to_setting="NOTIFICATIONS_ARQ_RECIPIENTS",
-        cc_setting="NOTIFICATIONS_OPERATIONS_RECIPIENTS",
         subject=lambda d: f"Nueva solicitud de arquitectura | Operaciones | Solicitud #{d.get('id', '')}",
         template="notifications/architecture_request_created.html",
         title="Nueva solicitud de arquitectura",
@@ -103,7 +102,6 @@ EVENTS: dict[str, EventSpec] = {
     "operations.architecture_request.rejected": EventSpec(
         workspace="operations",
         to_setting="NOTIFICATIONS_OPERATIONS_RECIPIENTS",
-        cc_setting="NOTIFICATIONS_ARQ_RECIPIENTS",
         subject=lambda d: f"Solicitud rechazada y derivada a Operaciones | Arquitectura | Solicitud #{d.get('id', '')}",
         template="notifications/architecture_request_rejected.html",
         title="Solicitud rechazada y derivada a Operaciones",
@@ -203,6 +201,28 @@ def _read(path: Path) -> dict | None:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
+
+
+def delivery_status(event: str, key: str) -> dict:
+    """Read a safe snapshot of the existing delivery record; never send or retry.
+
+    Acceptance is a transport result, not proof of delivery to the mailbox.
+    No recipients, message data or raw provider errors leave this boundary.
+    """
+    record = _read(record_path(event, str(key)))
+    if not isinstance(record, dict):
+        return {"state": "unknown", "category": "unavailable", "http_status": None}
+    state = record.get("state")
+    if state not in {"pending", "sending", "accepted", "retry", "failed", "uncertain"}:
+        state = "unknown"
+    error = str(record.get("error") or "")
+    code = re.search(r"\bHTTP (\d{3})\b", error)
+    category = (error if error in {"no_recipients", "config_incomplete", "interrupted_while_sending"}
+                else "authentication" if error.startswith("token:")
+                else "timeout" if "timeout" in error.lower()
+                else "http" if code else "provider" if error else "none")
+    return {"state": state, "category": category,
+            "http_status": 202 if state == "accepted" else int(code.group(1)) if code else None}
 
 
 def _create_exclusive(path: Path, record: dict) -> bool:

@@ -119,3 +119,11 @@ def test_reread_must_confirm_derived_funnel_not_only_architecture(setup, monkeyp
     result = send(client, confirm_admission='yes')
     assert 'data-solicitudes-review' in result.text and 'data-solicitudes-saved' not in result.text
     assert len(calls) == 1
+
+
+@pytest.fixture(autouse=True)
+def _authorized_workflow_actor(monkeypatch):
+    # These transport/workflow regressions assume an authorized Architecture actor.
+    # Real creator/assignee/owner policy is covered in test_solicitudes_permissions.py.
+    from webapp.services import solicitudes_repository
+    monkeypatch.setattr(solicitudes_repository, "edit_permissions", lambda *args: (True, True))

@@ -136,6 +136,8 @@ def solicitudes_new_data(request: Request, graph_token: str = Form("")):
     try:
         columns = repository.read_creation_columns(graph_token)
         options = repository.lookup_options(graph_token, columns=columns)
+        if "Pendiente" not in options[service.STATUS]:
+            raise service.StatusCatalogError("El catálogo de Arquitectura debe incluir Pendiente para crear solicitudes.")
         ticket = creation.issue(user["sub"])
     except (HTTPError, URLError, TimeoutError, ValueError, KeyError) as exc:
         return _edit_panel(request, "", error=_edit_error(exc))
@@ -164,7 +166,6 @@ async def solicitudes_create(request: Request, graph_token: str = Form("")):
     if not graph_token:
         return _creation_feedback(request, "auth", "Autorizá la escritura con Microsoft y después volvé a crear la solicitud. Tu borrador se conserva.")
     submitted = {key: str(form[key]) for key in creation.CREATE_FIELDS if key in form and key != service.ASSIGNEES}
-    submitted[service.ASSIGNEES] = [str(value) for value in form.getlist(service.ASSIGNEES) if value]
     for key in service.NARRATIVE_FIELDS:
         if key in submitted:
             submitted[key] = service.normalize_narrative(submitted[key])
@@ -226,12 +227,14 @@ def _graph_auth_recovery(request):
     return {"post_url": request.url.path + ("?" + query if query else ""), "target": "#solicitudes-panel"}
 
 
-def _edit_panel(request, item_id, *, item=None, options=None, error="", auth_recovery=None):
+def _edit_panel(request, item_id, *, item=None, options=None, error="", auth_recovery=None, permissions=(False, False)):
     values = service.form_values(item["fields"]) if item else {}
     user = _user(request) or {}
-    template = "partials/solicitudes_display.html" if request.query_params.get("mode") == "display" else "partials/solicitudes_edit.html"
+    can_edit, can_edit_architecture = permissions
+    template = "partials/solicitudes_display.html" if request.query_params.get("mode") == "display" or (item and not can_edit) else "partials/solicitudes_edit.html"
     return templates.TemplateResponse(request=request, name=template, context={
         "item_id": item_id, "values": values, "current": values,
+        "can_edit_architecture": can_edit_architecture,
         "options": options or {}, "error": error, "auth_recovery": auth_recovery,
         "project_display": service.project_label(item["fields"], (options or {}).get(service.PROJECT)) if item else "",
         "etag": _etag(item) if item else "", "funnel": item["fields"].get(service.FUNNEL) if item else "",
@@ -273,10 +276,11 @@ def solicitudes_detail(request: Request, item_id: str, graph_token: str = Form("
         return _edit_panel(request, item_id, error="No pudimos obtener tu token de Microsoft.", auth_recovery=_graph_auth_recovery(request))
     try:
         item = repository.read_item(graph_token, item_id)
+        permissions = repository.edit_permissions(graph_token, item, _user(request))
         options = repository.lookup_options(graph_token)
     except (HTTPError, URLError, TimeoutError, ValueError, KeyError) as exc:
         return _edit_panel(request, item_id, error=_edit_error(exc))
-    return _edit_panel(request, item_id, item=item, options=options)
+    return _edit_panel(request, item_id, item=item, options=options, permissions=permissions)
 
 
 @router.post(PATH + "/{item_id}/historial", response_class=HTMLResponse, include_in_schema=False)
@@ -348,6 +352,12 @@ async def solicitudes_save(request: Request, item_id: str, graph_token: str = Fo
     observation_id = ""
     try:
         item = await run_in_threadpool(repository.read_item, graph_token, item_id)
+        can_edit, can_architecture = await run_in_threadpool(repository.edit_permissions, graph_token, item, user)
+        if not can_edit or (not can_architecture and (
+                any(key in form for key in (service.STATUS, service.ASSIGNEES, service.ACTUAL, service.COMMENTS))
+                or str(form.get("new_observation", "")).strip())):
+            outcome = "forbidden"
+            raise HTTPException(403, "No autorizado para modificar esta solicitud o sus campos de Arquitectura")
         etag = _etag(item)
         if not etag or etag == "*" or etag != form.get("etag"):
             outcome = "conflict"
@@ -440,6 +450,8 @@ async def solicitudes_reject(request: Request, item_id: str, graph_token: str = 
         raise HTTPException(404)
 
     def feedback(state, message, **context):
+        context.setdefault("notification_state", "not_attempted")
+        context.setdefault("notification_message", "No se intentó notificar porque el rechazo no se confirmó.")
         return _feedback(request, item_id, state, message, rejection=True, **context)
 
     form = await request.form()
@@ -452,8 +464,12 @@ async def solicitudes_reject(request: Request, item_id: str, graph_token: str = 
     if not reason or form.get("confirm_rejection") != "yes":
         return feedback("invalid", "Ingresá una justificación y confirmá expresamente el rechazo.")
     outcome, payload, correlation = "read_error", {}, uuid4().hex
+    notification = {"dispatch": "not_attempted", "state": "not_attempted", "category": "none", "http_status": None}
     try:
         item = await run_in_threadpool(repository.read_item, graph_token, item_id)
+        if not (await run_in_threadpool(repository.edit_permissions, graph_token, item, user))[1]:
+            outcome = "forbidden"
+            raise HTTPException(403, "La decisión de Arquitectura requiere autorización")
         etag = _etag(item)
         if not etag or etag == "*" or etag != form.get("etag"):
             outcome = "conflict"
@@ -494,8 +510,22 @@ async def solicitudes_reject(request: Request, item_id: str, graph_token: str = 
             return feedback("uncertain", "No pudimos confirmar el rechazo. Revisá los valores vigentes antes de reintentar; la justificación se conserva.")
         outcome = "confirmed"
         origin = request.headers.get("origin") or f"{request.url.scheme}://{request.url.netloc}"   # ya validado por same_origin_guard (solo para el enlace del aviso)
-        await run_in_threadpool(admission.announce_rejection, graph_token, columns, item_id, entry_id, updated, reason, user, origin=origin)
+        notification = await run_in_threadpool(admission.announce_rejection, graph_token, columns, item_id, entry_id, updated, reason, user, origin=origin)
+        notification_state = notification["state"]
+        notification_message = {
+            "accepted": "Notificación aceptada para envío por Microsoft Graph (HTTP 202). La entrega al destinatario no está acreditada.",
+            "failed": "La notificación falló. El rechazo permanece confirmado; no repitas el rechazo para reenviar el correo.",
+            "config_incomplete": "La notificación no pudo enviarse por configuración incompleta. El rechazo permanece confirmado.",
+            "no_recipients": "Notificación omitida: no hay destinatarios de Operaciones configurados.",
+            "disabled": "Notificación omitida: los avisos por correo están deshabilitados.",
+            "pending": "Notificación registrada; la aceptación por Microsoft todavía no está verificada. No repitas el rechazo.",
+            "sending": "Notificación en proceso; la aceptación por Microsoft todavía no está verificada. No repitas el rechazo.",
+            "retry": "Notificación pendiente según la política existente del servicio. La aceptación no está verificada; no repitas el rechazo.",
+            "uncertain": "Resultado de notificación no verificable. El correo podría haberse aceptado; no repitas el rechazo para reenviarlo.",
+            "error": "No se pudo registrar la notificación. El rechazo permanece confirmado; no repitas el rechazo para reenviar el correo.",
+        }.get(notification_state, "Resultado de notificación no verificable. El rechazo permanece confirmado; no repitas el rechazo para reenviar el correo.")
         return feedback("saved", "Rechazo confirmado en SharePoint.",
+                        notification_state=notification_state, notification_message=notification_message,
                         history_rows=journal.history(updated["fields"].get(service.COMMENTS), item_id),
                         refresh_history=True, **_detail_context(updated))
     except (HTTPError, URLError, TimeoutError, ValueError, KeyError) as exc:
@@ -503,8 +533,9 @@ async def solicitudes_reject(request: Request, item_id: str, graph_token: str = 
         return feedback("invalid" if isinstance(exc, ValueError) else "error", str(exc) if isinstance(exc, ValueError) else _edit_error(exc))
     finally:
         logging.getLogger("danwor.solicitudes.audit").info(
-            "actor=%s item=%s fields=%s operation=reject outcome=%s correlation=%s",
-            user["sub"], item_id, ",".join(sorted(payload)), outcome, correlation,
+            "actor=%s item=%s fields=%s operation=reject outcome=%s notification=%s dispatch=%s category=%s http_status=%s correlation=%s",
+            user["sub"], item_id, ",".join(sorted(payload)), outcome, notification["state"],
+            notification["dispatch"], notification["category"], notification["http_status"], correlation,
         )
 
 
@@ -533,6 +564,9 @@ async def solicitudes_delete(request: Request, item_id: str, graph_token: str = 
     correlation = uuid4().hex
     try:
         item = await run_in_threadpool(repository.read_item, graph_token, item_id)
+        if not (await run_in_threadpool(repository.edit_permissions, graph_token, item, user))[0]:
+            outcome = "forbidden"
+            raise HTTPException(403, "No autorizado para modificar esta solicitud")
         etag = _etag(item)
         if not etag or etag == "*" or etag != form.get("etag"):
             outcome = "conflict"

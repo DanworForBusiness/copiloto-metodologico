@@ -19,7 +19,10 @@ def test_saved_feedback_is_one_paragraph_with_inline_reload():
     assert 'field-hint' in notice.select_one('.callout__body')['class']
     assert len(notice.select('p')) == 1
     assert notice.select_one('p a')['href'] == '/operaciones/solicitudes/7/editar'
-    assert '✓' in notice.get_text()
+    # The shared Operations initializer adds the icon after render. Its
+    # success/warning/error icons are exercised in human_capital_notices.node.js.
+    assert 'callout--success' in notice['class'] and 'callout--feedback' in notice['class']
+    assert 'Guardado confirmado en SharePoint.' in notice.select_one('p').get_text()
     assert len(notice.select('.callout__body > *')) == 1
 
 

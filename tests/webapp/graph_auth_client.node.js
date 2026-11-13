@@ -108,8 +108,13 @@ assertTrue(fuente.includes("No pudimos cargar"), "B: el error de fuente conserva
 assertTrue(!auth.includes("Sin resultados"), "B: autorizacion != vacio");
 assertTrue(!fuente.includes("Sin resultados"), "B: fuente != vacio");
 // Usa el primitivo compartido del Hub, no markup nuevo.
-assertTrue(auth.includes('<div class="dashboard-empty">'),
+const authBox = auth.match(/<div\b[^>]*\bclass="([^"]*)"[^>]*>/);
+assertTrue(!!authBox && authBox[1].split(/\s+/).includes('dashboard-empty'),
   "B: el cuadro de autorizacion usa el primitivo compartido");
+assertTrue(auth.includes('role="alert"') && auth.includes('data-error-kind="auth"'),
+  "B: la falta de autorizacion conserva su clasificacion y severidad");
+assertTrue(fuente.includes('data-error-kind="source"') && !fuente.includes('data-error-kind="auth"'),
+  "B: una falla de fuente no se presenta como falta de autorizacion");
 assertTrue(auth.includes('class="dashboard-subhead__reset"'),
   "B: el boton usa el primitivo compartido de accion");
 

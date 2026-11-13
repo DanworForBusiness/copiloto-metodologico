@@ -1,5 +1,38 @@
 /* Tokens stay in the request context; MSAL interaction belongs to hub_auth.js. */
 (function () {
+  function rejectionFailure(elt, message, tone = 'punch') {
+    const form = elt?.closest('form[data-solicitudes-write-token][hx-post$="/rechazar"]');
+    const target = form?.querySelector('[data-rejection-feedback]');
+    if (!target) return;
+    const block = document.createElement('div');
+    block.className = 'callout callout--' + tone + ' callout--feedback';
+    block.setAttribute('role', 'alert');
+    const copy = document.createElement('p');
+    copy.className = 'field-hint';
+    copy.textContent = message;
+    block.appendChild(copy);
+    const path = form.getAttribute('hx-post');
+    if (/^\/operaciones\/solicitudes\/\d+\/rechazar$/.test(path)) {
+      const link = document.createElement('a');
+      link.href = path.replace(/\/rechazar$/, '/editar');
+      link.target = '_blank';
+      link.rel = 'noopener';
+      link.textContent = 'Consultar el estado vigente en otra pestaña';
+      block.appendChild(link);
+    }
+    target.replaceChildren(block);
+  }
+  document.addEventListener('htmx:responseError', event => {
+    const code = event.detail?.xhr?.status;
+    const message = code === 401 ? 'La sesión o autorización venció. Conservá la justificación y recuperá el acceso antes de volver a intentar.'
+      : code === 403 ? 'No tenés permiso para rechazar esta solicitud. La justificación se conserva.'
+      : 'No pudimos confirmar el resultado del rechazo (HTTP ' + code + '). La justificación se conserva. Consultá el estado vigente antes de volver a intentar.';
+    rejectionFailure(event.detail?.elt, message, code === 401 || code === 403 ? 'warn' : 'punch');
+  });
+  for (const name of ['htmx:sendError', 'htmx:timeout', 'htmx:sendAbort']) {
+    document.addEventListener(name, event => rejectionFailure(event.detail?.elt,
+      'La comunicación se interrumpió y no pudimos confirmar el resultado del rechazo. La justificación se conserva. Consultá el estado vigente antes de volver a intentar; no se reenvió automáticamente.'));
+  }
   document.addEventListener('solicitudes-deleted', event => {
     if (document.getElementById('solicitudes-list-result') && event.detail?.url === '/operaciones/solicitudes') {
       window.location.assign('/operaciones/solicitudes');
@@ -24,6 +57,12 @@
     const target = event.detail?.target;
     if (target?.id !== 'solicitudes-save-result') return;
     const saved = target.querySelector('[data-solicitudes-saved]');
+    const source = event.detail?.requestConfig?.elt;
+    if (source?.closest('form[data-solicitudes-write-token][hx-post$="/rechazar"]') &&
+        !target.querySelector('[data-solicitudes-rejection]')) {
+      rejectionFailure(source, 'La respuesta no permitió verificar el rechazo. La justificación se conserva; consultá el estado vigente antes de volver a intentar.');
+      return;
+    }
     if (saved) document.querySelectorAll('[data-new-observation]').forEach(field => { field.value = ''; });
     if (target.querySelector('[data-solicitudes-rejection]')) {
       const dialog = document.getElementById('solicitudes-reject-dialog');
@@ -74,7 +113,12 @@
     }
     const token = await window.dwSolicitudesWriteToken({interactive: false});
     resolved.set(elt, {token, admissionConfirmed});
-    try { event.detail.issueRequest(true); } catch (_) { resolved.delete(elt); }
+    try { event.detail.issueRequest(true); } catch (_) {
+      resolved.delete(elt);
+      rejectionFailure(elt, 'No pudimos confirmar el resultado de la petición. La justificación se conserva; consultá el estado vigente antes de volver a intentar.');
+    }
+    } catch (_) {
+      rejectionFailure(elt, 'No se pudo iniciar el rechazo con la autorización de Microsoft. La justificación se conserva; no se envió la petición de rechazo.', 'warn');
     } finally { preparing.delete(elt); }
   });
   document.addEventListener('htmx:configRequest', event => {
@@ -108,6 +152,7 @@
     const status = button.parentElement.querySelector('[data-solicitudes-authorize-status]');
     try {
       const token = await window.dwSolicitudesWriteToken({interactive: true});
+      status.className = 'callout callout--feedback callout--' + (token ? 'success' : 'warn');
       status.textContent = token ? 'Autorización recuperada. Podés volver a enviar el formulario.' : 'No se pudo autorizar la escritura. Conservá tu borrador y consultá los permisos de Microsoft.';
     } finally { button.disabled = false; }
   });

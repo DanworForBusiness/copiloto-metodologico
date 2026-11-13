@@ -120,7 +120,10 @@ def test_the_shared_hub_consumers_are_untouched():
     # "Sin reacciones" cuando el filtro activo no tiene ninguna) — cero CSS
     # nuevo, cero redefinición.
     assert activity.count('class="dashboard-empty"') == 8        # Copiloto / Métricas de Uso
-    assert staffing.count('class="dashboard-empty"') == 2        # Asignaciones
+    # Asignaciones now reuses the same primitive for its three controlled
+    # errors. The two legitimate empty states remain separate from errors.
+    assert staffing.count('class="dashboard-empty"') == 5
+    assert staffing.count('class="dashboard-empty" role="alert" data-error-kind=') == 3
     assert commercial.count('class="dashboard-empty"') == 1      # CRM, vía su helper
     assert "function commercialEmptyStateHtml(" in commercial
 

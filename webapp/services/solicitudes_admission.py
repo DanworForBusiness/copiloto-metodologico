@@ -98,7 +98,7 @@ def announce_rejection(token, columns, item_id, entry_id, updated, reason, user,
     from webapp.services import solicitudes_repository as repository
     from webapp.services.solicitudes_creation import _business_time
     if not notifications.enabled():
-        return
+        return {"dispatch": "disabled", "state": "disabled", "category": "disabled", "http_status": None}
     try:
         fields = updated.get("fields") or {}
         project = service.project_label(fields)
@@ -108,7 +108,8 @@ def announce_rejection(token, columns, item_id, entry_id, updated, reason, user,
                 project = service.project_label(fields, catalog)
             except Exception:                                    # noqa: BLE001 — sin rótulo, el correo omite el Proyecto (nunca inventa uno)
                 project = ""
-        notifications.emit(REJECTED_EVENT, f"{item_id}:{entry_id}", {
+        key = f"{item_id}:{entry_id}"
+        dispatch = notifications.emit(REJECTED_EVENT, key, {
             "id": str(item_id),
             "title": str(fields.get("Title") or ""),
             "project": project,
@@ -118,5 +119,14 @@ def announce_rejection(token, columns, item_id, entry_id, updated, reason, user,
             "reason": notifications.readable_text(reason, REASON_EXCERPT),
             "url": notifications.hub_link(f"/operaciones/solicitudes/{item_id}/editar", origin),
         }, origin=origin)
+        result = notifications.delivery_status(REJECTED_EVENT, key)
+        if result["state"] == "unknown" and dispatch in {"disabled", "no_recipients", "config_incomplete"}:
+            result["state"] = dispatch
+        if result["category"] == "no_recipients":
+            result["state"] = "no_recipients"
+        elif result["category"] == "config_incomplete":
+            result["state"] = "config_incomplete"
+        return {"dispatch": dispatch, **result}
     except Exception as exc:                                      # noqa: BLE001 — la notificación es accesoria: el rechazo ya está confirmado
-        logging.getLogger("danwor.solicitudes.audit").warning("operation=reject notification=not_emitted item=%s error=%s", item_id, type(exc).__name__)
+        logging.getLogger("danwor.solicitudes.audit").warning("operation=reject notification=unverified item=%s error=%s", item_id, type(exc).__name__)
+        return {"dispatch": "error", "state": "unknown", "category": "internal", "http_status": None}

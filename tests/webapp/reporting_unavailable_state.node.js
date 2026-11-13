@@ -63,7 +63,7 @@ function makeEnv() {
 {
   const { get } = makeEnv();
   const html = get("reportingSourceErrorHtml")("los datos de Cartera");
-  assertTrue(html.includes('<div class="dashboard-empty">'),
+  assertTrue(html.includes('<div class="dashboard-empty" role="alert" data-error-kind="source">'),
     "A: usa `.dashboard-empty`, el primitivo compartido del Hub");
   assertTrue(html.includes('<span class="dashboard-empty__label">No disponible</span>'),
     "A: eyebrow 'No disponible' (no 'Sin resultados')");
@@ -96,7 +96,7 @@ function makeEnv() {
   assertEqual(state.reportingConfigIncomplete, true,
     "C: …pero el clasificador preserva la señal (como `graphAuthRequired`)");
   const html = get("reportingSourceErrorHtml")("los datos de Cartera");
-  assertTrue(html.includes('<div class="dashboard-empty">'),
+  assertTrue(html.includes('<div class="dashboard-empty" role="alert" data-error-kind="source">'),
     "C: sigue mostrando la caja 'No disponible'");
   assertTrue(!html.includes("Reintentar"),
     "C: sin 'Reintentar' — reintentar no arregla un id sin configurar");
@@ -106,7 +106,7 @@ function makeEnv() {
 {
   const { get } = makeEnv();
   const html = get("reportingSourceErrorHtml")("los datos de Cartera del año 2024", { retry: false });
-  assertTrue(html.includes('<div class="dashboard-empty">'), "D: misma caja compartida");
+  assertTrue(html.includes('<div class="dashboard-empty" role="alert" data-error-kind="source">'), "D: misma caja compartida");
   assertTrue(!html.includes("Reintentar"),
     "D: la falla por año no ofrece el retry de tab (tiene su propia maquinaria)");
 }

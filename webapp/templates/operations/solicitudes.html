@@ -42,7 +42,7 @@
     {% endif %}
     <div id="solicitudes-panel" class="dashboard-sections">
       <div hx-post="/operaciones/solicitudes/{{ 'nueva/datos' if is_new else item_id ~ '/detalle' if item_id else 'data' }}{% if display_only %}?mode=display{% endif %}" hx-trigger="load" hx-target="#solicitudes-panel"{% if not item_id and not is_new %} hx-indicator="#solicitudes-loading"{% endif %} data-dw-graph-token>
-        {% if item_id or is_new %}<p class="section-analysis-loading"><span class="section-analysis-spinner"></span>Cargando solicitudes…</p>{% endif %}
+        {% if item_id or is_new %}<p class="section-analysis-loading"><span class="section-analysis-spinner"></span>{{ 'Cargando metadata en Sharepoint...' if is_new else 'Cargando los datos de Sharepoint...' }}</p>{% endif %}
       </div>
     </div>
     {% if not item_id and not is_new %}<div id="solicitudes-list-result" role="status"></div>{% endif %}

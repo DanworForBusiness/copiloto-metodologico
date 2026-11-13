@@ -1580,8 +1580,9 @@ document.body.addEventListener("htmx:load", () => initAutoDismissFeedback(docume
 // CCHH feedback: optional manual close alongside the existing auto-dismiss.
 // No business action, error state or timer is changed by dismissing its message.
 (function () {
-  if (!/^\/(cchh|human-capital)(\/|$)/.test(window.location?.pathname || '')) return;
-  const selector = '.callout--feedback, .feedback-error, .feedback-success, .dashboard-empty[data-error-kind], .dashboard-empty[role="alert"], [data-dw-auto-dismiss]';
+  const operations = /^\/operaciones(\/|$)/.test(window.location?.pathname || '');
+  if (!operations && !/^\/(cchh|human-capital)(\/|$)/.test(window.location?.pathname || '')) return;
+  const selector = '.callout--feedback, .feedback-error, .feedback-success, .dashboard-empty[data-error-kind], .dashboard-empty[role="alert"], [data-dw-auto-dismiss]' + (operations ? ', .staffing-absence-error' : '');
   let queued = false;
   function wire() {
     document.querySelectorAll(selector).forEach(notice => {
@@ -1590,6 +1591,25 @@ document.body.addEventListener("htmx:load", () => initAutoDismissFeedback(docume
       if (notice.matches('[data-dw-auto-dismiss]') && notice.querySelector(selector)) {
         notice.classList.remove('hc-notice--dismissible');
         return;
+      }
+      if (operations) {
+        // Partial-source warnings keep the data available. Reuse the Hub's
+        // amber feedback tone rather than the legacy absence-error styling.
+        if (notice.matches('.staffing-absence-error')) {
+          notice.classList.add('callout', 'callout--feedback', 'callout--punch');
+          notice.setAttribute('role', 'status');
+        }
+        if (!notice.querySelector('.callout__icon, [data-dw-feedback-icon]')) {
+          const icon = document.createElement('span');
+          icon.className = 'callout__icon';
+          icon.setAttribute('data-dw-feedback-icon', '');
+          icon.setAttribute('aria-hidden', 'true');
+          icon.textContent = notice.matches('.callout--success, .feedback-success') ? '✓ '
+            : notice.matches('.callout--punch') ? '⚠ '
+            : notice.matches('.callout--warn, .feedback-error, .dashboard-empty[data-error-kind], .dashboard-empty[role="alert"]') ? '! ' : 'ⓘ ';
+          const text = notice.querySelector('.callout__head, .dashboard-empty__label, .callout__body p') || notice;
+          text.prepend(icon);
+        }
       }
       if (notice.querySelector(':scope > [data-hc-notice-close]')) return;
       notice.classList.add('hc-notice--dismissible');

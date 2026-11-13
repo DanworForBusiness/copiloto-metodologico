@@ -73,6 +73,34 @@ def read_item(token: str, item_id: str) -> dict:
     return graph_get_json(f"{item_url(token, item_id)}?$expand=fields", token)
 
 
+def edit_permissions(token: str, item: dict, user: dict) -> tuple[bool, bool]:
+    """Request/Architecture rights from persisted identities, never display names."""
+    from webapp import access
+    from webapp.services.reporting_repository import ReportingRepository, ReportingConfigurationError, user_info_identity
+    import config
+
+    if access.is_owner_user(user):
+        return True, True
+    actor = str(user.get("sub") or "").strip().lower()
+    if not actor:
+        return False, False
+    creator = str(((item.get("createdBy") or {}).get("user") or {}).get("email") or "").strip().lower()
+    fields = item.get("fields") or {}
+    if not creator and fields.get("AuthorLookupId"):
+        site = list_url(token).rsplit('/lists/', 1)[0]
+        author = graph_get_json(f"{site}/lists/{quote(config.SHAREPOINT_USER_INFORMATION_LIST_ID, safe='')}/items/{quote(str(fields['AuthorLookupId']), safe='')}?$expand=fields", token)
+        creator = user_info_identity(author.get("fields"))
+    assigned = False
+    ids = service.lookup_ids(fields, service.ASSIGNEES)
+    if ids:
+        try:
+            _, people = ReportingRepository().get_colaboradores_padron(token)
+        except ReportingConfigurationError as exc:
+            raise ValueError("No se pudo resolver la identidad del colaborador asignado.") from exc
+        assigned = str(people.get(actor) or "") in ids
+    return actor == creator or assigned, assigned
+
+
 def read_item_versions(token: str, item_id: str) -> dict:
     """Read-only, bounded detail history. No event store and no extra writes.
 

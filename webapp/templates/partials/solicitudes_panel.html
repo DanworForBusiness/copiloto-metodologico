@@ -52,7 +52,7 @@
   {% endif %}
   {% endfor %}
 </div>{% endif %}
-{% if group.key == 'vigentes' and unknown_ids and not error %}<p class="field-hint busqueda-contact__context" data-unknown-state-count="{{ unknown_ids | length }}">{{ unknown_ids | length }} solicitud{{ 'es' if unknown_ids | length != 1 }} con estado de Arquitectura sin informar o no reconocido. Se mantienen visibles en Vigentes para su revisión.</p>{% endif %}
+{% if group.key == 'vigentes' and unknown_ids and not error %}<p class="callout callout--punch callout--feedback" role="status" data-unknown-state-count="{{ unknown_ids | length }}">{{ unknown_ids | length }} solicitud{{ 'es' if unknown_ids | length != 1 }} con estado de Arquitectura sin informar o no reconocido. Se mantienen visibles en Vigentes para su revisión.</p>{% endif %}
 {% if error and auth_recovery %}
 {% from "partials/graph_auth_recovery.html" import graph_auth_recovery %}
 {{ graph_auth_recovery(auth_recovery.post_url, auth_recovery.target, include="#solicitudes-filters") }}

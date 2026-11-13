@@ -139,3 +139,11 @@ def test_list_conflict_retains_rows_and_does_not_claim_a_draft(client, monkeypat
     assert 'El listado conserva sus datos' in response.text
     assert 'Tu borrador' not in response.text
     assert 'HX-Trigger-After-Swap' not in response.headers
+
+
+@pytest.fixture(autouse=True)
+def _authorized_workflow_actor(monkeypatch):
+    # These transport/workflow regressions assume an authorized Architecture actor.
+    # Real creator/assignee/owner policy is covered in test_solicitudes_permissions.py.
+    from webapp.services import solicitudes_repository
+    monkeypatch.setattr(solicitudes_repository, "edit_permissions", lambda *args: (True, True))

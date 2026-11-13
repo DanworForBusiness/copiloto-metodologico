@@ -63,7 +63,7 @@
 
     {% if view.estado_solicitud == 'observada' and view.observacion %}
     <div class="methodology">
-    <div class="callout callout--warn callout--feedback" data-observacion>
+    <div class="callout callout--punch callout--feedback" data-observacion>
       <div class="callout__head"><strong class="callout__title">Capital Humano observó esta búsqueda{% if view.observacion.en %} · {{ view.observacion.en | ops_datetime }}{% endif %}</strong></div>
       <div class="callout__body">
         <p>{{ view.observacion.motivo }}</p>
