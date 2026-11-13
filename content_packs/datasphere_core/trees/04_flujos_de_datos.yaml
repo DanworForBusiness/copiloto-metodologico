@@ -38,11 +38,12 @@ start: q1_delta
 nodes:
   q1_delta:
     type: single_choice
-    question: "¿Necesitás cargar los datos con compatibilidad delta?"
+    question: "¿Necesitás carga delta?"
+    help: "Es decir, cargar solo los cambios después de la carga inicial."
     options: ["Sí", "No"]
     next:
       "Sí": q2_origen
-      "No": q3a_operadores
+      "No": q4_persistencia
 
   q2_origen:
     type: single_choice
@@ -55,15 +56,37 @@ nodes:
 
   q2_b:
     type: single_choice
-    question: "¿Dispones de vista CDS habilitada para extracción, extractor ODP/BW, o tabla con clave primaria del que vas a traer uno o más objetos, sin necesidad de transformarlos?"
+    question: "¿La fuente SAP admite Replication Flow con carga delta?"
+    help: "Por ejemplo, una CDS habilitada para extracción con delta (CDC o byElement), un extractor ODP (SAPI o BW) con delta o una tabla replicable con delta. Tener clave primaria no garantiza delta. Los objetos ODP sin clave declarada tienen condiciones propias, como configurar la clave a mano y restricciones de destino."
+    options: ["Sí", "No", "No sé"]
+    next:
+      "Sí": q2_b2
+      "No": leaf_revisar_extraccion_delta
+      "No sé": leaf_revisar_extraccion_delta
+
+  q2_b2:
+    type: single_choice
+    question: "¿La transformación va más allá de filtros, proyección y mapeo de columnas?"
+    help: "Replication Flow resuelve filtros, proyección y mapeo de columnas. Joins, uniones, cálculos o lógica SQL necesitan otro artefacto."
     options: ["Sí", "No"]
     next:
-      "Sí": leaf_replication_flow
-      "No": q3a_operadores
+      "Sí": q2_b3
+      "No": leaf_replication_flow
+
+  q2_b3:
+    type: single_choice
+    question: "¿La tabla que carga el Replication Flow puede alimentar un Transformation Flow incremental?"
+    help: "Un Transformation Flow con Initial and Delta necesita origen y destino con Delta Capture. Que el Replication Flow cargue con delta no lo garantiza: verificá la tabla replicada. SAP documenta restricciones de destino para ciertos objetos ODP sin clave primaria declarada. Si la transformación tiene joins, revisá también cómo se propagan las actualizaciones y las eliminaciones."
+    options: ["Sí, está verificado", "No", "No sé"]
+    next:
+      "Sí, está verificado": leaf_rf_mas_tf_delta
+      "No": leaf_revision_rf_tf
+      "No sé": leaf_revision_rf_tf
 
   q2c_conector:
     type: single_choice
-    question: "¿Qué tipo de conexión es la fuente? (agrupadas por compatibilidad de carga soportada como origen)"
+    question: "¿Qué tipo de conexión es la fuente?"
+    help: "Las opciones agrupan los conectores según la carga que soportan como origen."
     options:
       - "Amazon S3, Google Cloud Storage, Azure Data Lake Gen2, SFTP genérico, Microsoft OneLake, Snowflake, Local Table File — solo carga inicial (Initial Only) como fuente"
       - "Azure SQL Database, SQL Server, Oracle, SAP HANA (conexión externa) — carga inicial y delta completos (Initial Only / Initial and Delta / Delta Only)"
@@ -77,45 +100,219 @@ nodes:
       "SAP HANA Cloud, Data Lake Files (HDLFS directo) — fuente y destino, carga inicial y delta completos": leaf_replication_flow_hdlfs_native
       "Apache Kafka, Google BigQuery, SAP Signavio — no soportadas como fuente (solo como destino)": leaf_replication_flow_unsupported_source
 
-  q3a_operadores:
-    type: single_choice
-    question: "¿La transformación necesita operadores que una Vista SQL no ofrece?"
-    options: ["Sí", "No"]
-    next:
-      "Sí": q3b_python
-      "No": q4_persistencia
-
-  q3b_python:
-    type: single_choice
-    question: "¿Necesitás transformar los datos con lógica en código — un operador de Script (Python)?"
-    options: ["Sí", "No"]
-    next:
-      "Sí": leaf_data_flow_python
-      "No": q3c_joins
-
-  q3c_joins:
-    type: single_choice
-    question: "¿Necesitás combinar múltiples fuentes con Join o Unión?"
-    options: ["Sí", "No"]
-    next:
-      "Sí": leaf_data_flow_joins
-      "No": q3d_graficos
-
-  q3d_graficos:
-    type: single_choice
-    question: "¿Te alcanza con pasos gráficos de Proyección o Agregación (agregar/quitar columnas, SUM/AVG/COUNT) en vez de escribirlo en SQL?"
-    options: ["Sí", "No"]
-    next:
-      "Sí": leaf_data_flow_visual
-      "No": q4_persistencia
-
   q4_persistencia:
     type: single_choice
-    question: "¿Necesitás persistir el resultado en una tabla local — en vez de resolverlo en tiempo de consulta con una vista?"
-    options: ["Sí", "No"]
+    question: ¿Cómo necesitás disponer del resultado?
+    help: 'Calcular al consultar evita una carga propia. Guardar en una tabla define una carga y su destino. Si solo
+      buscás acelerar una vista existente, SAP permite persistir vistas SQL o gráficas: elegí Otra necesidad para
+      revisar esa optimización antes de elegir un flujo.'
+    options:
+    - Calcular al consultar
+    - Guardar en una tabla de HANA
+    - Guardar en una tabla de File Space
+    - Otra necesidad / no está definido
     next:
-      "Sí": leaf_transformation_flow_simple
-      "No": leaf_vista_sql
+      Calcular al consultar: q5c_logica_virtual
+      Guardar en una tabla de HANA: q5c_logica_hana
+      Guardar en una tabla de File Space: q5c_logica_file
+      Otra necesidad / no está definido: leaf_revision_sin_delta
+  q5c_logica_virtual:
+    type: single_choice
+    question: ¿Qué procesamiento necesitás?
+    help: 'Combinar tablas (joins), unir conjuntos, filtrar, calcular columnas y resumir datos son transformaciones
+      declarativas: no exigen Data Flow. Elegí Python si existe una necesidad concreta de ejecutar ese código. Otra
+      lógica procedural necesita caracterización antes de elegir herramienta.'
+    options:
+    - Combinar, filtrar, calcular o resumir datos
+    - Ejecutar código Python
+    - Otra lógica / no está caracterizada
+    next:
+      Combinar, filtrar, calcular o resumir datos: leaf_vista_sql
+      Ejecutar código Python: q5c_confirmar_materializacion
+      Otra lógica / no está caracterizada: leaf_revision_sin_delta
+  q5c_logica_hana:
+    type: single_choice
+    question: ¿Qué procesamiento necesitás?
+    help: 'Combinar tablas (joins), unir conjuntos, filtrar, calcular columnas y resumir datos son transformaciones
+      declarativas: no exigen Data Flow. Elegí Python si existe una necesidad concreta de ejecutar ese código. Otra
+      lógica procedural necesita caracterización antes de elegir herramienta.'
+    options:
+    - Combinar, filtrar, calcular o resumir datos
+    - Ejecutar código Python
+    - Otra lógica / no está caracterizada
+    next:
+      Combinar, filtrar, calcular o resumir datos: q5c_fuente_declarativo_hana
+      Ejecutar código Python: q5c_fuente_python_hana
+      Otra lógica / no está caracterizada: leaf_revision_sin_delta
+  q5c_logica_file:
+    type: single_choice
+    question: ¿Qué procesamiento necesitás?
+    help: 'Combinar tablas (joins), unir conjuntos, filtrar, calcular columnas y resumir datos son transformaciones
+      declarativas: no exigen Data Flow. Elegí Python si existe una necesidad concreta de ejecutar ese código. Otra
+      lógica procedural necesita caracterización antes de elegir herramienta.'
+    options:
+    - Combinar, filtrar, calcular o resumir datos
+    - Ejecutar código Python
+    - Otra lógica / no está caracterizada
+    next:
+      Combinar, filtrar, calcular o resumir datos: q5c_fuente_declarativo_file
+      Ejecutar código Python: q5c_fuente_python_file
+      Otra lógica / no está caracterizada: leaf_revision_sin_delta
+  q5c_confirmar_materializacion:
+    type: single_choice
+    question: Python requiere guardar el resultado. ¿Aceptás cambiar tu elección inicial?
+    help: Dentro de las alternativas de este árbol, Python se ejecuta en un flujo que materializa el resultado. Continuar
+      abandona el procesamiento virtual elegido inicialmente. HANA utiliza Data Flow; File Space utiliza Transformation
+      Flow con Python/Spark, sujeto a sus fuentes y restricciones.
+    options:
+    - Sí, guardar en HANA
+    - Sí, guardar en File Space
+    - Necesito mantenerlo virtual
+    next:
+      Sí, guardar en HANA: q5c_fuente_python_hana
+      Sí, guardar en File Space: q5c_fuente_python_file
+      Necesito mantenerlo virtual: leaf_revision_sin_delta
+  q5c_fuente_declarativo_hana:
+    type: single_choice
+    question: ¿Cómo están disponibles los datos?
+    help: Elegí dónde están los datos que realmente leerá el flujo. En vistas, considerá también de dónde vienen sus
+      datos. BW bridge incluye tablas compartidas y vistas sobre ellas. Si combinás familias de origen o conocés restricciones
+      de acceso/DAC, usá la última opción. Las condiciones específicas se explican en el resultado.
+    options:
+    - Tablas locales del espacio
+    - Vistas u objetos Open SQL sobre datos locales
+    - Objetos compartidos desde BW bridge
+    - Tablas remotas generales o vistas sobre ellas
+    - Datos aún en un sistema externo
+    - Origen mixto, desconocido o con una restricción conocida
+    next:
+      Tablas locales del espacio: leaf_transformation_flow_simple
+      Vistas u objetos Open SQL sobre datos locales: leaf_transformation_flow_simple
+      Objetos compartidos desde BW bridge: leaf_transformation_flow_simple
+      Tablas remotas generales o vistas sobre ellas: q5c_adquisicion_separada
+      Datos aún en un sistema externo: q5c_conexion_declarativo_hana
+      Origen mixto, desconocido o con una restricción conocida: leaf_revision_sin_delta
+  q5c_fuente_declarativo_file:
+    type: single_choice
+    question: ¿Cómo están disponibles los datos?
+    help: File Space ejecuta TF en Spark. El caso directo de este recorrido usa tablas locales del espacio. Otros
+      objetos necesitan revisar su disponibilidad específica; no se asume que las fuentes admitidas por HANA estén
+      disponibles en File Space. Si el dato sigue remoto, podemos evaluar su adquisición.
+    options:
+    - Tablas locales del espacio
+    - Vistas, Open SQL, BW bridge u otros objetos compartidos
+    - Datos remotos que necesitan adquirirse primero
+    - Datos aún en un sistema externo
+    - Origen mixto, desconocido o con una restricción conocida
+    next:
+      Tablas locales del espacio: leaf_tf_declarativo_file
+      Vistas, Open SQL, BW bridge u otros objetos compartidos: leaf_revision_sin_delta
+      Datos remotos que necesitan adquirirse primero: q5c_conexion_declarativo_file
+      Datos aún en un sistema externo: q5c_conexion_declarativo_file
+      Origen mixto, desconocido o con una restricción conocida: leaf_revision_sin_delta
+  q5c_fuente_python_hana:
+    type: single_choice
+    question: ¿Cómo están disponibles los datos?
+    help: Elegí dónde están los datos que realmente leerá el flujo. En vistas, considerá también de dónde vienen sus
+      datos. BW bridge incluye tablas compartidas y vistas sobre ellas. Si combinás familias de origen o conocés restricciones
+      de acceso/DAC, usá la última opción. Las condiciones específicas se explican en el resultado.
+    options:
+    - Tablas locales del espacio
+    - Vistas u objetos Open SQL sobre datos locales
+    - Objetos compartidos desde BW bridge
+    - Tablas remotas generales o vistas sobre ellas
+    - Datos aún en un sistema externo
+    - Origen mixto, desconocido o con una restricción conocida
+    next:
+      Tablas locales del espacio: leaf_data_flow_python
+      Vistas u objetos Open SQL sobre datos locales: leaf_data_flow_python
+      Objetos compartidos desde BW bridge: leaf_data_flow_python
+      Tablas remotas generales o vistas sobre ellas: leaf_data_flow_python
+      Datos aún en un sistema externo: leaf_revision_sin_delta
+      Origen mixto, desconocido o con una restricción conocida: leaf_revision_sin_delta
+  q5c_fuente_python_file:
+    type: single_choice
+    question: ¿Cómo están disponibles los datos?
+    help: File Space ejecuta TF en Spark. El caso directo de este recorrido usa tablas locales del espacio. Otros
+      objetos necesitan revisar su disponibilidad específica; no se asume que las fuentes admitidas por HANA estén
+      disponibles en File Space. Si el dato sigue remoto, podemos evaluar su adquisición.
+    options:
+    - Tablas locales del espacio
+    - Vistas, Open SQL, BW bridge u otros objetos compartidos
+    - Datos remotos que necesitan adquirirse primero
+    - Datos aún en un sistema externo
+    - Origen mixto, desconocido o con una restricción conocida
+    next:
+      Tablas locales del espacio: leaf_tf_python_file
+      Vistas, Open SQL, BW bridge u otros objetos compartidos: leaf_revision_sin_delta
+      Datos remotos que necesitan adquirirse primero: q5c_conexion_python_file
+      Datos aún en un sistema externo: q5c_conexion_python_file
+      Origen mixto, desconocido o con una restricción conocida: leaf_revision_sin_delta
+  q5c_adquisicion_separada:
+    type: single_choice
+    question: ¿Necesitás una copia de origen separada de la transformación?
+    help: Una copia separada puede servir para reutilizar los datos o recuperar la adquisición independientemente.
+      Si Data Flow directo resuelve el caso, sin esas necesidades, no hace falta agregar RF + TF. La recuperación
+      de RF no garantiza la recuperación de toda la cadena.
+    options:
+    - No, alcanza con transformar y cargar directamente
+    - Sí, por reutilización o recuperación de la adquisición
+    - No está definido
+    next:
+      No, alcanza con transformar y cargar directamente: leaf_data_flow_directo
+      Sí, por reutilización o recuperación de la adquisición: q5c_conexion_declarativo_hana
+      No está definido: leaf_revision_sin_delta
+  q5c_conexion_declarativo_hana:
+    type: single_choice
+    question: ¿Qué conexión de origen vas a utilizar?
+    help: 'El contexto de procesamiento y destino se conserva. Esta ruta evalúa RF Initial Only: no promete delta.
+      Se recomienda la cadena solo para objetos y tipos admitidos por el conector y por la tabla de llegada. SAP/ABAP,
+      conexiones no identificadas y restricciones conocidas requieren revisar el objeto concreto. En File Space la
+      llegada debe ser una tabla local de archivos consumible por TF/Spark.'
+    options:
+    - Azure SQL Database, SQL Server, Oracle o SAP HANA externo
+    - Amazon S3, Google Cloud Storage, Azure Data Lake Gen2, SFTP o Snowflake
+    - SAP/ABAP, otro conector o restricciones del objeto
+    - No sé qué conexión u objeto se utilizará
+    next:
+      Azure SQL Database, SQL Server, Oracle o SAP HANA externo: leaf_rf_tf_declarativo_hana
+      Amazon S3, Google Cloud Storage, Azure Data Lake Gen2, SFTP o Snowflake: leaf_rf_tf_declarativo_hana
+      SAP/ABAP, otro conector o restricciones del objeto: leaf_revision_sin_delta
+      No sé qué conexión u objeto se utilizará: leaf_revision_sin_delta
+  q5c_conexion_declarativo_file:
+    type: single_choice
+    question: ¿Qué conexión de origen vas a utilizar?
+    help: 'El contexto de procesamiento y destino se conserva. Esta ruta evalúa RF Initial Only: no promete delta.
+      Se recomienda la cadena solo para objetos y tipos admitidos por el conector y por la tabla de llegada. SAP/ABAP,
+      conexiones no identificadas y restricciones conocidas requieren revisar el objeto concreto. En File Space la
+      llegada debe ser una tabla local de archivos consumible por TF/Spark.'
+    options:
+    - Azure SQL Database, SQL Server, Oracle o SAP HANA externo
+    - Amazon S3, Google Cloud Storage, Azure Data Lake Gen2, SFTP o Snowflake
+    - SAP/ABAP, otro conector o restricciones del objeto
+    - No sé qué conexión u objeto se utilizará
+    next:
+      Azure SQL Database, SQL Server, Oracle o SAP HANA externo: leaf_rf_tf_declarativo_file
+      Amazon S3, Google Cloud Storage, Azure Data Lake Gen2, SFTP o Snowflake: leaf_rf_tf_declarativo_file
+      SAP/ABAP, otro conector o restricciones del objeto: leaf_revision_sin_delta
+      No sé qué conexión u objeto se utilizará: leaf_revision_sin_delta
+  q5c_conexion_python_file:
+    type: single_choice
+    question: ¿Qué conexión de origen vas a utilizar?
+    help: 'El contexto de procesamiento y destino se conserva. Esta ruta evalúa RF Initial Only: no promete delta.
+      Se recomienda la cadena solo para objetos y tipos admitidos por el conector y por la tabla de llegada. SAP/ABAP,
+      conexiones no identificadas y restricciones conocidas requieren revisar el objeto concreto. En File Space la
+      llegada debe ser una tabla local de archivos consumible por TF/Spark.'
+    options:
+    - Azure SQL Database, SQL Server, Oracle o SAP HANA externo
+    - Amazon S3, Google Cloud Storage, Azure Data Lake Gen2, SFTP o Snowflake
+    - SAP/ABAP, otro conector o restricciones del objeto
+    - No sé qué conexión u objeto se utilizará
+    next:
+      Azure SQL Database, SQL Server, Oracle o SAP HANA externo: leaf_rf_tf_python_file
+      Amazon S3, Google Cloud Storage, Azure Data Lake Gen2, SFTP o Snowflake: leaf_rf_tf_python_file
+      SAP/ABAP, otro conector o restricciones del objeto: leaf_revision_sin_delta
+      No sé qué conexión u objeto se utilizará: leaf_revision_sin_delta
 
 leaves:
   leaf_replication_flow:
@@ -130,6 +327,41 @@ leaves:
       next_steps:
         - "Ver Estrategia de Extracción y CDC en el módulo 03"
         - "Definir frecuencia de carga delta según el SLA real de consumo (no la dejes por default)"
+
+  leaf_rf_mas_tf_delta:
+    decision: "Replication Flow para adquirir y Transformation Flow incremental para transformar."
+    detail: "Referencias SAP: [Transformation Flow](https://help.sap.com/docs/SAP_DATASPHERE/c8a54ee704e94e15926551293243fd1d/f7161e6c20204672ac4a6d90c81762e4.html) · [Delta Capture](https://help.sap.com/docs/SAP_DATASPHERE/c8a54ee704e94e15926551293243fd1d/154bdffb35814d5481d1f6de143a6b9e.html)"
+    notes:
+      - "Se verificó que la tabla replicada sirve como fuente incremental y que el destino del Transformation Flow tiene Delta Capture."
+      - "El Transformation Flow necesita Delta Capture en origen y destino, y no carga delta desde vistas."
+      - "Delta Capture no garantiza por sí solo que toda transformación quede correcta: si hay joins, validá que se propaguen las actualizaciones y las eliminaciones (ver los límites del Transformation Flow en el módulo 04)."
+    post_actions:
+      mode: resolved
+      next_steps:
+        - "Cargar con Replication Flow la tabla local con delta"
+        - "Confirmar Delta Capture en el origen y el destino del Transformation Flow"
+        - "Si hay joins, probar la propagación de actualizaciones y eliminaciones antes de productivo"
+
+  leaf_revision_rf_tf:
+    decision: "Revisar la compatibilidad antes de encadenar Replication Flow y Transformation Flow."
+    notes:
+      - "Sin compatibilidad acreditada de la tabla replicada con Delta Capture, no se puede recomendar un Transformation Flow incremental."
+      - "No reemplaces el delta con un Data Flow: no soporta carga delta."
+      - "Validá la tabla replicada con la documentación de SAP y una prueba técnica, en especial con objetos ODP sin clave declarada."
+    post_actions:
+      mode: needs_human_review
+      reason: "Compatibilidad de la tabla replicada con Delta Capture no acreditada — validar antes de encadenar Replication Flow y Transformation Flow incremental"
+
+  leaf_revisar_extraccion_delta:
+    decision: "Definí primero cómo extraer el dato con delta."
+    detail: "Referencia SAP: [Fuentes ABAP para Replication Flows](https://help.sap.com/docs/SAP_DATASPHERE/c8a54ee704e94e15926551293243fd1d/3f70579c92434f4f88471bba2bd70893.html)"
+    notes:
+      - "Sin una fuente SAP que admita Replication Flow con delta, no hay adquisición incremental por esta vía."
+      - "Usá el árbol «Opciones de Extracción» del módulo 03 para definir la fuente autorizada."
+      - "No compenses la falta de delta con un Data Flow."
+    post_actions:
+      mode: needs_human_review
+      reason: "Fuente SAP sin compatibilidad delta acreditada — definir la estrategia de extracción antes del flujo"
 
   leaf_replication_flow_initial_only:
     decision: "Replication Flow — pero desde esta fuente solo carga inicial (Initial Only), sin delta."
@@ -188,52 +420,128 @@ leaves:
       next_steps:
         - "Confirmar Captura Delta activa en origen y destino antes de desplegar"
 
-  leaf_transformation_flow_simple:
-    decision: "Transformation Flow — sin necesidad de delta, pero sí de persistir."
-    notes:
-      - "La transformación se define con Vista Gráfica o Vista SQL (preferente SQL para mantenibilidad y versionado)"
-      - "Si más adelante hace falta delta, ya estás en el artefacto correcto: solo hay que activar Captura Delta en origen y destino."
-    post_actions:
-      mode: resolved
-      next_steps:
-        - "Evaluar si conviene definir la transformación como Vista SQL en vez de Vista Gráfica"
-
-  leaf_data_flow_python:
-    decision: "Data Flow — si necesitás el operador de Script (Python) y tu destino vive en un espacio HANA."
-    notes:
-      - "Si el espacio destino es de tipo Archivos de Data Lake (HDLF), Transformation Flow también ofrece Script Python — y además llega directo al HDLF del propio espacio. Confirmá el tipo de espacio antes de descartar Transformation Flow."
-      - "No soporta carga delta — si además necesitás delta, replantear con Replication Flow para la adquisición y Data Flow solo para la transformación."
-      - "No es compatible con espacios de tipo Archivos de Data Lake (HDLF) como destino — restricción explícita, no evitarla con configuración."
-    post_actions:
-      mode: llm_value_add
-
-  leaf_data_flow_joins:
-    decision: "Data Flow — necesitás combinar múltiples fuentes con Join o Unión en una interfaz gráfica."
-    notes:
-      - "Antes de resolverlo acá, evaluar si una Vista SQL Estándar con JOINs no alcanza — suele ser más mantenible."
-      - "No soporta carga delta — si lo vas a necesitar, reconsiderá tu diseño y elección."
-      - "No es compatible con espacios de tipo Archivos de Data Lake (HDLF)"
-    post_actions:
-      mode: llm_value_add
-
-  leaf_data_flow_visual:
-    decision: "Data Flow — pasos gráficos de Proyección/Agregación son suficientes, sin necesidad de SQL."
-    notes:
-      - "Evaluar igual si una Vista SQL Estándar (con agregaciones simples) no resuelve el caso con menos artefactos."
-      - "No soporta carga delta en absoluto."
-      - "No es compatible con espacios de tipo Archivos de Data Lake (HDLF) — restricción explícita."
-      - "Escribe a una única tabla local en el repositorio."
-    post_actions:
-      mode: llm_value_add
-
   leaf_vista_sql:
-    decision: "No necesitás un flujo de datos. Podés resolverlo con una vista."
+    decision: Vista SQL — resolver la transformación al consultar.
     notes:
-      - "Si en el futuro aparece necesidad de persistencia o delta — ahí sí correspondería Transformation Flow."
+    - Joins, uniones, filtros, cálculos y agregaciones no requieren por sí solos un flujo de datos.
+    - Aplica si las fuentes son consultables por la vista y la lógica es declarativa. Una restricción conocida de
+      fuentes o acceso puede exigir otra arquitectura.
+    - Si solo necesitás acelerar una vista existente, evaluá su persistencia con sus restricciones; guardar una tabla
+      mediante un flujo es una decisión diferente.
     post_actions:
       mode: resolved
       next_steps:
-        - "Abrir el árbol 'Tipos de Vistas SQL' para evaluar tu escenario y elegir el tipo de vista"
+      - Abrir el árbol 'Tipos de Vistas SQL' para evaluar tu escenario y elegir el tipo de vista
+  leaf_transformation_flow_simple:
+    decision: Transformation Flow — transformación declarativa hacia una tabla local HANA.
+    notes:
+    - Preferencia metodológica cuando las fuentes son admitidas. Puede definirse con transformación SQL o gráfica.
+    - 'Admite tablas locales, vistas y objetos Open SQL admitidos, y tablas BW bridge compartidas o vistas sobre ellas.
+      Las vistas/Open SQL con remotas generales, DAC aplicado o dependencias con DAC tienen restricciones: no continuar
+      por esta vía si se conocen esas condiciones.'
+    - 'Carga sin delta. Pasar a incremental requiere revisar el origen y la transformación: no basta activar Delta
+      Capture; no hay delta desde vistas.'
+    post_actions:
+      mode: resolved
+  leaf_tf_declarativo_file:
+    decision: Transformation Flow — transformación declarativa hacia una tabla local de File Space.
+    notes:
+    - Runtime Spark y fuentes locales admitidas en el espacio de archivos. No extrapolar la compatibilidad de fuentes
+      HANA.
+    - Definir la transformación y cargar sin delta. Ante restricciones del objeto o dependencias no cubiertas, revisar
+      la arquitectura.
+    post_actions:
+      mode: resolved
+  leaf_tf_python_file:
+    decision: Transformation Flow Python/Spark — guardar el resultado en File Space.
+    notes:
+    - Python se ejecuta en Spark sobre las fuentes locales admitidas; el resultado se materializa en una tabla local
+      de archivos.
+    - No sustituye Python en HANA. Verificar bibliotecas y tipos soportados; el operador Python de Spark no admite
+      los parámetros de entrada definidos en TF.
+    - Data Flow no es una alternativa para escribir en File Space.
+    post_actions:
+      mode: resolved
+  leaf_data_flow_python:
+    decision: Data Flow — ejecutar Python y guardar en una tabla local HANA.
+    notes:
+    - 'Recomendación metodológica condicionada: orienta la elección del flujo, pero no certifica la compatibilidad
+      de un objeto concreto. Antes de implementarla, comprobá sus condiciones de aplicabilidad.'
+    - Aplica si los objetos están disponibles y admitidos en el navegador de fuentes del Data Flow y el procesamiento
+      requerido está soportado. Una restricción conocida exige revisión.
+    - No soporta carga delta ni destinos File Space. Si aparece un requisito incremental, retomar la rama delta y
+      revisar la transformación.
+    - La complejidad de la transformación no justifica por sí sola agregar una adquisición separada.
+    post_actions:
+      mode: llm_value_add
+  leaf_data_flow_directo:
+    decision: Data Flow directo — transformar fuentes remotas y guardar en HANA.
+    notes:
+    - 'Recomendación metodológica condicionada: orienta la elección del flujo, pero no certifica la compatibilidad
+      de un objeto concreto. Antes de implementarla, comprobá sus condiciones de aplicabilidad.'
+    - Aplica si los objetos están disponibles y admitidos en el navegador de fuentes del Data Flow y el procesamiento
+      requerido está soportado. Una restricción conocida exige revisión.
+    - No soporta carga delta ni destinos File Space. Si aparece un requisito incremental, retomar la rama delta y
+      revisar la transformación.
+    - La complejidad de la transformación no justifica por sí sola agregar una adquisición separada.
+    post_actions:
+      mode: llm_value_add
+  leaf_rf_tf_declarativo_hana:
+    decision: Replication Flow Initial Only + Transformation Flow declarativo/HANA — destino tabla local HANA.
+    notes:
+    - 'Recomendación metodológica condicionada: orienta la elección del flujo, pero no certifica la compatibilidad
+      de un objeto concreto. Antes de implementarla, comprobá sus condiciones de aplicabilidad.'
+    - RF adquiere hacia una tabla local consumible por el TF del espacio elegido; TF realiza el procesamiento y escribe
+      el resultado. No se trata de TF incremental.
+    - Recomendación condicionada a que el objeto, los tipos y el destino estén admitidos por el conector RF y a que
+      la tabla de llegada sea utilizable por este TF. Si hay una restricción conocida, revisar antes de ejecutar.
+    - La separación se justifica por adquisición necesaria, reutilización o recuperación de esa adquisición; no promete
+      recuperación del TF ni de toda la cadena.
+    - Si el requerimiento cambia a Python, volver a elegir procesamiento y destino.
+    post_actions:
+      mode: resolved
+  leaf_rf_tf_declarativo_file:
+    decision: Replication Flow Initial Only + Transformation Flow declarativo/Spark — destino tabla local de File
+      Space.
+    notes:
+    - 'Recomendación metodológica condicionada: orienta la elección del flujo, pero no certifica la compatibilidad
+      de un objeto concreto. Antes de implementarla, comprobá sus condiciones de aplicabilidad.'
+    - RF adquiere hacia una tabla local consumible por el TF del espacio elegido; TF realiza el procesamiento y escribe
+      el resultado. No se trata de TF incremental.
+    - Recomendación condicionada a que el objeto, los tipos y el destino estén admitidos por el conector RF y a que
+      la tabla de llegada sea utilizable por este TF. Si hay una restricción conocida, revisar antes de ejecutar.
+    - La separación se justifica por adquisición necesaria, reutilización o recuperación de esa adquisición; no promete
+      recuperación del TF ni de toda la cadena.
+    - Si el requerimiento cambia a Python, volver a elegir procesamiento y destino.
+    post_actions:
+      mode: resolved
+  leaf_rf_tf_python_file:
+    decision: Replication Flow Initial Only + Transformation Flow Python/Spark — destino tabla local de File Space.
+    notes:
+    - 'Recomendación metodológica condicionada: orienta la elección del flujo, pero no certifica la compatibilidad
+      de un objeto concreto. Antes de implementarla, comprobá sus condiciones de aplicabilidad.'
+    - RF adquiere hacia una tabla local consumible por el TF del espacio elegido; TF realiza el procesamiento y escribe
+      el resultado. No se trata de TF incremental.
+    - Recomendación condicionada a que el objeto, los tipos y el destino estén admitidos por el conector RF y a que
+      la tabla de llegada sea utilizable por este TF. Si hay una restricción conocida, revisar antes de ejecutar.
+    - La separación se justifica por adquisición necesaria, reutilización o recuperación de esa adquisición; no promete
+      recuperación del TF ni de toda la cadena.
+    - No representa una solución para ejecutar Python en HANA.
+    post_actions:
+      mode: resolved
+  leaf_revision_sin_delta:
+    decision: Revisión metodológica — precisar el caso antes de elegir un artefacto.
+    notes:
+    - 'El historial conserva el motivo: lógica no caracterizada, destino, persistencia de una vista por rendimiento,
+      necesidad de mantener virtualidad, fuente o adquisición no cubierta.'
+    - Si se llegó desde File Space con vistas, Open SQL o BW bridge, revisar las capacidades específicas del entorno
+      antes de recomendar TF o adquirir una copia.
+    - 'Para Python/HANA, RF + TF no es una solución equivalente: TF no ejecuta Python en runtime HANA.'
+    - Aclarar únicamente la condición que bloquea la elección; no convertir el caso en una auditoría completa.
+    post_actions:
+      mode: needs_human_review
+      reason: El recorrido identifica una necesidad o condición fuera de las alternativas acreditadas; revisar el
+        historial antes de elegir herramienta.
 
 capture_uncharted:
   type: free_capture
