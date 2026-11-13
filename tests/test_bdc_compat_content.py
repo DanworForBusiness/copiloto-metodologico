@@ -158,7 +158,12 @@ def test_layers_rule_by_purpose_lives_only_in_module_04_and_its_layer_table_is_u
     assert "sin tocar Ingesta ni Armonización" not in m04 and "acá se fija el tipo contractual" not in m04
     assert "| Tipos hacia HDLF |" not in m04                                                              # sin fila duplicada de capas en Flujos de Datos
     row = next(line for line in m04.splitlines() if line.startswith("| **(2) Armonizacion**"))
-    assert "Limpieza y estandarización" in row and "Normalizar formatos" in row
+    assert "Según la semántica que necesita completarse" in row
+    assert "alta cuando hay que completar, homologar o enriquecer" in row
+    assert "baja cuando la fuente gobernada ya entrega la semántica requerida" in row
+    assert "completando y adaptando a las definiciones corporativas la semántica que el origen no resuelve" in row
+    assert "sin repetir transformaciones ya resueltas en una fuente gobernada o en un contrato reutilizable" in row
+    assert "Normalizar formatos" in row
     assert "Ninguno o muy bajo. Mapeo 1:1 y datos tal cual la fuente." in m04
     for rel in ("content/01_Arquitectura_y_Conectividad.md", f"content/{M03}.md"):
         t = _text(rel)

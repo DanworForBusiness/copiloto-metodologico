@@ -95,7 +95,7 @@ Las métricas de uso sirven para **ponderar y priorizar** qué modernizar primer
 
 El árbol de decisión a continuación guía el tratamiento de cada objeto BW en la modernización:
 
-{{tree_button: Alcance de Modernización BW}}
+{{tree_button: id=m08_modernizacion_bw label="Alcance de Modernización BW"}}
 
 ## {dw-black}Reglas de {dw-gold}Armonización
 {{section_meta: keywords="reglas armonización, armonización BW, entidades canónicas, naming canónico, convención nombres BW, normalizar BW, homogeneidad datos, eliminar prefijos Z, eliminar prefijos Y, objetos Z BW, ZACSECUND, idioma canónico, nombres técnicos inglés español, guion bajo naming, CENTRO_ID CLIENTE_DESC, armonización semántica, lenguaje técnico único, governance datos BW"}}

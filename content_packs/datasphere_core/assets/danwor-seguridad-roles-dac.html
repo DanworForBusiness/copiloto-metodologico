@@ -218,6 +218,8 @@
   }
 
   /* Tip bar at bottom of diagram */
+  /* Ayuda de Desarrollo (DAC): texto más largo; más ancha para ocupar menos alto (override local previsto en danwor-shared.css). */
+  #d-dev .tip-content { width: 300px; }
   .diag-tip {
     margin-top: 12px; display: flex; align-items: flex-start; gap: 7px;
     background: rgba(var(--dw-gold-rgb),.07); border: 1px solid rgba(var(--dw-gold-rgb),.25);
@@ -485,8 +487,8 @@
 
               <div class="ds-inner">
                 <div class="ds-left">
-                  <div class="space-node space-dev has-tip" id="d-dev">Desarrollo<div class="tip-content"><strong>Espacio Desarrollo</strong><br>Con DAC activo, el acceso a filas se filtra por las reglas del objeto DAC.</div></div>
-                  <div class="space-node space-qa  has-tip" id="d-qa">Calidad<div class="tip-content"><strong>Espacio Calidad</strong><br>Validación previa a productivo, respetando los filtros DAC.</div></div>
+                  <div class="space-node space-dev has-tip" id="d-dev">Desarrollo<div class="tip-content"><strong>Espacio Desarrollo</strong><br>El DAC se configura sobre los objetos del Space: filtra filas cuando esos contratos se comparten o se exponen, no a los miembros del propio Space.</div></div>
+                  <div class="space-node space-qa  has-tip" id="d-qa">Calidad<div class="tip-content"><strong>Espacio Calidad</strong><br>Validación previa a productivo, incluyendo la comprobación de los controles de acceso desde los consumidores autorizados.</div></div>
                   <div class="gov-center has-tip" id="d-prd">
                     Gobierno<br>de Datos
                     <div><span class="cross-tag">Cross-Sharing</span></div>
@@ -587,7 +589,7 @@ const TAB_META = {
   },
   dac: {
     title: 'Datos (DAC)',
-    desc:  'A la fecha, Datasphere soporta seguridad a nivel fila/columna vía DAC. Con Business Data Cloud (BDC) se prevé integración nativa cross-system, aún no disponible. Existen tres tipos de estructuras de permisos: "Valores Individuales", "Operadores y Valores" y "Jerarquía".'
+    desc:  'A la fecha, Datasphere soporta seguridad a nivel de fila vía DAC. Con Business Data Cloud (BDC) se prevé integración nativa cross-system, aún no disponible. Existen tres tipos de estructuras de permisos: "Valores Individuales", "Operadores y Valores" y "Jerarquía".'
   }
 };
 
@@ -597,9 +599,7 @@ function switchTab(name) {
     document.getElementById(`tab-btn-${t}`).classList.toggle('active', t === name);
     document.getElementById(`tab-${t}`).classList.toggle('active', t === name);
   });
-  const meta = TAB_META[name];
-  document.getElementById('hero-title').textContent = meta.title;
-  document.getElementById('hero-desc').textContent  = meta.desc;
+  // El título y la descripción de cada pestaña los presenta el módulo 02 (no hay hero en el embed): solo se redibujan las flechas.
   setTimeout(() => drawAll(), 80);
 }
 

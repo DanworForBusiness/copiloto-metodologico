@@ -603,7 +603,7 @@ const CAPAS = {
           { title: 'SQL Views',   desc: 'Vistas SQL sobre tablas de ingesta. Permiten joins, renombrado de campos y estandarización semántica.' },
           { title: 'Tabla Local', desc: 'Tabla física persistida en el espacio, destino de un Replication Flow o Data Flow — base sobre la que se construyen SQL Views cuando conviene aislar la lectura del sistema fuente.' },
           { title: 'Transformation Flows', desc: 'Transformación con persistencia física, con soporte de carga incremental y lógica más compleja que una vista.' },
-          { title: 'Data Flows',  desc: 'Para transformaciones más complejas con persistencia, cuando la vista sola no alcanza.' },
+          { title: 'Data Flows',  desc: 'Para Python en HANA o fuentes no admitidas por Transformation Flow, si Data Flow admite el objeto concreto. Sin delta ni destino File Space; la complejidad por sí sola no determina su elección.' },
         ]
       },
       {
@@ -631,17 +631,17 @@ const CAPAS = {
       {
         heading: 'Objetos principales',
         items: [
-          { title: 'SQL Views',          desc: 'Vistas de propagación con filtros dinámicos y lógica de negocio aplicada.' },
+          { title: 'SQL Views',          desc: 'Vistas de propagación que componen, filtran y reagregan el contrato armonizado para cada caso de consumo.' },
           { title: 'Tabla Local', desc: 'Tabla física persistida en el espacio, destino de un Replication Flow o Data Flow — base sobre la que se construyen SQL Views de propagación cuando conviene aislar la lectura del sistema fuente.' },
           { title: 'Transformation Flows', desc: 'Materializa con persistencia cuando la propagación necesita mejorar performance o aplicar transformación/agregación.' },
-          { title: 'Data Flows',  desc: 'Para transformaciones más complejas con persistencia, cuando la vista sola no alcanza.' },
+          { title: 'Data Flows',  desc: 'Para Python en HANA o fuentes no admitidas por Transformation Flow, si Data Flow admite el objeto concreto. Sin delta ni destino File Space; la complejidad por sí sola no determina su elección.' },
         ]
       },
       {
         heading: 'Filtros dinámicos',
         items: [
           { title: 'Filtros de datos',    desc: 'Aplicados en tiempo de ejecución según el contexto del usuario o la consulta.' },
-          { title: 'DAC integration',     desc: 'Los filtros de seguridad a nivel fila/columna se aplican en esta capa.' },
+          { title: 'DAC integration',     desc: 'Filtra filas y lo heredan las vistas que lo consumen; puede aplicarse en distintos puntos del linaje según reutilización, persistencia y exposición.' },
         ]
       },
       {
@@ -662,7 +662,7 @@ const CAPAS = {
         heading: 'Objetos principales',
         items: [
           { title: 'Modelo Analítico', desc: 'Objeto semántico final expuesto para consumo. Define medidas, dimensiones y jerarquías listas para reporting.' },
-          { title: 'SQL Views',        desc: 'Vistas de consumo final expuestas directamente a herramientas de reporting.' },
+          { title: 'SQL Views',        desc: 'Adaptador excepcional (4V/4T) para un canal que no puede consumir el Data Product o el Modelo Analítico.' },
         ]
       },
       {
