@@ -15,7 +15,7 @@ key_topics:
     heading: "Seguridad como extensión del diseño de dominios"
 scope: |
   Cubre el diseño de seguridad en SAP Datasphere y Business Data Cloud (BDC):
-  modelo de roles (estándar vs custom), Data Access Control (DAC) a nivel fila y columna, tipos de permisos (Valores Individuales, Operadores y Valores, Jerarquía), 
+  modelo de roles (estándar vs custom), Data Access Control (DAC) a nivel de fila, tipos de permisos (Valores Individuales, Operadores y Valores, Jerarquía),
   y principios de gobernanza derivados del diseño de dominios. No cubre modelado de datos ni definición de Semantic Types (módulo 04), configuración de espacios o 
   transportes (módulo 01), ni integración con sistemas origen (módulo 03).
 guardrails:
@@ -38,7 +38,7 @@ quick_action_guidance:
 
       Incluí obligatoriamente:
       - Cuándo usar roles estándar y cuándo evaluar roles custom.
-      - Cómo decidir si DAC aplica por fila, columna, valores individuales, operadores/valores o jerarquía.
+      - Cómo decidir el tipo de DAC (seguridad por filas): valores individuales, operadores/valores o jerarquía.
       - Qué validar sobre dominios, data products y sensibilidad del dato antes de cerrar permisos.
       - Qué pruebas mínimas ejecutar con usuarios/personas representativas.
       - Qué riesgos aparecen si la seguridad se define tarde o fuera del diseño de dominios.
@@ -76,7 +76,7 @@ quick_action_guidance:
       - Duplicar datasets, modelos, vistas o espacios para separar accesos sin criterio de gobierno.
       - Usar roles estándar de forma indiscriminada sin revisar segregación, operación y escalabilidad.
       - Crear roles custom demasiado pronto, sin matriz de responsabilidades ni evidencia de necesidad.
-      - Elegir mal el tipo de DAC o mezclar seguridad de filas/columnas con semántica de negocio.
+      - Elegir mal el tipo de DAC o mezclar seguridad de filas con semántica de negocio.
       - No probar con usuarios/personas reales antes de avanzar a consumo.
       - No asignar owner ni trazabilidad sobre cambios de permisos.
 
@@ -139,7 +139,7 @@ out_of_scope_redirect:
 {{section_meta: keywords="DAC, data access control, seguridad datos, seguridad de datos, seguridad fila, seguridad columna, row level security, column level security, valores individuales, operadores y valores, jerarquía, jerarquia, tipos DAC, tipos de permisos, permisos DAC, acceso a datos, restricción de datos, qué tipo de DAC, cómo restringir datos, acceso dinámico, regla acceso, reglas acceso, seguridad SAP Datasphere, BDC seguridad, filtro datos, filtro por usuario, jerarquía organizacional, centro de costos, organigrama"}}
 {{support: SAP Help="https://help.sap.com/docs/SAP_DATASPHERE/be5967d099974c69b77f4549425ca4c0/a032e51c730147c7a1fcac125b4cfe14.html" Pin=true}}
 
-SAP Datasphere soporta seguridad a nivel fila y columna vía **Data Access Control (DAC)**. Con Business Data Cloud (BDC) se prevé integración de seguridad nativa cross-system, aunque aún no está disponible en todas las versiones.
+SAP Datasphere soporta seguridad a nivel de fila vía **Data Access Control (DAC)**. Con Business Data Cloud (BDC) se prevé integración de seguridad nativa cross-system, aunque aún no está disponible en todas las versiones.
 
 {{html_embed: ../assets/danwor-seguridad-roles-dac.html height=796 default_mode=dac}}
 
@@ -165,6 +165,15 @@ El tipo más potente para estructuras organizacionales. El acceso al nodo padre 
 
 {{tree_button: Seguridad de Datos}}
 
+### Dónde aplicar DAC
+
+El DAC es seguridad a nivel de filas: filtra los registros en el objeto donde se aplica y en todo objeto que lo use como fuente. Su ubicación no está atada a una capa; se decide mirando el linaje completo: qué se reutiliza, qué se persiste, qué se expone y quién accede al espacio productor.
+
+- **Protección temprana** (por ejemplo, en una vista de Armonización): un único punto reutilizable que heredan todos los consumidores. A cambio, ninguna vista que consuma esa fuente protegida se puede persistir.
+- **Protección después de materializar** (en la vista que se comparte o expone): las etapas previas se pueden persistir, y también la propia vista con DAC, pero esas etapas quedan sin filtro para quien tenga acceso al espacio productor.
+
+SAP indica que, mientras la vista permanece en su espacio, sus miembros pueden eludir el control; por eso el patrón Danwor publica los contratos protegidos desde un espacio productor de acceso restringido. Al consumirse, el filtro se evalúa con la identidad que consulta Datasphere: el usuario de SAC, el usuario de base de datos en [ODBC](https://help.sap.com/docs/SUPPORT_CONTENT/datasphere/5416291142.html) o el usuario que autoriza la conexión OAuth en [OData](https://help.sap.com/docs/SUPPORT_CONTENT/datasphere/5536057549.html). Una identidad técnica puede ser adecuada cuando la autorización es por aplicación o servicio, pero no da por sí sola seguridad individual por persona. Más detalle sobre persistencia en [Persisted Views and Data Access Control](https://help.sap.com/docs/SAP_DATASPHERE/c8a54ee704e94e15926551293243fd1d/7a4a983611cc4efb9415e6f3db310eaa.html).
+
 ## {dw-black}Seguridad como {dw-gold}extensión del diseño de dominios
 {{section_meta: keywords="seguridad diseño dominios, data product seguridad, gobernanza datos, principio seguridad, modelo seguridad, dominios y seguridad, data governance, roles responsabilidades, controles acceso, activo confiable, seguridad bien diseñada, diseño conceptual seguridad, dominios Danwor"}}
 
@@ -177,5 +186,5 @@ Definir claramente roles, responsabilidades y controles de acceso **derivados de
 El modelo de seguridad no es un paso posterior al modelado: se deriva de él. Cada dominio y data product definidos a nivel conceptual tienen implicancias directas sobre:
 
 - **¿Quién puede ver qué?** — Roles y permisos a nivel espacio y objeto
-- **¿Con qué granularidad?** — DAC a nivel fila/columna según la sensibilidad del dato
+- **¿Con qué granularidad?** — DAC a nivel de fila según la sensibilidad del dato
 - **¿Bajo qué condiciones?** — Reglas dinámicas alineadas a la estructura organizacional del cliente

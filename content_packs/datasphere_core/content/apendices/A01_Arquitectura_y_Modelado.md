@@ -132,7 +132,7 @@ El quinto y último: Data Mesh, responde a `quién es dueño del dato y cómo lo
 |---|---|---|---|---|
 | **Data Mesh** | Descentraliza: cada dominio publica **data products** gobernados sobre una plataforma común | Organizaciones grandes con muchos dominios que necesitan autonomía y velocidad | Organización/Gobierno (Data Products, DAC) | Conceptual, no técnica. Datasphere no implementa mesh automáticamente,sino que ofrece/facilita con espacios y permisos a nivel dominio (DAC)​ |
 
-{{tree_button: Decisión de Paradigma Arquitectónico}}
+{{tree_button: id=m10_decision_paradigma label="Decisión de Paradigma Arquitectónico"}}
 
 ## {dw-black}Datos como {dw-gold}Producto
 {{section_meta: keywords="data product, datos como producto, data products datasphere, data product BDC, DPD, data product descriptor, qué es un data product, definición data product, data product SAP, tratar datos como producto, unidad de valor datos, sales order data product, customer 360 data product, data product autocontenido, data product reutilizable, linaje data product, contrato datos"}}

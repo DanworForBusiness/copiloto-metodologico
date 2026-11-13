@@ -237,8 +237,8 @@
           <td class="td-cust">Necesario para cualquier contrato de negocio propio</td>
         </tr>
         <tr>
-          <td class="td-sap">Extended View / CDS estándar directo</td>
-          <td class="td-cust">API Corporativa (CDS wrapper)</td>
+          <td class="td-sap">Extended View / CDS estándar u ODP-SAPI directo</td>
+          <td class="td-cust">API Corporativa (p. ej. CDS wrapper)</td>
         </tr>
         <tr>
           <td class="td-sap">SAP define alcance, ciclo de vida y sucesor</td>
@@ -264,14 +264,14 @@
           </div>
           <div class="flow-arrow solid">→</div>
           <div class="flow-node fn-api-sap has-tip">
-            <span class="tip-content">CDS estándar liberada por SAP. <strong>SAP-managed</strong>: SAP define alcance y ciclo de vida; un cambio suyo impacta tu modelo.</span>
+            <span class="tip-content">Interfaz estándar autorizada por SAP (p. ej. CDS estándar o extractor ODP-SAPI). <strong>SAP-managed</strong>: SAP define alcance y ciclo de vida; un cambio suyo impacta tu modelo.</span>
             <div class="flow-node-title">API Funcional SAP</div>
-            <div class="flow-node-sub">CDS Estándar | Liberada</div>
+            <div class="flow-node-sub">CDS · ODP-SAPI | Liberada</div>
             <div class="flow-node-badge">SAP-managed</div>
           </div>
           <div class="flow-arrow" style="color:var(--dw-gold);font-size:24px">⟫</div>
           <div class="flow-node fn-api-corp has-tip">
-            <span class="tip-content">Wrapper CDS propio sobre la API SAP. <strong>Customer-managed</strong>: acá resolvés el contrato y contenés los cambios del origen.</span>
+            <span class="tip-content">Contrato propio del cliente, habitualmente un wrapper CDS sobre la API SAP. <strong>Customer-managed</strong>: acá resolvés el contrato y contenés los cambios del origen.</span>
             <div class="flow-node-title">API Corporativa</div>
             <div class="flow-node-sub">CDS wrapper | Integración</div>
             <div class="flow-node-badge">Customer-managed</div>
@@ -317,32 +317,34 @@
     <!-- How it's built -->
     <div style="font-size:13px;font-weight:600;color:var(--dw-muted);margin-bottom:12px;text-align:center">¿Cómo se construye?</div>
     <div class="flow-row" style="justify-content:center;gap:0">
-      <div class="flow-node fn-api-sap has-tip" style="text-align:center">
+      <a class="flow-node fn-api-sap has-tip" style="text-align:center;text-decoration:none;color:inherit;cursor:pointer" href="/modules/03_Integracion_y_Estrategia_de_Datos?pack=datasphere_core#que-es-una-api" target="_top" data-appendix-nav>
         <span class="tip-content">Fuentes habilitadas de ingesta (API Corporativa, ODP/SAPI, CDS u otras). El <strong>punto de entrada gobernado</strong> del dato.</span>
         <div class="flow-node-title">APIs Autorizadas</div>
         <div class="flow-node-sub">API Corporativa, ODP<br>(SAPI, CDS) | otros</div>
-      </div>
+      </a>
       <div class="flow-arrow solid">→</div>
-      <div class="flow-node fn-api-corp has-tip" style="text-align:center">
+      <a class="flow-node fn-api-corp has-tip" style="text-align:center;text-decoration:none;color:inherit;cursor:pointer" href="/modules/04_Modelado_y_Desarrollo?pack=datasphere_core#aplicacion-de-arquitectura-por-capas" target="_top" data-appendix-nav>
         <span class="tip-content">Capa de integración y semántica en Datasphere: donde se <strong>arma y gobierna el contrato</strong> antes de exponerlo.</span>
         <div class="flow-node-title">Modelo de Datos</div>
         <div class="flow-node-sub">Capa de Integración /<br>Semántica Datasphere</div>
-      </div>
+      </a>
       <div class="flow-arrow" style="color:var(--dw-gold);font-size:24px">⟫</div>
-      <div class="flow-node fn-dp has-tip" style="text-align:center">
+      <a class="flow-node fn-dp has-tip" style="text-align:center;text-decoration:none;color:inherit;cursor:pointer" href="/modules/03_Integracion_y_Estrategia_de_Datos?pack=datasphere_core#contrato-de-datos-vs-data-product" target="_top" data-appendix-nav>
         <span class="tip-content"><strong>Contrato en destino</strong>: el dato listo para consumir, independiente del origen técnico (SAP, Azure, SQL…).</span>
         <div class="flow-node-title">Data Product</div>
         <div style="display:flex;align-items:center;gap:4px;margin-top:4px;font-size:10px;color:var(--dw-purple);justify-content:center">
           <span>🗂️</span> Contrato en Destino
         </div>
-      </div>
+      </a>
       <div class="flow-arrow solid">→</div>
-      <div class="flow-node fn-consumo has-tip" style="text-align:center">
+      <a class="flow-node fn-consumo has-tip" style="text-align:center;text-decoration:none;color:inherit;cursor:pointer" href="/modules/05_Reporting_y_Consumo?pack=datasphere_core#protocolos-de-consumo" target="_top" data-appendix-nav>
         <span class="tip-content">Destinos finales — BI, ML, Apps. Consumen el <strong>Data Product</strong> sin conocer ni depender de su origen.</span>
         <div class="flow-node-title">Consumo</div>
         <div class="flow-node-sub">BI, ML, Apps</div>
-      </div>
+      </a>
     </div>
+
+    <div style="font-size:11px;color:var(--dw-muted);text-align:center;margin-top:10px;max-width:640px;margin-left:auto;margin-right:auto">La interfaz de origen reutiliza los datos y la semántica que ya existen; el modelado posterior completa las definiciones corporativas que falten.</div>
 
     <!-- 4 properties -->
     <div class="dp-props">

@@ -26,6 +26,7 @@ roadmap:
   - stage: "Contrato"
     tagline: "Qué te comprometés a entregar y bajo qué arquitectura"
     sections:
+      - "¿Qué es una API?"
       - "Modelo de Integración Danwor"
       - "Contrato de Datos vs. Data Product"
       - "Arquitectura de Integración"
@@ -204,6 +205,14 @@ intent_assets:
 
 # 03 Integracion y Estrategia
 
+## {dw-black}¿Qué es una {dw-gold}API?
+
+Una API (Application Programming Interface) es una **interfaz de acceso**: un contrato técnico que define *qué* datos u operaciones expone un sistema y *cómo* consumirlos, sin que quien consume necesite conocer la implementación interna. Su valor es **desacoplar**: el origen puede cambiar por dentro mientras el contrato se mantiene estable para quien lo usa.
+
+En SAP, «API» abarca mecanismos distintos, no un único estilo técnico: una CDS View liberada para extracción, un extractor ODP-SAPI, un servicio OData o una API REST son todas interfaces de origen, con contratos y capacidades diferentes. No todas son REST ni OData, y un extractor ODP-SAPI **no es** una API REST: cada una tiene su protocolo, su semántica y sus condiciones de delta. Para cómo se resuelve el contrato en SAP, ver [Extracción vía API Corporativa](#extraccion-via-api-corporativa); para elegir la interfaz de extracción según el caso, usá el árbol:
+
+{{tree_button: Opciones de Extracción}}
+
 ## {dw-black}Modelo de Integración {dw-gold}Danwor
 {{section_meta: keywords="API extracción, API corporativa, data product, contrato de datos"}}
 {{subtitle: no-gap}}
@@ -211,7 +220,7 @@ intent_assets:
 
   - Toda integración se expone como una API
   - Nunca se consumen tablas como contrato
-  - Se separa API funcional SAP (CDS estándar) de API Corporativa (CDS integración)
+  - Se separa API funcional SAP (interfaz estándar autorizada, p. ej. CDS estándar u ODP-SAPI) de API Corporativa (contrato propio del cliente, habitualmente una CDS de integración)
   - El contrato de datos tiene un dueño. Ese dueño define su alcance, ciclo de vida y compatibilidad:
 
 {{html_embed: ../assets/danwor-modelo-integracion-dataproduct.html height=650 default_mode=modelo}}
@@ -240,6 +249,8 @@ La API Corporativa es el momento en que el dato pasa de pertenecer a SAP a perte
 {{subtitle: no-gap}}
 > El resultado del modelo de integración es la construcción de Data Products gobernados, reutilizables y orientados a negocio
 {{html_embed: ../assets/danwor-modelo-integracion-dataproduct.html height=420 default_mode=dp}}
+
+El contrato de extracción no necesariamente resuelve todo el contrato de negocio. Una CDS estándar y un extractor ODP-SAPI pueden constituir fuentes igualmente válidas, aunque aporten distintos grados de semántica funcional según el objeto concreto. La semántica que el origen no resuelve —o que requiere adaptación a las definiciones corporativas— debe completarse en la capa de Armonización (2*) de Datasphere, antes de publicar un modelo gobernado y reutilizable.
 
 {{callout: title="Contrato Propio" tone="punch" icon="🤝"}}
 En la práctica, el Data Product es el contrato de datos expuesto al negocio.
@@ -351,6 +362,14 @@ SAP no migró sus propias APIs de extracción a View Entity. Ni omisión, ni olv
 
 Del lado del Replication Flow que consume esta CDS: en modo Initial + Delta, Datasphere agrega dos columnas internas a la tabla local (`Change_Type` — L=carga inicial, A=upsert, D=delete — y `Change_Date`) para representar el ciclo de vida del registro. Son un objeto interno, no un contrato: no conviene construir transformaciones ni Data Products que dependan de ellas fuera de Premium Outbound Integration (Notas SAP 3725855, 3634750). La frecuencia con la que el flujo reintenta el delta también es configurable — default 1 hora, bajable a minutos o a modo near-real-time con 0/0 — conviene ajustarla al SLA real de consumo en vez de dejarla por inercia.
 
+**La capacidad incremental no garantiza por sí sola la integridad del resultado.** Sea la fuente una CDS o un extractor ODP-SAPI, conviene distinguir tres planos:
+
+1. **Capacidad:** si el mecanismo soporta delta (CDC, `delta.byElement` o la cola delta del extractor) en el release y la conexión disponibles.
+2. **Semántica:** qué representa cada cambio entregado — el estado actualizado de un registro, un movimiento aditivo, una reversa o una eliminación.
+3. **Persistencia:** cómo interpreta y persiste esos cambios el proceso de replicación en el destino.
+
+La estrategia debe contemplar claves, actualizaciones, movimientos aditivos, reversas y eliminaciones según la semántica real del extractor y las capacidades del destino. SAP documenta escenarios condicionados de replicación incremental para objetos ODP sin clave primaria declarada, con destino a un espacio estándar de SAP Datasphere, mediante configuración de columnas clave (🔗[SAP Help](https://help.sap.com/docs/SAP_DATASPHERE/c8a54ee704e94e15926551293243fd1d/3f70579c92434f4f88471bba2bd70893.html?locale=en-US&version=LATEST)). Su aplicabilidad debe verificarse según origen, conexión, versión y destino, garantizando unicidad, ausencia de nulos y consistencia del resultado.
+
 {{callout: title="CDC Avanzado" tone="punch" icon="💡"}}
 El soporte de delta avanzado (Change Data Capture con mapping) depende del SAP_BASIS (>= 7.56) y no está garantizado en todos los escenarios de extracción. Para mas información ver Nota SAP 3534086
 {{/callout}}
@@ -371,7 +390,7 @@ El soporte de delta avanzado (Change Data Capture con mapping) depende del SAP_B
 ODP es un mecanismo estándar para extracción con colas delta, compatible con Datasphere de forma nativa, sin violar el principio clean core: estás consumiendo una API liberada.
 {{/callout}}
 {{callout: title="Principio Clean Core" tone="success" icon="🌿"}}
-- Usar CDS como APIs
+- Usar APIs liberadas (CDS u ODP) como contrato
 - Evitar lógica compleja en SAP
 - Centralizar transformaciones en Datasphere
 {{/callout}}
@@ -487,12 +506,12 @@ Te ayudamos a identificar el enfoque de Integración en SAP Datasphere a través
 ## {dw-black}Tipos de {dw-gold}Conexión
 {{section_meta: keywords="tipos de conexiones, qué conexión usar, conexión datasphere, DP agent cloud connector SDA, SQL service RFC, conexión SAP datasphere, cómo conectar datasphere, árbol conexiones"}}
 {{support: SAP Help="https://help.sap.com/docs/SAP_DATASPHERE/be5967d099974c69b77f4549425ca4c0/94562426f30c475286f50a1e2b45e743.html?locale=en-US"}}
-La elección del **tipo de conexión** (DP Agent, Cloud Connector, SDA, ABAP SQL service, RFC) depende de compatibilidades y limitaciones técnicas según origen, release y modalidad. La matriz oficial de tipos de conexión soportados está en el 🔗<link url="https://help.sap.com/docs/SAP_DATASPHERE/be5967d099974c69b77f4549425ca4c0/94562426f30c475286f50a1e2b45e743.html?locale=en-US">SAP Help</link>. Para decidir el **mecanismo de extracción** asociado, usá el árbol de la sección *Estrategia de Extracción*. Un parámetro puntual de una tabla remota (por ejemplo, *Streaming Read* del ABAPAdapter, ver [Tablas Remotas →](#tablas-remotas)) depende siempre del mecanismo de provisión efectivamente elegido, nunca del nombre lógico de la conexión.
+La elección del **tipo de conexión** (DP Agent, Cloud Connector, SDA, ABAP SQL service, RFC) depende de compatibilidades y limitaciones técnicas según origen, release y modalidad. La matriz oficial de tipos de conexión soportados está en el 🔗[SAP Help](https://help.sap.com/docs/SAP_DATASPHERE/be5967d099974c69b77f4549425ca4c0/94562426f30c475286f50a1e2b45e743.html?locale=en-US). Para decidir el **mecanismo de extracción** asociado, usá el árbol de la sección *Estrategia de Extracción*. Un parámetro puntual de una tabla remota (por ejemplo, *Streaming Read* del ABAPAdapter, ver [Tablas Remotas →](#tablas-remotas)) depende siempre del mecanismo de provisión efectivamente elegido, nunca del nombre lógico de la conexión.
 
 {{tree_button: Opciones de Extracción}}
 
 ## {dw-black}Referencia {dw-gold}Técnica
-Las vistas CDS habilitadas para extracción son la API estándar clean core para integrar S/4HANA con SAP Datasphere vía ODP/ABAP_CDS. Lo primero es decidir **qué patrón** aplica según la tabla origen; el código es referencia ilustrativa que baja del template mantenido.
+Las vistas CDS habilitadas para extracción son una API estándar clean core para integrar S/4HANA con SAP Datasphere vía ODP/ABAP_CDS. Lo primero es decidir **qué patrón** aplica según la tabla origen; el código es referencia ilustrativa que baja del template mantenido.
 
 ### Cuándo usar cada patrón
 

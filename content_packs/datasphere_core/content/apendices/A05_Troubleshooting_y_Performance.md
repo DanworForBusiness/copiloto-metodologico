@@ -59,12 +59,12 @@ En proyectos con arquitectura BW Bridge, la decisión de dónde desarrollar (en 
 |---|---|
 | El origen (tabla/extractor) ya existe en BW Bridge | Ampliar el modelo existente en el BW Bridge |
 | Existe extractor estándar y hay modelos BW Bridge relacionados | Capitalizar el estándar a través del BW Bridge |
-| No hay modelos BW Bridge relacionados pero existe extractor estándar | Crear CDS View e importar directamente a Datasphere |
+| No hay modelos BW Bridge relacionados pero existe extractor estándar | Reutilizar el extractor estándar autorizado (CDS u ODP-SAPI), sin incorporar BW Bridge |
 | No existe extractor estándar | Crear CDS View custom con template Danwor (compatibilidad delta incluida) |
 
-> Al crear CDS Views en arquitecturas BW Bridge: incluir `@Analytics.dataExtraction.delta.changeDataCapture.automatic: true` si el extractor no tiene ya definido el mecanismo delta.
+> Al crear CDS Views en arquitecturas BW Bridge: el mecanismo delta (CDC, `delta.byElement` o full) depende de las capacidades del objeto, el release y las restricciones técnicas; no asumir CDC automático por defecto.
 
-{{tree_button: BW Bridge o CDS Views}}
+{{tree_button: id=m06_bw_bridge_cds label="BW Bridge o CDS Views"}}
 
 ## ADSO y CDC en BW Bridge
 {{section_meta: keywords="ADSO datasphere, ADSO CDC, change data capture BW Bridge, change log table, active table, CDC BW Bridge, transformation flow CDC, tabla activa, tabla change log, ADSO 2024.06, ADSO standard type, write change log, delta incremental BW Bridge, tabla local CDC, replicación incremental BW Bridge, ADSO clave primaria, ADSO master data check"}}

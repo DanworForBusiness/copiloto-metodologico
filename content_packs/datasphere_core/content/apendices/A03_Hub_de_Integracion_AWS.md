@@ -47,11 +47,11 @@ Posicionar Datasphere como fuente SAP autorizada, el punto de calidad mínima y 
   - Muchas tablas requieren lógica combinada, capitalizado únicamente a través de vistas CDS.
 
 - ✖ Compatibilidad Premium Outbound Integration
-  - Los flujos de replicación (o replication flows) están pensados para CDS/ODP, no así para tablas.
-  - Las tablas base obligan a usar Data Flows→ más staging, más costo, más lógica manual, menos delta real.
+  - Los flujos de replicación (o replication flows) admiten tablas en escenarios soportados (por ejemplo, vía SLT), pero una tabla físicamente replicable no constituye por sí misma un contrato funcional gobernado.
+  - Tampoco desacopla al consumidor de los cambios del sistema fuente: semántica, estabilidad ante upgrades y evolución del contrato quedan del lado de quien integra.
 
 - ✖ Escalabiliad y Compatibilidad Roadmap BDC
-  - Las tablas base no son compatibles con Data Products.
+  - Una tabla base puede replicarse técnicamente en escenarios soportados; eso no la convierte por sí sola en un contrato funcional gobernado. Su publicación como Data Product depende de las capacidades del destino y de completar la semántica, la estabilidad y el gobierno requeridos; la recomendación metodológica es publicar ese contrato, no asumir que la replicación basta.
 
 {{callout: title="¿Por qué importa?" tone="punch" icon="💡"}}
 Este enfoque puede funcionar técnicamente, así como brindar simplicidad inmediata, pero no es sostenible, ni gobernable, ni alineado al roadmap S/4HANA (future-proofing), lo que termina generando herencia técnica que luego debe corregirse en AWS o Informática.

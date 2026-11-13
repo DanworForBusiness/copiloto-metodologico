@@ -162,7 +162,7 @@ intent_assets:
 | Principio | SAP BW (LSA) | Lakehouse (Databricks) | Datasphere/BDC |
 |---|---|---|---|
 | **Ingesta desacoplada del origen** | Staging Layer <br>Corporate Memory | Bronze | Tablas Remotas / Persistencia opcional / Data Lake (HDLF en BDC) |
-| **Armonización** | EDW Layer | Silver | Businss Builder / Data Builder |
+| **Armonización** | EDW Layer | Silver | Business Builder / Data Builder |
 | **Publicación** | Reporting Layer | Gold | Data Products / Modelos Analíticos |
 | **Gobierno Semántico** | Infoobjects / BW Semantics | Unity Catalog + Delta | Semantic Layer |
 
@@ -184,7 +184,7 @@ Hoy la escalabilidad ya no depende de multiplicar capas físicas, sino del dise�
 | Capa | Nivel de Transformacion | Proposito | Cuando usar? |
 |---|---|---|---|
 | **(1) Ingesta** | Ninguno o muy bajo. Mapeo 1:1 y datos tal cual la fuente. | Capturar los datos crudos directamente desde las fuentes externas (sea S/4HANA, u otras bases de datos y/o sistemas externos) | - Ingestar datos directamente desde sistemas fuente. - Preservar datos originales para auditoría. |
-| **(2) Armonizacion** | Alta. Limpieza y estandarización | Transformar, limpiar, y unificar los datos para asegurar consistencia semántica y su re-utilización alineado con las reglas de negocio | - Unificar datos de sistemas heterogéneos. - Reutilizacion - Normalizar formatos, eliminar duplicados, enriquecer datos. |
+| **(2) Armonizacion** | Según la semántica que necesita completarse: alta cuando hay que completar, homologar o enriquecer; baja cuando la fuente gobernada ya entrega la semántica requerida | Armonizar los datos completando y adaptando a las definiciones corporativas la semántica que el origen no resuelve, para asegurar consistencia y reutilización alineadas con las reglas de negocio, sin repetir transformaciones ya resueltas en una fuente gobernada o en un contrato reutilizable | - Unificar datos de sistemas heterogéneos. - Reutilizacion - Normalizar formatos, eliminar duplicados, enriquecer datos. |
 | **(3) Propagacion** | Baja. Ajustes mínimos: joins, unions, agregación y filtros | Exponer **data products gobernados** para consumo externo, open sharing e integraciones, y como fuente del modelado analítico. Los data products **nacen acá** (no llevan una capa 4 encima). | - **Consumo externo / open sharing**: Delta Sharing → Databricks, SPM/SN Distribuidores, outbound. Si un destino exige una adaptación técnica de tipo (p. ej. `DecimalFloat` → `DECIMAL(38,6)`), **se hace acá**; la normalización corporativa de tipos, precisión y escala pertenece a Armonización. - **Consumo analítico por vista / DirectQuery**: capa de ownership `3V..._PBI` (vista plana ID+Descripción) gobernada para Power BI. - Reutilización por otras vistas y como input de capa 4. |
 | **(4) Consumo** | Alta. Modelado analítico final. | **Modelar** la experiencia analítica final que consume el data product; no publica un data product ni un contrato nuevo. | - **SAC**: Modelo Analítico (`AM`, multidimensional nativo, sin número de capa). - Vista/tabla `4V/4T` con medidas y dimensiones **solo** como adaptador excepcional de un canal que no puede consumir el data product o el `AM` directamente. |
 
@@ -218,7 +218,7 @@ Antes hablamos de la etapa de **Publicación** — el momento en que el dato se 
 **Capa** (prefijo numérico):
 
 - `1` — **Ingesta**: datos crudos del origen, sin transformar (tablas remotas o locales replicadas).
-- `2` — **Armonización**: donde nace el contrato de datos — entidades limpias, estandarizadas, gobernadas y reutilizables (el *qué prometemos entregar*).
+- `2` — **Armonización**: donde se completa el contrato de datos, reutilizando la semántica funcional del origen y adaptando o incorporando las definiciones corporativas necesarias, mediante entidades limpias, estandarizadas, gobernadas y reutilizables (ver [Contrato de Datos vs. Data Product](/modules/03_Integracion_y_Estrategia_de_Datos?pack={{pack}}#contrato-de-datos-vs-data-product)).
 - `3` — **Propagación**: el contrato materializado y expuesto como data product — composición (cruces/joins), reagregación y subsets orientados a casos de consumo. 
 - `4` — **Consumo**: adaptadores finales y modelos. 
 
@@ -275,7 +275,7 @@ Salvo por la capa de ingesta donde se mantiene la convencion de nombre del orige
 | `1TT_SAP_T151T` | Capa 1 · Tabla · Origen SAP · T151T (textos grupos cliente) |
 | `2VD_CLIENTES_CABECERA` | Capa 2 · Vista · Dimensión Clientes Cabecera (armonización) |
 | `3VF_TOPLINE_SPM` | Capa 3 · Vista Fact · Topline para SPM (data product reutilizable) |
-| `3VD_CUSTOMER_PBI` | Capa 3 · Vista · Dimensión Customer para Power BI (reutilizable) |
+| `3VD_CUSTOMER_PBI` | Capa 3 · Vista · Dimensión Customer exclusiva de Power BI (gobernada) |
 | `4VF_SND_DESPACHOS_DBX` | Capa 4 · Vista Fact · adaptador **exclusivo** de Databricks (no reutilizable) |
 
 {{subtitle: no-gap}}
@@ -298,7 +298,7 @@ A diferencia de **tablas y vistas** (que usan el patrón por capas de más arrib
 {{callout: title="Frontera de consumo: dónde vive cada salida" tone="note" icon="🎯"}}
 Una misma información puede exponerse de tres formas, y el naming lo refleja:
 - **Modelo semántico** → `AM_<LoB>_<Nombre>` (sin número; es la vía preferida).
-- **Producto reutilizable y gobernado** → Capa 3 `3V/3T`, con sufijo de consumidor *opcional* (`3VF_SND_Despachos` o `3VF_SND_Despachos_PBI`).
+- **Producto reutilizable y gobernado** → Capa 3 `3V/3T`, con sufijo de consumidor solo si la salida es exclusiva de ese consumidor (`3VF_SND_Despachos` reutilizable o `3VF_SND_Despachos_PBI` exclusivo).
 - **Adaptador exclusivo e irreusable de un canal** que no puede consumir el `AM` o el data product directamente → Capa 4 `4V/4T` con sufijo *obligatorio* (`4VF_SND_Despachos_DBX`). Si resultara reutilizable, es Capa 3.
 
 Clave: el **shaping de negocio** (reagrupaciones, filtros, subsets) para un consumidor **sigue siendo Capa 3** — una capa de *ownership* por consumidor (`3V..._PBI`), gobernada y con dueño. La Capa 4 es solo el último eslabón **técnico e irreusable**; nunca una Capa 4 "vacía" por completitud.
@@ -339,19 +339,21 @@ La documentación oficial es explícita: Replication Flow y Transformation Flow 
 | Dimensión | Replication Flow | Data Flow | Transformation Flow |
 |---|---|---|---|
 | **Qué hace** | Mueve datos para uno o más objetos de un origen a un destino | Mueve y transforma datos en una interfaz gráfica (drag & drop) | Carga desde 1+ fuentes, transforma y escribe a **una** tabla local |
-| **Fuentes** | Vistas CDS habilitadas para extracción, objetos ODP (BW/extractores), tablas con clave primaria — más una amplia matriz de conectores no-SAP | Cualquier objeto del navegador de fuentes (tablas, vistas locales/remotas, Open SQL) | Solo SAP Datasphere: de una tabla local a otra tabla local |
+| **Fuentes** | Vistas CDS habilitadas para extracción, objetos ODP (BW/extractores), tablas con clave primaria — más una amplia matriz de conectores no-SAP | Objetos admitidos del navegador de fuentes (tablas, vistas locales/remotas y Open SQL), según conexión y restricciones del objeto | Objetos admitidos de Datasphere: tablas locales, vistas y Open SQL admitidos, y tablas BW bridge compartidas o vistas sobre ellas; sujeto a dependencias, DAC y al tipo de espacio |
 | **Transformación** | Mínima: expresiones de filtro, mapeo de columnas, proyección personalizada — sin joins | Completa: Join, Unión, Proyección, Columnas Calculadas, Agregación, Script Python | Join, Agregación, Filtro, Proyección, Columnas Calculadas, Vista SQL — **y Script Python si el espacio destino es de archivos (HDLF)** |
 | **Carga delta** | Sí — nativa, es la razón de ser del artefacto | **No soportada** (Initial, Batch load) | Sí (Initial Only / Initial and Delta), pero requiere Captura Delta encendido en **origen y destino**; no soporta delta desde vistas |
 | **Destino** | Tabla local, o destino externo — amplia matriz de conectores SAP y no-SAP (S3, Kafka, Azure, GCS, HDLFS, etc.) | Solo tabla local | Solo una tabla local |
 | **Runtime / HDLF** | No selecciona runtime — pero puede exportar hacia HDLF vía una conexión dedicada (`SAP HANA Cloud, Data Lake, Files`), como Parquet, con delta. Hacia una Local Table (File) convierte `DecimalFloat` a `DECIMAL(38,6)` (documentado por SAP) | **No compatible con espacios de archivo (HDLF)** — restricción explícita | HANA o Spark, según storage del espacio destino — materializa directo en el HDLF del espacio |
-| **Paralelización** | Sí — particiona la carga inicial para paralelizarla | Parcial | Sí — se pueden definir batches (en el monitor de flujos) para dividir datasets grandes |
+| **Paralelización** | Sí — particiona la carga inicial para paralelizarla | Parcial | Sí — batches en runtime HANA; no disponibles en File Space/Spark |
 | **Recuperación ante fallos** | Sí — reinicia desde el punto de falla; permite pausar/reanudar a nivel de flujo u objeto | No — reinicia desde el principio (salvo "Automatic Restart on Failure" activado) | No |
-| **Parámetros de entrada** | No soportados | Sí | Sí (nombre técnico con restricciones) |
-| **Cuándo usarlo** | Ingesta desde orígenes soportados y necesidad incremental; también exportar hacia HDLFS externo (Parquet) para archiving o interoperabilidad | Transformaciones complejas sin requisito de delta ni recuperación ante fallos | Persistencia con transformación mantenible + delta, incluida materialización hacia el HDLF del propio espacio |
+| **Parámetros de entrada** | No soportados | Sí | Sí (nombre técnico con restricciones); no utilizables dentro del operador Python de Spark |
+| **Cuándo usarlo** | Ingesta desde orígenes soportados y necesidad incremental; también exportar hacia HDLFS externo (Parquet) para archiving o interoperabilidad | Python en HANA o fuentes no admitidas por TF cuando DF directo es viable; sin delta y sin imponer una adquisición separada | Persistencia con transformación mantenible + delta, incluida materialización hacia el HDLF del propio espacio |
 
-> Para adquisición de Replication Flow y captura de cambios (CDC) desde el sistema origen — puntero delta, ODP-CDS, Change_Type/Change_Date — ver [Estrategia de Extracción →](/modules/03_Integracion_y_Estrategia_de_Datos?pack={{pack}}#estrategia-de-extraccion) en el módulo 03.
+> Para adquisición de Replication Flow y captura de cambios (CDC) desde el sistema origen — puntero delta, ODP-CDS, Change_Type/Change_Date y la semántica de los cambios — ver [Extracción vía API Corporativa →](/modules/03_Integracion_y_Estrategia_de_Datos?pack={{pack}}#extraccion-via-api-corporativa) en el módulo 03.
 
 ### Transformation Flow
+
+**Fuentes y aplicabilidad:** las vistas y objetos Open SQL que consumen tablas remotas generales, directa o indirectamente, no son fuentes admitidas. SAP documenta la excepción de vistas sobre remotas BW bridge compartidas. También hay restricciones de DAC aplicado a vistas o a sus dependencias. La disponibilidad debe verificarse para el tipo de espacio: las capacidades de HANA no se trasladan automáticamente a File Space. La recomendación metodológica no certifica la compatibilidad de un objeto concreto.
 
 **Límites a tener en cuenta:**
 
@@ -363,7 +365,7 @@ La documentación oficial es explícita: Replication Flow y Transformation Flow 
 | Destino | Solo tablas locales del repositorio de Datasphere — no compatible con objetos externos / outbound |
 
 {{callout: title="¿Por qué Transformation Flow sobre Data Flow?" tone="note" icon="🔀"}}
-Para transformaciones de carga con persistencia, Transformation Flow suele ser la opción más sólida: soporta delta nativo (Data Flow no soporta ninguno), llega a HDLF (Data Flow no puede), y recupera desde el punto de falla en vez de reiniciar desde cero. Incluso Script Python — antes exclusivo de Data Flow — está disponible en Transformation Flow cuando el espacio destino es de archivos (HDLF). Data Flow sigue siendo la opción correcta cuando la transformación necesita orígenes SAP/no-SAP mezclados o corre exclusivamente en HANA sin requisito de delta ni recuperación.
+Para transformaciones con persistencia, Transformation Flow es la preferencia metodológica cuando las fuentes, el procesamiento y el destino son compatibles. Admite delta bajo sus condiciones y puede escribir en File Space con runtime Spark, donde ofrece Python. No recupera desde el punto de falla: una ejecución fallida debe volver a ejecutarse. Data Flow conserva su nicho para Python en HANA y para fuentes que TF no puede consumir, si el objeto concreto es admitido por DF; no escribe en File Space ni soporta delta. RF Initial Only + TF es una alternativa cuando hace falta adquirir primero o se justifica separar la adquisición, conservando el procesamiento y el destino requeridos; no equivale a ejecutar Python en HANA ni garantiza recuperación de toda la cadena.
 {{/callout}}
 
 {{tree_button: Flujos de Datos}}
@@ -376,9 +378,10 @@ Orientativo para revisar la calidad del modelo antes de promover al siguiente am
 | Item | Pregunta de control |
 |---|---|
 | **Separación de capas** | ¿Cada vista consume solo de la capa inmediatamente anterior? |
+| **Reutilización** | ¿Las derivaciones, conversiones, textos y reglas comunes se resuelven en un contrato gobernado reutilizable, evitando duplicaciones innecesarias aguas abajo? |
 | **Tipo semántico** | ¿Todos los objetos finales tienen el tipo semántico correcto (Fact / Dimension / Relacional)? |
-| **Naming** | ¿Los nombres siguen el patrón `<Capa><Tipo>_<Origen>_<Libre>`? |
-| **Persistencia** | ¿La persistencia está justificada (alto volumen, SLA, transformación costosa)? |
+| **Naming** | ¿Los nombres siguen el patrón `<Capa><Artefacto><Variante>_<Origen>_<libreConLineamientosPosibles>`? |
+| **Persistencia** | ¿La persistencia está justificada (alto volumen, SLA, transformación costosa) y es compatible con los DAC del linaje ([ver Dónde aplicar DAC](/modules/02_Seguridad_y_Gobernanza?pack={{pack}}#donde-aplicar-dac))? |
 | **Tipo de vista** | ¿El tipo de vista está justificado (SQL Estándar por defecto, Gráfica solo si aplica)? |
 | **Claves** | ¿Las vistas dimensionales tienen clave única definida? |
 | **Textos** | ¿Las dimensiones maestras integran atributos y textos en un solo objeto (sin separar)? |
