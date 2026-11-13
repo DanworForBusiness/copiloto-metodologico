@@ -2,7 +2,7 @@
 test_notifications_rejection.py — segundo evento de workflow (`operations.architecture_request.rejected`) y política To/Cc por responsabilidad.
 
 Rechazo / Derivación a Operaciones: Arquitectura rechaza la admisión (Status funnel «Solicitado» → «Rechazado, Aplica Operaciones»); actúa
-Operaciones (To) y Arquitectura queda en copia (Cc). Graph y SharePoint SIMULADOS (fixtures de test_notifications y test_solicitudes_journal).
+Operaciones exclusivamente (To), sin copia automática a Arquitectura. Graph y SharePoint SIMULADOS (fixtures de test_notifications y test_solicitudes_journal).
 """
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ from webapp.services import solicitudes_admission as admission
 from webapp.services import solicitudes_journal as journal
 from webapp.services import solicitudes_repository as repository
 from webapp.services import solicitudes_service as service
+from webapp import access
 from tests.webapp.test_notifications import _http, graph  # noqa: F401 — fixture
 from tests.webapp.test_solicitudes_creation import catalogs, client, schema, submitted  # noqa: F401 — fixtures que `graph` arrastra
 from tests.webapp.test_solicitudes_journal import USER, columns, send, setup  # noqa: F401 — fixtures
@@ -27,6 +28,10 @@ REASON = "No corresponde a Arquitectura: es una consulta de soporte operativo.\n
 @pytest.fixture
 def workflow(setup, graph, monkeypatch):  # noqa: F811
     """Solicitud #1 en «Solicitado» con título, proyecto (lookup) y fecha de modificación confirmados por la relectura."""
+    # Exercise the real edit policy with an authenticated APP_OWNER actor;
+    # importing setup does not import its module-local authorization fixture.
+    monkeypatch.setitem(USER, "sub", USER["email"])
+    monkeypatch.setattr(access, "APP_OWNER", USER["email"])
     current = setup[1]
     current["fields"].update({"Title": "Modelo de stock", service.PROJECT + "LookupId": "4"})
     current["lastModifiedDateTime"] = "2026-11-10T18:05:00Z"
@@ -48,14 +53,14 @@ def _addresses(message, field):
     return [r["emailAddress"]["address"] for r in message.get(field, [])]
 
 
-# ── Rechazo confirmado → To Operaciones / Cc Arquitectura, contenido confirmado, enlace al detalle ──────────────────────────────────────────
-def test_confirmed_rejection_notifies_operations_with_architecture_in_copy(workflow, graph):  # noqa: F811
+# ── Rechazo confirmado → solo To Operaciones, contenido confirmado, enlace al detalle ─────────────────────────────────────────────────────
+def test_confirmed_rejection_notifies_only_operations(workflow, graph):  # noqa: F811
     response = _reject(workflow)
     assert "data-solicitudes-saved" in response.text                                    # el rechazo de negocio se confirmó
     assert len(graph.calls) == 1
     message = graph.calls[0]["body"]["message"]
     assert _addresses(message, "toRecipients") == ["operaciones@example.com"]
-    assert _addresses(message, "ccRecipients") == ["arquitectura@example.com", "innovacion@example.com"]
+    assert not _addresses(message, "ccRecipients") and not _addresses(message, "bccRecipients")
     assert message["subject"] == "Solicitud rechazada y derivada a Operaciones | Arquitectura | Solicitud #1"
     html = message["body"]["content"]
     for text in ("Solicitud rechazada y derivada a Operaciones", "#1", "Modelo de stock", "Proyecto Kensing", admission.REJECTED,
@@ -157,13 +162,13 @@ def test_graph_failure_never_reverts_the_confirmed_rejection(workflow, graph, fa
     assert record["state"] == ("failed" if failure == 400 else "uncertain")
 
 
-def test_multiple_addresses_are_normalized_and_cc_never_repeats_to(monkeypatch):
+def test_multiple_addresses_are_normalized_without_cross_group_copy(monkeypatch):
     monkeypatch.setattr(config, "NOTIFICATIONS_OPERATIONS_RECIPIENTS", " ops1@example.com ;OPS2@example.com, ops1@example.com,no-es-correo ")
     monkeypatch.setattr(config, "NOTIFICATIONS_ARQ_RECIPIENTS", "arq@example.com; ops2@example.com")
     to, cc = notifications.recipients_for(notifications.EVENTS[EVENT])
-    assert to == ["ops1@example.com", "OPS2@example.com"] and cc == ["arq@example.com"]
+    assert to == ["ops1@example.com", "OPS2@example.com"] and cc == []
     to, cc = notifications.recipients_for(notifications.EVENTS["operations.architecture_request.created"])
-    assert to == ["arq@example.com", "ops2@example.com"] and cc == ["ops1@example.com"]
+    assert to == ["arq@example.com", "ops2@example.com"] and cc == []
     message = notifications.build_message(EVENT, {"id": "1"}, ["a@example.com"])["message"]
     assert "ccRecipients" not in message                                                 # sin copia configurada, sin campo Cc
 

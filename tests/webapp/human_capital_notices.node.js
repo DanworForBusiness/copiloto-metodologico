@@ -23,10 +23,10 @@ function harness(url){
   createElement:()=>({setAttribute(){},closest(){return this;}}),
   addEventListener:(name,fn)=>{events[name]=fn;},
  };
- function add(auto=false,controls=false){
+ function add(auto=false,controls=false,tone=''){
   const n=note(auto,controls);
   n.querySelector=s=>s.startsWith('input')?(controls?{}:null):s.startsWith(':scope')?n.close:s.startsWith('.callout__icon')?n.icon:null;
-  n.matches=s=>s==='[data-dw-auto-dismiss]'?auto:false;
+  n.matches=s=>s.split(',').some(value=>value.trim()==='[data-dw-auto-dismiss]'?auto:!!tone && value.trim()==='.callout--'+tone);
   notices.push(n);return n;
  }
  const initial=add(),toast=add(true),form=add(false,true);
@@ -48,5 +48,10 @@ assert.ok(operations.initial.close);assert.ok(operations.initial.icon);
 const opsIcon=operations.initial.icon;operations.refresh();assert.equal(operations.initial.icon,opsIcon,'No duplicate feedback icons');
 assert.equal(operations.form.close,null,'Forms remain intact in Operations');
 const dynamic=operations.add();operations.refresh();assert.ok(dynamic.close);assert.ok(dynamic.icon);
+for (const [tone, icon] of [['success','✓ '],['punch','⚠ '],['warn','! ']]) {
+ const typed=operations.add(false,false,tone);operations.refresh();
+ assert.equal(typed.icon.textContent,icon,'Shared initializer must preserve the '+tone+' icon');
+ const previous=typed.icon;operations.refresh();assert.equal(typed.icon,previous,'No duplicate severity icons');
+}
 const other=harness('/comercial/crm');assert.equal(other.initial.close,null);
 console.log('CCHH notices: dynamic close, no duplicates, preserved timers/hosts and vertical isolation OK');

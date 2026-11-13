@@ -119,11 +119,11 @@ def test_only_the_creation_route_announces_the_event():
     assert submit_idx < call_idx < next_route_idx
 
 
-# ── regresión: los dos eventos de Arquitectura conservan su política To/Cc ───────────────────────────────────────────────────────
-def test_architecture_events_unchanged():
+# ── regresión: destinatarios independientes por evento, sin copia cruzada ──────────────────────────────────────────────────────
+def test_architecture_events_use_their_own_recipient_group():
     created = notifications.EVENTS["operations.architecture_request.created"]
     rejected = notifications.EVENTS["operations.architecture_request.rejected"]
-    assert created.to_setting == "NOTIFICATIONS_ARQ_RECIPIENTS" and created.cc_setting == "NOTIFICATIONS_OPERATIONS_RECIPIENTS"
-    assert rejected.to_setting == "NOTIFICATIONS_OPERATIONS_RECIPIENTS" and rejected.cc_setting == "NOTIFICATIONS_ARQ_RECIPIENTS"
+    assert created.to_setting == "NOTIFICATIONS_ARQ_RECIPIENTS" and created.cc_setting == ""
+    assert rejected.to_setting == "NOTIFICATIONS_OPERATIONS_RECIPIENTS" and rejected.cc_setting == ""
     search = notifications.EVENTS["operations.search.created"]
     assert search.to_setting == "NOTIFICATIONS_HC_RECIPIENTS" and search.cc_setting == ""

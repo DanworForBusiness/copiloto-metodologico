@@ -5,6 +5,7 @@ from bs4 import BeautifulSoup
 from fastapi.testclient import TestClient
 
 from webapp.main import app
+from webapp import access
 from webapp.routers import solicitudes as route
 from webapp.services import solicitudes_creation as creation
 from webapp.services import solicitudes_repository as repository
@@ -44,7 +45,9 @@ def graph(monkeypatch, columns):
 
 @pytest.fixture
 def client(monkeypatch):
-    monkeypatch.setattr(route, "_user", lambda request: {"sub": "status-catalog-test"})
+    actor = "catalog-owner@example.invalid"
+    monkeypatch.setattr(access, "APP_OWNER", actor)
+    monkeypatch.setattr(route, "_user", lambda request: {"sub": actor})
     return TestClient(app)
 
 
@@ -136,20 +139,24 @@ def test_catalog_can_be_on_second_metadata_page(monkeypatch):
 def test_creation_reuses_metadata_and_defaults_to_pending(client, columns, graph):
     html = client.post("/operaciones/solicitudes/nueva/datos", data={"graph_token": "fake"}).text
     select = BeautifulSoup(html, "html.parser").select_one("#sol-status")
-    assert [option["value"] for option in select.select("option")] == STATES
-    assert select.select_one("option[selected]")["value"] == "Pendiente"
+    assert select is None
+    assert BeautifulSoup(html, "html.parser").select_one('[data-architecture-after-creation]')
     assert len([url for url in graph if "/columns" in url]) == 1
     options = {service.PROJECT: {}, service.ASSIGNEES: {}}
+    assert creation.payload({"Title": "Simulada"}, options, columns)["fields"][service.STATUS] == "Pendiente"
     for state in STATES:
-        assert creation.payload({"Title": "Simulada", service.STATUS: state}, options, columns)["fields"][service.STATUS] == state
+        with pytest.raises(ValueError, match="campos no permitidos"):
+            creation.payload({"Title": "Simulada", service.STATUS: state}, options, columns)
 
 
 def test_creation_without_pending_does_not_invent_a_default(client, columns, graph):
     columns[1]["choice"]["choices"] = ["En curso", "Finalizado"]
     html = client.post("/operaciones/solicitudes/nueva/datos", data={"graph_token": "fake"}).text
     select = BeautifulSoup(html, "html.parser").select_one("#sol-status")
-    assert select.select_one("option[selected]").get("disabled") is not None
-    assert [option["value"] for option in select.select("option:not([disabled])")] == ["En curso", "Finalizado"]
+    assert select is None and "Pendiente" in html
+    assert BeautifulSoup(html, "html.parser").select_one('form') is None
+    with pytest.raises(ValueError, match="Status Arquitectura válido"):
+        creation.payload({"Title": "Simulada"}, {service.PROJECT: {}, service.ASSIGNEES: {}}, columns)
 
 
 def test_missing_status_column_is_not_an_unrestricted_catalog():
