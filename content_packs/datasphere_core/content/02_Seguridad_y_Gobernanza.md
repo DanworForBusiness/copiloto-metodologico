@@ -174,6 +174,8 @@ El DAC es seguridad a nivel de filas: filtra los registros en el objeto donde se
 
 SAP indica que, mientras la vista permanece en su espacio, sus miembros pueden eludir el control; por eso el patrón Danwor publica los contratos protegidos desde un espacio productor de acceso restringido. Al consumirse, el filtro se evalúa con la identidad que consulta Datasphere: el usuario de SAC, el usuario de base de datos en [ODBC](https://help.sap.com/docs/SUPPORT_CONTENT/datasphere/5416291142.html) o el usuario que autoriza la conexión OAuth en [OData](https://help.sap.com/docs/SUPPORT_CONTENT/datasphere/5536057549.html). Una identidad técnica puede ser adecuada cuando la autorización es por aplicación o servicio, pero no da por sí sola seguridad individual por persona. Más detalle sobre persistencia en [Persisted Views and Data Access Control](https://help.sap.com/docs/SAP_DATASPHERE/c8a54ee704e94e15926551293243fd1d/7a4a983611cc4efb9415e6f3db310eaa.html).
 
+{{tree_button: Diseño de acceso a datos}}
+
 ## {dw-black}Seguridad como {dw-gold}extensión del diseño de dominios
 {{section_meta: keywords="seguridad diseño dominios, data product seguridad, gobernanza datos, principio seguridad, modelo seguridad, dominios y seguridad, data governance, roles responsabilidades, controles acceso, activo confiable, seguridad bien diseñada, diseño conceptual seguridad, dominios Danwor"}}
 

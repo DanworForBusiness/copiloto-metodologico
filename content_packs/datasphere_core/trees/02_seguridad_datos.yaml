@@ -47,7 +47,7 @@ nodes:
 
   q2_reglas:
     type: single_choice
-    question: "¿Los accesos son estaticos o de baja actualizacion?"
+    question: "¿Los accesos son estáticos o de baja actualización?"
     options: ["Sí", "No", "No sé"]
     next:
       "Sí": leaf_valores_individuales
@@ -56,7 +56,7 @@ nodes:
 
   q3_operadores:
     type: single_choice
-    question: "¿Se require de reglas dinamicas o rangos de acceso?"
+    question: "¿Se requieren reglas dinámicas o rangos de acceso?"
     options: ["Sí", "No"]
     next:
       "Sí": leaf_operadores_valores
