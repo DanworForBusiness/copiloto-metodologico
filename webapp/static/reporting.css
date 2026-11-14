@@ -157,6 +157,12 @@
    ancho de la columna de jerarquía) quedan acá. */
 .reporting-integral-preview table.dashboard-table { min-width: 900px; }
 .reporting-integral-preview table.dashboard-table th.row-label-col { width: 300px; }
+/* Evitar que inline-flex oculte el nombre entero como caja indivisible.
+   El texto inline conserva el recorte con ellipsis de la celda en una
+   sola línea, y el tooltip permite consultar el nombre completo. */
+.reporting-integral-preview [data-dashboard-key="reporting-horasvendidas"] .dashboard-table-toggle--leaf {
+  display: inline;
+}
 /* Horas Productivas — 2 tablas COMPACTAS de solo 3 columnas (label/Horas/%
    Incidencia), owner corrective ("FINAL VISUAL COMPOSITION"): el min-width
    900px de arriba es correcto para las matrices mensuales de ancho
