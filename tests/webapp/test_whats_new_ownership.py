@@ -175,5 +175,6 @@ def test_el_ultimo_anuncio_no_cambio(monkeypatch):
     # 2026-10-03: se publicó EDITORIALMENTE "Assessment desde SAP Datasphere" (a propósito, dispara el banner). Lo que este test protege sigue
     # valiendo: un cambio de PROPIEDAD no reordena ni reabre nada; el anuncio anterior queda inmediatamente debajo del nuevo.
     # 2026-11-01: se publicó EDITORIALMENTE «Catálogo de Conectividad — Disponibilidad SAP» (dispara el banner); el anterior queda debajo.
-    assert wn.latest_ref() == "catalogo-conectividad-sap"
-    assert [e["ref"] for e in wn.entries()[:3]] == ["catalogo-conectividad-sap", "datasphere-assessment", "data-products-bdc"]
+    # 2026-11-09: se publicó EDITORIALMENTE «Assessments accionables: del hallazgo a la decisión» (dispara el banner); el anterior queda debajo.
+    assert wn.latest_ref() == "assessments-accionables"
+    assert [e["ref"] for e in wn.entries()[:4]] == ["assessments-accionables", "catalogo-conectividad-sap", "datasphere-assessment", "data-products-bdc"]
