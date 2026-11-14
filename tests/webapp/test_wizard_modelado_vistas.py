@@ -189,20 +189,29 @@ def test_support_labels_preserve_unicode_and_existing_ascii_labels():
     assert '>Vista gráfica<span>' in rendered
     assert '>SQL<span>' in rendered
     section = next(s for s in load_module(MODULE, 'datasphere_core').sections if s.title == 'Modelado de vistas')
-    assert '>Vista gráfica<span>' in section.html
+    assert '>Vistas Gráficas<span>' in section.html
 
 
-def test_modalities_are_legitimate_and_tie_break_is_governed_not_universal():
+def test_modalities_remain_technically_valid_but_danwor_prioritizes_standard_sql():
     t = tree()
     for key in ['leaf_standard', 'leaf_grafica']:
         text = t['leaves'][key]['detail'] + ' '.join(t['leaves'][key]['notes'])
         assert 'productivos y reutilizables' in text
-        assert 'patrón metodológico gobernado' in text
+        assert 'priorizar SQL estándar conforme al patrón metodológico de Danwor' in text
         assert 'no certifica un objeto concreto' in text
     help_text = t['nodes']['q_modalidad']['help']
-    assert 'técnicamente viables' in help_text and 'desarrollo, revisión y evolución' in help_text
+    assert 'priorizar la vista SQL estándar conforme al patrón metodológico de Danwor' in help_text
+    assert 'no únicamente rapidez de construcción' in help_text
+    assert 'técnicamente válidas en producción' in help_text
+    graphical = t['leaves']['leaf_grafica']
+    assert 'justificación concreta' in graphical['decision']
+    assert 'proliferación de vistas encadenadas' in ' '.join(graphical['notes'])
+    assert 'si no se justifica, elegir SQL estándar' in ' '.join(graphical['post_actions']['next_steps'])
     undecided = t['leaves']['leaf_revision_modalidad']
-    assert 'no corresponde inventar una preferencia universal' in ' '.join(undecided['notes'])
+    assert 'priorizar SQL estándar' in ' '.join(undecided['notes'])
+    assert 'Comparar una transformación representativa' in undecided['post_actions']['next_steps'][0]
+    assert 'patrón metodológico gobernado del equipo' not in json.dumps(t, ensure_ascii=False)
+    assert 'Quick Wizard' not in json.dumps(t, ensure_ascii=False)
 
 
 def test_sqlscript_requires_concrete_capacity_and_output_contract_not_complexity():
@@ -253,15 +262,24 @@ def test_m04_content_new_navigation_old_anchor_and_sources_are_consistent():
     parser.feed(section.html)
     assert parser.ids.count('tipos-de-vistas-sql') == 1
     assert parser.launchers == [{'tree_id': ID, 'tree_title': 'Modelado de vistas', 'pack': 'datasphere_core'}]
-    assert any('learning.sap.com' in url for url in parser.links)
+    assert not any('learning.sap.com' in url for url in parser.links)
     assert any('9bd12cf116ae40e09cdba8b60cf75e11' in url for url in parser.links)
     assert any('81920e4d583f45fd8761c662d3c8abab' in url for url in parser.links)
     source = CONTENT.read_text(encoding='utf-8')
-    assert '~80%' not in source and '<15%' not in source and '≤5%' not in source
+    assert '~80% SQL Estándar, <15% Gráfica, ≤5% Table Function' in source
+    assert 'distribución arquitectónica orientativa' in source
+    assert 'basada en experiencia y buenas prácticas institucionales' in source
+    assert 'no es una cuota obligatoria, una estadística universal ni una regla oficial de SAP' in source
     assert 'Gráfica solo si aplica' not in source
     assert 'Modelos productivos reutilizables — plan de ejecución HANA es menos optimizable' not in source
-    assert '**3 — Propagación**' in source and '**4 — Consumo**' in source
-    assert 'no para toda vista relacional' in source
+    assert 'Responsabilidad de capa y consumo.' not in section.html
+    assert 'Analytic Model' not in section.html
+    assert '#arquitectura-por-capas-guia-operativa' in parser.links
+    assert any(s.slug == 'arquitectura-por-capas-guia-operativa' for s in document.sections)
+    assert '>Vistas Gráficas<span>' in section.html and '>Vistas SQL<span>' in section.html
+    assert '27efb479c4814252964d3fbc6ca2dfc3.html' in section.html
+    assert 'Quick Wizard' not in source
+    assert 'Árbol de Decisión' in section.html
     assert 'necesidad de SQLScript y su contrato de salida están validados' in source
     assert 'label: Modelado de vistas' in source and 'heading: "Modelado de vistas"' in source
     assert any(link.title == 'Modelado de vistas' for stage in document.roadmap for link in stage.links)

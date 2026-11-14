@@ -69,13 +69,14 @@ nodes:
 
   q_modalidad:
     type: single_choice
-    question: ¿Cómo necesita el equipo revisar y mantener esta lógica?
+    question: ¿Qué modalidad se justifica para expresar y mantener esta lógica?
     help: >-
-      Elegí según la expresividad necesaria y las convenciones de desarrollo, revisión y evolución del proyecto,
-      no solo por preferencia personal. Si ambas modalidades son técnicamente viables, favorecé el patrón
-      metodológico gobernado del equipo y la reutilización de entidades existentes. No hace falta certificar
-      aquí todas las capacidades SAP; una restricción técnica concreta prevalece sobre la modalidad deseada.
-      Si faltan criterios suficientes, corresponde acordarlos antes de elegir.
+      Cuando una transformación pueda resolverse adecuadamente tanto mediante una vista SQL estándar como
+      mediante una vista gráfica, priorizar la vista SQL estándar conforme al patrón metodológico de Danwor.
+      La alternativa gráfica requiere una justificación concreta, no únicamente rapidez de construcción.
+      Evaluá expresividad, revisión, reutilización y mantenibilidad; evitá cadenas innecesarias de vistas.
+      Las vistas gráficas siguen siendo técnicamente válidas en producción. Una restricción técnica concreta
+      prevalece sobre la preferencia metodológica. Si faltan criterios suficientes, documentá el caso antes de elegir.
     options:
       - "Como código: necesitamos SQL explícito o una convención de mantenimiento acordada"
       - Como modelo visual de fuentes, relaciones y operaciones mantenible por el equipo
@@ -89,11 +90,12 @@ leaves:
   leaf_standard:
     decision: Vista SQL con consulta estándar — expresar y revisar la transformación como SQL.
     detail: >-
-      Elegir por expresividad y mantenibilidad, considerando desarrollo, revisión y evolución del proyecto.
+      Modalidad preferente de Danwor para transformaciones declarativas que SQL estándar resuelve adecuadamente,
+      considerando expresividad, revisión y mantenibilidad.
       Es una modalidad legítima para modelos productivos y reutilizables; la recomendación no certifica un objeto concreto.
       [SAP Help: vistas SQL](https://help.sap.com/docs/SAP_DATASPHERE/c8a54ee704e94e15926551293243fd1d/81920e4d583f45fd8761c662d3c8abab.html).
     notes:
-      - Si gráfica y SQL son viables, favorecer el patrón metodológico gobernado del equipo y la reutilización del modelo existente.
+      - Cuando ambas modalidades resuelven adecuadamente la transformación, priorizar SQL estándar conforme al patrón metodológico de Danwor; la alternativa gráfica requiere una justificación concreta, no únicamente rapidez de construcción.
       - Verificar que las expresiones y fuentes sean compatibles con Datasphere. Una restricción conocida exige revisar la solución; no se certifica toda capacidad de HANA.
       - Varias etapas, joins, CASE, CTE o una transformación compleja no justifican por sí solos SQLScript. No se promete mejor rendimiento universal por usar SQL.
     post_actions:
@@ -104,21 +106,22 @@ leaves:
         - Definir el uso semántico y el canal de consumo. Un Analytic Model se justifica para el consumo analítico que lo requiera, no para toda vista relacional.
 
   leaf_grafica:
-    decision: Vista gráfica — representar y mantener visualmente una transformación declarativa.
+    decision: Vista gráfica — alternativa condicionada a una justificación concreta frente a SQL estándar.
     detail: >-
-      Es una modalidad legítima para modelos productivos y reutilizables cuando expresa la lógica con claridad
-      y el equipo puede revisarla y mantenerla. La recomendación no certifica un objeto concreto.
+      Es una modalidad legítima para modelos productivos y reutilizables, técnicamente válida en producción.
+      Su elección requiere una necesidad concreta de representación visual y una justificación de mantenibilidad
+      frente a la modalidad preferente SQL estándar; construir más rápido no basta. La recomendación no certifica un objeto concreto.
       [SAP Help: vistas gráficas](https://help.sap.com/docs/SAP_DATASPHERE/c8a54ee704e94e15926551293243fd1d/27efb479c4814252964d3fbc6ca2dfc3.html).
-      [SAP Learning: combinar datos con vistas](https://learning.sap.com/courses/exploring-sap-datasphere-1/working-with-views-for-propagation_e954780f-3b00-4d69-a29a-eecdff6cf192).
     notes:
-      - Si ambas modalidades son técnicamente viables, favorecer el patrón metodológico gobernado del equipo y la reutilización de entidades existentes.
+      - Cuando ambas modalidades resuelven adecuadamente la transformación, priorizar SQL estándar conforme al patrón metodológico de Danwor; documentar por qué el caso justifica la alternativa gráfica.
       - Verificar operaciones y fuentes admitidas. Una expresión necesaria no representable o una restricción conocida obliga a reconsiderar SQL o revisar el caso.
       - Revisar granularidad, joins, claves, asociaciones y cardinalidades. Se puede inspeccionar el SQL generado; el rendimiento debe medirse en el modelo concreto.
-      - No se exige migrar a SQL por pasar a producción ni se asignan cuotas de uso a una modalidad.
+      - Evitar proliferación de vistas encadenadas, complejidad innecesaria y dificultades de mantenimiento; reutilizar entidades existentes. La rapidez de construcción no justifica por sí sola esta alternativa.
+      - No se exige migrar a SQL únicamente por pasar a producción; la preferencia Danwor no implica una incapacidad técnica del producto ni una cuota obligatoria.
     post_actions:
       mode: resolved
       next_steps:
-        - Acordar el patrón de desarrollo, revisión y evolución con el equipo responsable.
+        - Documentar la necesidad concreta que justifica la alternativa gráfica y revisar su mantenibilidad con el responsable técnico; si no se justifica, elegir SQL estándar cuando resuelva adecuadamente la transformación.
         - Aplicar la responsabilidad de capa y la Convención de Nombres; separar modalidad de edición, uso semántico y canal de consumo.
 
   leaf_table_function:
@@ -142,10 +145,10 @@ leaves:
         - Validar esa capacidad y el contrato de salida con el responsable técnico antes de implementar SQLScript.
 
   leaf_flujos_de_datos:
-    decision: Flujos de Datos — resolver la arquitectura de carga en su Quick Wizard.
+    decision: Flujos de Datos — resolver la arquitectura de carga en su Árbol de Decisión.
     redirect_tree: m04_flujos_de_datos
     notes:
-      - Esta necesidad corresponde al wizard aprobado de cargas, delta y Python; aquí no se elige automáticamente DF, RF o TF.
+      - Esta necesidad corresponde al Árbol de Decisión aprobado de cargas, delta y Python; aquí no se elige automáticamente DF, RF o TF.
       - Conservar necesidad de persistencia, lenguaje, fuentes y destino al evaluar las condiciones de cada alternativa.
     post_actions:
       mode: resolved
@@ -161,7 +164,7 @@ leaves:
       mode: needs_human_review
       reason: Necesidad insuficientemente definida.
       next_steps:
-        - Acordar el resultado esperado con el responsable del caso y volver al wizard con ese ejemplo.
+        - Acordar el resultado esperado con el responsable del caso y volver al Árbol de Decisión con ese ejemplo.
 
   leaf_revision_rendimiento:
     decision: Revisión de rendimiento o persistencia — diagnosticar la vista existente antes de cambiar de arquitectura.
@@ -181,13 +184,13 @@ leaves:
   leaf_revision_modalidad:
     decision: Revisión de modalidad — acordar criterios de expresividad y mantenibilidad.
     notes:
-      - Falta una base suficiente para elegir entre representación gráfica y SQL; no corresponde inventar una preferencia universal.
-      - Si ambas alternativas son técnicamente viables, favorecer el patrón metodológico gobernado del equipo, incluyendo desarrollo, revisión, reutilización y evolución.
+      - Falta confirmar cómo la modalidad resuelve adecuadamente el caso; la incertidumbre no justifica elegir gráfica ni SQLScript.
+      - Si ambas alternativas resuelven adecuadamente la transformación, priorizar SQL estándar conforme al patrón metodológico de Danwor. La gráfica requiere una justificación concreta, no únicamente rapidez de construcción.
     post_actions:
       mode: needs_human_review
       reason: Faltan criterios para elegir la modalidad.
       next_steps:
-        - Identificar al equipo mantenedor y el patrón aprobado; comparar un caso representativo si hace falta y volver a la elección.
+        - Comparar una transformación representativa y su mantenimiento con el responsable técnico; confirmar la aplicabilidad de SQL estándar o documentar la necesidad concreta que justifica gráfica antes de volver a la elección.
 
 capture_uncharted:
   type: free_capture
