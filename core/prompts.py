@@ -544,7 +544,10 @@ Conocimiento técnico de referencia — CDS Views para SAP Datasphere (ODP/ABAP_
 - La anotación mínima para habilitar extracción es @Analytics.dataExtraction.enabled: true
 - @AccessControl.authorizationCheck: #NOT_REQUIRED es el estándar para vistas de extracción
 - @Analytics.dataCategory: #FACT para tablas de hechos, #DIMENSION para maestros
-- La vista DEBE tener clave primaria estable para soportar delta
+- La vista CDS DEBE tener clave primaria estable para soportar su estrategia delta. Es una condición de la vista CDS:
+  no la extiendas como prohibición a objetos ODP sin clave declarada (p. ej. extractores SAPI); SAP documenta escenarios
+  condicionados de Initial and Delta con destino a un espacio estándar de SAP Datasphere configurando columnas clave únicas y no nulas, a validar según
+  origen, conexión, versión y destino.
 - Para delta por campo de timestamp/fecha: @Analytics.dataExtraction.delta.byElement.name: '<campo>'
   con opcionales @Analytics.dataExtraction.delta.byElement.maxDelayInSeconds y detectDeletedRecords
 - Para vistas con joins complejos usar @Analytics.dataExtraction.delta.changeDataCapture.mapping
