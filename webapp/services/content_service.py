@@ -39,7 +39,7 @@ LEADING_HEADING_SUPPORT_HTML_RE = re.compile(
     r'\A\s*(<div\b(?=[^>]*\bsupport-links\b)(?=[^>]*\bheading-supports\b)[^>]*>.*?</div>)\s*',
     re.I | re.S,
 )
-SUPPORT_ITEM_RE = re.compile(r'([A-Za-z0-9 _-]+)\s*=\s*"([^"]+)"')
+SUPPORT_ITEM_RE = re.compile(r'([\w -]+)\s*=\s*"([^"]+)"')
 TONE_RE = re.compile(r"\{dw-(black|gold|white|green|red)\}", re.I)
 CALLOUT_RE = re.compile(r"\{\{callout:(.*?)\}\}(.*?)\{\{/callout\}\}", re.I | re.S)
 CALLOUT_ROW_RE = re.compile(

@@ -100,9 +100,9 @@ def _norm_tokens(text: str) -> list[str]:
 
 
 def _resolve_tree(trees: tuple, tree_id: str, tree_title: str, pack_name: str) -> dict | None:
-    """Resuelve un árbol por id exacto; si no, por título (exacto, luego por
+    """Resuelve por id exacto o título/alias histórico exacto; luego por
     subconjunto de tokens — p. ej. el botón 'Estrategia de Integración (federación
-    vs persistencia)' matchea el árbol 'Federación vs Persistencia')."""
+    vs persistencia)' matchea el árbol 'Federación vs Persistencia'."""
     if tree_id:
         tree = next((t for t in trees if str(t.get("id")) == tree_id), None)
         if tree:
@@ -115,7 +115,8 @@ def _resolve_tree(trees: tuple, tree_id: str, tree_title: str, pack_name: str) -
         return None
     low = title.lower()
     for t in trees:
-        if str(t.get("title") or "").strip().lower() == low:
+        titles = [str(t.get("title") or ""), *(t.get("title_aliases") or [])]
+        if any(str(candidate).strip().lower() == low for candidate in titles):
             return t
     button_tokens = set(_norm_tokens(title))
     best, best_len = None, 0
@@ -242,7 +243,7 @@ def _fragment(request, run):
 
 
 @router.post("/wizards/{run_id}/answer", response_class=HTMLResponse)
-def answer(request: Request, run_id: str, answer: str = Form("")):
+def answer(request: Request, run_id: str, answer: str = Form(""), panel: str = Form("")):
     try:
         run = store.answer(run_id, answer)
         leaf = run.leaf or {}
@@ -261,7 +262,23 @@ def answer(request: Request, run_id: str, answer: str = Form("")):
             leaf=str(leaf.get("decision") or leaf.get("title") or leaf.get("id") or "") if leaf else "",
             score=(getattr(run, "assessment_score", None) if leaf else None),
         )
-        return _fragment(request, _follow_wizard_redirect(run))
+        active = _follow_wizard_redirect(run)
+        if panel == "tree" and active.tree.get("id") != run.tree.get("id") and not active.is_assessment:
+            # Same container as manual selection: one swap updates both picker
+            # and wizard. Diagnostic/orchestrated panels keep their own shell.
+            return templates.TemplateResponse(
+                request=request,
+                name="partials/tree_tab.html",
+                context={
+                    "trees": store.trees_for_module(active.module_stem, active.pack_name, include_assessment=True),
+                    "run": active, "node": active.node, "leaf": active.leaf,
+                    "selected_tree_id": active.tree.get("id"),
+                    "document": load_module(active.module_stem, active.pack_name),
+                    "pack": active.pack_name,
+                },
+                headers={"HX-Retarget": "#tree-tab-panel", "HX-Reswap": "outerHTML"},
+            )
+        return _fragment(request, active)
     except KeyError as exc:
         raise HTTPException(410, str(exc)) from exc
 

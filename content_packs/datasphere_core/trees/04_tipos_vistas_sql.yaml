@@ -1,148 +1,206 @@
 id: m04_tipos_vistas_sql
-title: Tipos de Vistas SQL
-version: "0.1"
-
-# Links como navigation bindings (para UI / conexión con módulos)
+title: Modelado de vistas
+title_aliases: ["Tipos de Vistas SQL"]
+version: "0.2"
 links:
   module: 04_Modelado_y_Desarrollo
   topics: ["vistas_sql", "capas"]
-
-# Tags taxonomy / Concepts (para búsqueda, agrupación, KG futuro)
 tags: ["M04", "modeling", "sql", "views", "development"]
+keywords:
+  - modelado de vistas
+  - tipos vistas SQL
+  - vista estándar
+  - vista gráfica
+  - vista grafica
+  - table function
+  - SQLScript
+  - qué tipo de vista usar
+  - que tipo de vista usar
+  - cuándo usar vista gráfica
+  - cuándo usar SQLScript
+  - vista SQL datasphere
+  - vistas datasphere
+  - crear vista datasphere
+  - SQL standard view
+  - graphical view
+  - qué vista elegir
+  - pasos secuenciales datasphere
+  - lógica condicional SQL
+  - expresividad y mantenibilidad
+  - persistencia vista
+exclude_if:
+  - codigo
+  - código
+  - template
+  - ejemplo
+  - ayudame con el codigo
+  - como hago
+  - como escribo
+  - escribir
+  - generar codigo
+  - crearme
+  - dame un
+  - mostrame
+  - sample
+  - snippet
 
-# Keywords en lenguaje natural para intent detection del asistente.
-# Responde: ¿Cómo preguntaría un consultor sobre este árbol?
-keywords: [
-  "tipos vistas SQL", "vista estándar", "vista grafica", "vista gráfica",
-  "table function", "SQLScript", "data flow", "replication flow",
-  "qué tipo de vista usar", "que tipo de vista usar",
-  "cuándo usar vista gráfica", "cuando usar vista grafica",
-  "cuándo usar SQLScript", "cuando usar SQLScript",
-  "cuándo usar data flow", "cuando usar data flow",
-  "vista SQL datasphere", "vistas datasphere", "crear vista datasphere",
-  "tipo vista datasphere", "SQL standard view", "graphical view",
-  "table function datasphere", "vista calculada",
-  "árbol vistas SQL", "arbol vistas SQL",
-  "qué vista elegir", "que vista elegir",
-  "pasos secuenciales datasphere", "lógica condicional SQL", "logica condicional SQL",
-  "librerías SQLScript", "librerias SQLScript", "persistencia vista",
-  "snapshot datasphere", "replication flow vs data flow"
-]
-
-# exclude_if: palabras de intención operacional (el usuario quiere HACER algo, no DECIDIR)
-exclude_if: [
-  "codigo", "código", "template", "ejemplo", "ayudame con el codigo",
-  "como hago", "como escribo", "escribir", "generar codigo", "crearme",
-  "dame un", "mostrame", "sample", "snippet"
-]
-
-start: q1
-
+start: q_necesidad
 nodes:
-  q1:
+  q_necesidad:
     type: single_choice
-    question: "¿El objetivo se puede resolver con una consulta SQL convencional (SELECT, filtros, JOINs, agregaciones)?"
-    options: ["Sí", "No"]
+    question: ¿Qué necesitás resolver?
+    help: >-
+      Distinguimos modelado, ejecución de un algoritmo y carga de datos. Joins, CASE, CTE o varias etapas
+      no demuestran por sí solos la necesidad de SQLScript; cada construcción debe ser admitida en Datasphere.
+      Acelerar una vista existente puede requerir revisar su persistencia, sin crear automáticamente un flujo.
+      Si necesitás modelar una vista nueva y después optimizarla, elegí la primera opción.
+    options:
+      - Combinar fuentes, filtrar, calcular columnas o resumir datos en una vista
+      - Un algoritmo que repite pasos o cambia su ejecución según resultados intermedios
+      - Un proceso de carga, deltas o Python
+      - Mejorar el rendimiento o persistir una vista existente
+      - Todavía no puedo describir la transformación
     next:
-      "Sí": q2_visual
-      "No": q3_pasos
+      Combinar fuentes, filtrar, calcular columnas o resumir datos en una vista: q_modalidad
+      Un algoritmo que repite pasos o cambia su ejecución según resultados intermedios: leaf_table_function
+      Un proceso de carga, deltas o Python: leaf_flujos_de_datos
+      Mejorar el rendimiento o persistir una vista existente: leaf_revision_rendimiento
+      Todavía no puedo describir la transformación: leaf_revision_necesidad
 
-  q2_visual:
+  q_modalidad:
     type: single_choice
-    question: "¿El caso es un prototipo o se beneficia de un modelo visual drag-and-drop para que otros lo entiendan sin escribir SQL?"
-    options: ["Sí", "No"]
+    question: ¿Cómo necesita el equipo revisar y mantener esta lógica?
+    help: >-
+      Elegí según la expresividad necesaria y las convenciones de desarrollo, revisión y evolución del proyecto,
+      no solo por preferencia personal. Si ambas modalidades son técnicamente viables, favorecé el patrón
+      metodológico gobernado del equipo y la reutilización de entidades existentes. No hace falta certificar
+      aquí todas las capacidades SAP; una restricción técnica concreta prevalece sobre la modalidad deseada.
+      Si faltan criterios suficientes, corresponde acordarlos antes de elegir.
+    options:
+      - "Como código: necesitamos SQL explícito o una convención de mantenimiento acordada"
+      - Como modelo visual de fuentes, relaciones y operaciones mantenible por el equipo
+      - Todavía no está definido o faltan criterios para elegir
     next:
-      "Sí": leaf_grafica
-      "No": leaf_standard
-
-  q3_pasos:
-    type: single_choice
-    question: "¿Se necesita lógica con pasos secuenciales (cada paso usa el resultado del anterior) o columnas/tablas dinámicas en tiempo de ejecución?"
-    options: ["Sí", "No"]
-    next:
-      "Sí": q4_script
-      "No": q5_persistencia
-
-  q4_script:
-    type: single_choice
-    question: "¿Se requieren librerías o funciones especiales solo disponibles vía SQLScript (operadores avanzados, lógica de control de flujo)?"
-    options: ["Sí", "No", "No sé"]
-    next:
-      "Sí": leaf_table_function
-      "No": leaf_table_function_simple
-      "No sé": leaf_table_function
-
-  q5_persistencia:
-    type: single_choice
-    question: "¿Se requiere snapshot, persistencia de datos o particionar los resultados por rendimiento y reuso?"
-    options: ["Sí", "No"]
-    next:
-      "Sí": leaf_data_flow
-      "No": leaf_standard
+      "Como código: necesitamos SQL explícito o una convención de mantenimiento acordada": leaf_standard
+      Como modelo visual de fuentes, relaciones y operaciones mantenible por el equipo: leaf_grafica
+      Todavía no está definido o faltan criterios para elegir: leaf_revision_modalidad
 
 leaves:
   leaf_standard:
-    decision: "Vista SQL Estándar — opción recomendada para al menos ~80% de los casos en Datasphere."
+    decision: Vista SQL con consulta estándar — expresar y revisar la transformación como SQL.
+    detail: >-
+      Elegir por expresividad y mantenibilidad, considerando desarrollo, revisión y evolución del proyecto.
+      Es una modalidad legítima para modelos productivos y reutilizables; la recomendación no certifica un objeto concreto.
+      [SAP Help: vistas SQL](https://help.sap.com/docs/SAP_DATASPHERE/c8a54ee704e94e15926551293243fd1d/81920e4d583f45fd8761c662d3c8abab.html).
     notes:
-      - "Cubre filtros, JOINs, agregaciones, cálculos y expresiones CASE."
-      - "Mejor plan de ejecución HANA, más fácil de versionar, trazar y auditar."
-      - "Preferir siempre sobre Vista Gráfica en objetos productivos o reutilizables."
+      - Si gráfica y SQL son viables, favorecer el patrón metodológico gobernado del equipo y la reutilización del modelo existente.
+      - Verificar que las expresiones y fuentes sean compatibles con Datasphere. Una restricción conocida exige revisar la solución; no se certifica toda capacidad de HANA.
+      - Varias etapas, joins, CASE, CTE o una transformación compleja no justifican por sí solos SQLScript. No se promete mejor rendimiento universal por usar SQL.
     post_actions:
       mode: resolved
       next_steps:
-        - "Crear la vista en la capa correspondiente (1=Ingesta, 2=Armonización, 3=Consumo)"
-        - "Aplicar el naming convention: <Capa><Tipo>_<Origen>_<Libre>"
-        - "Definir el tipo semántico (Relacional, Dimension, Fact) y exponer el consumo vía Modelo Analítico"
+        - Ubicar la transformación por responsabilidad. La capa 1 conserva el contrato de origen; 2 es Armonización, 3 Propagación y 4 Consumo/adaptación final.
+        - Aplicar la Convención de Nombres y definir claves, granularidad, asociaciones y cardinalidades según el contrato.
+        - Definir el uso semántico y el canal de consumo. Un Analytic Model se justifica para el consumo analítico que lo requiera, no para toda vista relacional.
 
   leaf_grafica:
-    decision: "Vista Gráfica — aceptable para prototipos o exploración inicial. No usar en modelos productivos."
+    decision: Vista gráfica — representar y mantener visualmente una transformación declarativa.
+    detail: >-
+      Es una modalidad legítima para modelos productivos y reutilizables cuando expresa la lógica con claridad
+      y el equipo puede revisarla y mantenerla. La recomendación no certifica un objeto concreto.
+      [SAP Help: vistas gráficas](https://help.sap.com/docs/SAP_DATASPHERE/c8a54ee704e94e15926551293243fd1d/27efb479c4814252964d3fbc6ca2dfc3.html).
+      [SAP Learning: combinar datos con vistas](https://learning.sap.com/courses/exploring-sap-datasphere-1/working-with-views-for-propagation_e954780f-3b00-4d69-a29a-eecdff6cf192).
     notes:
-      - "El plan de ejecución HANA es menos optimizable que en SQL Estándar."
-      - "Dificulta el versionado, la trazabilidad y la auditoría técnica."
-      - "Escala peor en modelos reutilizables o críticos."
-      - "Planificar migración a Vista SQL Estándar antes de promover a producción."
+      - Si ambas modalidades son técnicamente viables, favorecer el patrón metodológico gobernado del equipo y la reutilización de entidades existentes.
+      - Verificar operaciones y fuentes admitidas. Una expresión necesaria no representable o una restricción conocida obliga a reconsiderar SQL o revisar el caso.
+      - Revisar granularidad, joins, claves, asociaciones y cardinalidades. Se puede inspeccionar el SQL generado; el rendimiento debe medirse en el modelo concreto.
+      - No se exige migrar a SQL por pasar a producción ni se asignan cuotas de uso a una modalidad.
     post_actions:
-      mode: llm_value_add
+      mode: resolved
+      next_steps:
+        - Acordar el patrón de desarrollo, revisión y evolución con el equipo responsable.
+        - Aplicar la responsabilidad de capa y la Convención de Nombres; separar modalidad de edición, uso semántico y canal de consumo.
 
   leaf_table_function:
-    decision: "Table Function (SQLScript) — para lógica con pasos secuenciales o librerías especiales no disponibles en SQL Estándar."
+    decision: Candidato SQLScript (Table Function) — validar una capacidad algorítmica concreta antes de implementar.
+    detail: >-
+      SQLScript es una modalidad del editor de vistas SQL en Datasphere. Esta salida no certifica la compatibilidad
+      de una función, librería u objeto concreto.
+      [SAP Help: vistas SQL y SQLScript](https://help.sap.com/docs/SAP_DATASPHERE/c8a54ee704e94e15926551293243fd1d/81920e4d583f45fd8761c662d3c8abab.html).
     notes:
-      - "Incluir siempre una vista wrapper de consumo sobre la Table Function para preservar el linaje de datos."
-      - "Documentar por qué SQL Estándar no fue suficiente (justificación técnica)."
-      - "Representa ≤5% de los artefactos en un proyecto sano."
-    post_actions:
-      mode: llm_value_add
-
-  leaf_table_function_simple:
-    decision: "Evaluar si SQL Estándar resuelve el caso — la lógica secuencial puede ser innecesaria. Si no, usar Table Function con wrapper."
-    notes:
-      - "Antes de comprometerse con SQLScript, agotar todo recurso via SQL Estándar."
-      - "Si se confirma Table Function: incluir vista wrapper para preservar linaje."
+      - Identificar la capacidad concreta imprescindible, por ejemplo una iteración dependiente de resultados intermedios, y justificar por qué la composición declarativa no alcanza razonablemente.
+      - Varias etapas, joins, CASE, CTE o una transformación compleja no demuestran por sí mismos la necesidad de SQLScript.
+      - Verificar compatibilidad y restricciones de sintaxis, funciones, librerías, fuentes y acceso en Datasphere. No extrapolar automáticamente todas las capacidades de HANA.
+      - Definir y validar el contrato de salida, incluidas columnas y tipos. No prometer un esquema dinámico arbitrario.
+      - Si no se confirma la capacidad concreta o hay una incompatibilidad, revisar el diseño antes de implementar; no adoptar SQLScript por incertidumbre.
+      - Incorporar una vista wrapper solo si lo justifica el contrato de consumo, la semántica o la encapsulación; comprobar el linaje, sin darlo por garantizado por el wrapper.
     post_actions:
       mode: needs_human_review
-      reason: "Verificar si SQL Estándar con CTEs cubre el caso antes de implementar Table Function"
+      reason: Validar necesidad algorítmica, compatibilidad y contrato de salida.
+      next_steps:
+        - Documentar la capacidad imprescindible y una entrada/salida representativa.
+        - Validar esa capacidad y el contrato de salida con el responsable técnico antes de implementar SQLScript.
 
-  leaf_data_flow:
-    decision: "Data Flow — para persistencia, snapshots o transformaciones pesadas que no deben ejecutarse en cada consulta."
+  leaf_flujos_de_datos:
+    decision: Flujos de Datos — resolver la arquitectura de carga en su Quick Wizard.
+    redirect_tree: m04_flujos_de_datos
     notes:
-      - "No es una vista en tiempo real — es un proceso de carga que genera una tabla local."
-      - "Definir la frecuencia de actualización (schedule) y el impacto en el sistema fuente."
-      - "Evaluar Replication Flow si el caso es replicación incremental desde sistemas SAP."
+      - Esta necesidad corresponde al wizard aprobado de cargas, delta y Python; aquí no se elige automáticamente DF, RF o TF.
+      - Conservar necesidad de persistencia, lenguaje, fuentes y destino al evaluar las condiciones de cada alternativa.
     post_actions:
-      mode: llm_value_add
+      mode: resolved
+      next_steps:
+        - Continuar en Flujos de Datos y responder sus discriminadores funcionales.
+
+  leaf_revision_necesidad:
+    decision: Revisión de la necesidad — describir la transformación antes de elegir un artefacto.
+    notes:
+      - Falta caracterizar qué debe hacer la solución; no es evidencia a favor de SQLScript ni de una modalidad de vista.
+      - Preparar una entrada, una salida y una regla de negocio representativas; distinguir consulta, algoritmo y carga.
+    post_actions:
+      mode: needs_human_review
+      reason: Necesidad insuficientemente definida.
+      next_steps:
+        - Acordar el resultado esperado con el responsable del caso y volver al wizard con ese ejemplo.
+
+  leaf_revision_rendimiento:
+    decision: Revisión de rendimiento o persistencia — diagnosticar la vista existente antes de cambiar de arquitectura.
+    detail: >-
+      Persistir una vista y diseñar una carga a tabla son decisiones diferentes.
+      [SAP Help: persistencia de vistas gráficas o SQL](https://help.sap.com/docs/SAP_DATASPHERE/c8a54ee704e94e15926551293243fd1d/9bd12cf116ae40e09cdba8b60cf75e11.html).
+    notes:
+      - Medir la consulta, el volumen, las fuentes y el plan de ejecución; no deducir la herramienta por la complejidad aparente.
+      - Evaluar la persistencia de la vista con sus restricciones de fuentes, parámetros, permisos y DAC, y con la frescura requerida.
+      - No recomendar automáticamente Data Flow. Si el objetivo real es una carga, delta o Python, continuar en Flujos de Datos.
+    post_actions:
+      mode: needs_human_review
+      reason: Revisar rendimiento y aplicabilidad de persistencia sobre el objeto existente.
+      next_steps:
+        - Revisar una medición y el objeto con el responsable técnico; decidir si optimizar la vista o reformular una carga.
+
+  leaf_revision_modalidad:
+    decision: Revisión de modalidad — acordar criterios de expresividad y mantenibilidad.
+    notes:
+      - Falta una base suficiente para elegir entre representación gráfica y SQL; no corresponde inventar una preferencia universal.
+      - Si ambas alternativas son técnicamente viables, favorecer el patrón metodológico gobernado del equipo, incluyendo desarrollo, revisión, reutilización y evolución.
+    post_actions:
+      mode: needs_human_review
+      reason: Faltan criterios para elegir la modalidad.
+      next_steps:
+        - Identificar al equipo mantenedor y el patrón aprobado; comparar un caso representativo si hace falta y volver a la elección.
 
 capture_uncharted:
   type: free_capture
-  prompt: "Describí brevemente tu caso de modelado"
+  prompt: Describí brevemente tu caso de modelado de vistas
   fields:
     - id: context_description
-      label: "¿Qué necesitás resolver con la vista?"
+      label: ¿Qué necesitás resolver con la vista?
       required: true
     - id: decision_taken
-      label: "¿Qué tipo de vista elegiste?"
+      label: ¿Qué modalidad elegiste?
       required: false
     - id: outcome
-      label: "¿Cómo resultó?"
+      label: ¿Cómo resultó?
       type: select
       options: ["anduvo", "no anduvo", "inconcluso", "en curso", "no lo sé"]
       required: true

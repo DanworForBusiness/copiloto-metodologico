@@ -8,8 +8,8 @@ key_topics:
     label: Capas
     heading: "Arquitectura por Capas"
   - id: vistas_sql
-    label: Vistas SQL
-    heading: "Tipos de Vistas SQL"
+    label: Modelado de vistas
+    heading: "Modelado de vistas"
   - id: semantico
     label: Semántico
     heading: "Tipos y Uso Semántico"
@@ -30,7 +30,7 @@ roadmap:
     tagline: "Qué construís en cada capa, y con qué herramienta"
     sections:
       - "Artefactos y uso Semántico"
-      - "Tipos de Vistas SQL"
+      - "Modelado de vistas"
       - "Flujos de Datos"
   - stage: "Gobierno del Modelo"
     tagline: "Cómo lo nombrás y cómo validás que esté listo"
@@ -40,8 +40,8 @@ roadmap:
 
 scope: |
   Cubre el modelo de desarrollo en SAP Datasphere: arquitectura por capas
-  (ingesta, armonización, propagación, consumo), tipos de vistas SQL (Estándar,
-  Gráfica, Table Function, Data Flow), Flujos de Datos (Replication Flow,
+  (ingesta, armonización, propagación, consumo), modelado de vistas (Gráfica,
+  SQL con consulta estándar y evaluación de SQLScript), Flujos de Datos (Replication Flow,
   Data Flow y Transformation Flow: capacidades, carga delta y el puente
   HANA↔HDLF), tipos de uso semántico (Relacional,
   Dimensional, Fact), convención de nombres de artefactos, y buenas prácticas
@@ -305,25 +305,36 @@ Clave: el **shaping de negocio** (reagrupaciones, filtros, subsets) para un cons
 {{/callout}}
 
 
-## {dw-black}Tipos de {dw-gold}Vistas SQL
-{{section_meta: keywords="tipos vistas SQL, vista estándar, vista gráfica, table function, SQLScript, qué tipo de vista usar, cuándo usar vista gráfica, cuándo usar SQLScript, vista SQL datasphere, vistas datasphere, crear vista, tipo vista datasphere, SQL standard view, graphical view, table function datasphere, vista calculada, vista analitica tipo, árbol vistas SQL"}}
+## {dw-black}Modelado de {dw-gold}vistas
+{{section_meta: keywords="modelado de vistas, tipos vistas SQL, vista estándar, vista gráfica, table function, SQLScript, qué tipo de vista usar, cuándo usar vista gráfica, cuándo usar SQLScript, vista SQL datasphere, vistas datasphere, crear vista, SQL standard view, graphical view, qué vista elegir, expresividad mantenibilidad, patrón metodológico gobernado, persistencia de vistas"}}
 {{section_exclude: "codigo, código, template, ejemplo, ayudame con el codigo, como hago, como escribo, escribir, generar codigo, crearme, dame un, mostrame, sample, snippet, data flow, replication flow, transformation flow"}}
 
-> En SAP Datasphere conviven distintos tipos de vistas, cada una con ventajas según el caso de uso. La distribución esperada en un proyecto sano para escalabilidad, rendimiento y soporte es de **~80% SQL Estándar, <15% Gráfica, ≤5% Table Function**.
+> Elegimos cómo expresar y mantener una transformación en una vista de SAP Datasphere. **Vista gráfica y vista SQL con consulta estándar son modalidades legítimas para modelos productivos y reutilizables**. SQLScript (Table Function) es un candidato excepcional que requiere validar una capacidad concreta; no es la consecuencia automática de una transformación compleja.
 
-| Tipo | Cuándo usarlo | Cuándo evitarlo |
+<span id="tipos-de-vistas-sql" aria-hidden="true"></span>
+
+| Modalidad | Cuándo elegirla o evaluarla | Condiciones para reconsiderar |
 |---|---|---|
-| **Vista SQL Estándar** | Filtros, JOINs, agregaciones, cálculos. Opción recomendada por defecto | Rara vez; casi siempre es la respuesta correcta |
-| **Vista Gráfica** | Prototipos, exploración inicial, casos donde la claridad visual pesa más que la eficiencia | Modelos productivos reutilizables — plan de ejecución HANA es menos optimizable, dificulta versionado |
-| **Table Function (SQLScript)** | Lógica con pasos secuenciales, columnas/tablas dinámicas en ejecución, librerías especiales | Si puede resolverse con SQL Estándar — añadir wrapper de consumo para linaje |
+| **Vista gráfica** | El equipo necesita diseñar, revisar y mantener fuentes, relaciones y operaciones mediante un modelo visual claro. | Una operación necesaria no está admitida o el modelo deja de ser mantenible: reconsiderar SQL o revisar el caso. Pasar a producción no obliga a migrar a SQL. |
+| **Vista SQL con consulta estándar** | Se necesitan expresiones SQL explícitas o el patrón gobernado de desarrollo, revisión y evolución del equipo utiliza esa modalidad. | Verificar expresiones y fuentes compatibles con Datasphere. No se promete mejor rendimiento universal ni se prescribe SQL para todo caso. |
+| **SQLScript (Table Function)** | Hay una capacidad algorítmica concreta imprescindible que no se resuelve razonablemente mediante composición declarativa. | Validar necesidad, compatibilidad, restricciones técnicas y contrato de salida antes de implementar; no certificar cualquier función o librería de HANA. |
 
-> Si la necesidad no se resuelve con una vista — persistencia, carga delta, o transformación pesada — ver [Flujos de Datos →](#flujos-de-datos): Replication Flow, Data Flow y Transformation Flow.
-
-{{callout: title="Cada vista debe justificarse" tone="warn" icon="🔸"}}
-Las vistas gráficas simplifican la lectura visual pero no sustituyen la precisión técnica del SQL Estándar. Dificultan el mantenimiento, limitan la revisión del SQL subyacente, y escalan peor en modelos reutilizables o críticos. Elegir vista gráfica solo para prototipos o casos excepcionales.
+{{callout: title="Elegir por expresividad y mantenibilidad" tone="punch" icon="🔎"}}
+Si gráfica y SQL son técnicamente viables, favorecer el **patrón metodológico gobernado del equipo**, considerando convenciones de desarrollo, revisión, reutilización y evolución del proyecto. Si faltan criterios suficientes, acordarlos antes de elegir: no inventar una preferencia universal ni cuotas de uso. El rendimiento se verifica en el objeto y el plan concreto; el editor gráfico permite inspeccionar el SQL generado.
 {{/callout}}
 
-{{tree_button: Tipos de Vistas SQL}}
+**SQLScript exige una justificación concreta.** Varias etapas, joins, CASE, CTE o una transformación compleja no demuestran por sí mismos su necesidad. La admisibilidad de cada construcción se verifica en Datasphere; no se extrapola toda capacidad de HANA. Definir y validar las columnas y tipos de salida, sin prometer un esquema dinámico arbitrario. Una vista wrapper puede justificarse por contrato de consumo, semántica o encapsulación; su sola existencia no garantiza el linaje.
+
+**Modelado, carga y optimización son decisiones distintas.** Para cargas, deltas o Python, continuar en [Flujos de Datos](#flujos-de-datos), donde se evalúan las alternativas aprobadas. Para acelerar o persistir una vista existente, revisar primero mediciones y restricciones de fuentes, parámetros, permisos y DAC. La persistencia de una vista no conduce automáticamente a Data Flow ni equivale a diseñar una carga a tabla.
+
+**Responsabilidad de capa y consumo.** La capa **1 — Ingesta** conserva el contrato del origen; **2 — Armonización** completa la semántica faltante; **3 — Propagación** expone el contrato gobernado; **4 — Consumo** resuelve el modelado o adaptador final que corresponda. Modalidad de edición, uso semántico y canal de consumo son decisiones diferentes. Un **Analytic Model** se justifica para el consumo analítico que lo requiera, no para toda vista relacional.
+
+El Quick Wizard orienta normalmente en **dos preguntas**. Si falta definir la transformación, propone acordar entrada, salida y regla de negocio; si la necesidad es rendimiento/persistencia, propone diagnosticar la vista; si falta elegir modalidad, propone acordar expresividad, responsable y patrón de mantenimiento. La recomendación metodológica no certifica la compatibilidad de un objeto concreto ni sustituye una validación técnica.
+
+{{support: Vista gráfica="https://help.sap.com/docs/SAP_DATASPHERE/c8a54ee704e94e15926551293243fd1d/27efb479c4814252964d3fbc6ca2dfc3.html" Vista SQL y SQLScript="https://help.sap.com/docs/SAP_DATASPHERE/c8a54ee704e94e15926551293243fd1d/81920e4d583f45fd8761c662d3c8abab.html" Persistencia de vistas="https://help.sap.com/docs/SAP_DATASPHERE/c8a54ee704e94e15926551293243fd1d/9bd12cf116ae40e09cdba8b60cf75e11.html" SQL admitido en Datasphere="https://help.sap.com/docs/SAP_DATASPHERE/c8a54ee704e94e15926551293243fd1d/6a37cc58322548a986496d5e139e9201.html" SAP Learning="https://learning.sap.com/courses/exploring-sap-datasphere-1/working-with-views-for-propagation_e954780f-3b00-4d69-a29a-eecdff6cf192"}}
+
+{{tree_button: id=m04_tipos_vistas_sql label="Modelado de vistas"}}
+
 
 ## {dw-black}Flujos de {dw-gold}Datos
 {{section_meta: keywords="replication flow, data flow, transformation flow, flujos de datos datasphere, diferencia replication flow data flow transformation flow, carga delta, captura delta, delta capture, vista SQL en flujo de transformación, runtime HANA Spark, materializar tabla local, cuándo usar transformation flow, transformation flow vs data flow, tabla local delta, transformation flow HDLF, movimiento HANA HDLF, mover datos hacia HDLF, integración HANA data lake, flujo de transformación SQL, data flow no soporta delta, data flow HDLF, replication flow delta, qué flujo usar"}}
@@ -382,10 +393,10 @@ Orientativo para revisar la calidad del modelo antes de promover al siguiente am
 | **Tipo semántico** | ¿Todos los objetos finales tienen el tipo semántico correcto (Fact / Dimension / Relacional)? |
 | **Naming** | ¿Los nombres siguen el patrón `<Capa><Artefacto><Variante>_<Origen>_<libreConLineamientosPosibles>`? |
 | **Persistencia** | ¿La persistencia está justificada (alto volumen, SLA, transformación costosa) y es compatible con los DAC del linaje ([ver Dónde aplicar DAC](/modules/02_Seguridad_y_Gobernanza?pack={{pack}}#donde-aplicar-dac))? |
-| **Tipo de vista** | ¿El tipo de vista está justificado (SQL Estándar por defecto, Gráfica solo si aplica)? |
+| **Tipo de vista** | ¿La modalidad gráfica o SQL se justifica por expresividad y mantenibilidad, favoreciendo el patrón gobernado del equipo si ambas son viables? |
 | **Claves** | ¿Las vistas dimensionales tienen clave única definida? |
 | **Textos** | ¿Las dimensiones maestras integran atributos y textos en un solo objeto (sin separar)? |
-| **Linaje** | ¿Las Table Functions tienen wrapper de consumo para preservar linaje? |
+| **Linaje** | ¿La necesidad de SQLScript y su contrato de salida están validados, y el linaje comprobado sin asumir que un wrapper lo garantiza? |
 
 {{callout: title="Principio de diseño Danwor" tone="success" icon="🌿"}}
 Las reglas de normalización, claves y cardinalidades se derivan del modelo lógico — no al revés. El checklist es más efectivo en el cierre de cada sprint de desarrollo y antes de transportar a QA.
