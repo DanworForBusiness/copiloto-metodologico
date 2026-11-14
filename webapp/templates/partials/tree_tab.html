@@ -1,4 +1,4 @@
-<div id="tree-tab-panel" class="tree-tab-panel">
+<div id="tree-tab-panel" class="tree-tab-panel" hx-vals='{"panel":"tree"}'>
   {% set decision_trees = trees | rejectattr("kind", "equalto", "assessment") | list %}
   {% if decision_trees %}
   <form
