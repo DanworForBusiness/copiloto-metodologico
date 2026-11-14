@@ -77,17 +77,17 @@ leaves:
       mode: llm_value_add
 
   leaf_cds_directo:
-    decision: "Crear CDS View e importar directamente a Datasphere — no hay dependencias con modelos BW Bridge existentes."
+    decision: "Reutilizar el extractor estándar SAP autorizado que satisfaga el requerimiento (CDS u ODP-SAPI), sin incorporar BW Bridge — no hay dependencias con modelos BW Bridge que lo justifiquen."
     notes:
-      - "La CDS View es más limpia y future-proof que pasar por el BW Bridge cuando no hay dependencias."
-      - "Incluir @Analytics.dataExtraction.delta.changeDataCapture.automatic: true si el extractor no define delta propio."
-      - "Verificar compatibilidad de anotaciones con Datasphere antes de importar."
+      - "Sin dependencias con el BW Bridge, consumir el estándar directamente es más simple y future-proof que pasar por el Bridge."
+      - "Si el estándar es una CDS, el mecanismo delta depende de las capacidades del objeto, del release y de las restricciones técnicas (CDC, delta byElement o full): no asumir CDC automático."
+      - "Verificar compatibilidad con Datasphere antes de importar."
     post_actions:
       mode: resolved
       next_steps:
-        - "Verificar si la CDS estándar cubre el caso o si requiere adaptación"
-        - "Incluir anotaciones mínimas de extracción compatibles con Datasphere"
-        - "Importar como tabla remota y validar compatibilidad delta"
+        - "Verificar si el estándar (CDS u ODP-SAPI) cubre el requerimiento funcional o si requiere adaptación"
+        - "Confirmar que el contrato está autorizado (CDS habilitada para extracción u ODP-SAPI whitelisted)"
+        - "Validar la compatibilidad incremental y la modalidad de integración soportada (tabla remota o Replication Flow)"
 
   leaf_cds_custom:
     decision: "Crear CDS View custom con template Danwor — no existe extractor estándar soportado para este caso."
