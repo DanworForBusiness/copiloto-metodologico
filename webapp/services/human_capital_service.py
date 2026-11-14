@@ -1042,7 +1042,7 @@ def register_candidate_contact(busqueda_id: str, application_id: str, accion: st
     profile = profile_repository.get(app.get("profile_id")) if app.get("profile_id") else None
     if profile is None or profile.get("deleted_at") or profile_repository.is_locked(profile):
         raise LookupError("El candidato ya no está disponible.")
-    if accion != "mensaje_copiado" and not (contact.whatsapp_digits(profile.get("phone")) if canal == "whatsapp" else contact.valid_email(profile.get("email"))):
+    if accion not in ("mensaje_copiado", "correo_fallido", "correo_incierto") and not (contact.whatsapp_digits(profile.get("phone")) if canal == "whatsapp" else contact.valid_email(profile.get("email"))):
         raise ValueError("El candidato no tiene cargado el dato de contacto de ese canal.")
     return busqueda_repository.log_candidate_contact(
         busqueda_id, application_id, accion=accion, situacion=situacion, canal=canal, actor=actor, event_id=event_id, names=_candidate_display_name)
@@ -1058,6 +1058,9 @@ def _contact_row_texts(h: dict) -> dict:
     accion = h.get("accion")
     detalle = ("Mensaje copiado" if accion == "mensaje_copiado"
                else f"Apertura de {canal_det}" if accion == "canal_abierto"
+               else "Correo aceptado para envío (correo institucional)" if accion == "correo_aceptado"
+               else "Correo no enviado: error definitivo (correo institucional)" if accion == "correo_fallido"
+               else "Envío de correo sin confirmación: resultado incierto (correo institucional)" if accion == "correo_incierto"
                else f"Apertura solicitada ({canal_det})")
     return {"movimiento": f"{base} por {canal_mov}", "detalle_contacto": detalle}
 

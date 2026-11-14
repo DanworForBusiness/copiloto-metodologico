@@ -216,6 +216,8 @@
 <dialog class="dw-confirm busqueda-dialog busqueda-contact-dialog" id="busqueda-contact-dialog" aria-labelledby="busqueda-contact-title">
   <div id="busqueda-contact-content"></div>
 </dialog>
+{# Resultado de «Enviar» (Contactar → Mail): el TOAST transitorio compartido de CCHH (mismo de Candidatos / Carga masiva), fuera del diálogo. #}
+<div class="hc-catalog-refresh-feedback--topbar" aria-live="polite" data-dw-auto-dismiss="6000" data-dw-auto-dismiss-fade data-contact-toast></div>
 <script>
 (function () {
   if (window.__hcContactWired) return;       // el cuerpo del detalle se re-renderiza por HTMX: un único wiring global (delegado)
@@ -237,20 +239,59 @@
     var c = canal(), hasWa = r.dataset.hasWhatsapp === "1", hasMail = r.dataset.hasEmail === "1";
     var subj = q("[data-contact-asunto]").value, body = q("[data-contact-mensaje]").value;
     q("[data-contact-subject-field]").hidden = c !== "mail";
-    var wa = q('[data-contact-open="whatsapp"]'), ml = q('[data-contact-open="mail"]');
+    var wa = q('[data-contact-open="whatsapp"]'), sb = q("[data-contact-send]");
     wa.hidden = !(c === "whatsapp" && hasWa);
-    ml.hidden = !(c === "mail" && hasMail);
     if (hasWa) wa.href = "https://wa.me/" + r.dataset.whatsappDigits + "?text=" + encodeURIComponent(body);
-    if (hasMail) ml.href = "mailto:" + r.dataset.email + "?subject=" + encodeURIComponent(subj) + "&body=" + encodeURIComponent(body.replace(/\n/g, "\r\n"));
+    if (sb) {                                                           // Mail → «Enviar» (correo institucional); nunca para WhatsApp
+      sb.hidden = c !== "mail";
+      sb.disabled = !(c === "mail" && hasMail && r.dataset.sendEnabled === "1" && !sending && !blocked && subj.trim() && body.trim());
+      sb.textContent = sending ? "Enviando…" : "Enviar";
+    }
     var note = q("[data-contact-note]"), text = "";
     if (c === "whatsapp" && !hasWa) text = "Este candidato no tiene teléfono cargado: no se puede abrir WhatsApp. " + (hasMail ? "Elegí Mail o copiá el mensaje" : "Copiá el mensaje") + " y enviáselo por otro medio.";
-    else if (c === "mail" && !hasMail) text = "Este candidato no tiene un email válido cargado: no se puede abrir el correo. " + (hasWa ? "Elegí WhatsApp o copiá el mensaje" : "Copiá el mensaje") + " y enviáselo por otro medio.";
+    else if (c === "mail" && !hasMail) text = "Este candidato no tiene un email válido cargado: no se puede enviar el correo. " + (hasWa ? "Elegí WhatsApp o copiá el mensaje" : "Copiá el mensaje") + " y enviáselo por otro medio.";
     else if (c === "whatsapp") text = "WhatsApp necesita el número con código de país; si el cargado no lo trae, el enlace puede no abrir la conversación correcta.";
     note.textContent = text; note.hidden = !text;
   }
   // Trazabilidad (historial del proceso): SOLO se avisa al servidor tras una copia exitosa del mensaje o tras ejecutar la apertura del canal; abrir el diálogo, cambiar situación/canal o cancelar no registran nada. Nunca se envía
   // el texto del mensaje ni datos de contacto: solo acción, situación y canal. «Registrado» NO significa enviado/entregado.
   var recent = {};
+  // ── Mail → «Enviar»: correo institucional (sin confirmación secundaria). Una operación por apertura del diálogo; doble clic = 1 request; el servidor
+  // resuelve el destinatario y es idempotente por `operation_id`. 202 → cierra el diálogo + toast; error → diálogo abierto con su contenido.
+  var sending = false, blocked = false, opId = "";
+  function sendStatus(msg) { var n = q("[data-contact-send-status]"); if (!n) return; n.textContent = msg || ""; n.hidden = !msg; }
+  function toast(text) {
+    var host = document.querySelector("[data-contact-toast]"); if (!host) return;
+    var box = document.createElement("aside"); box.className = "callout callout--success callout--feedback"; box.setAttribute("role", "status"); box.textContent = text;
+    host.classList.remove("is-dismissing"); host.replaceChildren(box);
+  }
+  function doSend() {
+    var r = root(); if (!r || sending || blocked || canal() !== "mail") return;
+    sending = true; sendStatus(""); refresh();
+    fetch(r.dataset.sendUrl, { method: "POST", credentials: "same-origin", body: new URLSearchParams({ operation_id: opId, situacion: q("[data-contact-tipo]").value,
+                                                                                                    asunto: q("[data-contact-asunto]").value, mensaje: q("[data-contact-mensaje]").value }) })
+      .then(function (res) { return res.json().then(function (d) { return d; }, function () { return { status: "error", message: "HTTP " + res.status }; }); })
+      .then(function (d) {
+        sending = false;
+        if (d.history_html) swapHistory(d.history_html);
+        if (d.status === "accepted") {
+          var dlg = document.getElementById("busqueda-contact-dialog"); if (dlg && dlg.open) dlg.close();
+          document.getElementById(CONTENT).innerHTML = ""; blocked = false;
+          toast("Correo aceptado para envío a " + d.recipient + ".");
+          return;
+        }
+        if (d.status === "uncertain") { blocked = true; sendStatus("El envío quedó sin confirmación de Microsoft. No se reenvía automáticamente: verificá antes de reintentar."); }
+        else if (d.status === "failed" || d.status === "duplicate") { blocked = true; sendStatus(d.message || "El servicio de correo rechazó el envío."); }
+        else if (d.status === "disabled") { r.dataset.sendEnabled = ""; sendStatus(d.message || "El envío por correo institucional está deshabilitado."); }
+        else sendStatus(d.message || "No se pudo enviar. Revisá el mensaje e intentá de nuevo.");
+        refresh();
+      })
+      .catch(function () { sending = false; blocked = true; sendStatus("No se pudo confirmar el envío (conexión interrumpida). No se reenvía automáticamente: verificá antes de reintentar."); refresh(); });
+  }
+  document.addEventListener("click", function (ev) {
+    var b = ev.target.closest && ev.target.closest("[data-contact-send]");
+    if (b && document.getElementById(CONTENT).contains(b)) doSend();
+  });
   function note(msg) { var n = q("[data-contact-log-note]"); if (!n) return; n.textContent = msg || ""; n.hidden = !msg; }
   function newId() { return (window.crypto && window.crypto.randomUUID) ? window.crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2); }
   function swapHistory(html) {                                        // reemplaza la tabla de Historial de la página por la actualizada (conserva si estaba abierta o plegada)
@@ -312,7 +353,7 @@
     if (ev.target.closest && ev.target.closest("[data-contact-asunto], [data-contact-mensaje]") && root()) refresh();
   });
   document.body.addEventListener("htmx:afterSwap", function (ev) {
-    if (ev.detail && ev.detail.target && ev.detail.target.id === CONTENT && root()) fill();
+    if (ev.detail && ev.detail.target && ev.detail.target.id === CONTENT && root()) { sending = false; blocked = false; opId = newId().replace(/-/g, ""); fill(); }
   });
 })();
 </script>
