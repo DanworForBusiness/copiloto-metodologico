@@ -43,12 +43,34 @@ nodes:
     question: "¿Qué versión?"
     options: ["S4HANA", "ECC"]
     next:
-      ECC: q3_ecc_version
+      ECC: q3_ecc_odp
       S4HANA: q3_s4_edition
+
+  # ECC: primero el contrato estándar autorizado (ODP-SAPI), independiente del umbral NW 7.5 del framework CDS.
+  q3_ecc_odp:
+    type: single_choice
+    question: "¿Hay un extractor ODP-SAPI estándar autorizado que cubra el requerimiento?"
+    help: "Autorizado significa liberado o whitelisted para ODP. Esta pregunta no depende del umbral NW 7.5, que aplica al framework CDS."
+    options: ["Sí", "No", "No sé"]
+    next:
+      "Sí": q4_ecc_odp_compat
+      "No": q3_ecc_version
+      "No sé": leaf_intervention
+
+  q4_ecc_odp_compat:
+    type: single_choice
+    question: "¿Está comprobada la compatibilidad técnica para integrarlo?"
+    help: "Revisá origen, conexión, versión, add-on DMIS y notas SAP aplicables al mecanismo previsto. Elegí «Pendiente / No sé» si falta configurar o evidenciar algo."
+    options: ["Sí", "Incompatibilidad documentada", "Pendiente / No sé"]
+    next:
+      "Sí": leaf_odp_std
+      "Incompatibilidad documentada": q3_ecc_version
+      "Pendiente / No sé": leaf_intervention
 
   q3_ecc_version:
     type: single_choice
-    question: "¿Qué versión ABAP?"
+    question: "¿Qué versión de ABAP tiene el ECC?"
+    help: "La versión de NetWeaver define si se puede usar el framework CDS."
     options: ["≥NW7.5", "Inferior", "No sé"]
     next:
       "≥NW7.5": leaf_ecc_framework
@@ -57,7 +79,7 @@ nodes:
 
   q3_s4_edition:
     type: single_choice
-    question: "¿Qué edición?"
+    question: "¿Qué edición de S/4HANA es?"
     options: ["Private", "Public"]
     next:
       Private: q4_s4_api_auth
@@ -65,7 +87,8 @@ nodes:
 
   q4_s4_api_auth:
     type: single_choice
-    question: "¿Existe una API funcional SAP autorizada (CDS Estándar, ODP-SAPI whitelistado, etc.)?"
+    question: "¿Hay una API funcional SAP autorizada para el caso?"
+    help: "Por ejemplo, una CDS estándar o un extractor ODP-SAPI whitelisted."
     options: ["Sí", "No", "No sé"]
     next:
       "Sí": q5_cds_cumple
@@ -74,7 +97,8 @@ nodes:
 
   q4_s4_api_rel:
     type: single_choice
-    question: "¿Existe una API SAP liberada? (CDS Released, SAP_COM_0532, ABAP SQL)?"
+    question: "¿Hay una API SAP liberada para el caso?"
+    help: "Por ejemplo, una CDS Released, el escenario SAP_COM_0532 o ABAP SQL."
     options: ["Sí", "No", "No sé"]
     next:
       "Sí": q5_api_cumple
@@ -83,7 +107,7 @@ nodes:
 
   q5_cds_cumple:
     type: single_choice
-    question: "¿Cumple el requrimiento funcional?"
+    question: "¿Cumple el requerimiento funcional?"
     options: ["Sí", "No", "No sé"]
     next:
       "Sí": q6_cds_compat
@@ -92,7 +116,7 @@ nodes:
 
   q5_api_cumple:
     type: single_choice
-    question: "¿Cumple el requrimiento funcional?"
+    question: "¿Cumple el requerimiento funcional?"
     options: ["Sí", "No", "No sé"]
     next:
       "Sí": leaf_api_libe_contrato
@@ -101,7 +125,8 @@ nodes:
 
   q5_api_ext:
     type: single_choice
-    question: "¿Existe extensibilidad permitida?"
+    question: "¿SAP permite extenderla?"
+    help: "Extensibilidad habilitada por SAP para esa API."
     options: ["Sí", "No", "No sé"]
     next:
       "Sí": leaf_api_ext
@@ -110,7 +135,8 @@ nodes:
 
   q6_cds_compat:
     type: single_choice
-    question: "¿Es técnicamente apta para consumo ? (anotaciones, delta, performance, asociaciones, c/compatibilidad con Datasphere)"
+    question: "¿Es técnicamente apta para consumirla desde Datasphere?"
+    help: "Revisá delta, performance y compatibilidad con Datasphere. Si es una CDS, también anotaciones y asociaciones."
     options: ["Sí", "No", "No sé"]
     next:
       "Sí": leaf_api_corp_contrato
@@ -119,21 +145,24 @@ nodes:
 
   q2_bw_inversion:
     type: single_choice
-    question: "¿Existe inversión alta en mejoras/ampliaciones de extractores/DataSources?"
+    question: "¿Los DataSources o extractores BW actuales siguen siendo valiosos para el caso?"
+    help: "Valor funcional vigente: uso real, criticidad y reglas de negocio consolidadas reutilizables, no la inversión histórica. Alineado con la Matriz Técnica del apéndice A02."
     options: ["Sí", "No", "No sé"]
     next:
       "Sí": q_bw_whitelist
-      "No": leaf_bw_puente
-      "No sé": leaf_intervention
+      "No": leaf_alternatives
+      "No sé": leaf_bw_valor_revision
 
   q_bw_whitelist:
     type: single_choice
-    question: "¿Se encuentra whitelisted en Nota SAP 2500202?"
-    options: ["Sí", "No", "No sé"]
+    question: "¿Esos extractores están liberados para ODP y son técnicamente compatibles con el mecanismo previsto?"
+    help: "«Sí» acredita las dos cosas: la liberación/autorización para ODP (Nota SAP 2500202) y la compatibilidad técnica con el mecanismo previsto (conexión, versión, add-on DMIS, notas). La whitelist por sí sola no garantiza ni la integración ni la capacidad delta. Elegí «Parcialmente» si solo algunos extractores califican."
+    options: ["Sí", "Parcialmente", "No", "No sé"]
     next:
       "Sí": leaf_bw_whitelisted
-      "No": leaf_bw_puente
-      "No sé": leaf_intervention
+      "Parcialmente": leaf_bw_puente
+      "No": leaf_alternatives
+      "No sé": leaf_bw_compat_revision
 
 leaves:
   leaf_ecc_investigation: 
@@ -203,23 +232,55 @@ leaves:
 
   leaf_odp_std:
     decision: "Apoyarse en extractor ODP-SAPI estándar whitelisted."
+    notes:
+      - "La compatibilidad del extractor depende del origen, la conexión, el add-on DMIS y las notas ODP, no del umbral NW 7.5 del framework CDS."
+      - "En el escenario de Replication Flow, SAP Help indica DMIS 2011 SP23+, 2018 SP08+ o 2020 SP04+ con las notas listadas (verificar con Note Analyzer); otros mecanismos de consumo pueden tener prerrequisitos distintos."
+      - "Validar la capacidad delta del extractor, la semántica de los cambios que entrega y cómo se persisten forma parte de la evaluación del contrato: que haya delta no garantiza la integridad del resultado (ver Extracción vía API Corporativa)."
     post_actions:
       mode: llm_value_add
 
   leaf_alternatives:
-    decision: "Sin ODP-SAPI whitelisted disponible: evaluar alternativa alineada a clean core (posible Puente ERP según contexto)."
+    decision: "Modernizar el contrato de extracción: evaluar CDS estándar, CDS custom u otra interfaz autorizada, según corresponda."
+    notes:
+      - "Aplica cuando los extractores BW ya no aportan valor funcional vigente o no son técnicamente compatibles: no se reutilizan extractores sin valor ni sin compatibilidad acreditada."
+      - "No se impone una tecnología única; la interfaz de modernización se elige por contrato autorizado según el caso. Remite al árbol «Alcance de Modernización BW» (apéndice A02)."
     post_actions:
       mode: llm_value_add
 
   leaf_bw_puente:
-    decision: "Puente ERP: reutilizar los DataSources/extractores BW existentes vía ODP-SAPI como capa de transición hacia Datasphere."
+    decision: "Compatibilidad parcial: evaluar una transición híbrida que reutilice solo los extractores BW liberados y compatibles mientras se modernizan los demás."
+    notes:
+      - "La compatibilidad parcial habilita evaluar esta estrategia, no la impone: su conveniencia se decide según dependencias, criticidad, costo de convivencia y horizonte de reemplazo."
+      - "Solo se reutilizan los extractores liberados para ODP y técnicamente compatibles; el resto se moderniza. Definir el criterio de salida de la convivencia."
+      - "Remite al árbol «Alcance de Modernización BW» (apéndice A02)."
     post_actions:
       mode: llm_value_add
 
   leaf_bw_whitelisted:
-    decision: "ODP-SAPI — Continuar con los extractores/DataSources BW whitelisted (Nota SAP 2500202) como mecanismo de extracción hacia Datasphere."
+    decision: "Reutilización gobernada: continuar con los extractores/DataSources BW liberados para ODP (Nota SAP 2500202) como mecanismo de extracción hacia Datasphere."
+    notes:
+      - "Valor funcional vigente y compatibilidad técnica ya acreditados."
+      - "Validar la capacidad delta del extractor y la semántica de los cambios que entrega, y cómo se persisten (ver módulo 03): que haya delta no garantiza la integridad del resultado."
     post_actions:
       mode: llm_value_add
+
+  leaf_bw_valor_revision:
+    decision: "Valor funcional no determinado: relevar antes de decidir reutilizar o modernizar."
+    notes:
+      - "Relevá el uso real, la criticidad y la semántica funcional reutilizable de los DataSources/extractores BW; apoyate en la Matriz Técnica del apéndice A02."
+      - "Recién con el valor vigente establecido se decide entre reutilización gobernada y modernización del contrato; «No sé» no habilita por sí solo ninguna de las dos."
+    post_actions:
+      mode: needs_human_review
+      reason: "Falta establecer el valor funcional vigente de los extractores BW"
+
+  leaf_bw_compat_revision:
+    decision: "Compatibilidad técnica no determinada: verificar antes de reutilizar."
+    notes:
+      - "Verificá la liberación/autorización para ODP (Nota SAP 2500202), la compatibilidad técnica con la integración prevista (conexión, versión, add-on DMIS, notas) y las condiciones de delta relevantes."
+      - "La whitelist no garantiza integración ni delta; «No sé» no habilita reutilización ni modernización automática hasta acreditar la compatibilidad."
+    post_actions:
+      mode: needs_human_review
+      reason: "Falta acreditar liberación ODP y compatibilidad técnica del extractor BW"
 
 capture_uncharted:
   type: free_capture

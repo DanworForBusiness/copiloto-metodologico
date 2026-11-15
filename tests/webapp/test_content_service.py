@@ -54,13 +54,19 @@ def test_leading_support_is_in_heading_before_subtitle():
 def test_callout_parameters_render_tone_icon_and_title():
     success = load_module("01_Arquitectura_y_Conectividad")
     success_html = "".join(section.html for section in success.sections)
-    warn = load_module("04_Modelado_y_Desarrollo")
-    warn_html = "".join(section.html for section in warn.sections)
+    modeling = load_module("04_Modelado_y_Desarrollo")
+    modeling_html = "".join(section.html for section in modeling.sections)
 
     assert 'class="callout callout--success"' in success_html
     assert 'class="callout__icon">🌿</span>' in success_html
     assert 'class="callout__title">Momento recomendado</strong>' in success_html
-    assert 'class="callout callout--warn"' in warn_html
+    assert 'class="callout callout--punch"' in modeling_html
+    assert 'class="callout__title">Elegir por expresividad y mantenibilidad</strong>' in modeling_html
+    # The obsolete warning against productive graphical views was removed;
+    # warning styling remains a supported renderer contract.
+    from webapp.services.content_service import render_sections
+    warning = render_sections('## Ejemplo\n{{callout: title="Advertencia" tone="warn" icon="!"}}\nCondición relevante.\n{{/callout}}')[0].html
+    assert 'class="callout callout--warn"' in warning
 
 
 def test_callout_row_groups_parameterized_callouts():

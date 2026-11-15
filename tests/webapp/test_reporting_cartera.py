@@ -1045,13 +1045,16 @@ def test_all_source_family_loaders_flip_status_synchronously_before_any_await():
         "loadBatchAData": "state.batchADataStatus = \"loading\";",
         "loadBatchBData": "state.batchBDataStatus = \"loading\";",
     }
-    for fn_name, expected_first_line in loaders.items():
+    for fn_name, flip in loaders.items():
         start = _REPORTING_JS.index(f"async function {fn_name}()")
         body_open = _REPORTING_JS.index("{", start) + 1
-        first_statement = _REPORTING_JS[body_open:body_open + 200].strip().splitlines()[0].strip()
-        assert first_statement == expected_first_line, fn_name
-        # Ninguna sentencia `await` aparece ANTES de ese flip.
-        pre_flip = _REPORTING_JS[body_open:_REPORTING_JS.index(expected_first_line, body_open)]
+        # El flip de estado existe en el cuerpo del loader...
+        flip_pos = _REPORTING_JS.find(flip, body_open)
+        assert flip_pos != -1, fn_name
+        # ...y se ejecuta SINCRÓNICAMENTE antes de cualquier `await` (garantía single-flight): por
+        # delante se admiten comentarios y asignaciones síncronas (p. ej. computar la ventana de
+        # años), pero NINGÚN `await` — es lo que impide un segundo fetch concurrente del mismo tab.
+        pre_flip = _REPORTING_JS[body_open:flip_pos]
         assert "await" not in pre_flip, fn_name
 
 

@@ -126,6 +126,12 @@ def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK), ta
         and _dsp_pub.tool_enabled(document.summary.stem) and _dsp_pub.can_execute(request)
         else ""
     )
+    # Mismo contrato para el «+» del Catálogo de conectividad (módulo 01): `catalog_action=extract` abre el formulario de extracción, con la
+    # MISMA regla de visibilidad que el botón (connectivity_inventory_service: módulo + can_execute).
+    if not initial_catalog_action and (catalog_action or "").strip().lower() == "extract" and initial_tab == "catalogo":
+        from webapp.services import connectivity_inventory_service as _dsc
+        if _dsc.tool_enabled(document.summary.stem) and _dsc.can_execute(request):
+            initial_catalog_action = "extract"
     # Opción inicial del Catálogo de conectividad (módulo 01) vía URL (?tab=catalogo&catalog_kind=sap_types, enlace de What's New): lista blanca
     # de UN valor; el navegador abre su vista central con el MISMO mecanismo que la selección manual (dwCatalogBrowse → dwConnectivityKindChanged).
     initial_catalog_kind = "sap_types" if (catalog_kind or "").strip().lower() == "sap_types" and initial_tab == "catalogo" else ""

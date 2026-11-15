@@ -973,6 +973,7 @@ const state = {
   rentabilidadAniosDisponibles: [],
   rentabilidadAniosStatus: "idle",
   rentabilidadYearLoading: new Set(),
+  rentabilidadYearsLoaded: new Set(),
   // AÑO/MES MULTI-SELECT corrective (owner directive — propagar el patrón
   // aprobado de Cartera, ver HANDOFF): Año/Mes pasan a Sets multi-select
   // (MISMO criterio que carteraAnios/carteraMeses), YearError pasa a Set
@@ -2653,27 +2654,28 @@ function hydrateRentabilidadTab() {
   if (state.rentabilidadDataStatus === "idle") loadRentabilidadData();
   if (state.rentabilidadAniosStatus === "idle") loadRentabilidadAnios();
 }
-// Años YA hidratados — fuente de verdad ÚNICA: las claves de
-// RENTABILIDAD_NOASIGNADAS_BY_YEAR (portfolio, poblado en CADA hidratación
-// exitosa — hot o fría — sin importar si esa carga trajo 0 proyectos; era
-// RENTABILIDAD_VENDIDAS_BY_YEAR antes del SOURCE-PARITY corrective —
-// Vendidas dejó de ser portfolio, No asignadas sigue siéndolo y cumple el
-// MISMO rol de centinela).
+// Años consultados con éxito, independientemente de los datos devueltos
+// (un año vacío o sin horas no asignadas también está hidratado).
 function rentabilidadLoadedYears() {
-  return new Set(Object.keys(RENTABILIDAD_NOASIGNADAS_BY_YEAR));
+  return new Set(state.rentabilidadYearsLoaded);
 }
 async function loadRentabilidadData() {
+  // Pedir explícitamente la ventana caliente permite registrar los años
+  // realmente consultados, incluso si ambos están vacíos.
+  const currentYear = new Date().getFullYear();
+  const requestedYears = [String(currentYear), String(currentYear - 1)];
   state.rentabilidadDataStatus = "loading";
   try {
     const token = await dwGraphToken();
     const resp = await fetch("/operaciones/reporting/integral/data/rentabilidad", {
-      method: "POST", body: new URLSearchParams({ graph_token: token }),
+      method: "POST", body: new URLSearchParams({ graph_token: token, anios: requestedYears.join(",") }),
     });
     const data = await resp.json();
-    if (data.state === "ok" && data.rentabilidad) {
+    if (resp.ok !== false && data.state === "ok" && data.rentabilidad) {
       replaceRows(RENTABILIDAD_PROYECTOS, data.rentabilidad.proyectos);
       replaceMonthly(RENTABILIDAD_NOASIGNADAS_MENSUAL, data.rentabilidad.noAsignadasMonthly);
       RENTABILIDAD_NOASIGNADAS_BY_YEAR = data.rentabilidad.noAsignadasByYear || {};
+      state.rentabilidadYearsLoaded = new Set(requestedYears);
       // Default Año = año actual válido (faceted fallback) — SOLO en la
       // PRIMERA hidratación (nunca en cambio de perspectiva; ver §10 del
       // batch) — este bloque corre una única vez por el gate `idle` de
@@ -2740,7 +2742,8 @@ function mergeRentabilidadRows(incoming) {
 // cuando el Año seleccionado todavía no está en `rentabilidadLoadedYears()`.
 // Single-flight POR AÑO (MISMO criterio que Horas Vendidas/Cartera).
 async function loadRentabilidadColdYear(anio) {
-  if (state.rentabilidadYearLoading.has(anio)) return;
+  anio = String(anio);
+  if (state.rentabilidadYearsLoaded.has(anio) || state.rentabilidadYearLoading.has(anio)) return;
   state.rentabilidadYearLoading.add(anio);
   reportingTelemetry("reporting.cold_year_load", { report_tab: "rentabilidad", load_scope: anio });
   state.rentabilidadYearErrors.delete(anio);
@@ -2757,8 +2760,9 @@ async function loadRentabilidadColdYear(anio) {
       method: "POST", body: new URLSearchParams({ graph_token: token, anios: anio }),
     });
     const data = await resp.json();
-    if (data.state === "ok" && data.rentabilidad) {
+    if (resp.ok !== false && data.state === "ok" && data.rentabilidad) {
       mergeRentabilidadRows(data.rentabilidad);
+      state.rentabilidadYearsLoaded.add(anio);
       reconcileExperienceFacets("rentabilidad");
       HubForegroundProgress.complete("rentabilidad");
     } else {
@@ -3208,8 +3212,8 @@ async function loadCapacidadAnios() {
 // Años YA hidratados — fuente de verdad ÚNICA: las claves de
 // CAPACIDAD_PRODUCTIVAS_DENOMINADOR_BY_YEAR (portfolio, poblado en CADA
 // hidratación exitosa — hot o fría — sin importar si esa carga trajo 0
-// filas por Cliente/Proyecto) — MISMO centinela que RENTABILIDAD_
-// NOASIGNADAS_BY_YEAR (ver rentabilidadLoadedYears).
+// filas por Cliente/Proyecto). Rentabilidad registra sus años cargados
+// por separado (ver rentabilidadLoadedYears).
 function capacidadLoadedYears() {
   return new Set(Object.keys(CAPACIDAD_PRODUCTIVAS_DENOMINADOR_BY_YEAR));
 }

@@ -1,0 +1,241 @@
+id: m02_ubicacion_dac
+title: Diseño de acceso a datos
+description: "Elegí cómo aplicar los controles de acceso sin comprometer la reutilización ni la persistencia de tus datos."
+version: "0.2"
+
+# Links como navigation bindings (para UI / conexión con módulos)
+links:
+  module: 02_Seguridad_y_Gobernanza
+  topics: ["dac", "gobernanza"]
+
+# Tags taxonomy / Concepts (para búsqueda, agrupación, KG futuro)
+tags: ["M02", "security", "dac", "governance", "persistence"]
+
+# Keywords en lenguaje natural para intent detection del asistente.
+# Responde: ¿Cómo preguntaría un consultor sobre este árbol?
+# Deliberadamente específicas de la UBICACIÓN: las consultas genéricas sobre DAC siguen yendo al árbol «Seguridad de Datos».
+keywords: [
+  "diseño de acceso a datos", "diseno de acceso a datos",
+  "dónde aplicar el DAC", "donde aplicar el DAC", "ubicación del DAC", "ubicacion del DAC",
+  "en qué capa va el DAC", "en que capa va el DAC", "en qué vista aplico el DAC", "en que vista aplico el DAC",
+  "DAC y persistencia", "DAC persistencia", "vista persistida con DAC", "persistir vista con DAC",
+  "DAC en analytic model", "DAC en el modelo analítico", "DAC temprano", "DAC en armonización",
+  "DAC cross-space", "DAC compartido entre espacios", "DAC ODBC", "DAC OData", "DAC Power BI",
+  "identidad técnica DAC", "usuario técnico DAC"
+]
+
+# exclude_if: palabras de intención operacional que indican que el usuario
+# quiere HACER algo, no DECIDIR algo.
+exclude_if: [
+  "codigo", "código", "template", "ejemplo", "ayudame con el codigo",
+  "como hago", "como escribo", "escribir", "generar codigo", "crearme",
+  "dame un", "mostrame", "sample", "snippet"
+]
+
+# Precondición: la política de acceso está definida (quién ve qué) y el tipo de DAC se eligió con el árbol «Seguridad de Datos».
+# Orienta DÓNDE aplicar el DAC en el linaje; no decide autorizaciones. Conocimiento canónico: módulo 02 «Dónde aplicar DAC».
+# `help` reutiliza el panel «¿Qué cubre esta pregunta?» del wizard (partials/wizard.html).
+start: q1
+
+nodes:
+  q1:
+    type: single_choice
+    question: "¿La identidad de cada consumidor coincide con el nivel de autorización que necesita?"
+    help: "Revisalo consumidor por consumidor. Una identidad técnica (usuario de base de datos en ODBC, OAuth de servicio) alcanza cuando se autoriza por aplicación o servicio. Si se autoriza por persona, cada una tiene que consultar con su propia identidad (usuario de SAC, OAuth interactivo)."
+    options: ["Sí, en todos", "No en alguno", "No sé en alguno"]
+    next:
+      "Sí, en todos": q2_contratos
+      "No en alguno": leaf_brecha_identidad
+      "No sé en alguno": leaf_brecha_identidad
+
+  q2_contratos:
+    type: single_choice
+    question: "¿Por cuántos contratos se consume hoy este dato?"
+    help: "Cada vista expuesta o compartida y cada Analytic Model cuenta como un contrato. Contá los que existen hoy, no los previstos."
+    options: ["Uno", "Varios"]
+    next:
+      "Uno": q3u_cobertura
+      "Varios": q3v_cobertura
+
+  # — Contrato único —
+  q3u_cobertura:
+    type: single_choice
+    question: "¿Hay alguna otra forma de acceder a estos datos sin pasar por ese contrato?"
+    help: "Por ejemplo, vistas o tablas subyacentes expuestas para consumo o compartidas con otros Spaces. El DAC del contrato no las protege."
+    options: ["No", "Sí", "No sé"]
+    next:
+      "No": q4u_espacio
+      "Sí": leaf_revision_diseno
+      "No sé": leaf_revision_diseno
+
+  q4u_espacio:
+    type: single_choice
+    question: "¿Solo el equipo responsable tiene acceso al Space de origen?"
+    help: "Mientras la vista está en su propio Space, sus miembros pueden eludir el DAC. Por eso el Space productor tiene que quedar restringido a quien gobierna el contrato."
+    options: ["Sí", "No"]
+    next:
+      "Sí": leaf_dac_contrato_unico
+      "No": leaf_revision_diseno
+
+  # — Varios contratos —
+  q3v_cobertura:
+    type: single_choice
+    question: "¿Hay alguna otra forma de acceder a estos datos sin pasar por los contratos protegidos?"
+    help: "Por ejemplo, vistas intermedias expuestas para consumo o compartidas con otros Spaces. Proteger los contratos finales no protege esos caminos."
+    options: ["No", "Sí", "No sé"]
+    next:
+      "No": q4v_espacio
+      "Sí": leaf_revision_diseno
+      "No sé": leaf_revision_diseno
+
+  q4v_espacio:
+    type: single_choice
+    question: "¿Solo el equipo responsable tiene acceso al Space de origen?"
+    help: "Mientras las vistas están en su propio Space, sus miembros pueden eludir el DAC. Por eso el Space productor tiene que quedar restringido a quien gobierna los contratos."
+    options: ["Sí", "No"]
+    next:
+      "Sí": q5v_criterio
+      "No": leaf_revision_diseno
+
+  q5v_criterio:
+    type: single_choice
+    question: "¿Todos los contratos usan el mismo criterio de acceso?"
+    help: "Mismo criterio significa las mismas reglas de quién ve qué filas, sobre el mismo dato."
+    options: ["Sí, el mismo", "No, distintos"]
+    next:
+      "Sí, el mismo": q6v_contrato_comun
+      "No, distintos": leaf_dac_coordinado
+
+  q6v_contrato_comun:
+    type: single_choice
+    question: "¿Todas las vistas y modelos parten de un mismo contrato?"
+    help: "Un contrato común es la vista de la que derivan los demás contratos y que puede llevar el DAC."
+    options: ["Sí", "No"]
+    next:
+      "Sí": q7v_persistencia_derivada
+      "No": leaf_dac_coordinado
+
+  q7v_persistencia_derivada:
+    type: single_choice
+    question: "¿Necesitás persistir alguna vista posterior al contrato común?"
+    help: "SAP no permite persistir una vista que consume una fuente protegida por DAC (restricción documentada para vistas persistidas). Si esa etapa se materializa con Data Flow o Transformation Flow, elegí «Se materializa de otra forma»: ese caso se valida aparte."
+    options: ["Sí", "No", "Se materializa de otra forma", "No sé"]
+    next:
+      "Sí": leaf_dac_coordinado
+      "No": q8v_persistencia_previa
+      "Se materializa de otra forma": leaf_revision_materializacion
+      "No sé": leaf_revision_diseno
+
+  q8v_persistencia_previa:
+    type: single_choice
+    question: "¿Necesitás persistir pasos previos al contrato común?"
+    help: "Las vistas anteriores al punto de protección sí se pueden persistir, pero quedan sin filtro para quien tenga acceso al Space productor."
+    options: ["Sí", "No", "No sé"]
+    next:
+      "Sí": leaf_dac_post_materializacion
+      "No": leaf_dac_temprano
+      "No sé": leaf_revision_diseno
+
+leaves:
+  leaf_dac_contrato_unico:
+    decision: "Aplicar el DAC en el contrato único"
+    notes:
+      - "El contrato es la vista expuesta o el Analytic Model por el que se consume el dato."
+      - "Se verificó que la identidad de cada consumidor alcanza, que hay un solo contrato hoy, que no hay otro camino hacia el dato y que el Space productor está restringido."
+      - "La vista con DAC propio se puede persistir; las vistas que la consuman, no."
+      - "Si se prevé usar la misma política en otro contrato, dejalo documentado y volvé a recorrer este árbol cuando ese contrato exista."
+      - "Ver «Dónde aplicar DAC» en el módulo 02."
+    post_actions:
+      mode: resolved
+      next_steps:
+        - "Aplicar el DAC en el contrato y mapear sus columnas de criterio"
+        - "Confirmar que los objetos subyacentes no se expongan ni se compartan fuera del Space productor"
+
+  leaf_dac_temprano:
+    decision: "Aplicar el DAC temprano, en el contrato común"
+    notes:
+      - "El contrato común (por ejemplo, una vista de Armonización) lleva el DAC y los contratos derivados lo heredan."
+      - "Se verificó: identidad compatible, ningún otro camino hacia el dato, Space productor restringido, mismo criterio, contrato común y sin vistas persistidas antes ni después de él."
+      - "Las vistas que consuman el contrato común no se van a poder persistir; evitá combinar varias fuentes protegidas."
+      - "Ver «Dónde aplicar DAC» en el módulo 02 y la fila «Persistencia» del Checklist del módulo 04."
+    post_actions:
+      mode: resolved
+      next_steps:
+        - "Aplicar el DAC en el contrato común"
+        - "Exponer o compartir solo contratos que deriven del contrato protegido"
+
+  leaf_dac_post_materializacion:
+    decision: "Aplicar DAC después de persistir"
+    notes:
+      - "Vistas anteriores al DAC: se pueden persistir porque todavía no consumen una fuente protegida, y quedan sin filtro para quien tenga acceso al Space productor (restringido en este recorrido)."
+      - "Contrato que recibe el DAC: el contrato común, que también se puede persistir."
+      - "Vistas posteriores: las que consumen el contrato protegido no se pueden persistir; en este recorrido no hace falta."
+      - "Solo se comparten o exponen rutas que pasan por el contrato protegido; ninguna etapa previa queda accesible fuera del Space productor."
+      - "Ver «Dónde aplicar DAC» en el módulo 02 y la fila «Persistencia» del Checklist del módulo 04."
+    post_actions:
+      mode: resolved
+      next_steps:
+        - "Persistir las etapas previas que lo necesiten"
+        - "Aplicar el DAC en el contrato común"
+        - "Verificar que ninguna etapa previa se comparta ni se exponga"
+
+  leaf_dac_coordinado:
+    decision: "Aplicar un DAC coordinado en cada contrato"
+    notes:
+      - "Corresponde cuando los criterios son distintos, no hay un contrato común o hay que persistir vistas posteriores al contrato común."
+      - "Confirmá que todos los contratos autorizados quedan protegidos y que no queda ningún intermediario expuesto o compartido sin control: proteger las salidas finales no cierra por sí solo otro camino."
+      - "Ubicá cada DAC después de las vistas persistidas que correspondan: una vista con DAC propio se puede persistir; una que consume un contrato protegido, no."
+      - "Coordiná las entidades de permisos entre contratos y revisá que un contrato nuevo no abra un camino sin protección."
+      - "Ver «Dónde aplicar DAC» en el módulo 02 y la fila «Persistencia» del Checklist del módulo 04."
+    post_actions:
+      mode: resolved
+      next_steps:
+        - "Listar los contratos autorizados y sus caminos de exposición"
+        - "Aplicar en cada contrato el DAC de su criterio, después de sus vistas persistidas"
+        - "Confirmar que ningún objeto intermedio quede expuesto o compartido sin protección"
+
+  leaf_brecha_identidad:
+    decision: "Revisar la identidad de algunos consumidores"
+    notes:
+      - "El DAC filtra según la identidad que consulta Datasphere: una identidad técnica o compartida sirve para autorizar una aplicación o un servicio, pero no da seguridad por persona."
+      - "La revisión es solo para esas rutas: las que cumplen se evalúan volviendo a recorrer el árbol sin la ruta observada."
+      - "Ver «Dónde aplicar DAC» en el módulo 02."
+    post_actions:
+      mode: needs_human_review
+      reason: "Identidad efectiva incompatible o indeterminada en al menos una ruta — resolver la propagación de identidad o rediseñar esa exposición antes de ubicar el DAC"
+
+  leaf_revision_diseno:
+    decision: "Revisar el diseño antes de ubicar el DAC"
+    notes:
+      - "Cerrá o protegé los caminos que llegan al dato sin pasar por los contratos protegidos."
+      - "Restringí el Space productor al equipo que gobierna el contrato."
+      - "Definí qué vistas hay que persistir y volvé a recorrer el árbol."
+    post_actions:
+      mode: needs_human_review
+      reason: "Rutas de exposición sin cobertura, espacio productor no gobernado o persistencia sin definir"
+
+  leaf_revision_materializacion:
+    decision: "Revisar otro tipo de materialización"
+    notes:
+      - "Hay etapas posteriores al contrato protegido que se materializan con un mecanismo distinto de la vista persistida."
+      - "La restricción documentada por SAP aplica a vistas persistidas; cómo se comportan Data Flow o Transformation Flow con una fuente protegida hay que validarlo antes de decidir."
+      - "No asumas compatibilidad ni incompatibilidad sin esa validación."
+    post_actions:
+      mode: needs_human_review
+      reason: "Comportamiento de la materialización con fuente protegida por DAC no documentado — validar técnicamente"
+
+capture_uncharted:
+  type: free_capture
+  prompt: "Describí brevemente tu contexto de acceso a datos"
+  fields:
+    - id: context_description
+      label: "¿Qué caracteriza tu caso?"
+      required: true
+    - id: decision_taken
+      label: "¿Dónde decidiste aplicar el DAC?"
+      required: false
+    - id: outcome
+      label: "¿Cómo resultó?"
+      type: select
+      options: ["anduvo", "no anduvo", "inconcluso", "en curso", "no lo sé"]
+      required: true

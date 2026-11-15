@@ -160,8 +160,9 @@ def test_real_http_router_renders_fast_path_and_conditions(monkeypatch):
     for answer in ['No', VIRTUAL, DECL]:
         response = client.post(f'/wizards/{run.id}/answer', data={'answer': answer})
         assert response.status_code == 200
-    assert 'Vista SQL' in response.text and 'fuentes son consultables' in response.text
-    assert 'Pr&oacute;ximos pasos' in response.text and 'Tipos de Vistas SQL' in response.text
+    assert 'Vista en SAP Datasphere' in response.text and 'fuentes son consultables' in response.text
+    assert 'modalidad gráfica o SQL' in response.text
+    assert 'Pr&oacute;ximos pasos' in response.text and 'Modelado de vistas' in response.text
     response = client.post(f'/wizards/{run.id}/back')
     assert response.status_code == 200 and '¿Qué procesamiento necesitás?' in response.text
     # Las cinco recomendaciones condicionadas deben explicar el alcance en el HTML real.

@@ -38,7 +38,8 @@ start: q1
 nodes:
   q1:
     type: single_choice
-    question: "¿El objeto BW tiene uso real y es crítico para el negocio (métricas de ejecución + validación con el área)?"
+    question: "¿El objeto BW se usa de verdad y es crítico para el negocio?"
+    help: "Confirmalo con métricas de ejecución y con la validación del área usuaria."
     options: ["Sí", "No", "No sé"]
     next:
       "Sí": q2_extractor
@@ -47,7 +48,8 @@ nodes:
 
   q2_extractor:
     type: single_choice
-    question: "¿El extractor o fuente de datos está soportado para integración con Datasphere (ODP-SAPI whitelisted o CDS disponible)?"
+    question: "¿La fuente está soportada para integrarse con Datasphere?"
+    help: "Por ejemplo, un extractor ODP-SAPI whitelisted o una CDS disponible."
     options: ["Sí", "No"]
     next:
       "Sí": q3_logica
@@ -55,7 +57,8 @@ nodes:
 
   q3_logica:
     type: single_choice
-    question: "¿La lógica de negocio o transformación reside en el core SAP (rutinas de transformación, exits, cálculos en BW)?"
+    question: "¿La lógica de negocio vive en el core SAP?"
+    help: "Por ejemplo, rutinas de transformación, exits o cálculos en BW."
     options: ["Sí", "No"]
     next:
       "Sí": leaf_migrar_logica
@@ -63,7 +66,7 @@ nodes:
 
   q4_cds_alternativa:
     type: single_choice
-    question: "¿Existe un extractor CDS estándar que cubra la necesidad del objeto BW?"
+    question: "¿Hay una CDS estándar de extracción que cubra lo que hace el objeto BW?"
     options: ["Sí", "No", "No sé"]
     next:
       "Sí": q5_cds_compat
@@ -72,7 +75,8 @@ nodes:
 
   q5_cds_compat:
     type: single_choice
-    question: "¿La CDS estándar cuenta con las anotaciones compatibles con Datasphere (@Analytics.dataExtraction)?"
+    question: "¿La CDS estándar tiene las anotaciones que necesita Datasphere?"
+    help: "En particular, @Analytics.dataExtraction."
     options: ["Sí", "No"]
     next:
       "Sí": leaf_canonizar

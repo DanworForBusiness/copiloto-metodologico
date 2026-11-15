@@ -129,6 +129,7 @@ from webapp.services import cv_history_acceptance, cv_history_drafts, cv_history
 from webapp.services import cv_inbox
 from webapp.services import human_capital_contact, human_capital_export, human_capital_profile_send as profile_send, human_capital_share, profile_consolidation_service
 from webapp.services import notifications
+from webapp.services import human_capital_contact_send as contact_send
 from webapp.services import scoring_engine, scoring_evaluation_repository, scoring_grid_repository, scoring_service
 from webapp.services.activity_catalog import (
     AREA_CCHH, OUTCOME_FAILED, OUTCOME_PARTIAL, OUTCOME_REJECTED, OUTCOME_SUCCESS, SCOPE_HUMAN_CAPITAL,
@@ -2569,8 +2570,46 @@ def human_capital_busqueda_candidate_contact(request: Request, busqueda_id: str,
     view = human_capital_contact.contact_view(profile, busqueda, application) if profile and not profile.get("deleted_at") else None
     return templates.TemplateResponse(
         request=request, name="partials/human_capital_contact_dialog_content.html",
-        context={"request": request, "view": view, "event_url": f"/cchh/busquedas/{busqueda_id}/candidatos/{application_id}/contacto/evento"}, headers={"Cache-Control": "no-store"},
+        context={"request": request, "view": view, "event_url": f"/cchh/busquedas/{busqueda_id}/candidatos/{application_id}/contacto/evento",
+                 "send_url": f"/cchh/busquedas/{busqueda_id}/candidatos/{application_id}/contacto/enviar", "send_enabled": notifications.enabled()},
+        headers={"Cache-Control": "no-store"},
     )
+
+
+@router.post("/cchh/busquedas/{busqueda_id}/candidatos/{application_id}/contacto/enviar", include_in_schema=False)
+def human_capital_busqueda_candidate_contact_send(
+    request: Request, busqueda_id: str, application_id: str,
+    situacion: str = Form(""), asunto: str = Form(""), mensaje: str = Form(""), operation_id: str = Form(""),
+):
+    """«Contactar candidato» → Mail → «Enviar»: correo institucional al email VIGENTE del candidato (resuelto acá desde la postulación de ESTA
+    búsqueda; el navegador no aporta destinatario). Sesión + CCHH + mismo origen. Tras el resultado de Graph registra UN evento en el historial
+    (`event_id` = `operation_id`); si el historial falla, el envío NO se repite (la auditoría durable bloquea el mismo `operation_id`)."""
+    user = auth_service.session_user(request)
+    if not user:
+        return JSONResponse({"status": "error", "message": "Sin sesión"}, status_code=401)
+    if not human_capital_access.is_human_capital_authorized(request):
+        return JSONResponse({"status": "error", "message": "No autorizado"}, status_code=403)
+    if not same_origin_guard.is_same_origin_write(request):
+        return JSONResponse({"status": "error", "message": "Origen no permitido"}, status_code=403)
+    actor = _pipeline_actor(request)
+    out = contact_send.send_contact(operation_id=operation_id.strip(), actor=actor, busqueda=human_capital_service.get_busqueda(busqueda_id),
+                                    application_id=application_id, situacion=situacion, subject=asunto, body=mensaje,
+                                    get_profile=human_capital_service.get_profile)
+    st = out.get("status")
+    outcome = st if st in contact_send.HISTORY_ACTION else (out.get("prior_outcome") if st == "duplicate" else None)
+    if outcome in contact_send.HISTORY_ACTION:                      # también en un reintento: si el historial había fallado, se completa (idempotente)
+        try:
+            busqueda, _recorded = human_capital_service.register_candidate_contact(
+                busqueda_id, application_id, contact_send.HISTORY_ACTION[outcome], situacion, "mail", actor=actor, event_id=operation_id.strip())
+            out["history_html"] = templates.get_template("partials/human_capital_historial_section.html").render(
+                request=request, view=_busqueda_detail_context(busqueda)["busqueda_historial"])
+            out["history_recorded"] = True
+        except Exception as exc:                                     # noqa: BLE001 — el envío ya ocurrió: nunca se reintenta por esto
+            logging.getLogger("danwor.cchh.contact_send").warning("operation=candidate_contact history_not_recorded op=%s error=%s", operation_id[:12], type(exc).__name__)
+            out["history_recorded"] = False
+    code = 200 if st in ("accepted", "uncertain", "duplicate") else (503 if st in ("disabled", "config_incomplete") or out.get("reason") == "audit_unavailable"
+                                                                    else 404 if out.get("reason") == "not_found" else 422)
+    return JSONResponse(out, status_code=code, headers=_NO_STORE)
 
 
 @router.post("/cchh/busquedas/{busqueda_id}/candidatos/{application_id}/contacto/evento", response_class=HTMLResponse, include_in_schema=False)

@@ -354,3 +354,15 @@ def test_sapsf_sanitization_keeps_oauth_endpoint_and_company_but_drops_secrets()
     clean = cup._strip({"oauth2": oauth2})["oauth2"]
     assert clean == {"oauth2GrantType": "saml_bearer", "oauth2TokenEndpoint": "https://api19.sapsf.com/oauth/token", "oauth2CompanyId": "contrerash"}
     assert cup.unsafe_properties({"oauth2": oauth2}) == []
+
+
+def test_origins_guide_mirrors_domains_guide_and_opens_connections_catalog(monkeypatch):
+    from webapp.services import guides_service as gs
+    dom, org = gs.load("datasphere_core", "como-publicar-dominios"), gs.load("datasphere_core", "como-publicar-origenes")
+    assert [s.get("short") for s in dom["steps"]][:4] == [s.get("short") for s in org["steps"]][:4] and len(org["steps"]) == len(dom["steps"]) == 5
+    assert org["back_module"] == "01"
+    monkeypatch.setattr(catalog_reads, "_catalog_domains", lambda: ["Dominio"])
+    html = _owner().get("/catalog/guide/como-publicar-origenes?pack=datasphere_core&embed=1").text
+    assert "/modules/01_Arquitectura_y_Conectividad?pack=datasphere_core&amp;tab=catalogo&amp;catalog_action=extract" in html
+    page = _owner().get("/modules/01_Arquitectura_y_Conectividad?pack=datasphere_core&tab=catalogo&catalog_action=extract").text
+    assert "'extract')" in page                                                           # el panel abre el «+» (catalogView = extract)

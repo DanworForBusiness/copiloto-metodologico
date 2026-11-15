@@ -124,7 +124,7 @@ principles:
     Analytic Model es AM_..., nunca 4AM_...'
 - id: consumption_boundary
   rule: 'La salida de consumo se resuelve en tres formas. Modelo semantico: Analytic Model (AM), sin numero, via preferida.
-    Producto reutilizable y gobernado: data product de capa 3 (3V/3T), con sufijo de consumidor opcional. Adaptador
+    Producto reutilizable y gobernado: data product de capa 3 (3V/3T), con sufijo de consumidor solo si la salida es exclusiva de ese consumidor. Adaptador
     exclusivo e irreusable de un canal que no puede consumir el AM o el data product directamente: vista o tabla de capa
     4 (4V/4T) con sufijo de consumidor obligatorio. Si un 4V/4T resulta reutilizable, reclasificar a capa 3.'
 naming_patterns:
@@ -289,7 +289,7 @@ nodes:
     purpose: branch_decision
   q_l1_boundary:
     type: single_choice
-    question: ¿El objeto es una tabla remota o local que preserva sin cambios el contrato tecnico, granularidad
+    question: ¿El objeto es una tabla remota o local que preserva sin cambios el contrato técnico, granularidad
       y significado del origen?
     options:
     - Si, es una tabla espejo del origen

@@ -450,12 +450,12 @@
           "embed": false,
           "external": false,
           "label": "Ir a la sección",
-          "url": "/modules/04_Modelado_y_Desarrollo?pack=datasphere_core#tipos-de-vistas-sql"
+          "url": "/modules/04_Modelado_y_Desarrollo?pack=datasphere_core#modelado-de-vistas"
         }
       ],
-      "explain_heading": "{dw-black}Tipos de {dw-gold}Vistas SQL",
+      "explain_heading": "{dw-black}Modelado de {dw-gold}vistas",
       "explain_module": "04_Modelado_y_Desarrollo",
-      "message": "Para esto conviene partir de la sección **Tipos de Vistas SQL**."
+      "message": "Para esto conviene partir de la sección **Modelado de vistas**."
     }
   },
   "05_Reporting_y_Consumo::fallback::recomendame una serie para ver el fin de semana": {

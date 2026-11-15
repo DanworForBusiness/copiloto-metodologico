@@ -166,6 +166,7 @@
   "POST /catalog/section-feedback/submit",
   "POST /cchh/busquedas/nueva",
   "POST /cchh/busquedas/{busqueda_id}/candidatos",
+  "POST /cchh/busquedas/{busqueda_id}/candidatos/{application_id}/contacto/enviar",
   "POST /cchh/busquedas/{busqueda_id}/candidatos/{application_id}/contacto/evento",
   "POST /cchh/busquedas/{busqueda_id}/candidatos/{application_id}/eliminar",
   "POST /cchh/busquedas/{busqueda_id}/candidatos/{application_id}/etapa",

@@ -1189,7 +1189,12 @@ def test_whats_new_announces_the_assessment_with_a_cta_to_the_real_tool_target(o
     assert not re.search(r"scor|puntaje|madurez|CSN|run_export|result_id|directorio", e["detail"], re.I)       # producto, no implementación
     assert e["link"] == f"/modules/{STEM}?pack=datasphere_core&tool=assessment"
     refs = [x["ref"] for x in wn.entries("datasphere_core")]
-    assert refs[:2] == ["catalogo-conectividad-sap", "datasphere-assessment"]                               # fecha desc: 2026-11-01 publicó Disponibilidad SAP encima
+    assert refs[0] == "assessments-accionables"                                                             # nueva entrada inicial (Lote 3): queda primera por fecha
+    prev = [r for r in refs if r != "assessments-accionables"]                                              # el resto, sin la nueva
+    assert prev[:2] == ["catalogo-conectividad-sap", "datasphere-assessment"]                               # las anteriores conservan su orden relativo
+    for old_ref in ("catalogo-conectividad-sap", "datasphere-assessment"):
+        assert items[old_ref].get("link")                                                                   # y conservan su enlace
+    assert items["assessments-accionables"].get("link")                                                     # la nueva viene bien formada (con enlace)
     for old_ref in ("data-products-bdc", "d6147d5", "0722a31", "catalogos-danwor"):
         assert old_ref in items                                                                              # las anteriores siguen intactas
 

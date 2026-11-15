@@ -421,7 +421,7 @@ leaves:
         - "Confirmar Captura Delta activa en origen y destino antes de desplegar"
 
   leaf_vista_sql:
-    decision: Vista SQL — resolver la transformación al consultar.
+    decision: Vista en SAP Datasphere — resolver la transformación al consultar, con modalidad gráfica o SQL.
     notes:
     - Joins, uniones, filtros, cálculos y agregaciones no requieren por sí solos un flujo de datos.
     - Aplica si las fuentes son consultables por la vista y la lógica es declarativa. Una restricción conocida de
@@ -431,7 +431,7 @@ leaves:
     post_actions:
       mode: resolved
       next_steps:
-      - Abrir el árbol 'Tipos de Vistas SQL' para evaluar tu escenario y elegir el tipo de vista
+      - Abrir el árbol 'Modelado de vistas' para elegir la modalidad de expresión y mantenimiento según tu escenario
   leaf_transformation_flow_simple:
     decision: Transformation Flow — transformación declarativa hacia una tabla local HANA.
     notes:

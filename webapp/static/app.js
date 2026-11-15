@@ -21,7 +21,7 @@ function copilotLayout(activeGroup = "core", readonly = false, initialTab = "", 
     // posicione el panel derecho en una pestaña puntual; si no viene, el default.
     toolTab: initialTab || (readonly ? "assistant" : "section"),
     // Estado de presentación del Catálogo: explorar vs. alta (publicación embebida). Ver catalog_tab.html.
-    catalogView: initialCatalogAction === "publish" ? "publish" : "browse",
+    catalogView: ["publish", "extract"].includes(initialCatalogAction) ? initialCatalogAction : "browse",   // extract = «+» del Catálogo de conectividad (01)
     activeSection: "",
     // Hub Transversal Module Section Navigation (ver HANDOFF): visibilidad
     // del nav anidado persistente (`.module-subnav`) -- SOLO relevante en
