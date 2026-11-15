@@ -10,6 +10,7 @@ Los unicos CORTES numericos del modulo son de CALIFICADORES (``design_coherence`
 """
 from __future__ import annotations
 
+import re
 from typing import Any, Iterable, Mapping
 
 from tools.catalog import leaf_materialization as LM
@@ -677,7 +678,7 @@ def qualifier_naming(ev: ProfileEvidence, har_rel_02: bool) -> dict:
     return {"state": state, "disposition": C.NEEDS_CONTEXT if state not in ("NONE", "NOT_DETERMINABLE") else None, "level_effect": "NONE", "closure_effect": "NONE"}
 
 
-def reviews_and_limitations(ev: ProfileEvidence, policy: str, ratified: frozenset = frozenset()) -> tuple[list[dict], list[dict]]:
+def reviews_and_limitations(ev: ProfileEvidence, policy: str, ratified: frozenset = frozenset(), v5: bool = False, source_strength: bool = False) -> tuple[list[dict], list[dict]]:
     rev, lim = [], []
     # predicados fijos: NO evaluados en v1
     trivial = (ev.section("expression_occurrences").get("trivial_predicates") or ())
@@ -687,14 +688,23 @@ def reviews_and_limitations(ev: ProfileEvidence, policy: str, ratified: frozense
                            refs=["ce:expression_occurrences"], extra={"possible_ownership": ["PRODUCT_SEMANTICS", "ACQUISITION_FILTER", "BUSINESS_SCOPE", "SECURITY_AUTHORIZATION", "DAC_CANDIDATE"]}))
         lim.append(_limitation("predicate_ownership_not_evaluated", refs=["ce:expression_occurrences"], ev=ev))
     # fuentes externas indeterminadas
-    if ev.has_external_origins:
+    # v5 (R4-b): una hoja MIXED_BOUNDARY_CLASSES con algun componente no gobernado tambien es una clase de contrato de origen PENDIENTE: abre la misma revision (antes no tenia donde vivir).
+    mixed_und = [l for l in sorted(ev.remote_leaves) if (ev.leaf_class_records.get(l) or {}).get("contract_class") == "MIXED_BOUNDARY_CLASSES"
+                 and ev.classify_source(l, policy) == EXTERNAL_CONTRACT_UNDETERMINED] if v5 else []
+    if ev.has_external_origins or mixed_und:
         und = [l for l in sorted(ev.remote_leaves) if ev.classify_source(l, policy) == EXTERNAL_CONTRACT_UNDETERMINED]
+        extra = {"count_in_closure": ev.source_state_counts.get("OTHER_ORIGIN", 0)}
+        if mixed_und:
+            extra["mixed_boundaries"] = [{"leaf": l, "boundary_classes": sorted((ev.leaf_class_records.get(l) or {}).get("boundary_classes") or ())} for l in mixed_und]
         rev.append(_review("EXTERNAL_CONTRACT_UNDETERMINED", "SRC-REV-01", "EXTERNAL_CONTRACT_UNDETERMINED", "OPEN", artifacts=und, ev=ev,
-                           refs=["area:SOURCE_EXTRACTION"], extra={"count_in_closure": ev.source_state_counts.get("OTHER_ORIGIN", 0)}))
+                           refs=["area:SOURCE_EXTRACTION"], extra=extra))
         # DECISION-CRITICA sii alguna de esas hojas indeterminadas expone su vocabulario verbatim al contrato publicado (ver
         # decision_critical_undetermined_source): entonces la limitacion SI puede cambiar el nivel (la clase no resuelta decide leak vs reuso).
         crit = bool(decision_critical_undetermined_source(ev, policy, ratified))
-        lim.append(_limitation("external_source_contract_undetermined", artifacts=und, refs=["area:SOURCE_EXTRACTION"], can_change_level=crit, ev=ev))
+        # v5 (R4-a): tambien puede cambiar el nivel cuando la clase indeterminada deja la Ingesta sin fortaleza afirmativa (SOURCE «evidencia insuficiente»): resolverla puede
+        # concluir el Juicio aunque no haya exposicion verbatim (p. ej. un LVL-06). v2-v4 conservan la semantica previa (solo exposicion decision-critica).
+        can_change = crit or (v5 and bool(und) and not source_strength)
+        lim.append(_limitation("external_source_contract_undetermined", artifacts=und, refs=["area:SOURCE_EXTRACTION"], can_change_level=can_change, ev=ev))
     # semantica temporal reutilizada que NO califica como creada aguas abajo sobre una frontera tecnica (L1(b)): revision, sin efecto en nivel
     _, unq = _downstream_created_semantics(ev)
     if unq:
@@ -984,16 +994,178 @@ def mixed_auxiliary_physical_reviews(ev: ProfileEvidence, policy: str) -> list[d
                     extra={"physical_components": [{k: c[k] for k in ("leaf", "physical_entities", "governed_entities")} for c in aux], "interpretation": "TECHNICAL_EVIDENCE_NOT_A_DEFICIENCY"})]
 
 
-def evaluate_rules(ev: ProfileEvidence, policy: str = "UNDETERMINED", variants: frozenset = frozenset(), ratified: frozenset = frozenset()) -> dict:
+# ───────────────────────────── judgment-rules/v5 ─────────────────────────────
+_PRODUCED_CHARACTERS = frozenset({"WITH_DERIVATION"})          # M4: consecuencia PRODUCIDA (derivacion), no herencia de nombre ni cast
+_TYPED_LAYER_DIGIT_AM = re.compile(r"artefacto tipado 'AM' no debe llevar prefijo de capa '4'")
+
+
+def _naming_population(ev: ProfileEvidence, identity: str) -> Mapping[str, Any]:
+    pops = ((ev.section("naming_evidence").get("hygiene") or {}).get("artifact_name_populations") or {}).get("by_identity") or ()
+    return next((p for p in pops if isinstance(p, Mapping) and p.get("identity") == identity), {})
+
+
+def _typed_artifact_recoverable(ev: ProfileEvidence, pop: Mapping[str, Any], artifact: str) -> bool:
+    """Artefacto TIPADO con digito de capa (§29) cuya responsabilidad acredita evidencia INDEPENDIENTE del identificador: hoy SOLO el AM terminal (tipo ``analytic-model`` declarado en el
+    alcance del Assessment, no inferido del nombre) cuyo incumplimiento registrado es exactamente «AM con prefijo de capa '4'» (la capa canonica de un AM es Consumo). No homologa
+    cualquier prefijo numerado: otro tipo, otro digito o un incumplimiento distinto siguen siendo no recuperables."""
+    if artifact != ev.am or ev.scope.get("root_type") != "analytic-model":
+        return False
+    return any(_TYPED_LAYER_DIGIT_AM.search(str(r.get("key") or "")) for r in pop.get("violation_reason_histogram") or ())
+
+
+def naming_gate(ev: ProfileEvidence, threshold: float = C.NAMING_GATE_MAX_NONRECOVERABLE_RATIO) -> dict:
+    """Compuerta de naming de judgment-rules/v5 (SOLO puede limitar BUENA a ADECUADA; jamas sube ni toca PARCIAL/ND).
+
+    Tres conceptos distintos: IDENTIDAD (quien es responsable del nombre: ``PROJECT_ASSIGNED`` = modelador; ``UNKNOWN`` = no establecido), CONFORMIDAD formal (§28, hecho para todo
+    artefacto aplicable) y RECUPERABILIDAD (capa/rol verificable sin mirar el nombre: rol declarado o tipo acreditado). Solo la responsabilidad ACREDITADA decide:
+        ratio_NR     = N / G                       (G gobernables PROJECT_ASSIGNED; N no recuperables)
+        ratio_NR_max = (N + U_n) / (G + U_n)       (cota superior: todo UNKNOWN no conforme y no recuperable fuese del modelador)
+    Los UNKNOWN conformes o recuperables NO entran en ninguna formula: no se acredita merito sin responsabilidad. PASS = aun en la cota superior el naming no limita; BLOCK = divergencia
+    ACREDITADA (> θ) sobre responsabilidad del modelador; NOT_ACCREDITED = el resultado depende de responsabilidad no establecida (no se afirma incumplimiento: BUENA no pudo acreditarse)."""
+    pa, un = _naming_population(ev, "PROJECT_ASSIGNED"), _naming_population(ev, "UNKNOWN")
+    basis = {v.get("artifact"): v.get("inferred_layer_basis") for v in (ev.section("view_complexity").get("views") or ()) if isinstance(v, Mapping)}
+
+    def split(pop: Mapping[str, Any]) -> tuple[list[str], list[str], list[str]]:
+        nc = [str(a) for a in pop.get("non_compliant_artifacts") or ()]
+        by_role = [a for a in nc if basis.get(a) == "DECLARED_ROLE"]
+        by_type = [a for a in nc if a not in by_role and _typed_artifact_recoverable(ev, pop, a)]
+        return by_role, by_type, [a for a in nc if a not in by_role and a not in by_type]
+
+    present = bool(pa) or bool(un)
+    g = int(pa.get("applicable") or 0)
+    rec_role, rec_type, nonrec = split(pa)
+    u_role, u_type, u_nonrec = split(un)
+    n, u_n = len(nonrec), len(u_nonrec)
+    ratio = (n / g) if g else None
+    ratio_max = ((n + u_n) / (g + u_n)) if (g + u_n) else None
+    if not present:
+        state, basis_key = C.NAMING_GATE_NOT_ACCREDITED, "NAMING_EVIDENCE_ABSENT"
+    elif g + u_n == 0:
+        state, basis_key = C.NAMING_GATE_PASS, "NO_ARTIFACT_CAN_DEVIATE"
+    elif g > 0 and ratio > threshold:
+        state, basis_key = C.NAMING_GATE_BLOCK, "ACCREDITED_NON_RECOVERABLE_RATIO_ABOVE_THRESHOLD"
+    elif ratio_max <= threshold:
+        state, basis_key = C.NAMING_GATE_PASS, "UPPER_BOUND_WITHIN_THRESHOLD"
+    else:
+        state, basis_key = C.NAMING_GATE_NOT_ACCREDITED, ("NO_ACCREDITED_GOVERNED_BASE" if g == 0 else "OUTCOME_DEPENDS_ON_UNDETERMINED_RESPONSIBILITY")
+    rnd = (lambda x: None if x is None else round(x, 6))
+    return {"state": state, "basis": basis_key, "threshold": threshold, "level_effect": "BUENA_TO_ADECUADA_ONLY",
+            "governed": g, "conforming": int(pa.get("compliant") or 0), "recoverable_by_declared_role": len(rec_role), "recoverable_by_type": len(rec_type), "non_recoverable": n,
+            "excluded_source_derived": int(_naming_population(ev, "SOURCE_DERIVED_IMPORTED").get("applicable") or 0), "excluded_system": int(_naming_population(ev, "SYSTEM").get("applicable") or 0),
+            "unknown": int(un.get("applicable") or 0), "unknown_conforming": int(un.get("compliant") or 0), "unknown_recoverable": len(u_role) + len(u_type), "unknown_non_recoverable": u_n,
+            "ratio_nr": rnd(ratio), "ratio_nr_max": rnd(ratio_max),
+            "non_recoverable_artifacts": sorted(nonrec), "recoverable_artifacts": sorted(rec_role + rec_type), "unknown_non_recoverable_artifacts": sorted(u_nonrec)}
+
+
+def _single_source_logic_resolves(ev: ProfileEvidence, leaf: str) -> tuple[bool, str | None]:
+    """M2 por RESPONSABILIDAD: recorriendo la cadena desde la hoja, el primer nodo con logica es de UNA sola fuente (1 proveedor, 0 joins; filtros/uniones/derivaciones admitidos)
+    => la responsabilidad de fuente se resuelve antes de integrar, aunque el nodo no sea un candidato de armonizacion declarado. Un nodo de paso (sin logica) no resuelve nada: se sigue."""
+    frontier = sorted(n for n, v in ev.views.items() if leaf in (v.get("provider_names") or ()))
+    seen: set[str] = set()
+    while frontier:
+        n = frontier.pop(0)
+        if n in seen:
+            continue
+        seen.add(n)
+        v = ev.views.get(n) or {}
+        m = v.get("metrics") or {}
+        if len(v.get("provider_names") or ()) != 1 or m.get("joins"):
+            return False, n
+        if m.get("unions") or m.get("derived_columns") or (m.get("filters") or {}).get("where_nodes"):
+            return True, n
+        frontier += sorted(c for c in ev.consumers.get(n, ()) if c in ev.views)
+    return False, None
+
+
+def rule_pro_mat_02(ev: ProfileEvidence, policy: str, covered_leaves: frozenset = frozenset()) -> tuple[list[dict], list[dict]]:
+    """PRO-MAT-02 (judgment-rules/v5) — responsabilidad de una FRONTERA FISICA CRUDA desplazada a logica de Modelado, con consecuencia PRODUCIDA en el contrato publicado. Detector CONSERVADOR
+    (no define todas las malas practicas: «no observado» NO significa correcto). Por hoja, todas a la vez:
+      M1 hoja de clase EXPLICITA ``PHYSICAL_ABAP_TABLE_BOUNDARY`` en la espina (excluye externas indeterminadas, MIXED y UNKNOWN, cualquiera sea la politica de sensibilidad);
+      M2 la responsabilidad NO se resuelve en un nodo de una sola fuente antes de integrar (``_single_source_logic_resolves``);
+      M3 compensada por logica de Modelado fuera de los candidatos de armonizacion (``_raw_bypass_compensated``), en cualquier posicion;
+      M5 (a) un predicado WHERE de un nodo de compensacion lee la cadena de la hoja Y (b) un nodo de compensacion integra (join) el flujo de la hoja con un proveedor que no deriva de ella;
+      M4 >=1 medida o clave de asociacion PUBLICADA se deriva (camino WITH_DERIVATION sin armonizacion) desde la hoja ATRAVESANDO un nodo donde se cumple M5.
+    Sin ocurrencias de expresiones o con linaje publicado incompleto: NOT_EVALUABLE_COVERAGE (fail-closed: no crea MATERIAL). Una hoja ya cubierta por PRO-MAT-01 no se cuenta dos veces.
+    Devuelve (razones MATERIAL, registros por hoja)."""
+    comp = _raw_bypass_compensated(ev, policy)
+    candidates = sorted(l for l in ev.remote_leaves if (ev.leaf_class_records.get(l) or {}).get("contract_class") == "PHYSICAL_ABAP_TABLE_BOUNDARY" and _raw_on_strict_spine(ev, l))
+    reasons, records = [], []
+    occ = list(ev.expression_occurrences or ())
+    for leaf in candidates:
+        rec = {"leaf": leaf, "conditions": {"M1": True}}
+        nodes = comp.get(leaf)
+        if not nodes:
+            rec.update(state=C.MATERIAL_COMPENSATION_NOT_OBSERVED, failed_condition="M3", conditions={**rec["conditions"], "M3": False})
+            records.append(rec)
+            continue
+        resolved, at = _single_source_logic_resolves(ev, leaf)
+        rec["conditions"].update(M2_unresolved=not resolved, M3=True)
+        rec["compensation_nodes"] = sorted(nodes)
+        if resolved:
+            rec.update(state=C.MATERIAL_COMPENSATION_NOT_OBSERVED, failed_condition="M2", resolved_at=at)
+            records.append(rec)
+            continue
+        if not occ or ev.lineage_incomplete_fields:
+            rec.update(state=C.MATERIAL_COMPENSATION_NOT_EVALUABLE, failed_condition="COVERAGE",
+                       coverage={"expression_evidence": bool(occ), "published_lineage_complete": not ev.lineage_incomplete_fields})
+            records.append(rec)
+            continue
+        chain = {n for n in ev.views if leaf in set(ev.ancestors(n))}
+        from_leaf = lambda p: p == leaf or p in chain                          # noqa: E731
+        m5a = sorted({(o["artifact"], i.get("field")) for o in occ if o.get("clause") == "WHERE" and o.get("artifact") in nodes
+                      for i in o.get("inputs") or () if from_leaf(i.get("provider"))}, key=lambda t: (str(t[0]), str(t[1])))
+        m5b = sorted(n for n in nodes if ((ev.views.get(n) or {}).get("metrics") or {}).get("joins")
+                     and any(from_leaf(p) for p in (ev.views.get(n) or {}).get("provider_names") or ())
+                     and any(not from_leaf(p) for p in (ev.views.get(n) or {}).get("provider_names") or ()))
+        m5_nodes = {a for a, _ in m5a} | set(m5b)
+        witnesses = []
+        for name, r in ev.lineage_fields.items():
+            if r.get("role") not in ("MEASURE", "ASSOCIATION_KEY") or not (set(r.get("artifacts_traversed") or ()) & m5_nodes):
+                continue
+            if any(lf.get("leaf") == leaf and _paths(lf, characters=_PRODUCED_CHARACTERS, through=False) for lf in r.get("frontier_leaves") or ()):
+                witnesses.append(name)
+        rec["conditions"].update(M5a=bool(m5a), M5b=bool(m5b), M4=bool(witnesses))
+        rec.update(predicate_witnesses=[{"artifact": a, "field": f} for a, f in m5a], integration_nodes=m5b, published_witnesses=sorted(witnesses))
+        failed = next((k for k, ok in (("M5a", bool(m5a)), ("M5b", bool(m5b)), ("M4", bool(witnesses))) if not ok), None)
+        if failed:
+            rec.update(state=C.MATERIAL_COMPENSATION_NOT_OBSERVED, failed_condition=failed)
+        elif leaf in covered_leaves:
+            rec.update(state=C.MATERIAL_COMPENSATION_ACCREDITED, covered_by="PRO-MAT-01")
+        else:
+            rec["state"] = C.MATERIAL_COMPENSATION_ACCREDITED
+            reasons.append(_reason(
+                "PRO-MAT-02", C.MATERIAL_DEVIATION, C.PROPAGATION, "pro.source_responsibility_displaced_with_produced_consequence", leaf, ev=ev, secondary=C.SOURCE_INGESTION,
+                artifacts=[leaf, *nodes], refs=[_fact_ref(ev, "source.contract", leaf), f"ce:source_contract_classes/{leaf}", "ce:expression_occurrences", "ce:published_field_lineage",
+                                                *[f"ce:view_complexity/{n}" for n in sorted(m5_nodes)], *[f"ce:published_field_lineage/{w}" for w in sorted(witnesses)]],
+                basis=["PRO2.M1.verified_physical_raw_boundary_on_spine", "PRO2.M2.no_single_source_resolution_before_integration", "PRO2.M3.compensated_by_modeling_logic",
+                       "PRO2.M5a.source_records_selected_by_predicates_in_compensation", "PRO2.M5b.raw_flow_integrated_with_other_sources_before_normalization",
+                       "PRO2.M4.published_measure_or_key_produced_through_the_compensation"],
+                causal={"expected_responsibility": "the raw source boundary is resolved (record selection, structure, vocabulary) before integration",
+                        "unresolved": f"{leaf}: no single-source resolution before integration",
+                        "compensation": "modeling nodes select source records and integrate them with other sources: " + ", ".join(sorted(m5_nodes)),
+                        "published_not_restored": "published measures/keys produced through the compensation: " + ", ".join(sorted(witnesses)[:8])},
+                extra={"published_witnesses": sorted(witnesses), "predicate_witnesses": [{"artifact": a, "field": f} for a, f in m5a], "integration_nodes": m5b}))
+        records.append(rec)
+    return reasons, records
+
+
+def evaluate_rules(ev: ProfileEvidence, policy: str = "UNDETERMINED", variants: frozenset = frozenset(), ratified: frozenset = frozenset(), v5: bool = False) -> dict:
     pro = rule_pro_mat_01(ev, policy)
     lek = rule_lek_mat_02(ev, policy)
     src = rule_src_rel_loc(ev, policy, variants)
     h1, h2 = rule_har_rel_01(ev), rule_har_rel_02(ev)
     loc = rule_pro_loc_01(ev, {r["reason_id"].split(":", 1)[1] for r in pro})
-    reasons = [*pro, *lek, *src, *h1, *h2, *loc]
+    pro2, material_records = ([], [])
+    if v5:
+        covered = frozenset(a for r in pro for a in r.get("affected_artifacts") or ())
+        pro2, material_records = rule_pro_mat_02(ev, policy, covered)
+    reasons = [*pro, *pro2, *lek, *src, *h1, *h2, *loc]
     st = strengths(ev, policy, has_pro_mat=bool(pro), variants=variants)
     cg = review_complex_graphical_chain(ev)
-    reviews, limitations = reviews_and_limitations(ev, policy, ratified)
+    reviews, limitations = reviews_and_limitations(ev, policy, ratified, v5=v5, source_strength=any(s["rule_id"] == "SRC-STR-01" for s in st))
+    if v5 and any(r["state"] == C.MATERIAL_COMPENSATION_NOT_EVALUABLE for r in material_records):
+        limitations.append(_limitation("material_compensation_not_evaluable", artifacts=[r["leaf"] for r in material_records if r["state"] == C.MATERIAL_COMPENSATION_NOT_EVALUABLE],
+                                       refs=["ce:expression_occurrences", "ce:published_field_lineage"], can_change_level=True, ev=ev))
     if cg:
         reviews.append(cg)
     if C.VARIANT_T5_LOCAL_PHYSICAL in variants and C.VARIANT_MATERIALIZED_INPUT in variants:
@@ -1004,4 +1176,5 @@ def evaluate_rules(ev: ProfileEvidence, policy: str = "UNDETERMINED", variants: 
         "naming_governance": qualifier_naming(ev, bool(h2)),
     }
     return {"reasons": reasons, "strengths": st, "qualifiers": qualifiers, "review_candidates": reviews, "evidence_limitations": limitations,
-            "supporting_evidence": supporting_evidence(ev), "critical_source_undetermined": decision_critical_undetermined_source(ev, policy, ratified)}
+            "supporting_evidence": supporting_evidence(ev), "critical_source_undetermined": decision_critical_undetermined_source(ev, policy, ratified),
+            **({"material_compensation": material_records} if v5 else {})}

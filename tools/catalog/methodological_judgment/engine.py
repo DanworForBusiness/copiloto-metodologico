@@ -10,6 +10,8 @@ Logica de decision (cualitativa y existencial, en este orden):
   4. >=1 razon RELEVANT efectiva                     -> DETERMINED / ADECUADA
   5. fortaleza afirmativa en los 4 contratos         -> DETERMINED / BUENA
   6. si no                                           -> NOT_DETERMINABLE
+judgment-rules/v5: el paso 1 incluye PRO-MAT-02 (responsabilidad de frontera cruda desplazada con consecuencia publicada producida) y el paso 5 pasa por la compuerta de naming
+(``rules.naming_gate``): BLOCK / NOT_ACCREDITED limitan BUENA a ADECUADA (LVL-09); la compuerta nunca sube ni toca PARCIAL/ND. v2-v4 no cambian.
 PLENA nunca se emite (``PLENA_ASSIGNMENT = DISABLED_UNTIL_CALIBRATED``). El paso 3 nunca degrada un MATERIAL ya establecido (va despues del 1):
 si otra regla ratificada determina PARCIAL de forma independiente, la fuente indeterminada no lo convierte en NOT_DETERMINABLE.
 """
@@ -24,8 +26,8 @@ from tools.catalog.methodological_judgment.profile_access import ProfileEvidence
 
 from . import contract as C
 from .cta import build_cta_candidates
-from .rules import (decision_critical_undetermined_source, dimension_resolution, dimension_resolution_v4, evaluate_rules, har_unknown_candidates, published_contract_conformance,
-                    resolve_level_exploratory, resolve_level_v4)
+from .rules import (_review, decision_critical_undetermined_source, dimension_resolution, dimension_resolution_v4, evaluate_rules, har_unknown_candidates, naming_gate,
+                    published_contract_conformance, resolve_level_exploratory, resolve_level_v4)
 
 _STRENGTH_BY_DIM = {
     C.SOURCE_INGESTION: ("SRC-STR-01",),
@@ -320,8 +322,9 @@ def evaluate_judgment(profile: Mapping[str, Any], dispositions: Iterable[Mapping
         raise ValueError(f"variantes desconocidas: {sorted(variants - C.VARIANTS)}")
     if ruleset not in C.RULESETS:
         raise ValueError(f"ruleset desconocido: {ruleset!r} (permitidos: {list(C.RULESETS)})")
-    v4 = ruleset == C.RULESET_V4
-    v3 = ruleset in (C.RULESET_V3, C.RULESET_V4)                          # v4 incluye la politica de ratificacion de v3 (misma entrada ``ratified_contracts``/``decision_inputs``)
+    v5 = ruleset == C.RULESET_V5                                          # v5 = v4 + compuerta de naming (BUENA->ADECUADA) + PRO-MAT-02 + exactitud de fuente externa (ver contract)
+    v4 = ruleset in (C.RULESET_V4, C.RULESET_V5)
+    v3 = ruleset in (C.RULESET_V3, C.RULESET_V4, C.RULESET_V5)            # v4/v5 incluyen la politica de ratificacion de v3 (misma entrada ``ratified_contracts``/``decision_inputs``)
     if v3 and variants:
         raise ValueError(f"{ruleset} no admite variantes experimentales (solo la politica de ratificacion de gobierno, que es parte del ruleset)")
     active = frozenset({C.VARIANT_T5_LOCAL_PHYSICAL, C.VARIANT_MATERIALIZED_INPUT}) if v4 else variants   # politica v4: T5 + evidencia de materializacion PERSISTIDA (leaf-materialization/v1); T4 y LEVEL_RESOLUTION NO se activan (no agregan fortalezas)
@@ -335,7 +338,7 @@ def evaluate_judgment(profile: Mapping[str, Any], dispositions: Iterable[Mapping
     if not ev.has_canonical_evidence_v3:
         return _unjudgeable(ev, "CANONICAL_EVIDENCE_V3_REQUIRED", ruleset)
     ratified_leaves, ratification_records = _resolve_ratifications(ev, ratified_contracts, external_policy) if ratifying else (frozenset(), [])
-    res = evaluate_rules(ev, external_policy, active, ratified_leaves)
+    res = evaluate_rules(ev, external_policy, active, ratified_leaves, v5=v5)
     reasons = copy.deepcopy(res["reasons"])
     reviews = copy.deepcopy(res["review_candidates"])
     strengths = res["strengths"]
@@ -363,6 +366,17 @@ def evaluate_judgment(profile: Mapping[str, Any], dispositions: Iterable[Mapping
         if resolved is not None:
             status, (level, level_rule), nd_reason = C.DETERMINED, resolved, None
             level_no_exc = level
+    # v5 (R1): la compuerta de naming SOLO actua sobre un BUENA ya decidido (paso 5); nunca sube, nunca toca PARCIAL/ND. BLOCK = divergencia acreditada; NOT_ACCREDITED = BUENA no
+    # pudo acreditarse porque el resultado depende de responsabilidad de nombre no establecida (no se afirma incumplimiento).
+    gate = naming_gate(ev) if v5 else None
+    level_without_gate = None
+    if gate is not None and level == C.BUENA and gate["state"] != C.NAMING_GATE_PASS:
+        level_without_gate, level, level_rule = C.BUENA, C.ADECUADA, C.LEVEL_RULE_ADECUADA_BY_NAMING_GATE
+        if gate["state"] == C.NAMING_GATE_NOT_ACCREDITED:
+            reviews.append(_review("NAMING_RESPONSIBILITY_UNDETERMINED", "GOV-REV-02", "NAMING_RESPONSIBILITY_UNDETERMINED", "OPEN", ev=ev,
+                                   artifacts=gate["unknown_non_recoverable_artifacts"], refs=["ce:naming_evidence"], extra={"gate_basis": gate["basis"]}))
+    if gate is not None and level_no_exc == C.BUENA and gate["state"] != C.NAMING_GATE_PASS:
+        level_no_exc = C.ADECUADA
     closure = _closure(status, level, reasons, limitations)
     reasons.sort(key=lambda r: (_CLASS_RANK[r["classification"]], r["rule_id"], r["reason_id"]))
     reviews.sort(key=lambda r: (r["rule_id"], r["review_id"]))
@@ -383,6 +397,18 @@ def evaluate_judgment(profile: Mapping[str, Any], dispositions: Iterable[Mapping
     if level_rule == C.LEVEL_RULE_ADECUADA_BY_RESOLUTION:
         out["what_would_change_the_judgment"] = [{"change_key": "ESTABLISH_AFFIRMATIVE_STRENGTH_IN_EVERY_DIMENSION_FOR_BUENA", "reason_ids": [], "resulting_status": C.DETERMINED, "resulting_level": C.BUENA},
                                                   {"change_key": "NEW_EVIDENCE_OF_A_RELEVANT_OR_MATERIAL_REASON_WOULD_LOWER_THE_LEVEL", "reason_ids": [], "resulting_status": C.DETERMINED, "resulting_level": None}]
+    if level_rule == C.LEVEL_RULE_ADECUADA_BY_NAMING_GATE:
+        change = ("RESOLVE_NON_RECOVERABLE_NAMING_DEVIATIONS_OF_GOVERNED_ARTIFACTS" if gate["state"] == C.NAMING_GATE_BLOCK
+                  else "ESTABLISH_NAMING_RESPONSIBILITY_OF_UNKNOWN_IDENTITY_ARTIFACTS")
+        out["what_would_change_the_judgment"] = [{"change_key": change, "reason_ids": [], "note_key": "declare_role_or_add_layer_digit_or_establish_identity_never_rename_by_convenience",
+                                                  "artifacts": gate["non_recoverable_artifacts"] if gate["state"] == C.NAMING_GATE_BLOCK else gate["unknown_non_recoverable_artifacts"],
+                                                  "resulting_status": C.DETERMINED, "resulting_level": C.BUENA},
+                                                 {"change_key": "NEW_EVIDENCE_OF_A_RELEVANT_OR_MATERIAL_REASON_WOULD_LOWER_THE_LEVEL", "reason_ids": [], "resulting_status": C.DETERMINED, "resulting_level": None}]
+    if v5:
+        out["naming_gate"] = gate
+        out["material_compensation"] = res.get("material_compensation") or []
+        if level_without_gate:
+            out["level_without_naming_gate"] = level_without_gate
     if v3:
         out["decision_inputs"] = decision_inputs(ratified_contracts)       # ENTRADA verificable del Juicio (entra en la firma de salida): que decisiones se inyectaron, por evento y evidencia
     if nd_reason:

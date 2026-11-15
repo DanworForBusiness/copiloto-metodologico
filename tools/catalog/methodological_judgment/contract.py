@@ -13,7 +13,8 @@ JUDGMENT_SCHEMA_VERSION = "judgment/v1"
 RULESET_V2 = "judgment-rules/v2"
 RULESET_V3 = "judgment-rules/v3"
 RULESET_V4 = "judgment-rules/v4"
-RULESETS = (RULESET_V2, RULESET_V3, RULESET_V4)
+RULESET_V5 = "judgment-rules/v5"
+RULESETS = (RULESET_V2, RULESET_V3, RULESET_V4, RULESET_V5)
 RULESET_VERSION = RULESET_V2                           # ruleset POR DEFECTO del motor: judgment-rules/v2 sigue siendo reproducible e inalterado para toda llamada que no pida v3 explicitamente
 # judgment-rules/v3 = judgment-rules/v2 + UNA sola politica adicional: una ratificacion de gobierno vigente (governed-decision/v1, inyectada como ENTRADA explicita; el motor jamas la lee) resuelve
 # unicamente la indeterminacion contractual decision-critica de LVL-05 (variante GOVERNED_CONTRACT_RATIFIED, alcance conservador). Sin ratificaciones inyectadas v3 produce los mismos niveles que v2.
@@ -21,6 +22,15 @@ RULESET_VERSION = RULESET_V2                           # ruleset POR DEFECTO del
 # judgment-rules/v4 = v3 + resolucion de nivel por ESTADO DE DIMENSION para los casos que v3 deja en LVL-06 (politica transversal; ver rules.dimension_resolution_v4) + T5 (tabla local de origen fisico
 # comprobado = SRC-LOC-01, debilidad LOCAL) + refinamiento de la causa de ND (candidato de armonizacion UNKNOWN => evidencia insuficiente). No agrega fortalezas ni otras razones; nunca BUENA ni PARCIAL por resolucion.
 CURRENT_RULESET_VERSION = RULESET_V4
+# judgment-rules/v5 = v4 + (R1) compuerta de naming SOLO BUENA->ADECUADA (LVL-09) sobre el universo gobernable por identidad, desviaciones recuperables exentas y UNKNOWN por cota
+# superior (nunca se acredita merito sin responsabilidad) + (R3) PRO-MAT-02: responsabilidad de una frontera fisica cruda desplazada a logica de modelado (filtrado E integracion antes de
+# normalizar) cuya consecuencia PRODUCE medidas/claves publicadas (M1-M5, detector conservador; fail-closed por cobertura) + (R4) exactitud de las limitaciones/revisiones de fuente externa.
+# ``CURRENT_RULESET_VERSION`` sigue siendo el ruleset vigente CUANDO NO HAY ACTIVACION GOBERNADA: v5 se despliega disponible e inactivo y lo activa SOLO la adopcion asegurada
+# (marcador ``ruleset-activation/v1`` del almacen gobernado; ver ``webapp/services/judgment_activation.py``).
+NAMING_GATE_MAX_NONRECOVERABLE_RATIO = 0.25          # θ de la compuerta de naming (configurable POR RULESET: cambiarlo es otra version de ruleset, nunca un parametro de runtime)
+LEVEL_RULE_ADECUADA_BY_NAMING_GATE = "LVL-09"
+NAMING_GATE_PASS, NAMING_GATE_BLOCK, NAMING_GATE_NOT_ACCREDITED = "PASS", "BLOCK", "NOT_ACCREDITED"
+MATERIAL_COMPENSATION_ACCREDITED, MATERIAL_COMPENSATION_NOT_OBSERVED, MATERIAL_COMPENSATION_NOT_EVALUABLE = "ACCREDITED", "NOT_OBSERVED", "NOT_EVALUABLE_COVERAGE"
 DECISION_INPUTS_VERSION = "judgment-decision-inputs/v1"
 # Variantes EXPERIMENTALES (T4/T5) del MISMO motor: opt-in, solo para medir impacto. Vacio (la politica vigente) = salida byte a byte identica a judgment-rules/v2. Adoptar una variante como
 # regla definitiva exige subir RULESET_VERSION (=> JDG_VERSION_STALE en los Juicios persistidos; migracion explicita ``--backfill-judgment``, sin tocar el Assessment).
