@@ -234,22 +234,59 @@ def test_the_traceability_changes_the_output_signature_so_a_different_event_is_a
 # ───────────── consumidores existentes: comportamiento v2 salvo pedido explicito ─────────────
 def test_only_the_explicit_v3_adoption_path_injects_ratifications_and_nothing_requests_the_experimental_variant():
     """B5.3: el unico camino productivo que inyecta ratificaciones es la derivacion de ``judgment-rules/v3`` (``assessment_service._derive_judgment`` recibe ``ratified`` solo del operador
-    explicito con instantanea). Ningun modulo fuera del motor y el enlace nombra la VARIANTE experimental GOVERNED_CONTRACT_RATIFIED."""
+    explicito con instantanea). El presenter puede leer la disposicion YA aplicada, sin solicitar la variante ni inyectar decisiones."""
     import pathlib
     root = pathlib.Path(__file__).resolve().parents[1]
     variant_allowed = {"tools/catalog/methodological_judgment/contract.py", "tools/catalog/methodological_judgment/engine.py", "tools/catalog/methodological_judgment/rules.py",
                        "webapp/services/governed_ratification_link.py"}
     inject_allowed = variant_allowed | {"webapp/services/assessment_service.py", "webapp/services/judgment_decisions.py",
                                         "tools/catalog/reassessment/baseline.py"}   # #259: solo RE-EJECUTA las ratificaciones que el sobre ya registra (ver test siguiente)
+    presentation_only = {"webapp/services/assessment_presenter.py"}
     bad_variant, bad_inject = [], []
     for path in list((root / "tools").rglob("*.py")) + list((root / "webapp").rglob("*.py")) + list((root / "core").rglob("*.py")):
         rel = path.relative_to(root).as_posix()
         text = path.read_text(encoding="utf-8", errors="ignore")
-        if "GOVERNED_CONTRACT_RATIFIED" in text and rel not in variant_allowed | {"webapp/services/judgment_decisions.py"}:
+        if "GOVERNED_CONTRACT_RATIFIED" in text and rel not in variant_allowed | {"webapp/services/judgment_decisions.py"} | presentation_only:
             bad_variant.append(rel)
         if "ratified_contracts" in text and rel not in inject_allowed:
             bad_inject.append(rel)
     assert bad_variant == [] and bad_inject == []
+    # Allow reading an already-persisted disposition, never another evaluator,
+    # governance dependency or experimental-variant request in presentation.
+    import ast
+    presenter_src = (root / "webapp/services/assessment_presenter.py").read_text(encoding="utf-8")
+    assert all(name not in presenter_src for name in ("evaluate_judgment", "judgment_decisions", "governed_ratification", "governed_decisions"))
+    assert not any(isinstance(n, ast.Call) and any(k.arg == "variants" for k in n.keywords) for n in ast.walk(ast.parse(presenter_src)))
+
+
+def test_presenter_reads_only_applied_dispositions_without_deciding_or_mutating(monkeypatch):
+    from webapp.services import assessment_presenter as presenter
+    from webapp.services import judgment_decisions as jd
+    from tools.catalog.methodological_judgment import rules
+
+    profile = gp()
+    judgment = {"not_determinable_reason": "EXTERNAL_SOURCE_CONTRACT_DECISION_CRITICAL", "dispositions_applied": [
+        {"decision": VARIANT, "status": "APPLIED", "leaf": CRITICAL[0]},
+        {"decision": VARIANT, "status": "PENDING", "leaf": CRITICAL[1]},
+        {"decision": "OTHER", "status": "APPLIED", "leaf": CRITICAL[2]},
+    ]}
+    before = copy.deepcopy((profile, judgment))
+    seen = []
+    original = rules.decision_critical_undetermined_source
+
+    def observe(ev, policy, applied):
+        seen.append(applied)
+        return original(ev, policy, applied)
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("Presentation must not read governance or derive a new judgment")
+
+    monkeypatch.setattr(rules, "decision_critical_undetermined_source", observe)
+    monkeypatch.setattr(jd, "take_snapshot", forbidden)
+    monkeypatch.setattr(jd, "derive", forbidden)
+    assert {row["leaf"] for row in presenter.nd_decisive_sources(profile, judgment)} == set(CRITICAL[1:])
+    assert seen == [frozenset({CRITICAL[0]})]
+    assert (profile, judgment) == before
 
 
 def test_the_reassessment_baseline_only_replays_the_ratifications_recorded_in_the_envelope():

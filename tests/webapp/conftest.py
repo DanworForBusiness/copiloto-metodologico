@@ -18,8 +18,10 @@ def _pin_historical_judgment_contract_for_the_closed_evidence_migration(request,
         return
     from tools.catalog.methodological_judgment import RULESET_V3
     from webapp.services import assessment_service as svc
-    from webapp.services import judgment_decisions as jd
+    from webapp.services import judgment_activation as ja
     monkeypatch.setattr(svc, "CURRENT_RULESET_VERSION", RULESET_V3)
     monkeypatch.setattr(svc, "JUDGMENT_CONTRACT_VERSIONS", (svc.JUDGMENT_CONTRACT_VERSIONS[0], RULESET_V3))
-    monkeypatch.setattr(jd, "CURRENT_RULESET_VERSION", RULESET_V3)
+    # Both assessment derivation and decision snapshots now consult this selector.
+    # Pin the historical scenario here, not a removed/inert module constant.
+    monkeypatch.setattr(ja, "active_ruleset", lambda: RULESET_V3)
     yield

@@ -38,6 +38,11 @@ def test_nd_detail_names_the_responsible_leaf():
                     {"dimension": "PUBLISHED_CONTRACT", "state": "NO_STRENGTH", "cause": "UNRESOLVED_VOCABULARY_REACHES_THE_CONSUMER", "unmet_conditions": ["no_vocabulary_leak"]}]}}
     view = presenter._with_nd_responsibles(presenter.judgment_view(judgment), ev_profile, judgment)
     rows = {d["dimension"]: d["responsible_text"] for d in view["nd"]["dimensions"]}
-    assert "2TR_X (MIXED_BOUNDARY_CLASSES: ABAPTABLES.MLGN, ABAPTABLES.NSDM_V_MCHB)" in rows["Ingesta"]
+    ingestion = rows["Ingesta"]
+    # Explainability may use human wording, but must retain the responsible
+    # leaf, both different boundary classes and both remote entities.
+    for responsible in ("2TR_X", "SAP_STANDARD_VIEW_ON_PHYSICAL_TABLE", "PHYSICAL_ABAP_TABLE_BOUNDARY", "ABAPTABLES.MLGN", "ABAPTABLES.NSDM_V_MCHB"):
+        assert responsible in ingestion
+    assert "mezcla fronteras de clase distinta" in ingestion
     assert "Condiciones no cumplidas" in rows["Contrato publicado"]
     assert presenter._with_nd_responsibles(presenter.judgment_view({"status": "DETERMINED", "level": "BUENA"}), ev_profile, {}) is not None   # con nivel: sin detalle
