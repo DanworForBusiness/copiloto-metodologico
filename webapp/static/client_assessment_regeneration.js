@@ -125,6 +125,14 @@
     v.lines.forEach(function (t) { var p = document.createElement("p"); p.textContent = t; body.appendChild(p); });
     box.appendChild(head);
     box.appendChild(body);
+    var close = document.createElement("button");                               // MISMA cruz que los avisos de operaciones del Catálogo (copilot_operations.js)
+    close.type = "button";
+    close.className = "whatsnew-banner__close";
+    close.textContent = "✕";
+    close.title = "Cerrar";
+    close.setAttribute("aria-label", "Cerrar aviso de regeneración");
+    close.addEventListener("click", function () { anchor.replaceChildren(); anchor.hidden = true; });
+    box.appendChild(close);
     anchor.replaceChildren(box);
     anchor.hidden = false;
   }

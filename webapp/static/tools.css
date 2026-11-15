@@ -3281,6 +3281,8 @@ details:not([open]) > summary > .panel-close[data-asr-close] { display: none; }
 [data-cli-regen] [data-cli-regen-summary] { margin: 0; overflow-wrap: anywhere; }
 [data-cli-regen] [data-cli-regen-progress] .progress { margin: 8px 0 0; }
 [data-cli-regen] [data-cli-regen-summary] { margin-top: 14px; }
+[data-cli-regen-result] > aside { padding-right: 44px; }                       /* aviso de resultado: espacio para la cruz (MISMO `.whatsnew-banner__close` de los avisos de operaciones) */
+[data-cli-regen-result] > aside > .whatsnew-banner__close { position: absolute; top: 8px; right: 8px; }
 [data-cli-regen] .asr-generate:disabled { opacity: .45; cursor: not-allowed; }   /* deshabilitado SIN spinner propio (el estado va al lado): aspecto deshabilitado del Hub, como en Carga masiva */
 .asr-generate__spinner { display: inline-block; width: 11px; height: 11px; border: 2px solid var(--line); border-top-color: var(--gold); border-radius: 50%; animation: analysis-spin .8s linear infinite; }
 
