@@ -4,6 +4,8 @@ fallidos, preservación del informe anterior ante una falla, anti doble clic / c
 durante una activación de ruleset en transición."""
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 import webapp.main as main
@@ -64,7 +66,7 @@ def test_no_warning_when_nothing_is_stale(world):
     c = client_for()
     cat._post(c)                                                                # CURRENT
     html = _report(c)
-    assert "data-cli-regen" not in html and "Assessments desactualizados" not in html
+    assert "data-cli-regen " not in html and "Assessments desactualizados" not in html
     r = _regen(c)
     assert r.status_code == 200 and r.json()["outcome"] == regen.NOTHING_TO_DO
 
@@ -74,7 +76,7 @@ def test_stale_models_are_counted_once_even_with_several_flows_of_the_same_am(wo
     cat._post(c)
     _make_stale(world)
     html = _report(c)
-    assert "data-cli-regen" in html and "Regenerar 1 Assessment" in html and "2 flujos del catálogo comparten este modelo" in html
+    assert "data-cli-regen " in html and "Regenerar 1 Assessment" in html and "2 flujos del catálogo comparten este modelo" in html
 
 
 def test_regeneration_updates_the_stale_model_once_and_refreshes_the_indicators(world, monkeypatch):
@@ -93,7 +95,7 @@ def test_regeneration_updates_the_stale_model_once_and_refreshes_the_indicators(
     assert [e for e in ev if e["t"] == "progress"][0]["am"] == "4AM_ACME" and len(calls) == 1          # un solo AM, una sola regeneración
     assert svc.status_for_entry(world.entries[0]).state == svc.CURRENT
     html = _report(c)
-    assert "data-cli-regen" not in html                                         # sin elegibles: la advertencia desaparece
+    assert "data-cli-regen " not in html                                         # sin elegibles: la advertencia desaparece
 
 
 def test_an_individual_failure_keeps_the_previous_report_and_is_reported_as_failed(world, monkeypatch):
@@ -183,3 +185,17 @@ def test_rest_state_is_compact_and_layout_rules_are_scoped_without_own_look(worl
     rules = re.findall(r"(?m)^(\[data-cli-regen\][^{]*)\{([^}]*)\}", css)
     assert rules and any(".progress" in sel and "margin: 8px 0 0" in body for sel, body in rules)
     assert not [b for _, b in rules if re.search(r"(?<![-\w])(color|background|border|font)[\w-]*\s*:", b)]   # solo layout
+
+
+def test_result_anchor_is_always_rendered_hidden_after_the_header_and_before_the_indicators(world):
+    """El aviso de resultado (transitorio, solo interfaz) se inserta en un ancla vacía y `hidden` que el informe siempre trae, con el cliente del
+    informe: así sobrevive a la recarga del consolidado sin persistir nada y nunca se muestra en el informe de otro cliente. Sin resultado no ocupa espacio."""
+    c = client_for()
+    cat._post(c)                                                                # sin desactualizados: el ancla igual está (la recarga posterior a la regeneración no trae la advertencia)
+    html = _report(c)
+    anchor = '<div data-cli-regen-result data-client="Acme" hidden></div>'
+    assert anchor in html
+    assert html.index('class="module-hero') < html.index(anchor) < html.index("Indicadores del cliente")
+    js = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "client_assessment_regeneration.js").read_text(encoding="utf-8")
+    assert "callout--feedback" in js and "localStorage" not in js and "sessionStorage" not in js         # aviso del Hub; nada se guarda fuera de la página
+    assert "dwCopilotOps.attach" in js and "dwCopilotOps.seen" in js                                      # el aviso global no la duplica

@@ -33,6 +33,11 @@
   </div>
 </section>
 
+{# Resultado de la última regeneración consolidada (transitorio, SOLO interfaz): client_assessment_regeneration.js lo guarda en memoria de la página al
+   terminar y, tras recargar este consolidado, inserta acá el aviso de resultado del Hub (`.callout--feedback`, el mismo de «Catálogo actualizado») si
+   el cliente coincide. Nada se persiste; vacío y `hidden` cuando no hay resultado (no reserva espacio). #}
+<div data-cli-regen-result data-client="{{ snap.client }}" hidden></div>
+
 {# Regeneración consolidada: MISMO callout «desactualizado» y MISMO botón (`support-link asr-generate`) que el informe individual. Solo con modelos únicos elegibles
    (estados canónicos que el informe individual ofrece regenerar). Confirmación con el diálogo compartido (`dwConfirm`); el avance se sigue en
    `/copilot/operations/{run_id}` (la operación no depende de esta conexión) y al terminar se vuelve a pedir este mismo consolidado. Ver client_assessment_regeneration.js. #}

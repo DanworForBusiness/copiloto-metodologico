@@ -72,7 +72,82 @@
                        : "Regenerando " + done + " de " + total + "…");
   }
 
-  function finish(root, ev) {
+  /* ── Resultado después de recargar ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+     Al terminar se guarda el resultado SOLO en memoria de esta página (no en sobres, persistencia gobernada ni storage): la recarga del consolidado
+     lo muestra una vez, con el aviso de resultado del Hub (`.callout--feedback`, mismo markup que «Catálogo actualizado»), y solo si el cliente del
+     informe recargado es el mismo de la operación. Tonos: éxito total (sin fallidos ni omitidos) → success; con fallidos u omitidos y algo actualizado
+     → punch (advertencia); nada actualizado → warn (error). La operación ya se vio terminar acá: el aviso global no la repite (`dwCopilotOps`). */
+  var lastResult = null;                                                        // { client, state, summary, message }
+  var RESULT_TTL_MS = 10 * 60 * 1000;
+
+  function plural(n, one, many) { return n + " " + (n === 1 ? one : many); }
+
+  function clientOf(el) {
+    var slot = el && el.closest ? el.closest("#catalog-detail-slot") : null;
+    var anchor = (slot || document).querySelector("[data-cli-regen-result]");
+    return anchor ? anchor.getAttribute("data-client") || "" : "";
+  }
+
+  function resultView(r) {
+    var s = r.summary || {};
+    var updated = s.updated || 0, skipped = s.skipped || 0, failed = s.failed || 0, total = s.total || (updated + skipped + failed);
+    var counts = plural(updated, "actualizado", "actualizados") + " · " + plural(skipped, "omitido", "omitidos") + " · " + plural(failed, "fallido", "fallidos");
+    if (r.state === "SUCCESS" && !failed && !skipped && updated) {
+      return { tone: "success", role: "status", title: "Assessments actualizados correctamente",
+               lines: ["Se " + (updated === 1 ? "regeneró 1 Assessment" : "regeneraron " + updated + " Assessments") + " de " + r.client + ". Los indicadores del cliente ya reflejan los resultados actualizados.", counts] };
+    }
+    if (updated) {
+      return { tone: "punch", role: "status", title: "Regeneración completada parcialmente",
+               lines: ["Se " + (updated === 1 ? "regeneró 1" : "regeneraron " + updated) + " de " + plural(total, "Assessment", "Assessments") + " de " + r.client + "." +
+                       (failed ? " Los que fallaron conservan su informe anterior y se pueden volver a regenerar desde este informe." : "") +
+                       (skipped ? " Los omitidos ya no estaban desactualizados o se pausaron por una activación de la metodología." : ""), counts] };
+    }
+    return { tone: "warn", role: "alert", title: "No se pudieron regenerar los Assessments",
+             lines: [(total ? "Ninguno de los " + plural(total, "Assessment", "Assessments") + " de " + r.client + " se regeneró; todos conservan su informe anterior."
+                            : "La regeneración de " + r.client + " no terminó: los Assessments conservan su informe anterior.") +
+                     (failed || !total ? " Podés reintentar desde el aviso «Assessments desactualizados» de este informe." : ""),
+                     total ? counts : (r.message || "")].filter(Boolean) };
+  }
+
+  function renderResult(anchor, r) {
+    var v = resultView(r);
+    var box = document.createElement("aside");                                  // mismo markup que «Catálogo actualizado» (datasphere_assessment_refresh.html)
+    box.className = "callout callout--" + v.tone + " callout--feedback";
+    box.setAttribute("role", v.role);
+    var head = document.createElement("div");
+    head.className = "callout__head";
+    var title = document.createElement("strong");
+    title.className = "callout__title";
+    title.textContent = v.title;
+    head.appendChild(title);
+    var body = document.createElement("div");
+    body.className = "callout__body";
+    v.lines.forEach(function (t) { var p = document.createElement("p"); p.textContent = t; body.appendChild(p); });
+    box.appendChild(head);
+    box.appendChild(body);
+    anchor.replaceChildren(box);
+    anchor.hidden = false;
+  }
+
+  function showPendingResult(scope) {
+    if (!lastResult) return;
+    var anchor = (scope || document).querySelector("[data-cli-regen-result]");
+    if (!anchor) return;
+    var r = lastResult;
+    lastResult = null;                                                          // una sola vez: el próximo ingreso al informe ya no lo muestra
+    if (Date.now() - r.at > RESULT_TTL_MS) return;
+    if ((anchor.getAttribute("data-client") || "").toLowerCase() !== (r.client || "").toLowerCase()) return;   // nunca en el informe de otro cliente
+    renderResult(anchor, r);
+  }
+
+  document.addEventListener("htmx:afterSettle", function (ev) {
+    var t = ev.detail && ev.detail.target;
+    if (t && t.id === "catalog-detail-slot") showPendingResult(t);
+  });
+
+  function finish(root, ev, runId) {
+    lastResult = { client: clientOf(root), state: ev.state, summary: ev.summary || {}, message: ev.message || "", at: Date.now() };
+    if (runId && window.dwCopilotOps && window.dwCopilotOps.seen) window.dwCopilotOps.seen(runId);   // ya se vio terminar acá: el aviso global no la repite
     var s = ev.summary || {};
     showProgress(root, false);                                                  // sin barra obsoleta
     setNote(root, "", false);
@@ -83,11 +158,15 @@
         (ev.state === "FAILED" && !s.total && ev.message ? " " + ev.message : "");
       summary.hidden = false;
     }
-    window.setTimeout(function () { refresh(root); }, 1800);                   // el consolidado recarga indicadores y, si quedan pendientes, el botón
+    window.setTimeout(function () {                                             // el consolidado recarga indicadores y, si quedan pendientes, el botón
+      if (document.contains(root)) refresh(root);                               // solo si este informe sigue en pantalla (no saca al usuario de otro informe)
+      else lastResult = null;                                                   // ya está en otro lado: el resultado no se arrastra a otro informe
+    }, 1800);
   }
 
   function follow(root, button, runId, total) {
     var since = 0;
+    if (window.dwCopilotOps && window.dwCopilotOps.attach) window.dwCopilotOps.attach(runId);   // este panel la sigue: el aviso global no la duplica
     function tick() {
       fetch("/copilot/operations/" + encodeURIComponent(runId) + "?since=" + since, { credentials: "same-origin", headers: { "Accept": "application/json" } })
         .then(function (r) {
@@ -102,7 +181,7 @@
             if (ev.t === "progress") running(root, ev.done, ev.total || total, ev.am, ev.result);
             else if (ev.t === "done") last = ev;
           });
-          if (last) { finish(root, last); return; }
+          if (last) { finish(root, last, runId); return; }
           window.setTimeout(tick, POLL_MS);
         })
         .catch(function (err) {
