@@ -177,3 +177,79 @@ def test_the_global_dry_run_is_the_ab_plan_and_writes_nothing(world):
     assert ja.read_marker() is None
     with pytest.raises(ValueError):
         bf.backfill_judgment(apply=True, target_ruleset=RULESET_V5)
+
+
+# ─────────── Hotfix: respaldo DURABLE externo (Spaces) ANTES de ACTIVATING y de cualquier escritura (adopcion PRODUCTIVA) ───────────
+def _force_local_backup(monkeypatch):
+    """``create_backup`` real pero sin exigir remoto (el test no tiene Spaces real): el respaldo LOCAL se crea igual; aisla la prueba al orden del publish durable."""
+    real_cb = bf.gb.create_backup
+    monkeypatch.setattr(bf.gb, "create_backup", lambda dest, targets, **kw: real_cb(dest, targets, **{**kw, "require_remote": False, "remote_read": None}))
+
+
+def _productive(world_, **kw):
+    return bf.secured_activate_ruleset(target_ruleset=RULESET_V5, authorizer=_grant, backup_dir=world_.tmp / kw.pop("bk", "bkprod"),
+                                       operator="bob", allow_local_only=False, remote_enabled=kw.pop("remote_enabled", lambda: True), **kw)
+
+
+def test_productive_activation_publishes_durable_backup_before_marker_and_before_any_envelope_write(world, monkeypatch):
+    seed_v4(world)
+    events, pub = [], []
+    real_cb = bf.gb.create_backup
+    monkeypatch.setattr(bf.gb, "create_backup", lambda dest, targets, **kw: (events.append("create_backup"), real_cb(dest, targets, **{**kw, "require_remote": False, "remote_read": None}))[1])
+
+    def fake_publish(backup_dir, migration, run_id, approval=None):
+        events.append("publish"); pub.append((migration, run_id))
+        return {"run_id": run_id, "sealed": True, "prefix": f"migration-backups/{migration}/{run_id}"}
+    monkeypatch.setattr(bf.dbk, "publish", fake_publish)
+    real_marker = ja.write_marker
+    monkeypatch.setattr(ja, "write_marker", lambda state, **k: (events.append(f"marker:{state}"), real_marker(state, **k))[1])
+    real_stage = svc.apply_judgment_candidate
+    monkeypatch.setattr(svc, "apply_judgment_candidate", lambda env, cand: (events.append("stage"), real_stage(env, cand))[1])
+
+    out = _productive(world)
+    assert out["outcome"] == bf.ACTIVATED and ja.state() == ja.ACTIVE
+    mig, run_id = pub[0]
+    # 1) publicacion durable DESPUES del respaldo local y ANTES del marcador y de cualquier escritura de sobre
+    assert events.index("create_backup") < events.index("publish") < events.index(f"marker:{ja.ACTIVATING}")
+    assert events.index("publish") < events.index("stage")
+    # 2) sello/manifiesto durable atados al digest del plan correcto + trazabilidad en el resultado
+    assert mig == bf.JUDGMENT_V5_ACTIVATION_MIGRATION and run_id.split("-")[-1] == out["plan"]["digest"][:12]
+    assert out["backup"]["remote"] == {"run_id": run_id, "sealed": True, "prefix": f"migration-backups/{mig}/{run_id}"}
+    # 3) el comportamiento de scoring no cambia (mismo veredicto v5 que el camino local)
+    assert visible("Biogenesis", "AM_SELLOUT_GP")["level"] == "PARCIAL"
+
+
+def test_productive_publish_failure_aborts_with_zero_governed_modifications(world, monkeypatch):
+    seed_v4(world)
+    _force_local_backup(monkeypatch)
+    marker_calls, stage_calls = [], []
+    monkeypatch.setattr(bf.dbk, "publish", lambda *a, **k: (_ for _ in ()).throw(bf.dbk.DurableBackupError("REMOTE_WRITE_FAILED", "simulado")))
+    monkeypatch.setattr(ja, "write_marker", lambda *a, **k: marker_calls.append(a))
+    monkeypatch.setattr(svc, "apply_judgment_candidate", lambda e, c: stage_calls.append(1))
+    out = _productive(world, bk="bkfail")
+    assert out["outcome"] == bf.ACTIVATION_REFUSED and out["reason"] == bf.BACKUP_NOT_GUARANTEED
+    assert marker_calls == [] and stage_calls == []                                   # ni marcador ni staging
+    assert ja.read_marker() is None
+    restart()
+    for (client, am) in MODELS:                                                        # cero modificaciones gobernadas
+        env = svc._load_envelope(client, am)
+        assert "judgment_candidate" not in env and svc._persisted_judgment(env)["ruleset_version"] == RULESET_V4
+
+
+def test_productive_activation_without_remote_is_refused_and_never_publishes(world, monkeypatch):
+    seed_v4(world)
+    pub = []
+    monkeypatch.setattr(bf.dbk, "publish", lambda *a, **k: pub.append(1))
+    out = _productive(world, remote_enabled=lambda: False)
+    assert out["outcome"] == bf.ACTIVATION_REFUSED and out["reason"] == bf.REMOTE_REQUIRED          # productivo sin remoto durable => jamas activa
+    assert pub == [] and ja.read_marker() is None
+    restart()
+    assert all("judgment_candidate" not in svc._load_envelope(c, a) for c, a in MODELS)
+
+
+def test_local_only_test_mode_stays_separate_and_activates_without_durable_publish(world, monkeypatch):
+    seed_v4(world)
+    pub = []
+    monkeypatch.setattr(bf.dbk, "publish", lambda *a, **k: pub.append(1))
+    out = activate(world)                                                              # allow_local_only=True, remote_enabled=False
+    assert out["outcome"] == bf.ACTIVATED and pub == [] and ja.state() == ja.ACTIVE    # modo local: respaldo solo local, sin publicacion durable
