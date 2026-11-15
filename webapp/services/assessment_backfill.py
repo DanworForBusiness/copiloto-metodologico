@@ -1367,6 +1367,19 @@ def secured_activate_ruleset(*, target_ruleset: str, authorizer: Callable[[str, 
     except gb.BackupError as exc:
         return refuse(BACKUP_NOT_GUARANTEED, authorization=auth.as_dict(), backup_error=exc.code)
     backup_dir = Path(backup_dir)
+    # Respaldo DURABLE externo (Spaces), sellado y confirmado por bytes, ANTES de tocar el marcador o cualquier sobre: mismo contrato que ``secured_adopt_judgment`` (v4).
+    # En adopcion PRODUCTIVA (``not allow_local_only``) es OBLIGATORIO y fail-closed: si no hay remoto, o el publish falla, se ABORTA sin escribir nada. El modo local de pruebas
+    # (``allow_local_only``) queda EXPLICITAMENTE separado: respaldo solo local, sin publicacion durable. No basta ``if remote_enabled()``: una adopcion productiva con el remoto
+    # mal configurado no debe activar sin respaldo externo acreditado, por eso el gate es ``not allow_local_only`` con una verificacion de remoto en profundidad.
+    remote_info = None
+    if not allow_local_only:
+        if not remote_enabled():
+            return refuse(REMOTE_REQUIRED, authorization=auth.as_dict())
+        run_id = dbk.new_run_id(plan["digest"])
+        try:
+            remote_info = dbk.publish(backup_dir, migration, run_id, approval=auth.document)
+        except dbk.DurableBackupError as exc:
+            return refuse(BACKUP_NOT_GUARANTEED, authorization=auth.as_dict(), backup_error=exc.code, backup_detail=exc.detail)
 
     def journal(ev: dict) -> None:
         gb.append_journal(backup_dir, ev)
@@ -1423,7 +1436,7 @@ def secured_activate_ruleset(*, target_ruleset: str, authorizer: Callable[[str, 
     journal({"event": "MARKER", "state": ja.ACTIVE, "staged": len(staged)})
     return {**base, "outcome": ACTIVATED, "applied": True, "activated": True, "staged": len(staged), "level_changes": plan_report["level_changes"],
             "plan": {"digest": plan["digest"], "clients": plan["clients"], "items": len(plan["items"])},
-            "backup": {"dir": str(backup_dir), "manifest_sha256": manifest["manifest_sha256"], "objects": len(manifest["objects"])},
+            "backup": {"dir": str(backup_dir), "manifest_sha256": manifest["manifest_sha256"], "objects": len(manifest["objects"]), "remote": remote_info},
             "next": "verificar en la UI; luego --finalize-ruleset-activation (consolida) o --rollback-ruleset-activation (revierte al instante)"}
 
 
