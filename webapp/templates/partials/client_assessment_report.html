@@ -33,6 +33,31 @@
   </div>
 </section>
 
+{# Regeneración consolidada: MISMO callout «desactualizado» y MISMO botón (`support-link asr-generate`) que el informe individual. Solo con modelos únicos elegibles
+   (estados canónicos que el informe individual ofrece regenerar). Confirmación con el diálogo compartido (`dwConfirm`); el avance se sigue en
+   `/copilot/operations/{run_id}` (la operación no depende de esta conexión) y al terminar se vuelve a pedir este mismo consolidado. Ver client_assessment_regeneration.js. #}
+{% set rg = v.regeneration %}
+{% if rg and rg.visible %}
+<div data-cli-regen data-regen-url="{{ regen_url }}" data-refresh-url="{{ refresh_url }}" data-count="{{ rg.count }}">
+{% call callout("punch", "Assessments desactualizados", "status", icon="💡") %}
+  <p><strong>{{ rg.count }} {{ "Assessment fue generado" if rg.count == 1 else "Assessments fueron generados" }} con una versión anterior de la metodología o de la evidencia.</strong>
+     Regenerarlos los vuelve a calcular con la versión vigente, con el mismo procedimiento que el informe individual; los vigentes no se tocan.{% if rg.flows > rg.count %} ({{ rg.flows }} flujos del catálogo comparten {{ "este modelo" if rg.count == 1 else "estos " ~ rg.count ~ " modelos" }}: cada modelo se regenera una sola vez.){% endif %}</p>
+  {% if rg.blocked %}
+  <p data-cli-regen-blocked>Hay una activación de la metodología en curso: la regeneración vuelve a estar disponible cuando termine.</p>
+  {% else %}
+  <button type="button" class="support-link asr-generate" data-cli-regen-start aria-live="polite"{% if rg.running %} disabled{% endif %}>
+    <span class="asr-generate__label">{% if rg.running %}Regeneración en curso…{% else %}{{ rg.label }}{% endif %}</span>
+  </button>
+  <div data-cli-regen-progress hidden>
+    <p class="catalog-note__ev" data-cli-regen-status aria-live="polite"></p>
+    <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="{{ rg.count }}" aria-valuenow="0"><span style="width:0%"></span></div>
+  </div>
+  <p data-cli-regen-summary hidden aria-live="polite"></p>
+  {% endif %}
+{% endcall %}
+</div>
+{% endif %}
+
 <details class="dashboard-section" open>
   <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Indicadores del cliente</span></summary>
   <div class="dashboard-section__body">
