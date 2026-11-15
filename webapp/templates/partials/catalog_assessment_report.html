@@ -290,9 +290,30 @@
   <table><thead><tr><th>Contrato</th><th>Tipo</th><th>Evidencia</th></tr></thead><tbody>{% for grp in j.reasons_grouped %}{% for it in grp.rows %}<tr>{% if loop.first %}<td rowspan="{{ grp.count }}">{{ grp.dimension }}</td>{% endif %}<td>{{ it.kind }}</td><td>{{ it.text }}{% if it.artifacts %}<br><span class="catalog-note__ev">Artefactos:</span> {{ artifact_list(it.artifacts, 6) }}{% endif %}</td></tr>{% endfor %}{% endfor %}</tbody></table>
   {% endif %}
   {# T2 — «No determinable» sigue siendo el valor oficial; esta tabla EXPLICA la causa real desde hechos del Juicio (``presenter.nd_explanation``), por contrato. #}
+  {# Hechos (evidencia persistida) · Qué lo resolvería (acción + responsable) · Hipótesis (NO verificadas, solo las que el motor registró): tres planos separados. #}
   {% if j.nd and j.nd.dimensions %}
   <h3>Por qué no hay un nivel · {{ j.nd.label }}</h3>
-  <table><thead><tr><th>Contrato</th><th>Situación</th><th>Causa</th></tr></thead><tbody>{% for d in j.nd.dimensions %}<tr><td>{{ d.dimension }}</td><td>{{ d.state_text }}</td><td>{{ d.cause_text }}{% if d.responsible_text %}<br><span data-asr-nd-responsible>{{ d.responsible_text }}</span>{% endif %}</td></tr>{% endfor %}</tbody></table>
+  <table><thead><tr><th>Contrato</th><th>Situación</th><th>Causa</th><th>Qué lo resolvería</th></tr></thead><tbody>{% for d in j.nd.dimensions %}<tr><td>{{ d.dimension }}</td><td>{{ d.state_text }}</td><td>{{ d.cause_text }}{% if d.responsible_text %}<br><span data-asr-nd-responsible>{{ d.responsible_text }}</span>{% endif %}</td><td data-asr-nd-action>{% if d.action_text %}{{ d.action_text }}{% if d.responsible_role and d.responsible_role != "—" %}<br><span class="catalog-note__ev">Responsable:</span> {{ d.responsible_role }}{% endif %}{% else %}—{% endif %}</td></tr>{% endfor %}</tbody></table>
+  {% elif j.nd and j.nd.decisive_evidence %}
+  <h3>Por qué no hay un nivel · {{ j.nd.label }}</h3>
+  <table data-asr-nd-decisive><thead><tr><th>Fuente que decide</th><th>Entidad de origen</th><th>Campos publicados que heredan su vocabulario</th></tr></thead><tbody>{% for d in j.nd.decisive_evidence %}<tr><td>{{ d.leaf }}</td><td>{{ d.entity }}</td><td>{{ artifact_list(d.fields, 8, "Ver todos los campos") }}</td></tr>{% endfor %}</tbody></table>
+  {% endif %}
+  {% if j.nd and j.nd.actions and not j.nd.dimensions %}
+  <p data-asr-nd-action><strong>Qué lo resolvería:</strong> {% for a in j.nd.actions %}{{ a.text }}{% if a.responsible and a.responsible != "—" %} <span class="catalog-note__ev">(Responsable: {{ a.responsible }})</span>{% endif %}{% if not loop.last %} {% endif %}{% endfor %}</p>
+  {% endif %}
+  {% if j.nd and j.nd.hypotheses %}{% call callout("note", "Hipótesis (no verificadas)") %}{% for h in j.nd.hypotheses %}<p data-asr-nd-hypothesis>{{ h.text }}</p>{% endfor %}{% endcall %}{% endif %}
+  {% if j.naming_gate %}
+  {% set ng = j.naming_gate %}
+  <h3>Convención de nombres y nivel</h3>
+  <p data-asr-naming-gate="{{ ng.state }}"><strong>{{ ng.state_text }}.</strong> {{ ng.note }} No recuperables sobre gobernables: {{ ng.ratio or "—" }}{% if ng.ratio_max and ng.ratio_max != ng.ratio %} (cota con identidad no establecida: {{ ng.ratio_max }}){% endif %} · umbral {{ ng.threshold }}.</p>
+  <table><thead><tr><th>Población</th><th>Artefactos</th></tr></thead><tbody>{% for c in ng.counts %}<tr><td>{{ c.label }}</td><td>{{ c.value }}</td></tr>{% endfor %}</tbody></table>
+  {% if ng.non_recoverable %}<p><span class="catalog-note__ev">No recuperables (declarar su rol o agregar el dígito de capa):</span> {{ artifact_list(ng.non_recoverable, 10) }}</p>{% endif %}
+  {% if ng.unknown_non_recoverable %}<p><span class="catalog-note__ev">Identidad no establecida, no conformes:</span> {{ artifact_list(ng.unknown_non_recoverable, 10) }}</p>{% endif %}
+  {% endif %}
+  {% if j.material_compensation and j.material_compensation.rows %}
+  <h3>Compensaciones de fuentes crudas</h3>
+  <table data-asr-material><thead><tr><th>Tabla física cruda</th><th>Estado</th><th>Detalle</th></tr></thead><tbody>{% for r in j.material_compensation.rows %}<tr><td>{{ r.leaf }}</td><td>{{ r.state_text }}</td><td>{{ r.detail }}</td></tr>{% endfor %}</tbody></table>
+  <p class="catalog-note__ev">{{ j.material_compensation.note }}</p>
   {% endif %}
   {# Cierre editorial = callout canónico del Hub con el tono de `status_tone` (verde / ámbar / naranja / gris); el nivel va en el título. #}
   {% call callout(j.tone, "Lectura de la adopción" ~ (" provisional" if v.judgment_provisional else "") ~ " · " ~ j.level_label) %}<p>{{ j.headline }}</p>{% endcall %}

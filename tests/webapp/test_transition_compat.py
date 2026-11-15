@@ -20,6 +20,22 @@ def _versions(**over) -> dict:
     return {**svc.current_assessment_versions(), **over}
 
 
+def test_historical_fixture_really_derives_v3_through_both_current_consumers():
+    from tests._judgment_cases import fresh
+    from tools.catalog.methodological_judgment import RULESET_V3, RULESET_V4, evaluate_judgment
+    from webapp.services import judgment_activation as ja
+    from webapp.services import judgment_decisions as jd
+
+    profile = fresh("biogenesis_sellout_gp")
+    expected = evaluate_judgment(profile, ruleset=RULESET_V3, ratified_contracts=[])
+    assert ja.active_ruleset() == svc.active_ruleset() == RULESET_V3
+    assert svc.judgment_contract_versions()[1] == RULESET_V3
+    assert svc._derive_judgment(profile) == expected
+    assert jd.derive(profile, "test-client", jd.empty_snapshot())[0] == expected
+    # The fixture does not remove the operator's explicit ruleset override.
+    assert jd.derive(profile, "test-client", jd.empty_snapshot(), ruleset=RULESET_V4)[0]["ruleset_version"] == RULESET_V4
+
+
 # ───────────────────────────── clasificador puro: estricto ─────────────────────────────
 def test_only_the_leaf_materialization_the_layer_boundary_and_the_harmonization_v5_migrations_are_transitional():
     # ampliar la compatibilidad exige editar este test a conciencia: ``signals_layer_boundary_v4`` (signal-rules v3 -> v4, solo LAYER_BOUNDARY_REVIEW) es transicional A PROPOSITO: subir el ruleset NO debe volver STALE

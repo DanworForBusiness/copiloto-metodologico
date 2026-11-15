@@ -420,17 +420,28 @@ def judgment_versions_of(judgment: dict | None) -> tuple[str | None, str | None]
     return (j.get("judgment_schema_version"), j.get("ruleset_version"))
 
 
-def judgment_is_current_version(judgment: dict | None) -> bool:
-    """¿El Juicio persistido fue producido por el contrato de Juicio VIGENTE? (versión de esquema + ruleset)."""
-    return bool(judgment) and judgment_versions_of(judgment) == JUDGMENT_CONTRACT_VERSIONS
+def active_ruleset() -> str:
+    """Ruleset de Juicio VISIBLE/VIGENTE: el de la activación gobernada (``judgment_activation``) o, sin marcador válido, ``CURRENT_RULESET_VERSION``. Única fuente para
+    gobernado (generate/reassess/backfill) y ad hoc: los dos cambian a la vez, en el mismo cambio atómico del marcador."""
+    from webapp.services import judgment_activation as ja
+    return ja.active_ruleset()
 
 
-def _derive_judgment(profile: dict | None, ratified: Any = None) -> dict | None:
+def judgment_contract_versions(ruleset: str | None = None) -> tuple[str, str]:
+    return (JUDGMENT_SCHEMA_VERSION, ruleset or active_ruleset())
+
+
+def judgment_is_current_version(judgment: dict | None, ruleset: str | None = None) -> bool:
+    """¿El Juicio persistido fue producido por el contrato de Juicio VIGENTE (o por ``ruleset``, si se indica)? (versión de esquema + ruleset)."""
+    return bool(judgment) and judgment_versions_of(judgment) == judgment_contract_versions(ruleset)
+
+
+def _derive_judgment(profile: dict | None, ratified: Any = None, ruleset: str | None = None) -> dict | None:
     """Juicio metodológico DETERMINISTA del perfil, derivado con el ÚNICO motor canónico (``evaluate_judgment``, ruleset vigente v3). Es
     estado DERIVADO del perfil persistido: se calcula aquí al escribir el sobre (generate/reassess/backfill) y NUNCA se
     recalcula ni se edita en la UI. ``ratified``: ratificaciones de gobierno INYECTADAS (las enlaza el operador explícito con una instantánea del registro;
     sin ellas v3 == v2 en niveles: el registro jamás se lee de fondo). ``None`` solo si no hay perfil (estado sin assessment)."""
-    return evaluate_judgment(profile, ruleset=CURRENT_RULESET_VERSION, ratified_contracts=list(ratified or ())) if profile is not None else None
+    return evaluate_judgment(profile, ruleset=ruleset or active_ruleset(), ratified_contracts=list(ratified or ())) if profile is not None else None
 
 
 def provisional_judgment(profile: dict | None) -> dict | None:
@@ -508,9 +519,22 @@ DURABLE_REMOTE, DURABLE_LOCAL, DURABLE_MEMORY = "remote", "local", "memory"
 _RESTORE_WAIT_S = 5.0                   # tope de espera, UNA vez por lote de lectura, a que `remote_store.restore()` termine de bajar el estado
 
 
+_activation_seen: list = [object()]           # huella del marcador de activación con la que se llenó ``_memory`` (otro proceso puede activarlo)
+
+
 def reset_memory_cache() -> None:
     with _cache_lock:
         _memory.clear()
+
+
+def _sync_activation_cache() -> None:
+    """Si el estado de activación del ruleset cambió (lo escribe la adopción asegurada, típicamente otro proceso), los sobres en memoria ya no representan lo visible: se descartan."""
+    from webapp.services import judgment_activation as ja
+    tok = ja.token()
+    with _cache_lock:
+        if _activation_seen[0] != tok:
+            _memory.clear()
+            _activation_seen[0] = tok
 
 
 def _key(client: str, am: str) -> tuple[str, str]:
@@ -635,7 +659,7 @@ def apply_domain_classification_backfill(env: dict, dclass: dict | None) -> str:
     return _store_envelope(new_env)
 
 
-def classify_judgment_decisions(env: dict, snapshot: Any = None) -> dict:
+def classify_judgment_decisions(env: dict, snapshot: Any = None, ruleset: str | None = None) -> dict:
     """Clasificacion completa de UN sobre para el operador de Juicio: ``{"action", "fresh", "lost", "link_report"}``. ``snapshot`` = instantanea de decisiones (``judgment_decisions.Snapshot``);
     ``None`` = SIN decisiones (v3 == v2 en niveles). Acciones: ``no_profile``, ``judgment_missing``, ``judgment_current``, ``judgment_version_stale`` (contrato anterior, p. ej. v2),
     ``judgment_decision_stale`` (v3 vigente que consumio una decision ya revocada/obsoleta: PENDIENTE DE REEVALUACION) y ``judgment_content_stale`` (cualquier otra diferencia)."""
@@ -644,14 +668,14 @@ def classify_judgment_decisions(env: dict, snapshot: Any = None) -> dict:
     if prof is None:
         return {"action": JDG_NO_PROFILE, "fresh": None, "lost": [], "link_report": None}
     snap = snapshot if snapshot is not None else jd.empty_snapshot()
-    fresh, report = jd.derive(prof, str(env.get("client") or ""), snap)
+    fresh, report = jd.derive(prof, str(env.get("client") or ""), snap, ruleset=ruleset)
     persisted = env.get("judgment")
     out = {"fresh": fresh, "lost": [], "link_report": report}
     if persisted is None:
         return {**out, "action": JDG_MISSING}
     if (persisted.get("output_signature"), persisted.get("judgment_schema_version"), persisted.get("ruleset_version")) ==        (fresh.get("output_signature"), fresh.get("judgment_schema_version"), fresh.get("ruleset_version")):
         return {**out, "action": JDG_CURRENT}
-    if not judgment_is_current_version(persisted):
+    if not judgment_is_current_version(persisted, ruleset):
         return {**out, "action": JDG_VERSION_STALE}
     lost = jd.lost_decisions(persisted, fresh, report)
     return {**out, "action": JDG_DECISION_STALE if lost else JDG_CONTENT_STALE, "lost": lost}
@@ -670,6 +694,36 @@ def apply_judgment_backfill(env: dict, judgment: dict | None) -> str:
     Devuelve la durabilidad lograda (``remote``/``local``/``memory``)."""
     new_env = dict(env)
     new_env["judgment"] = judgment
+    new_env.pop("judgment_review", None)
+    return _store_envelope(new_env)
+
+
+def apply_judgment_candidate(env: dict, candidate: dict) -> str:
+    """Activación coordinada (fase ACTIVATING): escribe el Juicio del ruleset objetivo como ``judgment_candidate`` SIN tocar el Juicio visible, el perfil, las firmas ni las versiones.
+    El candidato es invisible hasta que el marcador pase a ACTIVE (``_persisted_judgment`` selecciona por ruleset visible)."""
+    new_env = dict(env)
+    new_env["judgment_candidate"] = candidate
+    return _store_envelope(new_env)
+
+
+def drop_judgment_candidate(env: dict) -> str:
+    """Rollback de una activación no finalizada: retira el candidato (el Juicio previo nunca se tocó)."""
+    new_env = dict(env)
+    new_env.pop("judgment_candidate", None)
+    return _store_envelope(new_env)
+
+
+def finalize_judgment_candidate(env: dict, target_ruleset: str) -> str | None:
+    """Finalización (ACTIVE → FINALIZED): el candidato del ruleset activo pasa a ser el ÚNICO Juicio vivo del sobre; del Juicio anterior se conserva SOLO un escalar
+    (``previous_judgment``: estado/nivel/regla/ruleset del veredicto inmediatamente anterior), sin historial. ``None`` si el sobre no tiene un candidato de ese ruleset."""
+    cand = env.get("judgment_candidate")
+    if not cand or cand.get("ruleset_version") != target_ruleset:
+        return None
+    old = env.get("judgment") or {}
+    new_env = dict(env)
+    new_env["judgment"] = cand
+    new_env["previous_judgment"] = {"status": old.get("status"), "level": old.get("level"), "level_rule": old.get("level_rule"), "ruleset_version": old.get("ruleset_version")} if old else None
+    new_env.pop("judgment_candidate", None)
     new_env.pop("judgment_review", None)
     return _store_envelope(new_env)
 
@@ -710,6 +764,7 @@ def _read_governed(path: Path, client: str, am: str) -> dict | None:
 
 
 def _load_envelope(client: str, am: str) -> dict | None:
+    _sync_activation_cache()
     with _cache_lock:
         mem = _memory.get(_key(client, am))
     if mem is not None:
@@ -804,11 +859,24 @@ def _persisted_judgment(env: dict) -> dict | None:
     """Juicio PERSISTIDO en el sobre. Compatibilidad TEMPORAL de rollout (sobres históricos previos al backfill de
     Juicio): si falta, se deriva en SOLO LECTURA del ``profile_json`` ya persistido (misma función canónica); JAMÁS se
     persiste desde una lectura. El backfill lo materializa; esta rama desaparece cuando el corpus está migrado."""
-    jdg = env.get("judgment")
-    if jdg is not None:
-        return jdg
+    active = active_ruleset()
+    jdg, cand = env.get("judgment"), env.get("judgment_candidate")
+    # Activación coordinada (judgment_activation): durante ACTIVATING el candidato existe pero NO es visible; el cambio a ACTIVE (un único archivo) hace visible el candidato
+    # en TODO el padrón a la vez. Se muestra el Juicio del ruleset VISIBLE, esté en ``judgment`` o en ``judgment_candidate``.
+    for j in (jdg, cand):
+        if j is not None and j.get("ruleset_version") == active:
+            return j
     prof = env.get("profile_json")
-    return _derive_judgment(prof) if prof is not None else None
+    if jdg is None:
+        return _derive_judgment(prof) if prof is not None else None
+    from webapp.services import judgment_activation as ja
+    if ja.state() is not None and prof is not None:
+        # hubo una transición de ruleset y este sobre no tiene un Juicio del ruleset visible (p. ej. regenerado tras un rollback): derivación SOLO LECTURA con el visible
+        try:
+            return _derive_judgment(prof)
+        except Exception:  # noqa: BLE001
+            log.warning("assessment: derivación de Juicio visible falló; se muestra el persistido", exc_info=True)
+    return jdg
 
 
 _validated: dict[str, bool] = {}

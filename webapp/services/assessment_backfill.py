@@ -74,6 +74,16 @@ MIGRACIÓN DE JUICIO (cambio de ``RULESET_VERSION``; p. ej. ``judgment-rules/v2`
     python -m webapp.services.assessment_backfill --backfill-judgment --dry-run
     python -m webapp.services.assessment_backfill --backfill-judgment --apply --confirm-migration judgment_rules_v4 --approval aprobacion.json --operator <id> --backup-dir <dir vacio fuera del almacen>
 
+ACTIVACION COORDINADA de ``judgment-rules/v5`` (el codigo despliega v5 DISPONIBLE e INACTIVO; lo visible sigue siendo ``CURRENT_RULESET_VERSION`` hasta este acto):
+    python -m webapp.services.assessment_backfill --backfill-judgment --dry-run --target-ruleset judgment-rules/v5          (A/B GLOBAL oficial: plan + digest, cero escrituras)
+    python -m webapp.services.assessment_backfill --backfill-judgment --apply --target-ruleset judgment-rules/v5 --confirm-migration judgment_rules_v5         --approval aprobacion.json --operator <id> --backup-dir <dir vacio fuera del almacen>                                 (GLOBAL: no admite --client)
+    python -m webapp.services.assessment_backfill --finalize-ruleset-activation --operator <id> --confirm-plan <12+ del digest>
+    python -m webapp.services.assessment_backfill --rollback-ruleset-activation --operator <id>
+  El apply: respaldo + marcador ``ruleset-activation/v1`` ACTIVATING (lo visible no cambia) -> Juicio v5 como ``judgment_candidate`` de cada sobre -> validacion (cobertura total, candidato
+  planificado, perfil actual, Juicio visible intacto) -> ACTIVE (UN cambio atomico: gobernado y ad hoc pasan a v5 a la vez). Cualquier falla previa => ROLLED_BACK sin exponer v5. La
+  finalizacion consolida una sola version viva (``previous_judgment`` escalar); el rollback de una activacion no finalizada es instantaneo (marcador) y retira los candidatos. Mientras hay
+  una activacion en transicion, toda otra escritura (--apply) se rechaza. Ver ``webapp/services/judgment_activation.py``.
+
 REEVALUACIÓN GENÉRICA OFFLINE DE EXISTENTES (modo explícito y SEPARADO; reconstruye COMPLETO el assessment gobernado, CURRENT o STALE):
     python3 -m webapp.services.assessment_backfill --reassess-existing --client Kensing --dry-run
     python3 -m webapp.services.assessment_backfill --reassess-existing --client Kensing --apply     (sin --client: todos los existentes)
@@ -118,6 +128,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
 
 from tools.catalog import leaf_materialization_evidence as lme
+from tools.catalog.methodological_judgment.contract import RULESET_V5
 from webapp.services import assessment_service as svc
 from webapp.services import catalog_reads
 from webapp.services import durable_backup as dbk
@@ -1064,6 +1075,7 @@ def restore_from_remote_run(migration: str, run_id: str, staging_dir: Any, *, ap
     return out
 
 
+JUDGMENT_V5_ACTIVATION_MIGRATION = "judgment_rules_v5"   # ADOPCION + ACTIVACION coordinada de judgment-rules/v5 (marcador ruleset-activation/v1; ver ``secured_activate_ruleset``)
 JUDGMENT_ADOPTION_MIGRATION = "judgment_rules_v4"      # nombre de la migracion de ADOPCION del contrato de Juicio vigente (v4; la de v3 fue "judgment_rules_v3") (plan firmado + respaldo + diario); el apply por CLI SOLO existe por ``secured_adopt_judgment``
 
 
@@ -1071,7 +1083,7 @@ def _lvl(j: dict | None) -> tuple | None:
     return (j.get("status"), j.get("level"), j.get("level_rule")) if isinstance(j, dict) else None
 
 
-def backfill_judgment(*, apply: bool = False, client: str = "", snapshot: Any = None, reevaluate_decision_stale: bool = False) -> dict:
+def backfill_judgment(*, apply: bool = False, client: str = "", snapshot: Any = None, reevaluate_decision_stale: bool = False, target_ruleset: str | None = None) -> dict:
     """Materializa el Juicio metodológico DERIVADO en los sobres gobernados que lo tengan ausente o con un contrato de
     Juicio anterior, SIN reassess ni adquisición: se deriva del ``profile_json`` YA persistido con el motor canónico y se
     reescribe la MISMA identidad gobernada (perfil, firmas del artefacto y versiones de Assessment intactos). Idempotente
@@ -1084,10 +1096,12 @@ def backfill_judgment(*, apply: bool = False, client: str = "", snapshot: Any = 
     wanted = client.strip().lower()
     records, failed, pending, plan_items = [], 0, 0, []
     snap = snapshot if snapshot is not None else jd.empty_snapshot()
+    if target_ruleset is not None and apply:
+        raise ValueError("un ruleset objetivo distinto del visible solo se adopta por la activacion coordinada (secured_activate_ruleset)")
     for env, path in svc.iter_governed_envelopes():
         if wanted and str(env.get("client", "")).strip().lower() != wanted:
             continue
-        cls = svc.classify_judgment_decisions(env, snap)
+        cls = svc.classify_judgment_decisions(env, snap, ruleset=target_ruleset)
         action, fresh = cls["action"], cls["fresh"]
         persisted = env.get("judgment")
         rec = {"client": env.get("client"), "terminal_am": env.get("terminal_am"), "action": action,
@@ -1095,6 +1109,8 @@ def backfill_judgment(*, apply: bool = False, client: str = "", snapshot: Any = 
                "from_version": list(svc.judgment_versions_of(persisted)) if persisted else None,
                "to_version": list(svc.judgment_versions_of(fresh)) if fresh else None,
                "from_level": list(_lvl(persisted) or ()) or None, "to_level": list(_lvl(fresh) or ()) or None,
+               **({"to_naming_gate": ((fresh or {}).get("naming_gate") or {}).get("state"),
+                   "to_material_compensation": [[m.get("leaf"), m.get("state")] for m in (fresh or {}).get("material_compensation") or ()]} if (fresh or {}).get("naming_gate") else {}),
                "decision_inputs": ({"signature": (fresh.get("decision_inputs") or {}).get("signature"), "consumed_event_ids": [i["event_id"] for i in jd.consumed(fresh)]} if fresh else None)}
         if cls["lost"]:
             rec["lost_decisions"] = cls["lost"]
@@ -1156,7 +1172,8 @@ def backfill_judgment(*, apply: bool = False, client: str = "", snapshot: Any = 
     # restart-safe: tras un apply exitoso, un segundo apply ve todo ``already_current`` (cero trabajo)
     counts["complete"] = (failed == 0 and (not apply or (counts["would_update"] == 0 and counts["would_mark_pending_reevaluation"] == 0)))
     return {"mode": "backfill-judgment", "apply": apply, "dry_run": not apply, "records": records, "counts": counts,
-            "decision_snapshot": snap.summary(), "plan": build_plan(JUDGMENT_ADOPTION_MIGRATION, plan_items),
+            "decision_snapshot": snap.summary(), "plan": build_plan(_adoption_migration(target_ruleset), plan_items),
+            "target_ruleset": target_ruleset or svc.active_ruleset(), "visible_ruleset": svc.active_ruleset(),
             "level_changes": [{"client": r["client"], "terminal_am": r["terminal_am"], "from": r["from_level"], "to": r["to_level"],
                                "event_ids": (r.get("decision_inputs") or {}).get("consumed_event_ids")} for r in records if changed(r)],
             "environment_warnings": ["sin almacén durable (solo memoria): el backfill no persiste"] if svc.governed_dir() is None else []}
@@ -1278,6 +1295,181 @@ def secured_adopt_judgment(*, authorizer: Callable[[str, dict], "ma.Authorizatio
            "complete": not stopped and not counts["failed"] and not counts["pending_remote"], "environment_warnings": []}
     if stopped:
         out["environment_warnings"].append(f"STOPPED_AT_WAVE_{stopped}: las olas siguientes NO se ejecutaron; resolver, regenerar el plan y volver a autorizar")
+    return out
+
+
+def _adoption_migration(target_ruleset: str | None) -> str:
+    """Nombre de la migracion firmada: la de adopcion del contrato vigente o, para un ruleset objetivo distinto del visible, la de ACTIVACION coordinada."""
+    if target_ruleset is None or target_ruleset == svc.active_ruleset():
+        return JUDGMENT_ADOPTION_MIGRATION
+    if target_ruleset == RULESET_V5:
+        return JUDGMENT_V5_ACTIVATION_MIGRATION
+    raise ValueError(f"ruleset objetivo sin migracion de activacion: {target_ruleset}")
+
+
+# ═══════════════════════════ ACTIVACION COORDINADA de un ruleset (judgment-rules/v5) ═══════════════════════════
+# Operacion LOGICA INDIVISIBLE para el usuario: (1) plan global firmado (todos los clientes; el dry-run es el A/B oficial) + respaldo verificable; (2) marcador ACTIVATING
+# (lo visible sigue siendo el ruleset previo para TODO: gobernado y ad hoc); (3) se escribe el Juicio del ruleset objetivo como ``judgment_candidate`` de cada sobre, SIN tocar el
+# visible; (4) VALIDACION previa (cada sobre con perfil tiene su candidato planificado, de su perfil actual, y el visible no cambio); (5) COMMIT: un unico cambio atomico del
+# marcador a ACTIVE hace visible el ruleset nuevo en todo el padron a la vez. Cualquier falla antes del commit => ROLLED_BACK (los candidatos nunca fueron visibles) y se retiran.
+# ``finalize_ruleset_activation`` consolida (ACTIVE -> FINALIZED: una sola version viva + ``previous_judgment`` escalar) recien tras la verificacion del owner;
+# ``rollback_ruleset_activation`` revierte al instante una activacion no finalizada.
+ACTIVATED, ACTIVATION_REFUSED, ACTIVATION_ABORTED = "ACTIVATED", "ACTIVATION_REFUSED", "ACTIVATION_ABORTED"
+
+
+def _profiled_envelopes() -> dict[tuple[str, str], dict]:
+    return {(str(e.get("client")), str(e.get("terminal_am"))): e for e, _p in svc.iter_governed_envelopes() if e.get("profile_json") is not None}
+
+
+def secured_activate_ruleset(*, target_ruleset: str, authorizer: Callable[[str, dict], "ma.Authorization"], backup_dir: Any, operator: str, snapshot: Any = None,
+                             allow_local_only: bool = False, remote_enabled: Callable[[], bool] | None = None) -> dict:
+    """Adopcion + activacion coordinada GLOBAL de ``target_ruleset`` (sin ``--client``: un unico ruleset vigente para todos los clientes)."""
+    from tools.catalog.methodological_judgment import contract as JC
+    from webapp.services import judgment_activation as ja
+    from webapp.services import judgment_decisions as jd
+    remote_enabled = remote_enabled or (lambda: svc.remote_store.enabled())
+    snap = snapshot if snapshot is not None else jd.empty_snapshot()
+    previous = svc.active_ruleset()
+    base = {"mode": "activate-ruleset", "target_ruleset": target_ruleset, "previous_ruleset": previous, "apply": True, "dry_run": False, "secured": True}
+
+    def refuse(outcome: str, **extra: Any) -> dict:
+        return {**base, "outcome": ACTIVATION_REFUSED, "reason": outcome, "applied": False, "activated": False, **extra}
+    if ja.in_transition():
+        return refuse("ACTIVATION_IN_TRANSITION", marker_state=ja.state())
+    try:
+        migration = _adoption_migration(target_ruleset)
+    except ValueError:
+        return refuse("UNKNOWN_TARGET_RULESET")
+    base["migration"] = migration
+    if migration == JUDGMENT_ADOPTION_MIGRATION:
+        return refuse("TARGET_ALREADY_VISIBLE")
+    if not str(operator or "").strip():
+        return refuse("OPERATOR_REQUIRED")
+    plan_report = backfill_judgment(apply=False, snapshot=snap, target_ruleset=target_ruleset)
+    plan = plan_report["plan"]
+    guard = {(i["client"], i["root"]): i for i in plan["items"] if i["operation"] == "REPLACE_JUDGMENT"}
+    if not guard or len(guard) != len(plan["items"]):
+        return refuse("PLAN_NOT_ACTIVATABLE", plan_items=len(plan["items"]), replace_items=len(guard))
+    auth = authorizer(migration, plan)
+    if not auth.granted:
+        return refuse(DENIED, authorization=auth.as_dict())
+    if not remote_enabled() and not allow_local_only:
+        return refuse(REMOTE_REQUIRED, authorization=auth.as_dict())
+    governed = svc.governed_dir()
+    targets = [{"client": c, "root": r, "path": svc.governed_path(c, r)} for (c, r) in sorted(guard)]
+    try:
+        if not backup_dir:
+            raise gb.BackupError("BACKUP_DIR_REQUIRED")
+        if governed is None or any(t["path"] is None for t in targets):
+            raise gb.BackupError("NO_GOVERNED_STORE")
+        manifest = gb.create_backup(Path(backup_dir), targets, governed_dir=governed, migration=migration, plan_digest=plan["digest"], environment=plan["environment"],
+                                    remote_read=svc.remote_store.read_object_bytes if remote_enabled() else None, require_remote=not allow_local_only)
+    except gb.BackupError as exc:
+        return refuse(BACKUP_NOT_GUARANTEED, authorization=auth.as_dict(), backup_error=exc.code)
+    backup_dir = Path(backup_dir)
+
+    def journal(ev: dict) -> None:
+        gb.append_journal(backup_dir, ev)
+    marker_args = dict(ruleset_version=target_ruleset, previous_ruleset_version=previous, plan_digest=plan["digest"], operator=operator,
+                       approval_ref=hashlib.sha256(ma.canonical(auth.document)).hexdigest() if auth.document is not None else None)
+    journal({"event": "AUTHORIZED", "approver": auth.approver, "operator": auth.operator, "plan_digest": plan["digest"], "target_ruleset": target_ruleset})
+    ja.write_marker(ja.ACTIVATING, **marker_args)
+    journal({"event": "MARKER", "state": ja.ACTIVATING})
+    staged: list[tuple[str, str]] = []
+    failures: list[dict] = []
+
+    def abort(reason: str) -> dict:
+        ja.write_marker(ja.ROLLED_BACK, **marker_args, extra={"reason": reason})     # primero: lo visible queda en el ruleset previo para TODO
+        journal({"event": "MARKER", "state": ja.ROLLED_BACK, "reason": reason})
+        current = _profiled_envelopes()
+        for key in staged:
+            env = current.get(key)
+            if env is not None and env.get("judgment_candidate") is not None:
+                svc.drop_judgment_candidate(env)
+        return {**base, "outcome": ACTIVATION_ABORTED, "reason": reason, "applied": True, "activated": False, "failures": failures, "staged_then_withdrawn": len(staged),
+                "backup": {"dir": str(backup_dir), "manifest_sha256": manifest["manifest_sha256"]}}
+    current = _profiled_envelopes()
+    for (c, r), item in sorted(guard.items()):
+        env = current.get((c, r))
+        try:
+            if env is None:
+                raise RuntimeError("ENVELOPE_GONE")
+            cls = svc.classify_judgment_decisions(env, snap, ruleset=target_ruleset)
+            if (cls["fresh"] or {}).get("output_signature") != item["new_output_signature"]:
+                raise RuntimeError("PLAN_DRIFT")
+            svc.apply_judgment_candidate(env, cls["fresh"])
+            staged.append((c, r))
+            p = svc.governed_path(c, r)
+            journal({"event": "STAGED", "key": _key_of({"client": c, "root": r}), "sha256": hashlib.sha256(p.read_bytes()).hexdigest() if p is not None and p.is_file() else None})
+        except Exception as exc:                                                    # noqa: BLE001
+            failures.append({"client": c, "terminal_am": r, "error": str(exc.args[0]) if isinstance(exc, RuntimeError) and exc.args else type(exc).__name__})
+            return abort("STAGING_FAILED")
+    # VALIDACION previa a ACTIVE: cobertura total + candidato planificado + perfil actual + Juicio visible intacto
+    envs = _profiled_envelopes()
+    if set(envs) != set(guard):
+        failures.append({"error": "UNPLANNED_OR_MISSING_ENVELOPES", "unplanned": sorted(map(list, set(envs) - set(guard))), "missing": sorted(map(list, set(guard) - set(envs)))})
+        return abort("VALIDATION_FAILED")
+    for key, item in sorted(guard.items()):
+        env = envs[key]
+        cand, vis = env.get("judgment_candidate") or {}, env.get("judgment") or {}
+        ok = (cand.get("ruleset_version") == target_ruleset and cand.get("output_signature") == item["new_output_signature"]
+              and (cand.get("source_assessment") or {}).get("profile_signature") == JC.signature(env.get("profile_json"))
+              and vis.get("output_signature") == item["previous_output_signature"])
+        if not ok:
+            failures.append({"client": key[0], "terminal_am": key[1], "error": "CANDIDATE_INVALID"})
+    if failures:
+        return abort("VALIDATION_FAILED")
+    ja.write_marker(ja.ACTIVE, **marker_args)                                         # COMMIT: un unico cambio atomico vuelve visible el ruleset nuevo en todo el padron
+    journal({"event": "MARKER", "state": ja.ACTIVE, "staged": len(staged)})
+    return {**base, "outcome": ACTIVATED, "applied": True, "activated": True, "staged": len(staged), "level_changes": plan_report["level_changes"],
+            "plan": {"digest": plan["digest"], "clients": plan["clients"], "items": len(plan["items"])},
+            "backup": {"dir": str(backup_dir), "manifest_sha256": manifest["manifest_sha256"], "objects": len(manifest["objects"])},
+            "next": "verificar en la UI; luego --finalize-ruleset-activation (consolida) o --rollback-ruleset-activation (revierte al instante)"}
+
+
+def finalize_ruleset_activation(*, operator: str, confirm_plan: str) -> dict:
+    """ACTIVE -> FINALIZED: cada candidato del ruleset activo pasa a ser el UNICO Juicio vivo (con ``previous_judgment`` escalar). Exige confirmar el prefijo del digest del plan activado."""
+    from webapp.services import judgment_activation as ja
+    m = ja.read_marker()
+    base = {"mode": "finalize-ruleset-activation"}
+    if m is None or m["state"] != ja.ACTIVE:
+        return {**base, "outcome": ACTIVATION_REFUSED, "reason": "NOT_ACTIVE", "marker_state": None if m is None else m["state"]}
+    if not str(operator or "").strip() or len(confirm_plan or "") < 12 or not str(m.get("plan_digest") or "").startswith(confirm_plan):
+        return {**base, "outcome": ACTIVATION_REFUSED, "reason": "CONFIRMATION_REQUIRED"}
+    done, missing = 0, []
+    for key, env in sorted(_profiled_envelopes().items()):
+        if svc.finalize_judgment_candidate(env, m["ruleset_version"]) is not None:
+            done += 1
+        elif (env.get("judgment") or {}).get("ruleset_version") != m["ruleset_version"]:
+            missing.append(list(key))
+    if missing:
+        return {**base, "outcome": ACTIVATION_REFUSED, "reason": "ENVELOPES_WITHOUT_TARGET_JUDGMENT", "finalized": done, "missing": missing}
+    ja.write_marker(ja.FINALIZED, ruleset_version=m["ruleset_version"], previous_ruleset_version=m["previous_ruleset_version"], plan_digest=m["plan_digest"],
+                    operator=operator, approval_ref=m.get("approval_ref"))
+    return {**base, "outcome": "FINALIZED", "finalized": done, "ruleset": m["ruleset_version"]}
+
+
+def rollback_ruleset_activation(*, operator: str) -> dict:
+    """Revierte una activacion NO finalizada al instante: primero el marcador (ROLLED_BACK: lo visible vuelve al ruleset previo para TODO), luego retira los candidatos. Una activacion
+    FINALIZED se revierte restaurando el respaldo (``--restore-backup``) y luego este comando (que entonces solo escribe ROLLED_BACK)."""
+    from webapp.services import judgment_activation as ja
+    m = ja.read_marker()
+    base = {"mode": "rollback-ruleset-activation"}
+    if m is None or m["state"] == ja.ROLLED_BACK:
+        return {**base, "outcome": "NOTHING_TO_DO", "marker_state": None if m is None else m["state"]}
+    if not str(operator or "").strip():
+        return {**base, "outcome": ACTIVATION_REFUSED, "reason": "OPERATOR_REQUIRED"}
+    was = m["state"]
+    ja.write_marker(ja.ROLLED_BACK, ruleset_version=m["ruleset_version"], previous_ruleset_version=m["previous_ruleset_version"], plan_digest=m["plan_digest"],
+                    operator=operator, approval_ref=m.get("approval_ref"), extra={"rolled_back_from": was})
+    withdrawn = 0
+    for _key, env in sorted(_profiled_envelopes().items()):
+        if env.get("judgment_candidate") is not None:
+            svc.drop_judgment_candidate(env)
+            withdrawn += 1
+    out = {**base, "outcome": "ROLLED_BACK", "from_state": was, "candidates_withdrawn": withdrawn, "visible_ruleset": svc.active_ruleset()}
+    if was == ja.FINALIZED:
+        out["warning"] = "activacion FINALIZED: los sobres consolidados se revierten con --restore-backup del respaldo de la activacion"
     return out
 
 
@@ -1696,7 +1888,26 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--confirm-restore", default="", metavar="SELLO", help="con --restore-backup --apply: primeros 12+ caracteres de manifest_sha256")
     ap.add_argument("--confirm-migration", default="", metavar="MIGRACION",
                     help="confirmación EXPLÍCITA que exige --apply en las migraciones sensibles (" + ", ".join(sorted(CONFIRMATION_REQUIRED)) + "): debe repetir el nombre de la migración")
+    ap.add_argument("--target-ruleset", default="", metavar="RULESET",
+                    help="con --backfill-judgment: ruleset OBJETIVO distinto del visible (p. ej. judgment-rules/v5). --dry-run = A/B global sin escrituras; --apply = ACTIVACION "
+                         "coordinada global (marcador ruleset-activation/v1; exige --confirm-migration " + JUDGMENT_V5_ACTIVATION_MIGRATION + ", --approval, --operator y --backup-dir)")
+    ap.add_argument("--finalize-ruleset-activation", action="store_true",
+                    help="consolida una activacion ACTIVE (candidato -> unico Juicio vivo + previous_judgment escalar); exige --operator y --confirm-plan <prefijo del digest>")
+    ap.add_argument("--rollback-ruleset-activation", action="store_true", help="revierte al instante una activacion no finalizada (marcador ROLLED_BACK + retiro de candidatos); exige --operator")
+    ap.add_argument("--confirm-plan", default="", metavar="DIGEST", help="con --finalize-ruleset-activation: primeros 12+ caracteres del digest del plan activado")
     args = ap.parse_args(argv)
+    from webapp.services import judgment_activation as ja
+    if args.finalize_ruleset_activation or args.rollback_ruleset_activation:
+        if args.finalize_ruleset_activation and args.rollback_ruleset_activation:
+            ap.error("--finalize-ruleset-activation y --rollback-ruleset-activation son excluyentes")
+        report = (finalize_ruleset_activation(operator=args.operator, confirm_plan=args.confirm_plan) if args.finalize_ruleset_activation
+                  else rollback_ruleset_activation(operator=args.operator))
+        sys.stdout.buffer.write((json.dumps(report, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
+        return 0 if report["outcome"] in ("FINALIZED", "ROLLED_BACK", "NOTHING_TO_DO") else EXIT_DENIED
+    if args.target_ruleset and not args.backfill_judgment:
+        ap.error("--target-ruleset solo aplica a --backfill-judgment")
+    if args.apply and ja.in_transition():
+        ap.error(f"hay una activacion de ruleset en curso (marcador {ja.state()}): solo se admite --finalize-ruleset-activation o --rollback-ruleset-activation (cero escrituras)")
     if args.list_remote_backups:
         try:
             report = {"mode": "list-remote-backups", "migration": args.list_remote_backups, "runs": dbk.list_runs(args.list_remote_backups)}
@@ -1731,13 +1942,19 @@ def main(argv: list[str] | None = None) -> int:
         ap.error("--apply solo existe con un modo de regeneración (el backfill normal no lo usa)")
     if args.apply and args.regenerate_stale_evidence in CONFIRMATION_REQUIRED and args.confirm_migration != args.regenerate_stale_evidence:
         ap.error(f"--apply de {args.regenerate_stale_evidence} exige --confirm-migration {args.regenerate_stale_evidence} (control explícito; cero escrituras)")
-    if args.backfill_judgment and args.apply and args.confirm_migration != JUDGMENT_ADOPTION_MIGRATION:
-        ap.error(f"--apply de --backfill-judgment exige --confirm-migration {JUDGMENT_ADOPTION_MIGRATION} (control explícito; cero escrituras)")
+    try:
+        expected_judgment_migration = _adoption_migration(args.target_ruleset or None)
+    except ValueError as exc:
+        ap.error(str(exc))
+    if args.backfill_judgment and args.apply and args.confirm_migration != expected_judgment_migration:
+        ap.error(f"--apply de --backfill-judgment exige --confirm-migration {expected_judgment_migration} (control explícito; cero escrituras)")
+    if args.backfill_judgment and args.apply and expected_judgment_migration != JUDGMENT_ADOPTION_MIGRATION and args.client:
+        ap.error("la activacion de un ruleset es GLOBAL (un unico ruleset vigente): no admite --client")
     if args.regenerate_selected and args.apply and args.confirm_migration != SELECTIVE_MIGRATION:
         ap.error(f"--apply de --regenerate-selected exige --confirm-migration {SELECTIVE_MIGRATION} (control explícito; cero escrituras)")
     if args.accept_known_abstentions and not (args.apply and args.regenerate_stale_evidence in SECURED_MIGRATIONS):
         ap.error("--accept-known-abstentions solo existe con --regenerate-stale-evidence <migracion sensible> --apply (cero escrituras)")
-    if args.confirm_migration and args.confirm_migration != (JUDGMENT_ADOPTION_MIGRATION if args.backfill_judgment else SELECTIVE_MIGRATION if args.regenerate_selected else args.regenerate_stale_evidence):
+    if args.confirm_migration and args.confirm_migration != (expected_judgment_migration if args.backfill_judgment else SELECTIVE_MIGRATION if args.regenerate_selected else args.regenerate_stale_evidence):
         ap.error("--confirm-migration solo confirma la migración indicada (--regenerate-stale-evidence, " + JUDGMENT_ADOPTION_MIGRATION + " con --backfill-judgment, o " + SELECTIVE_MIGRATION + " con --regenerate-selected)")
     if args.decisions != "registry" and not (args.backfill_judgment or args.regenerate_selected):
         ap.error("--decisions solo existe con --backfill-judgment o --regenerate-selected")
@@ -1802,13 +2019,18 @@ def main(argv: list[str] | None = None) -> int:
         except jd.DecisionSnapshotError as exc:
             sys.stdout.buffer.write((json.dumps({"mode": "backfill-judgment", "outcome": "DECISION_SNAPSHOT_FAILED", "error": str(exc), "writes": 0}, ensure_ascii=False, indent=2) + chr(10)).encode("utf-8"))
             return 1
-        if args.apply:
+        if args.apply and expected_judgment_migration != JUDGMENT_ADOPTION_MIGRATION:
+            report = secured_activate_ruleset(target_ruleset=args.target_ruleset, authorizer=ma.authorizer_from_file(args.approval or None, args.operator or None),
+                                              backup_dir=args.backup_dir or None, operator=args.operator, snapshot=snap, allow_local_only=args.allow_local_only)
+            code = 0 if report.get("outcome") == ACTIVATED else (EXIT_DENIED if report.get("outcome") == ACTIVATION_REFUSED else 1)
+        elif args.apply:
             report = secured_adopt_judgment(authorizer=ma.authorizer_from_file(args.approval or None, args.operator or None), backup_dir=args.backup_dir or None, client=args.client,
                                             snapshot=snap, allow_local_only=args.allow_local_only, reevaluate_decision_stale=args.reevaluate_decision_stale)
             code = (EXIT_DENIED if report.get("outcome") in (DENIED, BACKUP_NOT_GUARANTEED, REMOTE_REQUIRED) else EXIT_WAVE_STOPPED if report.get("outcome") == STOPPED_AT_WAVE
                     else 1 if report["counts"].get("failed") else (2 if report.get("environment_warnings") else 0))
         else:
-            report = backfill_judgment(apply=False, client=args.client, snapshot=snap, reevaluate_decision_stale=args.reevaluate_decision_stale)
+            report = backfill_judgment(apply=False, client=args.client, snapshot=snap, reevaluate_decision_stale=args.reevaluate_decision_stale,
+                                       target_ruleset=args.target_ruleset or None)
             code = 1 if report["counts"]["failed"] else (2 if report["environment_warnings"] else 0)
     elif args.revalidate_judgment:
         report = revalidate_judgments(apply=args.apply, client=args.client)
