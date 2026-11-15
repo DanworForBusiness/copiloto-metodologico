@@ -192,13 +192,31 @@ def test_catalog_has_two_states_and_the_form_lives_inside_the_catalog_tab(owner,
         main._invalidate_catalog_cache()
 
 
+def _catalog_view_for(action: str, js: str) -> str:
+    """Evalúa la expresión REAL de `catalogView` en app.js para un `initialCatalogAction` dado,
+    traduciendo el subconjunto JS usado (`[...].includes(x)`, `===`, ternario) a Python. No depende
+    del texto exacto del ternario: sigue siendo fiel si cambia el formato, el orden o las comillas."""
+    m = re.search(r"catalogView:\s*(.+),\s*(?://.*)?$", js, re.M)
+    assert m, "no se encontró la expresión `catalogView:` en app.js"
+    expr = m.group(1).strip()
+    py = re.sub(r"\[([^\]]*)\]\.includes\(([^)]+)\)", r"(\2 in [\1])", expr)                        # arr.includes(x) -> (x in [arr])
+    py = py.replace("===", "==").replace("!==", "!=")
+    tern = re.match(r"^(.*?)\?(.*?):(.*)$", py)                                                      # COND ? A : B
+    assert tern, f"expresión `catalogView` no reconocida: {expr!r}"
+    cond, a, b = (part.strip() for part in tern.groups())
+    return eval(f"({a}) if ({cond}) else ({b})", {"__builtins__": {}}, {"initialCatalogAction": action})
+
+
 def test_deeplink_requests_the_catalog_publication_state(owner, monkeypatch, tmp_path):
     _demo_catalog(monkeypatch, tmp_path)
     try:
         html = owner.get(CATALOG_PUBLISH_URL).text
         assert "copilotLayout('core', false, 'catalogo', '', 'publish')" in html                   # Catálogo + subestado
         js = (REPO / "webapp" / "static" / "app.js").read_text(encoding="utf-8")
-        assert 'catalogView: initialCatalogAction === "publish" ? "publish" : "browse"' in js
+        # Los TRES comportamientos del deeplink, derivados de la expresión real (no del string exacto):
+        assert _catalog_view_for("publish", js) == "publish"
+        assert _catalog_view_for("extract", js) == "extract"
+        assert _catalog_view_for("accion-desconocida", js) == "browse"
     finally:
         main._invalidate_catalog_cache()
 

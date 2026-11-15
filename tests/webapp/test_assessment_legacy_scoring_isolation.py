@@ -27,9 +27,12 @@ def test_legacy_list_tile_template_and_scoring_modules_are_untouched_by_the_asse
     import subprocess
     # La tile del listado (`catalog_flows.html`) ya NO está congelada: desde el gate «grado de la tile = Adopción metodológica» su grado
     # primario sale del Juicio persistido (ver test_catalog_assessment_routes). Los módulos de scoring legacy siguen intactos.
-    out = subprocess.run(["git", "diff", "-U0", "main", "--", "tools/catalog/catalog_service.py"], cwd=REPO, capture_output=True, encoding="utf-8")
-    base = subprocess.run(["git", "show", "main:tools/catalog/generate_catalog.py"], cwd=REPO, capture_output=True, encoding="utf-8")
-    if out.returncode != 0 or base.returncode != 0:                          # sin rama `main` local (p. ej. CI en detached HEAD): no aplica
+    # Baseline ESTABLE y verificable: `origin/main` (NO la rama `main` LOCAL, que puede estar
+    # desactualizada y disparar diffs espurios ajenos al front de assessment). Se mantiene toda
+    # la detección de modificaciones indebidas del generador legacy (allowlist intacto abajo).
+    out = subprocess.run(["git", "diff", "-U0", "origin/main", "--", "tools/catalog/catalog_service.py"], cwd=REPO, capture_output=True, encoding="utf-8")
+    base = subprocess.run(["git", "show", "origin/main:tools/catalog/generate_catalog.py"], cwd=REPO, capture_output=True, encoding="utf-8")
+    if out.returncode != 0 or base.returncode != 0:                          # sin `origin/main` disponible (repo sin remoto/fetch): no hay baseline contra el cual comparar
         return
     # Tercera excepción admitida (modo «solo APIs/CDS» del panel): la DESCARGA de la carpeta CSN de SharePoint y la copia de las APIs (`fetch_csn_folder`, `_sync_apis`, `_same_text`)
     # ganaron parámetros de alcance y no reescriben lo idéntico. Es entrada/sincronización del catálogo, no scoring: esas tres funciones se excluyen de la comparación; TODO lo demás
