@@ -3273,6 +3273,7 @@ details:not([open]) > summary > .panel-close[data-asr-close] { display: none; }
    del Hub; tipografía, colores y bordes son los de `.methodology` / `.callout` / `.support-link` / `.catalog-note__ev` / `.progress`. Acciones en fila
    que se apilan sin solaparse en ancho angosto; el aviso «Iniciando…» va al lado del botón; texto de avance → barra (8px, el `gap` de `.support-links`);
    la barra NO usa el margen del asistente (`.progress` de app.css: 22px/30px), así el callout cierra con su padding. Ocultos con `hidden` = sin espacio. */
+.callout__body > .support-links:last-child { margin-bottom: 0; }   /* acción al pie de un callout (informe individual y de cliente): cierra con el padding del callout, sin los 14px extra */
 [data-cli-regen] .support-links { flex-wrap: wrap; align-items: center; column-gap: 12px; row-gap: 8px; margin-bottom: 0; }
 [data-cli-regen] [data-cli-regen-note] { display: inline-flex; align-items: center; gap: 7px; min-width: 0; }
 [data-cli-regen] [data-cli-regen-note][hidden], [data-cli-regen] [data-cli-regen-spinner][hidden] { display: none; }

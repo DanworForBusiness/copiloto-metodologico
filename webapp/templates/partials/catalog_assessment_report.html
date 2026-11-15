@@ -203,7 +203,8 @@
 {% if v.state == "FAILED" %}
 {% call callout("warn", "No se pudo generar el assessment", "alert") %}<p>{{ v.reason }}</p>{% if v.previous_profile_retained %}<p>Se muestra la última evaluación disponible; puede estar desactualizada.</p>{% endif %}{{ action_link(v) }}{% endcall %}
 {% elif v.state == "STALE" %}
-{% call callout("punch", "Assessment desactualizado", "status", icon="💡") %}<p>{{ v.state_note }}</p><p>{{ v.state_body }}</p>{{ action_link(v) }}{% endcall %}
+{# MISMO formato que «Assessments desactualizados» del Informe de Cliente: oración principal en negrita + explicación en el mismo párrafo; la acción sin margen inferior extra (tools.css). #}
+{% call callout("punch", "Assessment desactualizado", "status", icon="💡") %}<p><strong>{{ v.state_note }}</strong> {{ v.state_body }}</p>{{ action_link(v) }}{% endcall %}
 {% endif %}
 {% if v.state != "CURRENT" %}</div>{% endif %}
 
