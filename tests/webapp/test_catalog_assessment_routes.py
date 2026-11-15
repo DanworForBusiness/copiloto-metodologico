@@ -251,7 +251,7 @@ def test_stale_report_is_still_exportable_and_viewable(world):
     f = world.inbound / "Acme/views/1VR_RAW.json"
     f.write_text(f.read_text(encoding="utf-8").replace('"A"', '"A9"', 1), encoding="utf-8")
     html = c.get("/catalog/flow/assessment?flow=acme-4am", headers=HX).text
-    assert 'Assessment desactualizado</strong>' in html and "<p>Cambió algo que este modelo usa desde la última evaluación.</p>" in html      # P1: causa por dependencia; título corto + nota como primer párrafo (mismo formato que el resto de los punch)
+    assert 'Assessment desactualizado</strong>' in html and "<p><strong>Cambió algo que este modelo usa desde la última evaluación.</strong> " in html      # P1: causa por dependencia; título corto + nota en negrita y explicación en el mismo párrafo (mismo formato que el aviso del Informe de Cliente)
     assert "Regenerar assessment" in html and "Resumen" in html            # banner + informe anterior + acción
     assert c.get("/catalog/flow/assessment.json?flow=acme-4am").status_code == 200
 
@@ -1223,7 +1223,7 @@ def test_stale_notice_follows_the_hub_punch_style_not_a_bare_callout(world):
     assert block.startswith('<div class="methodology">') and block.rstrip().endswith("</div>")
     assert 'class="callout callout--punch" role="status"' in block
     assert '<span class="callout__icon">💡</span><strong class="callout__title">Assessment desactualizado</strong>' in block   # MISMO ícono y título corto que los demás punch
-    assert block.count("<p>") == 2 and "Regenerar assessment" in block                                                       # nota + explicación, luego la acción
+    assert block.count("<p>") == 1 and "<p><strong>" in block and "Regenerar assessment" in block                             # nota en negrita + explicación en un párrafo, luego la acción
     questions = html[html.index("Para qué sirven estas preguntas") - 200: html.index("Para qué sirven estas preguntas")]
     assert 'class="callout callout--punch"' in questions and "💡" in questions                                                 # el punch general que sirve de referencia
 

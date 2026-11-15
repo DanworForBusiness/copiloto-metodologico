@@ -29,7 +29,7 @@ from __future__ import annotations
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from core.content_registry import DEFAULT_PACK, resolve_pack
 from webapp import access, nav, same_origin_guard
@@ -39,6 +39,7 @@ from webapp.services import review_resolution_presenter
 from webapp.services import assessment_service as svc
 from webapp.services import auth_service, catalog_reads
 from webapp.services import client_assessment_portfolio as portfolio
+from webapp.services import client_assessment_regeneration as regen
 from webapp.services.activity_context import AREA_CATALOG, SCOPE_COPILOT
 from webapp.services.activity_service import log_activity
 from webapp.templating import templates
@@ -193,7 +194,33 @@ def client_assessment_get(request: Request, flow: str = "", pack: str = Query(DE
     return templates.TemplateResponse(
         request=request, name="partials/client_assessment_report.html",
         context={"v": portfolio.report_view(snap), "pack": selected, "back_url": presenter.flow_url(entry, selected), "back_close": origin == "assistant",
+                 "regen_url": "/catalog/client/assessment/regenerate?" + urlencode({"flow": entry.entry_id, "pack": selected}),
+                 "refresh_url": "/catalog/client/assessment?" + urlencode({"flow": entry.entry_id, "pack": selected}),
                  "json_url": "/catalog/client/assessment.json?" + urlencode(q), "md_url": "/catalog/client/assessment.md?" + urlencode(q)})
+
+
+@router.post("/catalog/client/assessment/regenerate", include_in_schema=False)
+def client_assessment_regenerate(request: Request, flow: str = "", pack: str = Query(DEFAULT_PACK)):
+    """«Regenerar N Assessments» del Informe de Cliente: arranca UNA operación consolidada (hilo + ``operation_registry``) que regenera, con la MISMA
+    regeneración individual, los modelos únicos desactualizados del cliente del flujo. El cliente sale SIEMPRE del flujo (nunca del navegador).
+    202 + ``run_id`` (seguir con ``/copilot/operations/{run_id}``) · 409 si ya hay una para el cliente o hay una activación de ruleset en curso · 200 sin elegibles."""
+    user = _require_user(request)
+    if not same_origin_guard.is_same_origin_write(request):
+        raise HTTPException(403, "Origen no permitido")
+    from webapp.services.datasphere_assessment_service import owner_email
+    selected = _pack(request, pack)
+    entry = _entry_or_404(flow)
+    snap = portfolio.build_snapshot(entry, selected)
+    entries = {e.entry_id: e for e in portfolio.client_entries(snap["client"])}
+    targets = regen.eligible_targets(snap, entries)
+    out = regen.start(snap["client"], targets, owner_email(request), pack=selected, result_url=presenter.flow_url(entry, selected))
+    log_activity("catalog_client_assessment_regenerate", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG, flow=entry.entry_id,
+                 client=snap["client"], outcome=out["outcome"], total=out.get("total"))
+    code = {regen.STARTED: 202, regen.NOTHING_TO_DO: 200}.get(out["outcome"], 409)
+    msg = {regen.ALREADY_RUNNING: "Ya hay una regeneración en curso para este cliente.",
+           regen.BLOCKED_TRANSITION: "Hay una activación de la metodología en curso: la regeneración no está disponible hasta que termine.",
+           regen.NOTHING_TO_DO: "No hay Assessments desactualizados para regenerar."}.get(out["outcome"])
+    return JSONResponse({**out, **({"message": msg} if msg else {})}, status_code=code, headers={"Cache-Control": "no-store"})
 
 
 def _client_export(request: Request, flow: str, ext: str) -> Response:

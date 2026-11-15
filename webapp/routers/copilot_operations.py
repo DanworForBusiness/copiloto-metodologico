@@ -27,10 +27,11 @@ from webapp.templating import templates
 
 router = APIRouter()
 _NO_STORE = {"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"}
-KIND_LABELS = {"assessment": "Assessment", "publication": "Publicación"}
-DONE_LABELS = {"assessment": "Assessment completado", "publication": "Publicación completada"}
-RESULT_LABELS = {"assessment": "Abrir Assessment", "publication": "Abrir Catálogo"}
-STATE_LABELS = {"RUNNING": "En curso", "SUCCESS": "Completada", "FAILED": "Falló", "INVALID": "Datos inválidos", "UNKNOWN": "Resultado sin confirmar"}
+KIND_LABELS = {"assessment": "Assessment", "publication": "Publicación", "regeneration": "Regeneración de Assessments"}
+DONE_LABELS = {"assessment": "Assessment completado", "publication": "Publicación completada", "regeneration": "Regeneración completada"}
+RESULT_LABELS = {"assessment": "Abrir Assessment", "publication": "Abrir Catálogo", "regeneration": "Abrir Catálogo"}
+STATE_LABELS = {"RUNNING": "En curso", "SUCCESS": "Completada", "PARTIAL": "Completada con fallos", "FAILED": "Falló", "INVALID": "Datos inválidos",
+                "UNKNOWN": "Resultado sin confirmar"}
 
 
 def _user(request: Request) -> tuple[dict, str]:

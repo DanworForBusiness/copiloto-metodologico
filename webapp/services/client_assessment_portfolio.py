@@ -443,7 +443,14 @@ def report_view(snap: dict) -> dict:
         "state_rows": [{"state": st, "label": presenter.STATE_LABELS[st], "count": snap["states"][st]} for st in svc.STATES],
         "confidence_rows": [{"level": lvl, "label": presenter.confidence_label(lvl), "count": s["confidence_distribution"][lvl]}
                             for lvl in CONFIDENCE_ORDER],
+        "regeneration": _regeneration_view(snap),
     }
+
+
+def _regeneration_view(snap: dict) -> dict:
+    """Advertencia «Assessments desactualizados» del consolidado (solo presentación; el conteo sale de este MISMO snapshot canónico)."""
+    from webapp.services import client_assessment_regeneration as regen      # import perezoso: evita el ciclo con el servicio de regeneración
+    return regen.summary_view(snap)
 
 
 def to_json(snap: dict) -> str:
