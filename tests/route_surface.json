@@ -153,6 +153,7 @@
   "POST /assistant/responses/{reply_id}/feedback",
   "POST /assistant/responses/{reply_id}/feedback/cancel",
   "POST /assistant/responses/{reply_id}/feedback/submit",
+  "POST /catalog/client/assessment/regenerate",
   "POST /catalog/connections/retire",
   "POST /catalog/feedback",
   "POST /catalog/feedback/cancel",
