@@ -25,7 +25,9 @@ def test_a_determined_judgment_or_no_judgment_has_no_explanation():
 
 def test_sufficient_evidence_without_strengths_is_stated_as_such_and_never_as_insufficient():
     e = P.nd_explanation(_nd(missing=[DIM, _d("HARMONIZATION", cause="NO_HARMONIZATION_BOUNDARY_OBSERVED")]))
-    assert e["cause"] == P.ND_SUFFICIENT_NO_STRENGTH and "Sin deficiencias determinables" in e["text"] and "Ingesta, Armonización" in e["text"]
+    # v5 (explicabilidad): «Sin deficiencias determinables» contradecía condiciones incumplidas del contrato publicado; el texto dice exactamente lo que el Juicio establece
+    assert e["cause"] == P.ND_SUFFICIENT_NO_STRENGTH and "Sin desvíos materiales ni debilidades relevantes" in e["text"] and "Ingesta, Armonización" in e["text"]
+    assert "Sin deficiencias determinables" not in e["text"] and e["label"].startswith("Sin desvíos ni debilidades relevantes")
     assert "insuficiente" not in e["text"].lower().replace("evidencia afirmativa", "") and [d["dimension"] for d in e["dimensions"]] == ["Ingesta", "Armonización"]
 
 
@@ -54,7 +56,9 @@ def test_other_supported_indeterminations_each_have_their_own_cause():
     assert ne["cause"] == P.ND_CONTRACT_NOT_EVALUABLE and "Armonización, Propagación" in ne["text"] and "los contratos" in ne["text"]
     rev = [{"rule_id": "SRC-REV-01", "affected_artifacts": ["T_A", "T_B"]}, {"rule_id": "OTHER", "affected_artifacts": ["T_C"]}]
     ext = P.nd_explanation(_nd("EXTERNAL_SOURCE_CONTRACT_DECISION_CRITICAL", "LVL-05", review_candidates=rev))
-    assert ext["cause"] == P.ND_SOURCE_CLASS_CRITICAL and "2 artefactos" in ext["text"]
+    # el conteo NO afirma que todas deciden: son las fuentes sin clase; las DECISIVAS las agrega la capa con perfil (``nd_decisive_sources``)
+    assert ext["cause"] == P.ND_SOURCE_CLASS_CRITICAL and "2 fuentes externas sin clase" in ext["text"] and "al menos una" in ext["text"]
+    assert ext["actions"] and ext["actions"][0]["responsible"].startswith("Arquitecto")
     assert P.nd_explanation(_nd("ASSESSMENT_NOT_JUDGEABLE", None))["cause"] == P.ND_NOT_JUDGEABLE
     assert P.nd_explanation(_nd("CANONICAL_EVIDENCE_V3_REQUIRED", None))["cause"] == P.ND_EVIDENCE_V3_REQUIRED
     assert P.nd_explanation(_nd("SOMETHING_NEW", None))["cause"] == P.ND_UNSPECIFIED and "SOMETHING_NEW" in P.nd_explanation(_nd("SOMETHING_NEW", None))["text"]
