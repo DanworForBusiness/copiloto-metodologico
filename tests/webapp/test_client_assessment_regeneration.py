@@ -161,3 +161,25 @@ def test_blocked_while_a_ruleset_activation_is_in_transition(world, tmp_path, mo
         assert svc.status_for_entry(world.entries[0]).state == svc.STALE
     finally:
         ja.remove_marker(marker)
+
+
+def test_rest_state_is_compact_and_layout_rules_are_scoped_without_own_look(world):
+    """Reposo: callout con la tipografía de contenido del informe (`.methodology`), acción en el MISMO `.support-links` del informe individual y los
+    estados iniciando / ejecutando / finalizado presentes pero `hidden` (sin reservar espacio). El CSS del bloque es SOLO distribución, acotado a
+    `[data-cli-regen]`: la barra no hereda el margen del asistente (`.progress` 22px/30px) y no hay colores, fuentes ni bordes propios."""
+    import re
+    from pathlib import Path
+    c = client_for()
+    cat._post(c)
+    _make_stale(world)
+    html = _report(c)
+    block = html[html.index("data-cli-regen "): html.index("Indicadores del cliente")]
+    assert '<div class="methodology" data-cli-regen ' in html
+    assert re.search(r'<div class="support-links">\s*<button type="button" class="support-link asr-generate" data-cli-regen-start', block)
+    for hook in ("data-cli-regen-note ", "data-cli-regen-progress ", "data-cli-regen-summary "):
+        assert re.search(hook + r'[^>]*hidden', block), hook
+    assert 'role="progressbar"' in block and 'aria-label="Avance de la regeneración"' in block
+    css = (Path(__file__).resolve().parents[2] / "webapp" / "static" / "tools.css").read_text(encoding="utf-8")
+    rules = re.findall(r"(?m)^(\[data-cli-regen\][^{]*)\{([^}]*)\}", css)
+    assert rules and any(".progress" in sel and "margin: 8px 0 0" in body for sel, body in rules)
+    assert not [b for _, b in rules if re.search(r"(?<![-\w])(color|background|border|font)[\w-]*\s*:", b)]   # solo layout

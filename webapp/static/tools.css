@@ -3269,6 +3269,18 @@ details:not([open]) > summary > .panel-close[data-asr-close] { display: none; }
 .asr-generate.htmx-request .asr-generate__busy { display: inline-flex; }
 .asr-generate.htmx-request .asr-generate__label { display: none; }
 .asr-generate:disabled { opacity: 1; cursor: progress; }               /* durante la carga el spinner comunica el estado; sin el fade al 30% de button:disabled */
+/* Informe de Cliente → «Regenerar N Assessments» (client_assessment_report.html, `[data-cli-regen]`): SOLO distribución de los estados dentro del callout
+   del Hub; tipografía, colores y bordes son los de `.methodology` / `.callout` / `.support-link` / `.catalog-note__ev` / `.progress`. Acciones en fila
+   que se apilan sin solaparse en ancho angosto; el aviso «Iniciando…» va al lado del botón; texto de avance → barra (8px, el `gap` de `.support-links`);
+   la barra NO usa el margen del asistente (`.progress` de app.css: 22px/30px), así el callout cierra con su padding. Ocultos con `hidden` = sin espacio. */
+[data-cli-regen] .support-links { flex-wrap: wrap; align-items: center; column-gap: 12px; row-gap: 8px; margin-bottom: 0; }
+[data-cli-regen] [data-cli-regen-note] { display: inline-flex; align-items: center; gap: 7px; min-width: 0; }
+[data-cli-regen] [data-cli-regen-note][hidden], [data-cli-regen] [data-cli-regen-spinner][hidden] { display: none; }
+[data-cli-regen] [data-cli-regen-progress] { margin-top: 14px; }
+[data-cli-regen] [data-cli-regen-summary] { margin: 0; overflow-wrap: anywhere; }
+[data-cli-regen] [data-cli-regen-progress] .progress { margin: 8px 0 0; }
+[data-cli-regen] [data-cli-regen-summary] { margin-top: 14px; }
+[data-cli-regen] .asr-generate:disabled { opacity: .45; cursor: not-allowed; }   /* deshabilitado SIN spinner propio (el estado va al lado): aspecto deshabilitado del Hub, como en Carga masiva */
 .asr-generate__spinner { display: inline-block; width: 11px; height: 11px; border: 2px solid var(--line); border-top-color: var(--gold); border-radius: 50%; animation: analysis-spin .8s linear infinite; }
 
 /* Ritmo vertical de la fila de contratos (badges en `.catalog-verdict-line`) cuando es un bloque del informe (`.methodology`):
