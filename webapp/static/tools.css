@@ -3344,3 +3344,21 @@ details:not([open]) > summary > .panel-close[data-asr-close] { display: none; }
   font-size: clamp(1.7rem, 2.6vw, 2.3rem);
   letter-spacing: -.02em;
 }
+
+/* Assessment · «Convención de nombres y nivel»: número DORADO clickeable que abre el detalle por categoría (una a la vez), desglose indentado (Conformes/Recuperables/No recuperables
+   son subconjuntos de Gobernables) y panel de artefactos. Reusa el (i) `.chart-tooltip-anchor`/`.chart-tooltip` y la tabla nativa del Hub; sin componentes nuevos ni CSS global. */
+.asr-naming-gate .asr-ng-conclusion { margin-bottom: .35rem; }
+/* Etiqueta + (i) en una línea base común: el inline-flex alinea verticalmente el ícono con el texto (el (i) nativo trae line-height:0) sin desplazar el inicio del texto. */
+.asr-naming-gate .asr-ng-labelwrap { display: inline-flex; align-items: center; gap: .3rem; }
+/* Sin línea vertical ni barra lateral: la jerarquía se lee por el orden de filas. Se conserva SOLO el divisor horizontal nativo (border-bottom). */
+.asr-naming-gate .asr-ng-table :is(th, td) { border-left: 0; border-right: 0; }
+/* TODAS las filas al MISMO eje: sin sangría ni decoración; el desglose (Conformes/Recuperables/No recuperables) se reconoce por el orden, no por indentación. */
+.asr-naming-gate .asr-ng-count-cell { white-space: nowrap; }
+.asr-naming-gate .asr-ng-count--static { color: inherit; }
+/* El número clickeable es un <a> nativo de prosa/tabla del Hub (.methodology … a): dorado, sin subrayado en reposo, subrayado en hover/focus-visible. No se redefine color ni subrayado aquí. */
+.asr-naming-gate .asr-ng-detail > td { padding: 0; }
+.asr-naming-gate .asr-ng-detail__body { padding: .5rem .25rem .75rem; }
+.asr-naming-gate .asr-ng-detail__head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; margin-bottom: .35rem; }
+.asr-naming-gate .asr-ng-detail__close { background: none; border: 0; color: var(--soft); cursor: pointer; font-size: 1.15rem; line-height: 1; padding: 0 .25rem; }
+.asr-naming-gate .asr-ng-detail__close:hover,
+.asr-naming-gate .asr-ng-detail__close:focus-visible { color: var(--gold); }

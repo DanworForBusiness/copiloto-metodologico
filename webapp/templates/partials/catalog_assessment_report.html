@@ -21,7 +21,7 @@
     <span class="asr-generate__label">{{ v.action.label }}</span>
   </button>
 </div>{% endif %}{% endmacro %}
-{% from "partials/assessment_report_macros.html" import heading, callout, kpi_tile, contracts_evaluated, tile_grid, evaluation_table, compatibility_block, artifact_list, text_list, naming_families, occurrence_detail, info_parts %}
+{% from "partials/assessment_report_macros.html" import heading, callout, kpi_tile, contracts_evaluated, tile_grid, evaluation_table, compatibility_block, artifact_list, artifact_table, text_list, naming_families, occurrence_detail, info_parts %}
 {% from "partials/table_action_macros.html" import table_action_link, table_action_icon, panel_close %}
 {% macro n_occ(n) %}{{ n }} ocurrencia{{ "s" if n != 1 }}{% endmacro %}
 {% macro table(columns, rows) %}<table><thead><tr>{% for c in columns %}<th>{{ c }}</th>{% endfor %}</tr></thead><tbody>{% for r in rows %}<tr>{% for cell in r %}<td>{% if cell is mapping %}<span title="Código técnico: {{ cell.code }}">{{ cell.text }}</span>{% else %}{{ cell }}{% endif %}</td>{% endfor %}</tr>{% endfor %}</tbody></table>{% endmacro %}
@@ -305,11 +305,25 @@
   {% if j.nd and j.nd.hypotheses %}{% call callout("note", "Hipótesis (no verificadas)") %}{% for h in j.nd.hypotheses %}<p data-asr-nd-hypothesis>{{ h.text }}</p>{% endfor %}{% endcall %}{% endif %}
   {% if j.naming_gate %}
   {% set ng = j.naming_gate %}
+  <section class="asr-naming-gate" data-asr-naming-gate="{{ ng.state }}" x-data="{ open: null }">
   <h3>Convención de nombres y nivel</h3>
-  <p data-asr-naming-gate="{{ ng.state }}"><strong>{{ ng.state_text }}.</strong> {{ ng.note }} No recuperables sobre gobernables: {{ ng.ratio or "—" }}{% if ng.ratio_max and ng.ratio_max != ng.ratio %} (cota con identidad no establecida: {{ ng.ratio_max }}){% endif %} · umbral {{ ng.threshold }}.</p>
-  <table><thead><tr><th>Población</th><th>Artefactos</th></tr></thead><tbody>{% for c in ng.counts %}<tr><td>{{ c.label }}</td><td>{{ c.value }}</td></tr>{% endfor %}</tbody></table>
-  {% if ng.non_recoverable %}<p><span class="catalog-note__ev">No recuperables (declarar su rol o agregar el dígito de capa):</span> {{ artifact_list(ng.non_recoverable, 10) }}</p>{% endif %}
-  {% if ng.unknown_non_recoverable %}<p><span class="catalog-note__ev">Identidad no establecida, no conformes:</span> {{ artifact_list(ng.unknown_non_recoverable, 10) }}</p>{% endif %}
+  <p class="asr-ng-conclusion"><strong>{{ ng.headline }}</strong></p>
+  <p data-asr-naming-detail>{{ ng.detail }}</p>
+  {# Tabla agregada: Conformes/Recuperables/No recuperables son el DESGLOSE de Gobernables (indentados). Cada (i) reutiliza el tooltip del Hub; el número abre el detalle solo cuando la evidencia conserva la lista completa. #}
+  <table class="asr-ng-table"><thead><tr><th>Población</th><th>Artefactos</th></tr></thead><tbody>
+  {% for c in ng.counts %}
+  <tr class="asr-ng-row{% if c.group == 'child' %} asr-ng-row--child{% endif %}" data-asr-ng-cat="{{ c.key }}">
+    <td><span class="asr-ng-labelwrap"><span class="asr-ng-label">{{ c.label }}</span><span class="chart-tooltip-anchor asr-ng-info">{{ info_parts(c.label, [c.tip]) }}</span></span></td>
+    <td class="asr-ng-count-cell">{% if c.artifacts %}<a href="#" role="button" class="asr-ng-count" :aria-expanded="open === '{{ c.key }}'" aria-controls="asr-ng-d-{{ c.key }}" @click.prevent="open = (open === '{{ c.key }}') ? null : '{{ c.key }}'; if (open) $nextTick(() => $refs.ng_{{ c.key }}?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }))">{{ c.value }}</a>{% else %}<span class="asr-ng-count asr-ng-count--static">{{ c.value }}</span>{% endif %}</td>
+  </tr>
+  {% if c.artifacts %}
+  <tr class="asr-ng-detail" id="asr-ng-d-{{ c.key }}" x-ref="ng_{{ c.key }}" x-cloak x-show="open === '{{ c.key }}'" role="region" aria-label="Artefactos · {{ c.label }}">
+    <td colspan="2"><div class="asr-ng-detail__body"><div class="asr-ng-detail__head"><span class="catalog-note__ev">{{ c.label }} · {{ c.value }} artefacto{{ "s" if c.value != 1 }}</span> <button type="button" class="asr-ng-detail__close" @click="open = null" aria-label="Cerrar el detalle">×</button></div>{{ artifact_table(c.artifacts) }}</div></td>
+  </tr>
+  {% endif %}
+  {% endfor %}
+  </tbody></table>
+  </section>
   {% endif %}
   {% if j.material_compensation and j.material_compensation.rows %}
   <h3>Compensaciones de fuentes crudas</h3>
