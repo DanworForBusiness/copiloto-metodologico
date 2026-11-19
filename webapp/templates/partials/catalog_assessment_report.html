@@ -317,7 +317,7 @@
     <td class="asr-ng-count-cell">{% if c.artifacts %}<a href="#" role="button" class="asr-ng-count" :aria-expanded="open === '{{ c.key }}'" aria-controls="asr-ng-d-{{ c.key }}" @click.prevent="open = (open === '{{ c.key }}') ? null : '{{ c.key }}'; if (open) $nextTick(() => $refs.ng_{{ c.key }}?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }))">{{ c.value }}</a>{% else %}<span class="asr-ng-count asr-ng-count--static">{{ c.value }}</span>{% endif %}</td>
   </tr>
   {% if c.artifacts %}
-  <tr class="asr-ng-detail" id="asr-ng-d-{{ c.key }}" x-ref="ng_{{ c.key }}" x-show="open === '{{ c.key }}'" style="display:none" role="region" aria-label="Artefactos · {{ c.label }}">
+  <tr class="asr-ng-detail" id="asr-ng-d-{{ c.key }}" x-ref="ng_{{ c.key }}" x-cloak x-show="open === '{{ c.key }}'" role="region" aria-label="Artefactos · {{ c.label }}">
     <td colspan="2"><div class="asr-ng-detail__body"><div class="asr-ng-detail__head"><span class="catalog-note__ev">{{ c.label }} · {{ c.value }} artefacto{{ "s" if c.value != 1 }}</span> <button type="button" class="asr-ng-detail__close" @click="open = null" aria-label="Cerrar el detalle">×</button></div>{{ artifact_table(c.artifacts) }}</div></td>
   </tr>
   {% endif %}
