@@ -53,7 +53,9 @@ def test_naming_gate_view_distinguishes_a_demonstrated_deviation_from_a_non_accr
     na = {**copy.deepcopy(j), "level": "ADECUADA", "level_rule": "LVL-09", "naming_gate": {**j["naming_gate"], "state": "NOT_ACCREDITED"}}
     assert P.naming_gate_view(blocked)["state_text"].startswith("Divergencia de nombres acreditada")
     assert P.naming_gate_view(na)["state_text"].startswith("La responsabilidad sobre los nombres no pudo acreditarse")
-    assert "no se afirma un incumplimiento" in P.judgment_view(na)["headline"] and "divergencia de nombres acreditada" in P.judgment_view(blocked)["headline"]
+    # Cierre LVL-09: BLOCK afirma el incumplimiento; NOT_ACCREDITED NO lo afirma (distinción preservada tras la reescritura de copy).
+    assert "incumplimientos en la convención de nombres" in P.judgment_view(blocked)["headline"] and "no se afirma un incumplimiento" not in P.judgment_view(blocked)["headline"]
+    assert "no se afirma un incumplimiento" in P.judgment_view(na)["headline"] and "incumplimientos en la convención de nombres" not in P.judgment_view(na)["headline"]
 
 
 def test_material_compensation_view_states_and_the_conservative_detector_warning():

@@ -543,20 +543,65 @@ _MATERIAL_FAILED_TEXT = {"M2": "la responsabilidad se resuelve en una vista de u
 
 
 def naming_gate_view(judgment: dict | None) -> dict | None:
-    """Diagnóstico de naming del Juicio v5 (siempre visible; solo limita un BUENA). Distingue «incumple» (BLOCK) de «no acreditado» (NOT_ACCREDITED)."""
+    """Diagnóstico de naming del Juicio v5 (siempre visible; SOLO puede limitar un BUENA). Distingue «incumple» (BLOCK) de «no acreditado» (NOT_ACCREDITED).
+
+    Presentación (NO toca el motor ni el scoring): conclusión en capas (A1), tooltips validados contra el contrato del motor (A2) y, por categoría, la lista de artefactos
+    SOLO cuando la evidencia del motor la conserva completa (A3). Conformes/Recuperables/No recuperables son el DESGLOSE de Gobernables (``group='child'``), no poblaciones hermanas."""
     g = (judgment or {}).get("naming_gate")
     if not g:
         return None
+    state = g["state"]
     limited = (judgment or {}).get("level_rule") == "LVL-09"
-    pct = (lambda x: None if x is None else f"{round(100 * x)} %")
-    return {"state": g["state"], "state_text": _NAMING_GATE_TEXT.get(g["state"], g["state"]), "limited_level": limited,
-            "threshold": pct(g.get("threshold")), "ratio": pct(g.get("ratio_nr")), "ratio_max": pct(g.get("ratio_nr_max")),
-            "counts": [{"label": "Gobernables (responsabilidad del modelador)", "value": g.get("governed", 0)}, {"label": "Conformes", "value": g.get("conforming", 0)},
-                       {"label": "Recuperables (rol o tipo acreditado)", "value": g.get("recoverable_by_declared_role", 0) + g.get("recoverable_by_type", 0)},
-                       {"label": "No recuperables", "value": g.get("non_recoverable", 0)}, {"label": "Excluidos por procedencia", "value": g.get("excluded_source_derived", 0) + g.get("excluded_system", 0)},
-                       {"label": "Identidad no establecida (UNKNOWN)", "value": g.get("unknown", 0)}],
-            "non_recoverable": list(g.get("non_recoverable_artifacts") or ()), "recoverable": list(g.get("recoverable_artifacts") or ()),
-            "unknown_non_recoverable": list(g.get("unknown_non_recoverable_artifacts") or ()),
+    pct = (lambda x: None if x is None else f"{round(100 * x)}%")
+    gov, conf = int(g.get("governed") or 0), int(g.get("conforming") or 0)
+    rec = int(g.get("recoverable_by_declared_role") or 0) + int(g.get("recoverable_by_type") or 0)
+    nonrec = int(g.get("non_recoverable") or 0)
+    excl = int(g.get("excluded_source_derived") or 0) + int(g.get("excluded_system") or 0)
+    unk = int(g.get("unknown") or 0)
+    ratio_txt, rmax_txt, thr_txt = pct(g.get("ratio_nr")), pct(g.get("ratio_nr_max")), pct(g.get("threshold"))
+    nonrec_arts = sorted(g.get("non_recoverable_artifacts") or ())
+    rec_arts = sorted(g.get("recoverable_artifacts") or ())
+    unk_nonrec = sorted(g.get("unknown_non_recoverable_artifacts") or ())
+    # A1 — conclusión → evidencia → cota secundaria; diferenciando BLOCK (incumplimiento acreditado) / NOT_ACCREDITED (responsabilidad no establecida) / PASS.
+    if state == "BLOCK":
+        headline = ("La convención de nombres impide calificar este modelo como BUENA." if limited
+                    else "Se verificó que artefactos del modelador no cumplen la convención de nombres.")
+        detail = (f"De los {gov} artefactos gobernables (los que nombra el modelador), {nonrec}"
+                  + (f" ({ratio_txt})" if ratio_txt else "") + " no cumplen la convención y no pueden justificarse por su rol o tipo."
+                  + (f" El máximo admitido para alcanzar BUENA es {thr_txt}." if thr_txt else ""))
+    elif state == "NOT_ACCREDITED":
+        headline = ("No se pudo determinar la responsabilidad sobre los nombres, por eso el modelo no alcanza BUENA (no se afirma un incumplimiento)." if limited
+                    else "No se pudo determinar la responsabilidad sobre los nombres (no se afirma un incumplimiento).")
+        detail = ("El resultado depende de artefactos cuya responsabilidad no se pudo determinar. Sin una base suficiente, no se puede afirmar cumplimiento ni incumplimiento."
+                  + (f" El máximo admitido para alcanzar BUENA es {thr_txt}." if thr_txt else ""))
+    else:
+        headline = "La convención de nombres no impide calificar este modelo como BUENA."
+        detail = (f"De los {gov} artefactos gobernables, los que no cumplen la convención y no pueden justificarse quedan por debajo del máximo admitido"
+                  + (f" ({thr_txt})." if thr_txt else "."))
+    # El escenario de cota superior ya NO va como línea fija bajo la tabla: se ofrece como tooltip discreto en «Identidad no establecida».
+    # Solo cuando esos artefactos (responsabilidad indeterminada, no recuperables) moverían el resultado respecto del porcentaje acreditado.
+    u_n = len(unk_nonrec)
+    unknown_scenario = (f" Si también consideramos los {u_n} artefactos cuya responsabilidad no se pudo determinar, el incumplimiento podría llegar al {rmax_txt}."
+                        if (rmax_txt and rmax_txt != ratio_txt and u_n) else "")
+    full = (lambda lst, n: list(lst) if len(lst) == n else None)   # lista clickeable SOLO si está completa para esa categoría; si no, se presenta honestamente sin detalle
+    counts = [
+        {"key": "governed", "label": "Gobernables", "value": gov, "group": "head", "artifacts": None,
+         "tip": "Artefactos cuyo nombre es responsabilidad de quien desarrolló el modelo. Son la base del cálculo: el porcentaje se mide sobre ellos. Se dividen en conformes, recuperables y no recuperables."},
+        {"key": "conforming", "label": "Conformes", "value": conf, "group": "child", "artifacts": None,
+         "tip": "Artefactos gobernables cuyo nombre cumple la convención (§28)."},
+        {"key": "recoverable", "label": "Recuperables", "value": rec, "group": "child", "artifacts": full(rec_arts, rec),
+         "tip": "Artefactos gobernables que no siguen la convención al pie de la letra, pero cuya capa o función puede verificarse por su rol o tipo declarado, sin depender del nombre."},
+        {"key": "non_recoverable", "label": "No recuperables", "value": nonrec, "group": "child", "artifacts": full(nonrec_arts, nonrec),
+         "tip": "Artefactos gobernables que no cumplen la convención y cuyo nombre no permite identificar de forma confiable su capa o función. Son los que limitan el nivel."},
+        {"key": "excluded", "label": "Excluidos por procedencia", "value": excl, "group": "head", "artifacts": None,
+         "tip": "Artefactos de origen externo o del sistema (SAP) sobre los que no corresponde exigir la convención del modelador."},
+        {"key": "unknown", "label": "Identidad no establecida", "value": unk, "group": "head", "artifacts": full(unk_nonrec, unk),
+         "tip": "Artefactos sin evidencia suficiente para establecer quién es responsable de su nombre. No se afirma cumplimiento ni incumplimiento: no cuentan a favor ni en contra." + unknown_scenario},
+    ]
+    return {"state": state, "state_text": _NAMING_GATE_TEXT.get(state, state), "limited_level": limited,
+            "headline": headline, "detail": detail,
+            "threshold": thr_txt, "ratio": ratio_txt, "ratio_max": rmax_txt, "counts": counts,
+            "non_recoverable": nonrec_arts, "recoverable": rec_arts, "unknown_non_recoverable": unk_nonrec,
             "note": ("Limita el nivel: sin esta compuerta sería Buena." if limited else "Diagnóstico: solo puede limitar un nivel Buena.")}
 
 
@@ -659,9 +704,9 @@ def judgment_view(judgment: dict | None) -> dict | None:
         headline = nd["text"]                      # T2: texto propio de la causa real (ver ``nd_explanation``); el nivel oficial sigue siendo «No determinable»
     gate = (judgment.get("naming_gate") or {}).get("state")
     if judgment.get("level_rule") == "LVL-09":
-        headline = ("La evidencia acredita los cuatro contratos metodológicos, pero hay divergencia de nombres acreditada sobre artefactos del modelador: el nivel queda en Adecuada."
+        headline = ("El modelo cumple los cuatro contratos metodológicos evaluados, pero no alcanza BUENA porque presenta incumplimientos en la convención de nombres."
                     if gate == "BLOCK" else
-                    "La evidencia acredita los cuatro contratos metodológicos, pero la responsabilidad sobre los nombres no pudo acreditarse: el nivel queda en Adecuada (no se afirma un incumplimiento).")
+                    "El modelo cumple los cuatro contratos metodológicos evaluados, pero no alcanza BUENA porque no se pudo determinar la responsabilidad sobre la convención de nombres (no se afirma un incumplimiento).")
     return {
         "determined": determined,
         "level": level,
@@ -1228,6 +1273,12 @@ def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: Adho
     view["module_label"] = MODULE_LABEL
     if doc is None:
         return view
+    # 3.er tile de la fila de adopción [02]: «Conformidad de nombres» = cumplen / evaluados (§28), el MISMO dato que la sección de Gobierno & estándares,
+    # para que el porcentaje sea consistente entre ambas secciones. Solo cuando hubo artefactos evaluados y hay Juicio con tiles.
+    _s28 = (((doc.get("canonical_evidence") or {}).get("naming_evidence") or {}).get("hygiene") or {}).get("artifact_name_populations", {}).get("section_28") or {}
+    _appl = _s28.get("applicable")
+    if _appl and view.get("judgment") and view["judgment"].get("tiles") is not None:
+        view["judgment"]["tiles"].append({"value": f"{round(100 * (_s28.get('compliant') or 0) / _appl)}%", "label": "Conformidad de nombres"})
     scope, summary = doc["scope"], doc["summary"]
     cov, conf, ctx = summary["coverage"], summary["confidence"], summary["context_required"]
     rs = cov["required_surfaces"]
