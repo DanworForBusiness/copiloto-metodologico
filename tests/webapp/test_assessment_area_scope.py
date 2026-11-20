@@ -112,7 +112,7 @@ def test_help_copy_is_canonical_concise_and_never_reads_as_a_score_or_a_human_re
     banned = re.compile(r"\b(score|scoring|puntaje|puntuaci[oó]n|madurez|banda|ranking|rating|human[oa]s?|persona)\b", re.I)
     assert "pasos de linaje, no artefactos" in presenter.AREA_KPI_HELP["lineage_steps_evaluated"][0] and "idéntica" in presenter.AREA_KPI_HELP["lineage_steps_evaluated"][0]
     assert "un cero no garantiza ausencia" in presenter.AREA_KPI_HELP["artifacts_with_derived_fields"][1]
-    assert "El consultor determina" in presenter.AREA_KPI_HELP["rederived_field_occurrences"][0] and "aguas arriba" in presenter.AREA_KPI_HELP["rederived_field_occurrences"][0]
+    assert "El consultor determina" in presenter.AREA_KPI_HELP["rederived_field_occurrences"][0] and "artefacto anterior del linaje" in presenter.AREA_KPI_HELP["rederived_field_occurrences"][0]
     for lines in presenter.AREA_KPI_HELP.values():
         assert 1 <= len(lines) <= 2 and all(len(x) < 260 for x in lines)
         assert not banned.search(" ".join(lines))
@@ -317,7 +317,7 @@ def test_collapsed_areas_keep_their_content_badges_and_the_overview_stays_visibl
     for _a, _b in details_spans:
         block = sec[_a:_b]
         assert "dashboard-section__head" in block and "dashboard-section__state" not in block                  # todas evaluadas: el estado NO se repite por fila (se dice una vez en el subtítulo)
-        assert "dashboard-section__body" in block and "Superficies de evidencia requeridas" in block            # el contenido sigue en el HTML (accesible al expandir)
+        assert "dashboard-section__body" in block and "Aspectos de evidencia requeridos" in block            # el contenido sigue en el HTML (accesible al expandir)
     assert "Pasos de linaje evaluados" in sec and "Evaluación de reglas" in sec
     assert "Todas las subáreas fueron evaluadas." in sec                                                      # estado a nivel sección, una sola vez
 

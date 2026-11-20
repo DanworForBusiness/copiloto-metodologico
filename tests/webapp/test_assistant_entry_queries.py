@@ -208,7 +208,7 @@ def test_a_line_of_business_name_is_scope_not_a_model(world):
 # ══ 5. fundamentos del Juicio: los textos del producto, del NIVEL vigente ═════════════════════════════════════════════════════════════════
 def test_why_explains_the_current_level_with_the_product_texts(world):
     r = one_entry(ask("¿Por qué Delivery Document tiene adopción buena?"), world, "dd")
-    assert "Adopción metodológica: Buena" in r.text and "La evidencia observada muestra una adopción consistente de los cuatro contratos metodológicos." in r.text
+    assert "Adopción metodológica: Buena" in r.text and "El modelo adopta de forma consistente los cuatro contratos metodológicos." in r.text
     assert "Adquisición de la fuente gobernada en todo contacto con el origen" in r.text and "Alineación de ramas completada recién en el producto" in r.text
     assert "y 1 más en el informe" in r.text                                                         # topes: ≤ 3 con el resto en el informe
     assert "los fundamentos son los del informe" in r.note.lower()
@@ -222,8 +222,8 @@ def test_why_with_another_level_clarifies_instead_of_justifying_it(world):
 
 
 def test_why_for_each_level_uses_that_levels_headline(world):
-    heads = {"so": "refleja la adopción metodológica en los cuatro contratos", "ddi": "adopción adecuada, con oportunidades puntuales de mejora",
-             "soh": "La adopción es parcial: existen señales favorables"}
+    heads = {"so": "muestra su adopción metodológica en los cuatro contratos", "ddi": "de forma adecuada, con oportunidades puntuales de mejora",
+             "soh": "La adopción es parcial: hay señales favorables"}
     for key, head in heads.items():
         r = one_entry(ask(f"¿Por qué {CAST[key]['title']} tiene esa adopción?"), world, key)
         assert head in r.text, (key, r.text)

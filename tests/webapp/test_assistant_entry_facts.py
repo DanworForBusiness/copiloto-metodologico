@@ -226,8 +226,8 @@ def test_types_is_independent_of_the_assessment_state(world):
 def test_fundamentals_use_the_exact_product_texts_and_caps(world):
     f = _facts(world, "dd", "adoption", fundamentals=True).fundamentals
     assert f.level == "BUENA" and f.level_label == "Buena" and f.determined and not f.historical
-    assert f.headline == "La evidencia observada muestra una adopción consistente de los cuatro contratos metodológicos."
-    assert f.strengths == (("Ingesta", "Adquisición de la fuente gobernada en todo contacto con el origen"), ("Armonización", "Enriquecimiento semántico reutilizable consumido aguas abajo"),
+    assert f.headline == "El modelo adopta de forma consistente los cuatro contratos metodológicos."
+    assert f.strengths == (("Ingesta", "Adquisición de la fuente gobernada en todo contacto con el origen"), ("Armonización", "Enriquecimiento semántico reutilizable que se consume en las capas siguientes"),
                            ("Contrato publicado", "Contrato publicado intencional y autónomo para el consumidor")) and f.strengths_total == 4
     assert f.reasons[0] == ("Propagación", "Debilidad local", "Alineación de ramas completada recién en el producto") and len(f.reasons) == 3 and f.reasons_total == 4
     assert [c[0] for c in f.contracts] == ["Ingesta", "Armonización", "Propagación", "Contrato publicado"]

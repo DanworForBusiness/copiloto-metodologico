@@ -40,7 +40,7 @@
         <tr><td>Descripción</td><td>{{ g.explanation }}</td></tr>
         {% if g.question %}<tr><td>Pregunta para el proyecto</td><td>{{ g.question }} <em>Estado: abierto — requiere contexto, no se emite juicio.</em></td></tr>{% endif %}
         {% if g.legitimate_reasons %}<tr><td>Razones legítimas</td><td>{{ g.legitimate_reasons|join("; ") }}</td></tr>{% endif %}
-        {% if g.interpretation_limits %}<tr><td>Cómo NO leerlo</td><td>{{ g.interpretation_limits|join("; ") }}</td></tr>{% endif %}
+        {% if g.interpretation_limits %}<tr><td>Cómo no interpretarlo</td><td>{{ g.interpretation_limits|join("; ") }}</td></tr>{% endif %}
         {% if g.evidence_limit %}<tr><td>Límite de evidencia</td><td>{{ g.evidence_limit }}</td></tr>{% endif %}
         <tr><td>Unidad de cada ocurrencia</td><td>{{ g.occurrence_unit }}</td></tr>
         <tr><td>Artefactos involucrados ({{ g.artifacts|length }})</td><td>{{ artifact_list(g.artifacts, 12) }} {{ lineage_link(g.lineage_url) }}</td></tr>
@@ -94,7 +94,7 @@
 {# Cuerpo de un área, en orden de lectura: contexto de evidencia → titulares (≤4 tiles KPI) → evidencia de apoyo (tablas compactas)
    → evaluación de reglas (tabla integrada con hallazgos y acceso al detalle) → otros hallazgos sin regla. `lvl`: nivel de los rótulos (h3 en sección propia, h4 dentro de un disclosure). #}
 {% macro area_body(a, lvl, accent=none) %}
-  <p>Superficies de evidencia requeridas: {{ a.surfaces }}.{% if a.reason %} {{ a.reason }}.{% endif %}</p>
+  <p>Aspectos de evidencia requeridos: {{ a.surfaces }}.{% if a.reason %} {{ a.reason }}.{% endif %}</p>
   {% if a.facts.headline %}
   {# Cada agrupador con SU acento (paleta de `.activity-kpi`, uno por agrupador, sin significado de estado); el resumen de vistas del cierre sigue en dorado. #}
   <div class="activity-kpi-grid asm-facts{% if accent is not none %} asm-facts--accent-{{ accent % 5 }}{% endif %}">
@@ -258,7 +258,7 @@
   <table>
     <thead><tr><th>Medida</th><th>Valor</th><th>Cómo leerla</th></tr></thead>
     <tbody>
-      <tr><td>Cobertura estricta</td><td>{{ s.coverage_strict }}</td><td>{{ s.coverage_meaning }} Superficies requeridas: {{ s.surfaces }}.</td></tr>
+      <tr><td>Cobertura estricta</td><td>{{ s.coverage_strict }}</td><td>{{ s.coverage_reading }}</td></tr>
       <tr><td>Cobertura inclusiva</td><td>{{ s.coverage_inclusive }}</td><td>Incluye la evidencia parcialmente evaluada.</td></tr>
       <tr><td>Confianza</td><td>{{ s.confidence }}</td><td>{{ s.confidence_meaning }}{% if s.confidence_limitation %} Limitación principal: {{ s.confidence_limitation }}{% endif %}</td></tr>
       <tr><td>Casos a revisar</td><td>{{ s.review_occurrences }}</td><td>{{ s.review_reading }}</td></tr>
@@ -488,7 +488,7 @@
     <table><thead><tr><th>Regla</th><th>Resultado</th><th>Hallazgos</th></tr></thead><tbody>
       {% for r in v.rule_results %}<tr><td>{{ r.title }}<br><code>{{ r.rule }}</code></td><td>{{ r.result_text }}</td><td>{{ r.count }}</td></tr>{% endfor %}
     </tbody></table>
-    <h4>Cobertura por área (superficies requeridas)</h4>
+    <h4>Cobertura por área (aspectos requeridos)</h4>
     <table><thead><tr><th>Área</th><th>Evaluadas</th><th>Parciales</th><th>No evaluadas</th><th>No aplican</th></tr></thead><tbody>
       {% for c in v.area_coverage %}<tr><td>{{ c.title }}</td><td>{{ c.assessed }}</td><td>{{ c.partially_assessed }}</td><td>{{ c.not_assessed }}</td><td>{{ c.not_applicable }}</td></tr>{% endfor %}
     </tbody></table>

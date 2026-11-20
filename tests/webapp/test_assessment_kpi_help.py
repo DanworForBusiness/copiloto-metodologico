@@ -59,7 +59,8 @@ def test_the_copy_follows_the_canonical_contract_and_never_reads_as_a_score():
     assert "REQUERIDA" in ma_profile.COVERAGE_MEANING and "No es una afirmación sobre la calidad" in ma_profile.COVERAGE_MEANING
     assert "independiente de la cobertura" in ma_profile.CONFIDENCE_MEANING and "No es una afirmación sobre la calidad" in ma_profile.CONFIDENCE_MEANING
     h = presenter.KPI_HELP
-    assert "requerida y aplicable" in h["coverage_strict"][0] and "solo en parte no suma" in h["coverage_strict"][0]      # estricta = solo lo evaluado por completo
+    assert "requeridos para este modelo" in h["coverage_strict"][0] and "solo en parte no suman" in h["coverage_strict"][0] and "no aplican quedan fuera" in h["coverage_strict"][0]   # estricta = solo lo evaluado por completo; parciales no suman; no aplicables excluidos
+    assert "no qué tan bueno es el modelo" in h["coverage_strict"][1]                                                      # cantidad evaluada ≠ calidad del modelo
     assert "evidencia que sí se evaluó" in h["confidence"][0] and "independiente de la cobertura" in h["confidence"][1]
     assert "ocurrencias" in " ".join(h["review_required"]) and "criterio técnico del consultor" in h["review_required"][0]      # ocurrencias; requiere criterio del consultor
     assert "No implican defectos confirmados" in h["review_required"][0]
