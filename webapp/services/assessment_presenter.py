@@ -352,18 +352,18 @@ _JDG_LEVEL_LABEL = {"BUENA": "Buena", "ADECUADA": "Adecuada", "PARCIAL": "Parcia
 # Copy orientada al producto: conclusión INTERPRETATIVA ("qué muestra la evidencia"), constructiva y progresiva, nunca
 # punitiva. Es el cierre editorial de la sección (punch del Hub), después de los contratos y la evidencia.
 _JDG_LEVEL_HEADLINE = {
-    "BUENA": "La evidencia observada muestra una adopción consistente de los cuatro contratos metodológicos.",
-    "ADECUADA": "La evidencia observada muestra una adopción adecuada, con oportunidades puntuales de mejora.",
-    "PARCIAL": "La adopción es parcial: existen señales favorables, pero persisten aspectos que requieren atención.",
+    "BUENA": "El modelo adopta de forma consistente los cuatro contratos metodológicos.",
+    "ADECUADA": "El modelo adopta los cuatro contratos metodológicos de forma adecuada, con oportunidades puntuales de mejora.",
+    "PARCIAL": "La adopción es parcial: hay señales favorables, pero quedan aspectos por resolver.",
 }
-_JDG_GENERIC_HEADLINE = "La evidencia observada refleja la adopción metodológica en los cuatro contratos."
+_JDG_GENERIC_HEADLINE = "El modelo muestra su adopción metodológica en los cuatro contratos."
 _JDG_ND_HEADLINE = "No fue posible determinar la adopción metodológica con la evidencia disponible."
 # LVL-06: la evidencia es evaluable pero no hay evidencia afirmativa suficiente en alguna dimensión (≠ evidencia insuficiente). Estados/causas estables de ``not_determinable_detail``.
-_JDG_ND_STATE_TEXT = {"NO_STRENGTH": "Sin evidencia afirmativa suficiente (evaluado)", "INSUFFICIENT_EVIDENCE": "Evidencia insuficiente"}
+_JDG_ND_STATE_TEXT = {"NO_STRENGTH": "Evaluado: falta evidencia que confirme una fortaleza", "INSUFFICIENT_EVIDENCE": "Evidencia insuficiente"}
 _JDG_ND_CAUSE = {
     "NO_SOURCE_CONTACT_OBSERVED": "no se observó contacto con la fuente",
-    "SOURCE_CONTRACT_CLASS_UNDETERMINED": "la clase del contrato de fuente no está determinada",
-    "SOURCE_CONTACT_NOT_ALL_GOVERNED": "no todo contacto con la fuente es un contrato gobernado",
+    "SOURCE_CONTRACT_CLASS_UNDETERMINED": "no se pudo determinar qué tipo de contrato representa esta fuente",
+    "SOURCE_CONTACT_NOT_ALL_GOVERNED": "no todo contacto con la fuente pasa por un contrato gobernado",
     "NO_HARMONIZATION_BOUNDARY_OBSERVED": "no se observó una frontera de armonización",
     "HARMONIZATION_MAPPING_NOT_OBSERVABLE": "el mapeo de la armonización no es observable",
     "HARMONIZATION_NOT_A_LEGITIMATE_REUSABLE_BOUNDARY": "la armonización no es una frontera técnica reutilizable legítima",
@@ -405,20 +405,20 @@ _JDG_CLASSIFICATION = {"MATERIAL_DEVIATION": "Desvío material", "RELEVANT_WEAKN
                        "LOCAL_WEAKNESS": "Debilidad local", "POSITIVE_EVIDENCE": "Evidencia positiva"}
 _JDG_STATEMENT = {
     "har.legitimate_reusable_boundary_over_governed_contract": "Capa de armonización 1:1 legítima y reutilizable sobre un contrato gobernado",
-    "har.reusable_semantic_enrichment": "Enriquecimiento semántico reutilizable consumido aguas abajo",
+    "har.reusable_semantic_enrichment": "Enriquecimiento semántico reutilizable que se consume en las capas siguientes",
     "pro.product_composes_resolved_contracts": "El producto compone contratos ya resueltos (no reintegra la fuente)",
     "pub.semantically_intentional_consumer_contract": "Contrato publicado intencional y autónomo para el consumidor",
     "src.governed_acquisition_explicit": "Adquisición de la fuente gobernada en todo contacto con el origen",
     "src.explicit_incremental_acquisition_observed": "Carga incremental explícita observada en la adquisición",
     "pro.product_node_reperforms_integration": "Un nodo de producto reintegra la fuente o rearma la armonización",
-    "lek.unrestored_responsibility_leakage": "Responsabilidad estructural no restaurada que se filtra aguas abajo",
+    "lek.unrestored_responsibility_leakage": "Una responsabilidad que debía resolverse en una capa anterior se trasladó hasta el consumidor",
     "har.technical_projection_with_downstream_semantic_consequence": "Proyección técnica que traslada vocabulario no armonizado al consumidor",
-    "har.fragmented_layers_with_undeclared_roles": "Capas de armonización fragmentadas con roles no declarados",
-    "lek.unrestored_raw_vocabulary_reaches_published_without_contract_centrality": "Vocabulario crudo no restaurado llega al contrato publicado sin centralidad de contrato",
-    "src.physical_boundary_bypassed_and_compensated_downstream": "Frontera física cruda evitada y compensada aguas abajo",
+    "har.fragmented_layers_with_undeclared_roles": "La armonización quedó repartida en varias capas, sin un rol declarado para cada una",
+    "lek.unrestored_raw_vocabulary_reaches_published_without_contract_centrality": "El vocabulario técnico de la fuente llega sin transformarse al contrato publicado, sin un contrato que lo centralice",
+    "src.physical_boundary_bypassed_and_compensated_downstream": "La frontera física de la fuente cruda se evitó y se compensó en capas posteriores",
     "pro.branch_alignment_completed_at_product": "Alineación de ramas completada recién en el producto",
     "src.physical_reach_without_bypass_and_compensation": "Acceso a tabla física cruda (sin bypass ni compensación material)",
-    "pro.source_responsibility_displaced_with_produced_consequence": "Responsabilidad de una tabla física cruda resuelta en vistas de modelado (filtrado e integración antes de normalizar) que produce medidas o claves publicadas",
+    "pro.source_responsibility_displaced_with_produced_consequence": "El acceso a una tabla física cruda se resuelve en vistas de modelado —con filtrado e integración antes de normalizar— y de ahí salen medidas o claves que se publican",
 }
 _JDG_CONTRACT_STATE_TEXT = {"positive": "Evidencia positiva", "attention": "Requiere atención", "neutral": "Sin señal específica"}
 # Estado del contrato → tono canónico del Hub (valencia: positivo / atención / neutro); sin mapa de color propio.
@@ -461,7 +461,7 @@ def nd_explanation(judgment: dict | None) -> dict | None:
             local = sum(1 for r in judgment.get("reasons") or [] if r.get("classification") == "LOCAL_WEAKNESS" and r.get("state") not in C.REMOVING_STATES)
             lead = ("Sin desvíos materiales ni debilidades relevantes" if not local else
                     f"Sin desvíos materiales ni debilidades relevantes ({local} {_plural_es(local, 'debilidad local sin efecto', 'debilidades locales sin efecto')} en el nivel)")
-            text = f"{lead}; fortaleza no establecida en: {names(nostr)}. La evidencia alcanzó para evaluar; falta evidencia afirmativa de fortaleza."
+            text = f"{lead}; fortaleza no establecida en: {names(nostr)}. La evidencia alcanzó para evaluar; falta evidencia que confirme una fortaleza."
         elif not nostr:
             cause = ND_INSUFFICIENT_EVIDENCE
             text = f"Evidencia insuficiente para afirmar en: {names(insuf)}. Mientras falte esa evidencia no se puede determinar un nivel."
@@ -510,7 +510,7 @@ def nd_explanation(judgment: dict | None) -> dict | None:
 
 # Acción de resolución por causa (presentación): (responsable, acción concreta). Nunca promete un nivel: dice qué evidencia o qué trabajo resolvería la causa.
 _ND_RESOLUTION_BY_CAUSE = {
-    "EXTERNAL_SOURCE_CONTRACT_DECISION_CRITICAL": ("Arquitecto / APP_OWNER", "Determinar con evidencia de curaduría si cada fuente decisiva es un contrato gobernado o una carga cruda (ratificar solo si existe un contrato gobernado documentado), o resolver el vocabulario de esos campos en una frontera de armonización antes de publicarlos."),
+    "EXTERNAL_SOURCE_CONTRACT_DECISION_CRITICAL": ("Arquitecto / APP_OWNER", "Determinar con evidencia de curaduría si cada fuente decisiva es un contrato gobernado o una carga cruda —ratificar solo si hay un contrato gobernado documentado. Si no, resolver el vocabulario de esos campos en una frontera de armonización antes de publicarlos."),
     "SOURCE_CONTRACT_CLASS_UNDETERMINED": ("Arquitecto / APP_OWNER", "Determinar con evidencia la clase de contrato de las fuentes indicadas (cruda o gobernada)."),
     "SOURCE_CONTACT_NOT_ALL_GOVERNED": ("Arquitecto", "Evaluar un contrato gobernado (CDS / ODP) para los contactos con la fuente que no lo son."),
     "NO_SOURCE_CONTACT_OBSERVED": ("Arquitecto", "Completar la evidencia de contacto con la fuente (extracción)."),
@@ -523,13 +523,13 @@ _ND_RESOLUTION_BY_CAUSE = {
     "PUBLISHED_LINEAGE_INCOMPLETE": ("Arquitecto", "Completar la extracción del linaje de los campos publicados."),
     "UNRESOLVED_VOCABULARY_REACHES_THE_CONSUMER": ("Modelador", "Renombrar en una frontera de armonización los campos indicados antes de publicarlos."),
     "NO_AFFIRMATIVE_PUBLISHED_FAMILY": ("Modelador", "Enriquecer el contrato publicado (etiquetas propias, asociaciones de negocio)."),
-    "PUBLISHED_CONTRACT_SUBSTANCE_NOT_ESTABLISHED": ("Modelador", "Dar identidad de negocio a las medidas y evitar nombres de columna fuente en el contrato publicado."),
+    "PUBLISHED_CONTRACT_SUBSTANCE_NOT_ESTABLISHED": ("Modelador", "Poner nombres de negocio a las medidas y no publicar los nombres de columna de la fuente."),
     "CONTRACT_NOT_EVALUABLE": ("Arquitecto", "Completar la evidencia de los contratos no evaluables."),
 }
 # Hipótesis (NO verificadas) solo cuando el motor las registró en ``what_would_change_the_judgment``.
 _WWC_HYPOTHESIS = {
-    "RESOLVE_THE_UNDETERMINED_EXTERNAL_SOURCE_CONTRACT_CLASSIFICATION": "Si se determinara la clase de las fuentes decisivas (cruda o gobernada), la indeterminación desaparecería; el nivel resultante dependería del resto de la evidencia y no está calculado.",
-    "ESTABLISH_EVIDENCE_FOR_UNEVALUABLE_CONTRACTS_OR_AFFIRMATIVE_STRENGTHS": "Con evidencia afirmativa en las dimensiones indicadas el Juicio podría concluir; el nivel resultante no está calculado.",
+    "RESOLVE_THE_UNDETERMINED_EXTERNAL_SOURCE_CONTRACT_CLASSIFICATION": "Si se determinara la clase de esas fuentes (cruda o gobernada), se resolvería la indeterminación; el nivel final dependería del resto de la evidencia y todavía no se calculó.",
+    "ESTABLISH_EVIDENCE_FOR_UNEVALUABLE_CONTRACTS_OR_AFFIRMATIVE_STRENGTHS": "Con esta información podría completarse la evaluación, pero todavía no es posible determinar el nivel resultante.",
 }
 _NAMING_GATE_TEXT = {
     "PASS": "La convención de nombres gobernable no limita el nivel",
@@ -537,9 +537,9 @@ _NAMING_GATE_TEXT = {
     "NOT_ACCREDITED": "La responsabilidad sobre los nombres no pudo acreditarse",
 }
 _MATERIAL_STATE_TEXT = {"ACCREDITED": "Desvío acreditado", "NOT_OBSERVED": "No observado", "NOT_EVALUABLE_COVERAGE": "No evaluable por cobertura"}
-_MATERIAL_FAILED_TEXT = {"M2": "la responsabilidad se resuelve en una vista de una sola fuente antes de integrar", "M3": "no hay compensación en vistas de modelado",
-                         "M4": "la compensación no produce medidas ni claves publicadas", "M5a": "no hay filtrado de registros de la fuente en la compensación",
-                         "M5b": "no hay integración con otras fuentes antes de normalizar", "COVERAGE": "falta evidencia de expresiones o el linaje publicado está incompleto"}
+_MATERIAL_FAILED_TEXT = {"M2": "la responsabilidad de la fuente se resuelve en una vista de una sola fuente, antes de integrarla con otras", "M3": "no se observó una vista de modelado que compense el acceso crudo",
+                         "M4": "la compensación no produce medidas ni claves del contrato publicado", "M5a": "la compensación no filtra registros de la fuente",
+                         "M5b": "no se integra con otras fuentes antes de normalizar", "COVERAGE": "falta evidencia de expresiones, o el linaje publicado está incompleto"}
 
 
 def naming_gate_view(judgment: dict | None) -> dict | None:
@@ -626,7 +626,7 @@ _DIM_LABEL = dict(_JDG_DIMENSIONS)
 
 
 _PUB_CONDITION_TEXT = {
-    "lineage_complete": "linaje publicado completo", "no_vocabulary_leak": "sin vocabulario de una fuente no gobernada que llegue sin cambios al consumidor",
+    "lineage_complete": "linaje publicado completo", "no_vocabulary_leak": "sin vocabulario de una fuente no gobernada que llegue sin transformar al consumidor",
     "field_level_affirmative_family": "evidencia afirmativa a nivel de campo", "measures_published": "medidas publicadas",
     "measures_business_identity": "medidas con nombre de negocio propio (distinto del técnico)", "no_source_column_names": "ningún campo publicado con el nombre de la columna fuente",
 }
@@ -989,8 +989,8 @@ FACT_LAYOUT: dict[str, dict] = {
 # contexto" de las revisiones); acá solo se redacta para lectura humana. Cada KPI sin entrada se muestra exactamente como siempre. Nunca un puntaje.
 KPI_HELP: dict[str, tuple[str, ...]] = {
     "coverage_strict": (
-        "Qué parte de la evidencia metodológica requerida y aplicable pudo evaluarse por completo con la información disponible; la evaluada solo en parte no suma.",
-        "No mide la calidad del modelo."),
+        "Qué parte de los aspectos metodológicos requeridos para este modelo pudo evaluarse por completo. Los que se evalúan solo en parte no suman, y los que no aplican quedan fuera del cálculo.",
+        "Mide cuánto se pudo evaluar, no la calidad del modelo."),
     "confidence": (
         "Qué tan fiable es la evidencia que sí se evaluó (alta, media o baja); manda el componente más débil.",
         "No mide la calidad del modelo y es independiente de la cobertura y de las preguntas aún abiertas."),
@@ -1010,9 +1010,9 @@ AREA_KPI_HELP: dict[str, tuple[str, ...]] = {
         "Relaciones proveedor→consumidor cuyo contrato pudo compararse. Cuenta pasos de linaje, no artefactos; una relación puede resultar idéntica o mostrar cambios.",),
     "artifacts_with_derived_fields": (
         "Artefactos intermedios con al menos un campo calculado mediante una expresión visible. Cada artefacto cuenta una vez, aunque derive varios campos.",
-        "Sin query visible la superficie puede quedar parcialmente evaluada: un cero no garantiza ausencia."),
+        "Sin la query visible, ese aspecto puede quedar parcialmente evaluado: un cero no garantiza ausencia."),
     "rederived_field_occurrences": (
-        "Ocurrencias donde un campo derivado vuelve a calcularse, con el mismo nombre técnico, en otro artefacto aguas arriba. Un mismo campo puede generar más de "
+        "Ocurrencias donde un campo derivado vuelve a calcularse, con el mismo nombre técnico, en un artefacto anterior del linaje. Un mismo campo puede generar más de "
         "una ocurrencia. El consultor determina si la repetición es intencional.",),
     "declared_dimensions": (
         "Artefactos del cierre declarados como dimensión por los metadatos del modelo. No se infieren por nombre ni por capa.",),
@@ -1157,8 +1157,8 @@ def _area_view(a: dict, groups_by_id: dict[str, dict], rules_by_area: dict[str, 
         "id": a["id"], "dom_id": f"asr-a-{a['id']}", "title": P.area_title(a["id"]), "macro": P.macro_dimension_title(a["macro_dimension"]),
         "state": a["assessability"], "state_text": P.assessability_text(a["assessability"]),
         "reason": (f"{P.reason_text(a['reason'])} ({a['reason']['reason_code']})" if a["reason"] else None),
-        "surfaces": (f"{_plural(rs['assessed'], 'evaluada')}, {_plural(rs['partially_assessed'], 'parcialmente evaluada')}, "
-                     f"{_plural(rs['not_assessed'], 'no evaluada')}, {rs['not_applicable']} no aplican"),
+        "surfaces": (f"{_plural(rs['assessed'], 'evaluado')}, {_plural(rs['partially_assessed'], 'parcialmente evaluado')}, "
+                     f"{_plural(rs['not_assessed'], 'no evaluado')}, {rs['not_applicable']} no aplican"),
         "facts": _facts_view(a["id"], a["highlights"], _area_extras(a, doc) if doc is not None else None), "macro_id": a["macro_dimension"],
         "findings": [{"title": groups_by_id[gid]["title"], "dom_id": f"asr-g-{gid}", "count": groups_by_id[gid]["occurrence_count"],
                       "kind_text": P.finding_kind_text(groups_by_id[gid]["kind"])} for gid in a["finding_groups"]],
@@ -1244,6 +1244,35 @@ def _with_nd_responsibles(view: dict | None, profile: dict | None, judgment: dic
     return view
 
 
+# Lectura de «Confianza» en lenguaje de consultor (presentación): reemplaza el término congelado del documento «Fiabilidad epistémica…» sin tocar el motor ni el dato gobernado.
+_CONFIDENCE_READING = "Qué tan confiable es la evidencia que sí se pudo evaluar. No mide la calidad del modelo y es independiente de la cobertura y de las preguntas abiertas."
+
+
+def _coverage_reading(rs: dict) -> str:
+    """Explicación de cobertura en lenguaje de consultor, armada desde los conteos estructurados de ``required_surfaces`` (no del texto congelado del documento).
+    Correcta para cualquier cobertura (100 % o menor, con aspectos evaluados en parte o sin evaluar). Distingue CANTIDAD evaluada de CALIDAD del modelo y excluye los no aplicables."""
+    appl = int(rs.get("applicable") or 0)
+    done = int(rs.get("assessed") or 0)
+    part = int(rs.get("partially_assessed") or 0)
+    nope = int(rs.get("not_assessed") or 0)
+    na = int(rs.get("not_applicable") or 0)
+    if appl == 0:
+        counts = "Este modelo no tiene aspectos metodológicos aplicables para evaluar."
+    elif done == appl:
+        counts = f"Se evaluaron por completo los {appl} aspectos requeridos para este modelo."
+    else:
+        extra = []
+        if part:
+            extra.append(f"{part} en parte")
+        if nope:
+            extra.append(f"{nope} sin evaluar")
+        tail = (" (" + " y ".join(extra) + ")") if extra else ""
+        counts = f"De los {appl} aspectos requeridos para este modelo, {done} se evaluaron por completo{tail}."
+    meaning = "La cobertura indica cuánto se pudo evaluar, no la calidad del modelo."
+    excl = (f" Además, {na} {_plural_es(na, 'aspecto no aplica y queda', 'aspectos no aplican y quedan')} fuera del cálculo." if na else "")
+    return f"{counts} {meaning}{excl}"
+
+
 def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: AdhocReport | None = None, space: str | None = None) -> dict:
     """View-model del informe. ``status.profile`` es el JSON canónico validado; nada se deriva de otra fuente.
     ``adhoc`` (opcional) reemplaza el contexto del Catálogo (flujo/URLs/linaje) por el de un assessment ad-hoc; el contenido es el mismo.
@@ -1299,11 +1328,8 @@ def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: Adho
         "versions": [("Señales", doc["versions"]["signals"]), ("Evaluabilidad", doc["versions"]["assessability"]),
                      ("Confianza", doc["versions"]["confidence"])],
         "summary": {
-            "coverage_strict": P.percent_text(cov["strict"]), "coverage_inclusive": P.percent_text(cov["inclusive"]), "coverage_meaning": cov["meaning"],
-            "surfaces": (f"{rs['applicable']} aplicables — {_plural(rs['assessed'], 'evaluada')}, "
-                         f"{_plural(rs['partially_assessed'], 'parcialmente evaluada')}, {_plural(rs['not_assessed'], 'no evaluada')} "
-                         f"({rs['not_applicable']} que no aplican quedan excluidas)"),
-            "confidence": P.confidence_level_text(conf["level"]), "confidence_level": conf["level"], "confidence_meaning": conf["meaning"],
+            "coverage_strict": P.percent_text(cov["strict"]), "coverage_inclusive": P.percent_text(cov["inclusive"]), "coverage_reading": _coverage_reading(rs),
+            "confidence": P.confidence_level_text(conf["level"]), "confidence_level": conf["level"], "confidence_meaning": _CONFIDENCE_READING,
             "confidence_limitation": lim["summary"] if lim else None,
             "context_open": P.context_open_text(ctx)[0],
             "review_open": _rev_head, "relation_text": P.summary_relation_text(),

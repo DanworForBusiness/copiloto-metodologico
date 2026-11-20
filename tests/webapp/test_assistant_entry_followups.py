@@ -49,7 +49,7 @@ def test_the_requested_circuit_individual_then_its_confidence_then_why_then_its_
     assert "Cobertura" not in conf.text and "Estado del Assessment" not in conf.text                                                              # solo el atributo pedido
     why = chat.ask("¿Por qué tiene Buena?")
     assert_about(why, world, "dd")
-    assert "Adopción metodológica: Buena" in why.text and "La evidencia observada muestra una adopción consistente" in why.text
+    assert "Adopción metodológica: Buena" in why.text and "El modelo adopta de forma consistente" in why.text
     opened = chat.ask("Abrí su Assessment")
     assert not opened.llm and "Acá está el Assessment" in opened.text and "Delivery Document" in opened.text
     assert presenter.assessment_url(world.e["dd"], PACK) in _html.unescape(opened.raw)
