@@ -243,7 +243,7 @@ def test_engine_profile_renders_both_collapsibles_in_order_without_changing_cove
     assert doc == before                                                                                  # perfil (cobertura, confianza, Juicio, evidencia) intacto
     order = [m.group(1) for m in re.finditer(r'id="asr-a-([A-Z_]+)"', html)]
     assert order.index("INGESTION") < order.index("SOURCE_EXTRACTION")                                    # dos colapsables conservados, con su orden
-    assert "Superficies de evidencia requeridas" in html and "Evaluación de reglas" in html               # las demás áreas conservan su tabla
+    assert "Aspectos de evidencia requeridos" in html and "Evaluación de reglas" in html               # las demás áreas conservan su tabla
     assert view["summary"]["coverage_strict"] and view["summary"]["confidence"]
 
 

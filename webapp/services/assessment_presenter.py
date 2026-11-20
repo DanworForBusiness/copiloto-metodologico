@@ -990,7 +990,7 @@ FACT_LAYOUT: dict[str, dict] = {
 KPI_HELP: dict[str, tuple[str, ...]] = {
     "coverage_strict": (
         "Qué parte de los aspectos metodológicos requeridos para este modelo pudo evaluarse por completo. Los que se evalúan solo en parte no suman, y los que no aplican quedan fuera del cálculo.",
-        "Mide cuánto se pudo evaluar, no qué tan bueno es el modelo."),
+        "Mide cuánto se pudo evaluar, no la calidad del modelo."),
     "confidence": (
         "Qué tan fiable es la evidencia que sí se evaluó (alta, media o baja); manda el componente más débil.",
         "No mide la calidad del modelo y es independiente de la cobertura y de las preguntas aún abiertas."),
@@ -1268,7 +1268,7 @@ def _coverage_reading(rs: dict) -> str:
             extra.append(f"{nope} sin evaluar")
         tail = (" (" + " y ".join(extra) + ")") if extra else ""
         counts = f"De los {appl} aspectos requeridos para este modelo, {done} se evaluaron por completo{tail}."
-    meaning = "La cobertura indica cuánto se pudo evaluar, no qué tan bueno es el modelo."
+    meaning = "La cobertura indica cuánto se pudo evaluar, no la calidad del modelo."
     excl = (f" Además, {na} {_plural_es(na, 'aspecto no aplica y queda', 'aspectos no aplican y quedan')} fuera del cálculo." if na else "")
     return f"{counts} {meaning}{excl}"
 
