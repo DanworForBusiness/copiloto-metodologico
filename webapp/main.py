@@ -2706,6 +2706,14 @@ def _catalog_cds_link(origen: str) -> str:
     return catalog_cds_docs.resolve(_catalog_apis_dir(), cds) if cds else ""
 
 
+def _catalog_cds_link_replicated(cliente: str, name: str) -> str:
+    """Documento de la CDS de una Tabla LOCAL alimentada por un Replication Flow desde un contrato CDS gobernado: se obtiene la entidad de origen de la evidencia
+    estructurada del RF (``catalog_ingestion_orchestration.replicated_cds_source``) y se resuelve con el MISMO ``catalog_cds_docs.resolve`` que la vía federada.
+    "" si no hay productor único, el origen no es una CDS, o no hay Markdown. MISMO contrato funcional en localhost y DigitalOcean (lee el pool/APIs materializados)."""
+    src = catalog_ingestion_orchestration.replicated_cds_source(cliente, name)
+    return catalog_cds_docs.resolve(_catalog_apis_dir(), src) if src else ""
+
+
 def _catalog_source_button_html(path: str, label: str, css: str, **params) -> str:
     """Botón de apoyo que carga el CÓDIGO FUENTE de un artefacto en el slot central por HTMX (``.support-link`` dentro de `heading-supports`,
     que el pipeline de contenido sube al header de la sección). Lo comparten "Abrir CDS View" y "Abrir SQL": un solo markup/target/estilo."""
@@ -3083,7 +3091,9 @@ def _catalog_flow_view(entry, show_assoc: bool | None = None, pack: str = "", fo
         # origen es ABAP_CDS.<X> y existe APIs/<X>.md (si no, no se renderiza →
         # robusto, sin link muerto). Va como bloque HTML tras el heading (markdown
         # lo levanta al header por venir marcado como heading-supports). Al volver del código se re-abre este mismo flujo.
-        cds = _catalog_cds_link(autos[name].get("origen_remoto") or "")
+        cds = _catalog_cds_link(autos[name].get("origen_remoto") or "")                               # 1) remota FEDERADA: origen ABAP_CDS.* en el propio artefacto (sin cambios)
+        if not cds and (autos[name].get("artefacto_tecnico") == "Tabla local"):                        # 2) local REPLICADA desde CDS: el origen vive en el Replication Flow, no en el artefacto
+            cds = _catalog_cds_link_replicated(entry.cliente, name)
         if cds:
             btn = _catalog_cds_button_html(cds, pack, entry.cliente, entry.dominio, entry.entry_id)
             vbody = re.sub(r"(?m)^##\s+.*$", lambda m: m.group(0) + btn, vbody, count=1)

@@ -147,6 +147,17 @@ def parse_focus(raw: str) -> list[str]:
     return out
 
 
+def _naming_conformity_tile(doc: dict | None) -> dict | None:
+    """Tile «Conformidad de nombres» = cumplen / evaluados (§28), tomado del MISMO dato persistido (``canonical_evidence``) que usa Gobierno & estándares,
+    para que el porcentaje sea consistente entre superficies. Solo presentación: NO recalcula conformidad. ``None`` si no hay artefactos §28 aplicables."""
+    _s28 = (((doc or {}).get("canonical_evidence") or {}).get("naming_evidence") or {}).get("hygiene") or {}
+    _s28 = (_s28.get("artifact_name_populations", {}) or {}).get("section_28") or {}
+    appl = _s28.get("applicable")
+    if not appl:
+        return None
+    return {"value": f"{round(100 * (_s28.get('compliant') or 0) / appl)}%", "label": "Conformidad de nombres"}
+
+
 # ═══════════════════════════ cabecera del detalle del flujo ═══════════════════════════
 def header_view(status: svc.AssessmentStatus, entry: Any, pack: str) -> dict:
     """Estado + métricas mínimas + acción para la cabecera del detalle. Las métricas salen de ``status.summary``,
@@ -175,6 +186,10 @@ def header_view(status: svc.AssessmentStatus, entry: Any, pack: str) -> dict:
     # Resumen COMPACTO de Adopción metodológica para el Catálogo (resultado persistido; el detalle vive en el Assessment).
     # Es el MISMO view-model que usa el informe (``judgment_view``): sin recálculo, solo presentación.
     view["adoption"] = judgment_view(status.judgment)
+    # 3.er tile «Conformidad de nombres» (%), espejo de [02] del informe: MISMO dato persistido (canonical_evidence), sin recalcular conformidad.
+    _ncf = _naming_conformity_tile(P.display_doc(status.profile)) if status.profile is not None else None
+    if _ncf and view["adoption"] and view["adoption"].get("tiles") is not None:
+        view["adoption"]["tiles"].append(_ncf)
     view["has_profile"] = status.profile is not None
     view["governance_findings"] = governance_findings(status.profile)       # None sin Assessment
     view["grade"] = tile_grade(status)          # UN activo, UN grado primario: la MISMA fuente que la tile (Adopción persistida; sin Juicio → estado neutro)
@@ -1302,12 +1317,10 @@ def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: Adho
     view["module_label"] = MODULE_LABEL
     if doc is None:
         return view
-    # 3.er tile de la fila de adopción [02]: «Conformidad de nombres» = cumplen / evaluados (§28), el MISMO dato que la sección de Gobierno & estándares,
-    # para que el porcentaje sea consistente entre ambas secciones. Solo cuando hubo artefactos evaluados y hay Juicio con tiles.
-    _s28 = (((doc.get("canonical_evidence") or {}).get("naming_evidence") or {}).get("hygiene") or {}).get("artifact_name_populations", {}).get("section_28") or {}
-    _appl = _s28.get("applicable")
-    if _appl and view.get("judgment") and view["judgment"].get("tiles") is not None:
-        view["judgment"]["tiles"].append({"value": f"{round(100 * (_s28.get('compliant') or 0) / _appl)}%", "label": "Conformidad de nombres"})
+    # 3.er tile de la fila de adopción [02]: «Conformidad de nombres» (%), MISMO helper que Mirada Danwor → Adopción, para que nunca divergan.
+    _ncf = _naming_conformity_tile(doc)
+    if _ncf and view.get("judgment") and view["judgment"].get("tiles") is not None:
+        view["judgment"]["tiles"].append(_ncf)
     scope, summary = doc["scope"], doc["summary"]
     cov, conf, ctx = summary["coverage"], summary["confidence"], summary["context_required"]
     rs = cov["required_surfaces"]

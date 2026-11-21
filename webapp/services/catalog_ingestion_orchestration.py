@@ -179,6 +179,43 @@ def _flow_json(client: str) -> tuple[dict[str, dict], dict[str, dict]]:
     return rfs, tcs
 
 
+# Contenedor del sistema de ORIGEN que identifica una extracción de contrato CDS gobernado: un Replication Flow declarado desde ``/CDS_EXTRACTION`` | ``/CDS`` (criterio de frontera CDS del Catálogo).
+_CDS_SOURCE_CONTAINERS = frozenset({"/CDS_EXTRACTION", "/CDS"})
+
+
+def _cds_source_from_rfs(rfs: dict[str, dict], table: str) -> str | None:
+    """PURO (sin I/O): entidad CDS de origen que un Replication Flow replica DIRECTAMENTE a la Tabla local ``table``. Exige UN único (RF, tarea) cuyo ``targetObject`` sea
+    EXACTAMENTE ``table`` y cuyo sistema de origen declare un contenedor de extracción CDS. ``None`` si no hay productor, hay varios (ambiguo), o el origen no es un contrato CDS.
+    No infiere por el nombre de la tabla (usa la relación target→source declarada por el RF) y no sigue sombras delta (``*_Delta``): resuelve solo el consumo DIRECTO."""
+    cand: list[tuple[str, str | None]] = []
+    for body in (rfs or {}).values():
+        contents = (body or {}).get("contents") or {}
+        systems = contents.get("sourceSystem") or []
+        container = systems[0].get("container") if systems and isinstance(systems[0], dict) else None
+        for task in (contents.get("replicationTasks") or []):
+            if not isinstance(task, dict):
+                continue
+            target = str((task.get("targetObject") or {}).get("name") or "").strip()
+            source = str((task.get("sourceObject") or {}).get("name") or "").strip()
+            if target == table and source:
+                cand.append((source, container))
+    if len(cand) != 1:
+        return None                                   # 0 o varios (RF, tarea) hacia esta tabla → sin productor único: no se afirma vínculo
+    source, container = cand[0]
+    return source if container in _CDS_SOURCE_CONTAINERS else None   # el origen del RF debe ser un contrato CDS gobernado
+
+
+def replicated_cds_source(client: str, table: str) -> str | None:
+    """Entidad CDS de origen replicada hacia la Tabla local ``table`` (evidencia estructurada del export: RF JSON del pool). ``None`` ante cualquier ambigüedad o si el
+    origen no es CDS. Env-agnóstico: lee el pool materializado (local o restaurado desde Spaces), igual que el resto del Catálogo; no consulta el backend de persistencia."""
+    try:
+        rfs, _ = _flow_json(client)
+    except Exception:
+        log.exception("catalog_ingestion_orchestration: replicated_cds_source falló %s/%s", client, table)
+        return None
+    return _cds_source_from_rfs(rfs, table)
+
+
 def _chain_paths(direct: str, parents: dict[str, set]) -> list[tuple[str, ...]]:
     """Caminos [raíz, …, directa] siguiendo SOLO aristas TC→TC comprobadas; con guarda de ciclos y de profundidad."""
     out: list[tuple[str, ...]] = []
