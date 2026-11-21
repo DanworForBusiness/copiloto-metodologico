@@ -62,7 +62,7 @@
 <table class="asr-ng-table"><thead><tr><th>Población</th><th>Artefactos</th></tr></thead><tbody>
 {% for c in ng.counts %}
 <tr class="asr-ng-row{% if c.group == 'child' %} asr-ng-row--child{% endif %}" data-asr-ng-cat="{{ c.key }}">
-  <td><span class="asr-ng-labelwrap"><span class="asr-ng-label">{{ c.label }}</span><span class="chart-tooltip-anchor asr-ng-info">{{ info_parts(c.label, [c.tip]) }}</span></span></td>
+  <td><span class="asr-ng-labelwrap"><span class="asr-ng-label">{{ c.label }}</span><span class="asr-ng-info">{{ info_parts(c.label, [c.tip]) }}</span></span></td>
   <td class="asr-ng-count-cell">{% if detail and c.artifacts %}<a href="#" role="button" class="asr-ng-count" :aria-expanded="open === '{{ c.key }}'" aria-controls="asr-ng-d-{{ c.key }}" @click.prevent="open = (open === '{{ c.key }}') ? null : '{{ c.key }}'; if (open) $nextTick(() => $refs.ng_{{ c.key }}?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }))">{{ c.value }}</a>{% else %}<span class="asr-ng-count asr-ng-count--static">{{ c.value }}</span>{% endif %}</td>
 </tr>
 {% if detail and c.artifacts %}
