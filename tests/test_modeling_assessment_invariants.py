@@ -363,7 +363,9 @@ def test_package_layout_is_the_approved_one():
     dependency_validity = {"dependency_signature.py"}      # granularidad de la vigencia del assessment (P1): firma de dependencias de un AM; dato de vigencia aparte, no entra al perfil ni a reglas
     layer_boundary = {"layer_evidence.py"}      # LAYER_BOUNDARY_REVIEW (signal-rules/v4): definiciones neutras de capa/contrato compartidas con el Juicio (la logica vive en tools/catalog/layer_semantics)
     review_resolution = {"review_evidence.py"}  # Iteración II (review-evidence/v1): identidad + huella material de revisiones para el sidecar; construido en shadow, leído por la capa de ops gobernada
-    approved = m0 | m1 | m2 | m3 | m4 | m5 | m6 | m7 | view_type | public_api | evidence_g1_g3 | evidence_release | evidence_field_lineage | evidence_materialization | layer_boundary | dependency_validity | review_resolution
+    # Evidence release v6 (canonical-evidence/v6): lector del Catálogo de Conexiones (typeId por conexión, scopeado al cliente) que propaga el mecanismo de origen al clasificador de contrato de fuente (SAPSF → GOVERNED_SAP_APPLICATION_API)
+    evidence_source_application_api = {"connection_catalog.py"}
+    approved = m0 | m1 | m2 | m3 | m4 | m5 | m6 | m7 | view_type | public_api | evidence_g1_g3 | evidence_release | evidence_field_lineage | evidence_materialization | layer_boundary | dependency_validity | review_resolution | evidence_source_application_api
     assert approved <= present, sorted(approved - present)
     # Hito actual = M7: NO se adelantan milestones posteriores (M8: informe de validacion shadow contra el legacy) ni aparecen archivos no aprobados.
     assert present == approved, sorted(present - approved)

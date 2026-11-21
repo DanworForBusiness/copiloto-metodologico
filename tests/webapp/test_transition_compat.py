@@ -42,7 +42,7 @@ def test_only_the_leaf_materialization_the_layer_boundary_and_the_harmonization_
     # a los assessments gobernados vigentes ni obligar a regenerarlos; se adopta con la migracion asegurada (plan, aprobacion firmada, respaldo y olas).
     # ``evidence_harmonization_nested_projection_v5`` (canonical-evidence v4 -> v5, solo el contrato de Armonizacion) es transicional por la MISMA razon: el deploy no vuelve STALE a todo el Catalogo (en
     # Biogenesis 21 de 25 perfiles solo cambian la version); el Juicio vigente sigue visible hasta que la migracion asegurada lo re-derive (y puede cambiar de nivel: se revisa en el plan firmado).
-    assert {n for n, m in svc.EVIDENCE_MIGRATIONS.items() if m.transitional} == {MIG, "signals_layer_boundary_v4", "evidence_harmonization_nested_projection_v5"}
+    assert {n for n, m in svc.EVIDENCE_MIGRATIONS.items() if m.transitional} == {MIG, "signals_layer_boundary_v4", "evidence_harmonization_nested_projection_v5", "evidence_source_application_api_v6"}
 
 
 def test_the_single_canonical_evidence_v3_to_v4_difference_with_the_same_pool_is_current_but_pending():

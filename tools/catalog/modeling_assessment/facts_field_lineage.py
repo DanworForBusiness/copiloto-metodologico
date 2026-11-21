@@ -50,9 +50,13 @@ _MAX_DEPTH = 40
 # clases de contrato de fuente por hoja
 SCC_CDS, SCC_ODP_SAPI, SCC_ABAP_TABLE = "GOVERNED_SAP_CDS_CONTRACT", "GOVERNED_SAP_ODP_SAPI_CONTRACT", "PHYSICAL_ABAP_TABLE_BOUNDARY"
 SCC_STD_VIEW, SCC_BW_BRIDGE = "SAP_STANDARD_VIEW_ON_PHYSICAL_TABLE", "SAP_BW_BRIDGE_VIRTUALIZATION"
+SCC_APP_API = "GOVERNED_SAP_APPLICATION_API"   # contrato de API de aplicacion SAP (p.ej. SuccessFactors via conector SAPSF): extraccion gobernada por el MECANISMO de origen, no por el namespace de la entidad
 SCC_EXT_GOVERNED, SCC_EXT_PHYSICAL, SCC_EXT_UNDETERMINED = "GOVERNED_EXTERNAL_CONTRACT", "EXTERNAL_PHYSICAL_OR_TECHNICAL", "EXTERNAL_CONTRACT_UNDETERMINED"
 SCC_PLATFORM, SCC_MIXED, SCC_UNKNOWN = "PLATFORM_PROVIDED", "MIXED_BOUNDARY_CLASSES", "UNKNOWN"
-SOURCE_CONTRACT_CLASSES = (SCC_CDS, SCC_ODP_SAPI, SCC_ABAP_TABLE, SCC_STD_VIEW, SCC_BW_BRIDGE, SCC_EXT_GOVERNED, SCC_EXT_PHYSICAL, SCC_EXT_UNDETERMINED, SCC_PLATFORM, SCC_MIXED, SCC_UNKNOWN)
+SOURCE_CONTRACT_CLASSES = (SCC_CDS, SCC_ODP_SAPI, SCC_ABAP_TABLE, SCC_STD_VIEW, SCC_BW_BRIDGE, SCC_APP_API, SCC_EXT_GOVERNED, SCC_EXT_PHYSICAL, SCC_EXT_UNDETERMINED, SCC_PLATFORM, SCC_MIXED, SCC_UNKNOWN)
+# typeId de conexion (Connection Catalog) reconocidos como contrato de API de aplicacion SAP gobernado. Allow-list ESTRICTA: reconoce el MECANISMO de extraccion, NO una lista de entidades estandar.
+# NO incluye OData generico ("ODATA"), MSSQL, etc. La coincidencia de typeId NO prueba la identidad fisica de la instancia: solo acredita la legitimidad del contrato de extraccion (ver `source_contract_class_facts`).
+_GOVERNED_APPLICATION_CONNECTION_TYPES = frozenset({"SAPSF"})
 CB_NAMESPACE, CB_RF_CONTAINER, CB_CONNECTION_TYPE, CB_EXPLICIT_METADATA, CB_PLATFORM, CB_NO_NAMESPACE, CB_NO_PRODUCER, CB_NOT_ASSESSED, CB_CHAIN_INCOMPLETE, CB_MULTIPLE, CB_CONVERGING, CB_UNKNOWN = (
     "REMOTE_ENTITY_NAMESPACE", "RF_SOURCE_CONTAINER", "CONNECTION_TYPE", "EXPLICIT_SOURCE_METADATA", "PLATFORM_OBJECT", "NO_RECOGNIZED_NAMESPACE", "NO_ACQUIRED_PRODUCER",
     "PROVENANCE_NOT_ASSESSED", "PROVENANCE_CHAIN_INCOMPLETE", "MULTIPLE_BOUNDARY_CLASSES", "MULTIPLE_CONVERGING_BASES", "UNKNOWN")
@@ -100,13 +104,18 @@ def _local_leaf_class(n: str, ev: Any, entities: Mapping[str, Any], graph: Any, 
 
 
 def source_contract_class_facts(universe: AssessmentUniverse, entities: Mapping[str, Any], am: str, *, identity: Mapping[str, IdentityClassification] | None = None,
-                                evidence: Any | None = None) -> tuple:
+                                evidence: Any | None = None, connection_types: Mapping[str, str] | None = None) -> tuple:
+    """``connection_types`` (opcional): mapa INEQUIVOCO {nombre de conexion -> typeId} del Connection Catalog, YA scopeado al cliente/espacio y con abstencion ante divergencias
+    (ver ``connection_catalog``). Si una hoja remota importada NO quedo clasificada por el namespace de su entidad (``EXTERNAL_CONTRACT_UNDETERMINED``) pero su conexion resuelve a un
+    typeId de mecanismo gobernado (``_GOVERNED_APPLICATION_CONNECTION_TYPES``), se reconoce como contrato de API de aplicacion SAP gobernado (``GOVERNED_SAP_APPLICATION_API``). Reconoce el
+    MECANISMO de extraccion, NO que la fuente este armonizada/publicada ni que la conexion este operativamente vigente. El mapa NUNCA reclasifica una hoja ya reconocida por namespace (CDS/ODP/...)."""
     graph = universe.graph
     closure = universe.closure_of(am)
     ident = identity or {n: classify(entities[n]) for n in closure}
     facts = []
     for n in sorted(frontier_leaves(universe, entities, am)):
         e = entities[n]
+        conn = getattr(e, "remote_connection", None) or None
         rec: dict[str, Any]
         if n in ident and ident[n].identity.value == "SYSTEM":
             rec = {"leaf_kind": "PLATFORM_OBJECT", "contract_class": SCC_PLATFORM, "classification_basis": CB_PLATFORM, "classification_bases": [CB_PLATFORM], "boundary_classes": [],
@@ -117,13 +126,19 @@ def source_contract_class_facts(universe: AssessmentUniverse, entities: Mapping[
             basis = CB_NAMESPACE if cls != SCC_EXT_UNDETERMINED else CB_NO_NAMESPACE
             rec = {"leaf_kind": "REMOTE_IMPORTED", "contract_class": cls, "classification_basis": basis, "classification_bases": [basis], "boundary_classes": [], "source_systems": [],
                    "remote_entities": [e.remote_entity]}
+            # SOLO cuando el namespace NO reconocio un contrato (preserva CDS/ODP/vista estandar/puente BW) y la conexion resuelve inequivocamente a un mecanismo de aplicacion gobernado:
+            # se reconoce como contrato de API de aplicacion SAP y se PERSISTE el `connection_type` como la evidencia que justifica esa clase (y SOLO ahi: una hoja sin este reconocimiento
+            # no gana la clave, de modo que los perfiles sin SAPSF conservan EXACTAMENTE la forma de v5).
+            conn_type = (connection_types or {}).get(conn) if conn else None
+            if cls == SCC_EXT_UNDETERMINED and conn and conn_type in _GOVERNED_APPLICATION_CONNECTION_TYPES:
+                rec.update({"contract_class": SCC_APP_API, "classification_basis": CB_CONNECTION_TYPE, "classification_bases": [CB_CONNECTION_TYPE], "connection_type": conn_type})
         elif evidence is not None and hasattr(evidence, "target_flows"):
             rec = _local_leaf_class(n, evidence, entities, graph, closure)
         else:
             rec = {"leaf_kind": "LOCAL_PROVENANCE_NOT_ASSESSED", "contract_class": SCC_UNKNOWN, "classification_basis": CB_NOT_ASSESSED, "classification_bases": [], "boundary_classes": [],
                    "source_systems": [], "remote_entities": []}
         facts.append(make_fact("source.contract_class", Area.SOURCE_EXTRACTION, n,
-                               {"leaf": n, **rec, "remote_connection": getattr(e, "remote_connection", None) or None,
+                               {"leaf": n, **rec, "remote_connection": conn,
                                 "definition": "explicit source-contract class of the frontier leaf; technology alone never classifies governance or rawness"},
                                EvidenceClass.B, refs=entity_refs(e, ["remote_entity", "remote_connection"])))
     return sort_facts(facts)

@@ -92,7 +92,7 @@ def test_nested_graphical_view_resolves_provider_and_labels(tmp_path):
     assert a["labels_determinable"] is True and a["label_origin_counts"]["UNKNOWN_PROVIDER_LABEL"] == 0
     assert a["label_origin_counts"]["EQUALS_PROVIDER_LABEL"] == 4 and a["label_origin_counts"]["DIFFERENT_FROM_PROVIDER"] == 1     # «Clave - Almacen» es propia
     assert a["character"]["value"] != "UNKNOWN"
-    assert doc["canonical_evidence"]["version"] == "canonical-evidence/v5" == doc["versions"]["canonical_evidence"]
+    assert doc["canonical_evidence"]["version"] == "canonical-evidence/v6" == doc["versions"]["canonical_evidence"]
 
 
 def test_harmonization_agrees_with_the_canonical_field_lineage_resolver(tmp_path):
@@ -164,7 +164,7 @@ def test_catalog_and_adhoc_paths_agree(tmp_path):
 
 # ── 7. versionado y tratamiento gobernado de los assessments anteriores ──────────────────────────────────────────
 def test_version_v5_keeps_v4_readable():
-    assert EC.CANONICAL_EVIDENCE_VERSION == "canonical-evidence/v5" and "canonical-evidence/v4" in EC.SUPPORTED_VERSIONS
+    assert EC.CANONICAL_EVIDENCE_VERSION == "canonical-evidence/v6" and {"canonical-evidence/v4", "canonical-evidence/v5"} <= set(EC.SUPPORTED_VERSIONS)
 
 
 def test_a_v4_profile_is_covered_by_the_governed_migration_and_stays_current_until_migrated():

@@ -83,12 +83,14 @@ def _v3(d: dict) -> dict:
     old["canonical_evidence"].pop(KEY)
     old["canonical_evidence"]["version"] = EC.CANONICAL_EVIDENCE_VERSION_V3
     old["versions"]["canonical_evidence"] = EC.CANONICAL_EVIDENCE_VERSION_V3
+    for leaf in old["canonical_evidence"]["source_contract_classes"]["leaves"]:   # v3 no tenia `connection_type` (lo introdujo v6): un v3 historico fiel no lo lleva
+        leaf.pop("connection_type", None)
     return old
 
 
 # ───────────────────────────── contrato y serializacion ─────────────────────────────
 def test_the_profile_declares_v4_and_persists_the_derived_section_with_the_exact_identities(doc):
-    assert doc["versions"]["canonical_evidence"] == doc["canonical_evidence"]["version"] == "canonical-evidence/v5" and set(V4_SECTIONS) == {KEY}
+    assert doc["versions"]["canonical_evidence"] == doc["canonical_evidence"]["version"] == "canonical-evidence/v6" and set(V4_SECTIONS) == {KEY}
     s = _sec(doc)
     assert s["version"] == LM.LEAF_MATERIALIZATION_VERSION and s["evidence_version"] == LME.EVIDENCE_VERSION and s["evaluation_state"] == LME.EVALUATED
     assert s["derivation"] == {"module": LME.DERIVATION_MODULE, "version": LM.LEAF_MATERIALIZATION_VERSION}
@@ -304,7 +306,7 @@ def test_both_contract_versions_are_accepted_by_the_judgment_gate(doc):
 # ───────────────────────────── firmas y vigencia (STALE) ─────────────────────────────
 def test_a_v3_profile_is_covered_exactly_by_the_v4c_migration_and_is_transitionally_current(doc):
     cur = svc.current_assessment_versions()
-    assert cur["canonical_evidence"] == "canonical-evidence/v5" and cur["assessability"] == "assessability-rules/v4" and cur["confidence"] == "confidence-cuts/v3"       # solo cambia canonical_evidence
+    assert cur["canonical_evidence"] == "canonical-evidence/v6" and cur["assessability"] == "assessability-rules/v4" and cur["confidence"] == "confidence-cuts/v3"       # solo cambia canonical_evidence
     old = dict(cur, canonical_evidence="canonical-evidence/v3")
     c = svc.classify_currentness("sig", old, "sig", cur)
     # Opcion A (compatibilidad transitoria estricta): la UNICA diferencia es la que cubre la migracion => CURRENT pendiente de ella (la diferencia sigue visible)
@@ -327,7 +329,9 @@ def test_the_signature_of_the_profile_changes_only_through_the_new_section_and_v
     strip["canonical_evidence"].pop(KEY)
     strip["canonical_evidence"]["version"] = old["canonical_evidence"]["version"]
     strip["versions"]["canonical_evidence"] = old["versions"]["canonical_evidence"]
-    assert svc._artifact_signature(strip) == svc._artifact_signature(old)                                              # nada mas cambia en el perfil
+    for leaf in strip["canonical_evidence"]["source_contract_classes"]["leaves"]:   # v6 agrega `connection_type` por hoja: volver a la forma v3 para aislar la firma del release v4
+        leaf.pop("connection_type", None)
+    assert svc._artifact_signature(strip) == svc._artifact_signature(old)                                              # fuera de la seccion v4, el `connection_type` (v6) y la version, nada mas cambia
 
 
 # ───────────────────────────── el enriquecimiento no cambia nivel, fortalezas, razones, cobertura ni confianza ─────────────────────────────

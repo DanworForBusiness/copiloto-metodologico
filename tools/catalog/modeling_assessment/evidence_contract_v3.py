@@ -8,8 +8,8 @@ from typing import Any
 
 from .evidence_errors import _expect, _is_int, _keys
 from .facts_field_lineage import (
-    CLASSIFICATION_BASES, COMPLETENESS_STATES, LABEL_RELATIONS, LEAF_KINDS, PATH_BASIS, PATH_CHARACTERS, SCC_PLATFORM, SCC_UNKNOWN, SOURCE_CONTRACT_CLASSES, UNRESOLVED_REASONS, DELTA_BASIS,
-    SCC_ABAP_TABLE,
+    CB_CONNECTION_TYPE, CLASSIFICATION_BASES, COMPLETENESS_STATES, LABEL_RELATIONS, LEAF_KINDS, PATH_BASIS, PATH_CHARACTERS, SCC_APP_API, SCC_PLATFORM, SCC_UNKNOWN, SOURCE_CONTRACT_CLASSES,
+    UNRESOLVED_REASONS, DELTA_BASIS, SCC_ABAP_TABLE,
 )
 from .field_lineage import AMBIGUITY_CODES, FIELD_LINEAGE_EXTRACTOR_VERSION, MAPPING_TYPES
 from .facts_contract_semantics import DATATYPE_FAMILIES, FIELD_ROLES
@@ -29,16 +29,20 @@ def _no_verdicts(node: Any, path: str) -> None:
 
 
 # ───────────────────────────── source_contract_classes ─────────────────────────────
-def validate_source_contract_classes(sc: Any) -> dict[str, str]:
-    """Valida la seccion y devuelve ``{hoja: clase}`` para cruzar con el linaje."""
+_LEAF_KEYS = {"leaf", "leaf_kind", "contract_class", "classification_basis", "classification_bases", "boundary_classes", "source_systems", "remote_entities", "remote_connection", "definition"}
+_VERSIONS_WITH_CONNECTION_TYPE = ("canonical-evidence/v6",)   # versiones cuya hoja lleva `connection_type` (typeId del Connection Catalog). v3/v4/v5 NO lo llevan -> la clave queda PROHIBIDA en esos sobres.
+
+
+def validate_source_contract_classes(sc: Any, *, version: str | None = None) -> dict[str, str]:
+    """Valida la seccion y devuelve ``{hoja: clase}`` para cruzar con el linaje. ``version``: la version del contrato canonico; desde v6 cada hoja lleva ``connection_type`` (ausente en v3/v4/v5)."""
     p = ".source_contract_classes"
     _keys(sc, {"leaves", "by_class", "definition"}, p, closed=True)
+    allow_conn = version in _VERSIONS_WITH_CONNECTION_TYPE                 # v6+: `connection_type` admitido (OPCIONAL), presente solo en la hoja de API de aplicacion; v3/v4/v5: PROHIBIDO
     out: dict[str, str] = {}
     counts: dict[str, int] = {}
     for i, r in enumerate(sc["leaves"]):
         rp = f"{p}.leaves[{i}]"
-        _keys(r, {"leaf", "leaf_kind", "contract_class", "classification_basis", "classification_bases", "boundary_classes", "source_systems", "remote_entities", "remote_connection",
-                  "definition"}, rp, closed=True)
+        _keys(r, _LEAF_KEYS, rp, closed=True, optional={"connection_type"} if allow_conn else frozenset())
         _expect(isinstance(r["leaf"], str) and r["leaf"] and r["leaf"] not in out, rp, "hoja vacia o duplicada")
         _expect(r["leaf_kind"] in LEAF_KINDS and r["contract_class"] in SOURCE_CONTRACT_CLASSES, rp, "tipo de hoja / clase fuera del vocabulario")
         _expect(r["classification_basis"] in CLASSIFICATION_BASES and set(r["classification_bases"]) <= set(CLASSIFICATION_BASES), rp, "base de clasificacion fuera del vocabulario")
@@ -48,6 +52,12 @@ def validate_source_contract_classes(sc: Any) -> dict[str, str]:
         _expect((r["contract_class"] == SCC_PLATFORM) == (r["leaf_kind"] == "PLATFORM_OBJECT"), rp, "PLATFORM_PROVIDED si y solo si la hoja es un objeto de plataforma")
         if r["leaf_kind"] == "REMOTE_IMPORTED":
             _expect(len(r["remote_entities"]) == 1, rp, "una hoja remota importada tiene exactamente una entidad remota")
+        if allow_conn:
+            _expect(("connection_type" in r) == (r["contract_class"] == SCC_APP_API), rp, "`connection_type` presente si y solo si la clase es GOVERNED_SAP_APPLICATION_API")
+        if r["contract_class"] == SCC_APP_API:
+            # Contrato de API de aplicacion SAP (SAPSF): reconocido por el MECANISMO de origen (typeId de conexion), no por el namespace. Exige evidencia explicita de conexion.
+            _expect(r["leaf_kind"] == "REMOTE_IMPORTED" and r["classification_basis"] == CB_CONNECTION_TYPE and len(r["remote_entities"]) == 1 and bool(r.get("connection_type")),
+                    rp, "GOVERNED_SAP_APPLICATION_API exige hoja remota importada, base CONNECTION_TYPE, una entidad remota y un typeId de conexion presente")
         if r["contract_class"] == SCC_UNKNOWN:
             _expect(r["classification_basis"] in {"NO_ACQUIRED_PRODUCER", "PROVENANCE_NOT_ASSESSED", "PROVENANCE_CHAIN_INCOMPLETE", "UNKNOWN"}, rp, "UNKNOWN exige una base que explique por que no se clasifica")
         if r["contract_class"] == SCC_ABAP_TABLE:
@@ -138,5 +148,5 @@ def validate_published_field_lineage(pl: Any, leaf_classes: dict[str, str], publ
 
 
 def validate_v3_sections(ce: dict) -> None:
-    classes = validate_source_contract_classes(ce["source_contract_classes"])
+    classes = validate_source_contract_classes(ce["source_contract_classes"], version=ce.get("version"))
     validate_published_field_lineage(ce["published_field_lineage"], classes, ce["published_contract"])

@@ -31,10 +31,12 @@ CANONICAL_EVIDENCE_VERSION_V1 = "canonical-evidence/v1"
 CANONICAL_EVIDENCE_VERSION_V2 = "canonical-evidence/v2"      # v2 (evidence release): closure / physical boundaries / published contract / naming / harmonization / expressions / reconvergence / complexity / processing
 CANONICAL_EVIDENCE_VERSION_V3 = "canonical-evidence/v3"      # v3 (field-lineage evidence release): + published_field_lineage (procedencia por campo publicado hasta las hojas frontera) + source_contract_classes (clase explicita de contrato de fuente por hoja)
 CANONICAL_EVIDENCE_VERSION_V4 = "canonical-evidence/v4"      # v4.A: + leaf_materialization (materializacion derivada de las hojas locales con sus pruebas tecnicas minimas y referencias recuperables; sin CSN completo)
-CANONICAL_EVIDENCE_VERSION = "canonical-evidence/v5"         # v5: MISMA forma que v4; `harmonization_contract` resuelve el proveedor de una columna proyectada desde un subselect con el resolvedor canonico de
+CANONICAL_EVIDENCE_VERSION_V5 = "canonical-evidence/v5"      # v5: MISMA forma que v4; `harmonization_contract` resuelve el proveedor de una columna proyectada desde un subselect con el resolvedor canonico de
                                                              #     linaje de campo (un origen inequivoco IDENTITY/RENAME/CAST) -> mapeo, campos retenidos y origen de etiquetas observables en vistas graficas anidadas
-_V4_SHAPE = ("canonical-evidence/v4", "canonical-evidence/v5")  # versiones con las secciones v4 (leaf_materialization)
-SUPPORTED_VERSIONS = (CANONICAL_EVIDENCE_VERSION_V1, CANONICAL_EVIDENCE_VERSION_V2, CANONICAL_EVIDENCE_VERSION_V3, CANONICAL_EVIDENCE_VERSION_V4, CANONICAL_EVIDENCE_VERSION)
+CANONICAL_EVIDENCE_VERSION = "canonical-evidence/v6"         # v6: MISMA forma que v4/v5 + la hoja de `source_contract_classes` lleva `connection_type` (typeId del Connection Catalog) y admite la clase
+                                                             #     `GOVERNED_SAP_APPLICATION_API` (contrato de API de aplicacion SAP, p.ej. SuccessFactors via SAPSF): reconoce el MECANISMO de origen, no el namespace. Juicio = judgment-rules/v5 (sin cambios)
+_V4_SHAPE = ("canonical-evidence/v4", "canonical-evidence/v5", "canonical-evidence/v6")  # versiones con las secciones v4 (leaf_materialization)
+SUPPORTED_VERSIONS = (CANONICAL_EVIDENCE_VERSION_V1, CANONICAL_EVIDENCE_VERSION_V2, CANONICAL_EVIDENCE_VERSION_V3, CANONICAL_EVIDENCE_VERSION_V4, CANONICAL_EVIDENCE_VERSION_V5, CANONICAL_EVIDENCE_VERSION)
 
 PROVENANCE_STATES = frozenset({PROV_ESTABLISHED, PROV_DECLARED, PROV_NOT_OBSERVABLE})
 PROVENANCE_BASES = frozenset({BASIS_REPLICATION_FLOW, BASIS_DATA_FLOW, BASIS_DECLARED_DATASET, BASIS_TABLE_FUNCTION, BASIS_NONE})
