@@ -21,7 +21,8 @@
     <span class="asr-generate__label">{{ v.action.label }}</span>
   </button>
 </div>{% endif %}{% endmacro %}
-{% from "partials/assessment_report_macros.html" import heading, callout, kpi_tile, contracts_evaluated, tile_grid, evaluation_table, compatibility_block, artifact_list, artifact_table, text_list, naming_families, occurrence_detail, info_parts, naming_gate_block %}
+{% from "partials/assessment_report_macros.html" import heading, callout, kpi_tile, contracts_evaluated, tile_grid, evaluation_table, compatibility_block, artifact_list, artifact_table, text_list, naming_families, occurrence_detail, info_parts %}
+{% from "partials/naming_gate_macros.html" import naming_gate_block %}
 {% from "partials/table_action_macros.html" import table_action_link, table_action_icon, panel_close %}
 {% macro n_occ(n) %}{{ n }} ocurrencia{{ "s" if n != 1 }}{% endmacro %}
 {% macro table(columns, rows) %}<table><thead><tr>{% for c in columns %}<th>{{ c }}</th>{% endfor %}</tr></thead><tbody>{% for r in rows %}<tr>{% for cell in r %}<td>{% if cell is mapping %}<span title="Código técnico: {{ cell.code }}">{{ cell.text }}</span>{% else %}{{ cell }}{% endif %}</td>{% endfor %}</tr>{% endfor %}</tbody></table>{% endmacro %}

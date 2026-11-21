@@ -1,0 +1,25 @@
+{# Convención de nombres y nivel (Juicio v5): componente COMPARTIDO por el Assessment [02] y «Mirada Danwor» → Adopción. Dato único `assessment_presenter.naming_gate_view` (sin recálculo).
+   Vive en su PROPIO archivo (no en assessment_report_macros.html): así reutiliza el primitivo de tooltip del Hub `chart-tooltip-anchor` para posicionar el (i) en la tabla, sin agregar
+   ese ancla ni CSS propio (`.asr-*info`) al archivo de macros compartido de los KPI (guards `test_assessment_area_scope` / `test_assessment_kpi_help`). El (i) lo renderiza `info_parts`.
+   `detail=true` (Assessment): el número abre la lista de artefactos por categoría. `detail=false` (Mirada Danwor): conteos ESTÁTICOS, sin drill-down — el detalle de artefactos vive en el Assessment. #}
+{% from "partials/assessment_report_macros.html" import info_parts, artifact_table %}
+{% macro naming_gate_block(ng, detail=true) %}
+<section class="asr-naming-gate" data-asr-naming-gate="{{ ng.state }}"{% if detail %} x-data="{ open: null }"{% endif %}>
+<h3>Convención de nombres y nivel</h3>
+<p class="asr-ng-conclusion"><strong>{{ ng.headline }}</strong></p>
+<p data-asr-naming-detail>{{ ng.detail }}</p>
+<table class="asr-ng-table"><thead><tr><th>Población</th><th>Artefactos</th></tr></thead><tbody>
+{% for c in ng.counts %}
+<tr class="asr-ng-row{% if c.group == 'child' %} asr-ng-row--child{% endif %}" data-asr-ng-cat="{{ c.key }}">
+  <td><span class="asr-ng-labelwrap"><span class="asr-ng-label">{{ c.label }}</span><span class="chart-tooltip-anchor asr-ng-info">{{ info_parts(c.label, [c.tip]) }}</span></span></td>
+  <td class="asr-ng-count-cell">{% if detail and c.artifacts %}<a href="#" role="button" class="asr-ng-count" :aria-expanded="open === '{{ c.key }}'" aria-controls="asr-ng-d-{{ c.key }}" @click.prevent="open = (open === '{{ c.key }}') ? null : '{{ c.key }}'; if (open) $nextTick(() => $refs.ng_{{ c.key }}?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }))">{{ c.value }}</a>{% else %}<span class="asr-ng-count asr-ng-count--static">{{ c.value }}</span>{% endif %}</td>
+</tr>
+{% if detail and c.artifacts %}
+<tr class="asr-ng-detail" id="asr-ng-d-{{ c.key }}" x-ref="ng_{{ c.key }}" x-cloak x-show="open === '{{ c.key }}'" role="region" aria-label="Artefactos · {{ c.label }}">
+  <td colspan="2"><div class="asr-ng-detail__body"><div class="asr-ng-detail__head"><span class="catalog-note__ev">{{ c.label }} · {{ c.value }} artefacto{{ "s" if c.value != 1 }}</span> <button type="button" class="asr-ng-detail__close" @click="open = null" aria-label="Cerrar el detalle">×</button></div>{{ artifact_table(c.artifacts) }}</div></td>
+</tr>
+{% endif %}
+{% endfor %}
+</tbody></table>
+</section>
+{% endmacro %}
