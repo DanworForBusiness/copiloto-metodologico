@@ -25,6 +25,7 @@ from pathlib import Path
 from . import legacy_bridge as bridge
 from . import paths
 from .assessability import compose_assessment
+from . import connection_catalog
 from .facts_am import am_facts
 from .facts_closure import closure_facts
 from .facts_contract_semantics import published_contract_facts
@@ -130,9 +131,9 @@ def load_pool(group: dict[str, list[Path]], governed_names: dict | None = None):
     return entities
 
 
-def collect_facts(universe: AssessmentUniverse, entities, am: str, evidence: SupplementaryEvidence) -> list[Fact]:
+def collect_facts(universe: AssessmentUniverse, entities, am: str, evidence: SupplementaryEvidence, *, connection_types: dict[str, str] | None = None) -> list[Fact]:
     identity = classify_universe(entities)
-    class_facts = source_contract_class_facts(universe, entities, am, identity=identity, evidence=evidence)
+    class_facts = source_contract_class_facts(universe, entities, am, identity=identity, evidence=evidence, connection_types=connection_types)
     return [*class_facts,
             *published_field_lineage_facts(universe, entities, am, identity=identity, evidence=evidence, leaf_classes={f.subject: f.value for f in class_facts}),
             *source_facts(universe, entities, am, evidence=evidence, identity=identity),
@@ -211,9 +212,12 @@ def assess(inbound: Path, client: str, am: str | None, domain: str | None = None
         universe, scope = universe.resolve_root(entities, am, root_type, pool_signature=signature)   # puede lanzar UnknownRootObjectError
     else:
         scope = universe.scope_for(am, pool_signature=signature)           # puede lanzar UnknownTerminalAmError / TerminalAmSelectionRequired
+    # Catalogo de Conexiones del cliente (typeId por conexion), scopeado e inequivoco: propaga el MECANISMO de origen al clasificador de contrato de fuente (ver `connection_catalog`).
+    conn_types = connection_catalog.connection_types(inbound, key[0])
     facts = [] if scope.root is None else collect_facts(universe, entities, scope.root, SupplementaryEvidence.from_files(group["jsons"], root=inbound, acquired_flow_families=_acquired_flow_families(evidence_scope),
                                                                                                   view_type_of=bridge.view_type_of_export, family_of_dir=bridge.artifact_family_of_dir,
-                                                                                                  effective_features=(evidence_scope or {}).get("effective_features") if evidence_scope else None))
+                                                                                                  effective_features=(evidence_scope or {}).get("effective_features") if evidence_scope else None),
+                                                         connection_types=conn_types)
     comp = compose_assessment(scope, facts)
     doc = build_assessment(comp, facts, client=key[0], terminal_label=_business_label(entities, scope.root), evidence_scope=evidence_scope,
                            materialization_evidence=lambda ce: collect_materialization_evidence(group["jsons"], inbound, ce, signature))      # v4.A: referencias recuperables al pool (solo lectura)

@@ -95,6 +95,15 @@ EVIDENCE_MIGRATIONS: dict[str, MigrationTarget] = {
         "`versions.canonical_evidence`, la seccion `harmonization_contract` y su resumen en `naming_evidence.semantic_contract.harmonization_contract` (CLOSURE_EQUAL). El Juicio se RE-DERIVA con "
         "las MISMAS ratificaciones que consumio el anterior (sin releer el registro); si alguna deja de aplicarse la migracion se abstiene. Puede cambiar el nivel: se informa por modelo",
         CLOSURE_EQUAL, transitional=True),
+    "evidence_source_application_api_v6": MigrationTarget(
+        "evidence_source_application_api_v6", ("canonical_evidence",), {"canonical_evidence": frozenset({"canonical-evidence/v5"})},
+        "canonical-evidence/v6: la hoja de `source_contract_classes` lleva `connection_type` (typeId del Connection Catalog, scopeado al cliente e inequivoco) y admite la clase "
+        "`GOVERNED_SAP_APPLICATION_API` (contrato de API de aplicacion SAP, p.ej. SuccessFactors via conector SAPSF): una hoja remota importada cuyo namespace no reconocio contrato pero cuya conexion "
+        "resuelve a un mecanismo de aplicacion gobernado se reconoce como contrato de origen gobernado. Reconoce el MECANISMO de origen, NO que la fuente este armonizada/publicada ni que la conexion este "
+        "operativamente vigente. Misma entrada y mismo cierre: el perfil solo puede diferir en `canonical_evidence.version`, `versions.canonical_evidence`, la clave `connection_type` de cada hoja y la "
+        "clase/base de las hojas con conexion de aplicacion gobernada (CLOSURE_EQUAL). El Juicio (judgment-rules/v5, SIN cambios) se RE-DERIVA con las MISMAS ratificaciones que consumio el anterior; si alguna "
+        "deja de aplicarse la migracion se abstiene. Puede cambiar el nivel SOLO en modelos con hoja de conexion de aplicacion gobernada: se informa por modelo",
+        CLOSURE_EQUAL, transitional=True),
     "evidence_confidence_v3": MigrationTarget(
         "evidence_confidence_v3", ("confidence",), {"confidence": frozenset({"confidence-cuts/v2"})},
         "Confianza metodologica v3: `resolved_provenance` mide el ORIGEN DE LOS DATOS (una hoja de identidad UNKNOWN con productor y clase de contrato resuelta cuenta como resuelta). "
