@@ -350,7 +350,7 @@
 
 /* ── Heading de sección: el número se alinea al cap del título y escala con
    el viewport (antes padding-top fijo de .6rem desalineaba en clamp()). ── */
-.content-heading { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 20px; }
+.content-heading { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px 20px; }
 .content-heading-copy { flex: 1 1 360px; min-width: 0; }
 .content-heading-copy > .section-eyebrow {
   display: block;
@@ -365,12 +365,11 @@
   flex: 0 1 auto;
   justify-content: flex-end;
   max-width: 100%;
-  margin: 0 0 2px auto;
+  margin: 0 0 0 auto;              /* a la altura del número de sección [NN] (align-items:flex-start en .content-heading); el margin-left:auto lo mantiene a la derecha */
 }
 .heading-supports .support-link { white-space: nowrap; }
 .heading-supports.catalog-cds-launch {
   margin: 0 0 0 auto;
-  transform: translateY(-8px);
 }
 .content-heading.has-subtitle { margin-bottom: 8px; }
 .methodology .section-subtitle,

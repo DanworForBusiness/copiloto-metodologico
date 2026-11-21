@@ -5,7 +5,7 @@
    secciones ES el linaje: cada artefacto es una sección con su tabla. Se usa en
    la página completa (catalog_flow.html) y en el swap HTMX que actualiza SOLO el
    panel central (#content) sin salir del módulo ni perder el panel derecho. #}
-{% from "partials/assessment_report_macros.html" import heading, contracts_evaluated, tile_grid, evaluation_table, assessment_action %}
+{% from "partials/assessment_report_macros.html" import heading, callout, contracts_evaluated, tile_grid, evaluation_table, assessment_action, naming_gate_block %}
 {% set ah = assessment_header %}
 {# §1 Barra de acciones transversal: ← Volver + acciones de contexto en la MISMA línea (mismo patrón que el Assessment). La
    acción del assessment (Ver Assessment / Generar, con carga integrada) y el Informe de Cliente van a la derecha; el hero
@@ -93,16 +93,22 @@
       {{ tile_grid(por.tiles) }}
       <p>{{ por.coverage }}{% if por.n_acks %} · {{ por.n_acks }} acknowledgement{{ "s" if por.n_acks != 1 }} registrados por el equipo{% endif %}.</p>
       {% if por.rows %}{{ evaluation_table(por.rows, ["Tipo", "Hallazgo", "Campos · Recomendación"]) }}{% else %}<p>Sin observaciones estructurales en las reglas evaluadas.</p>{% endif %}
+      {# Conclusión decisiva de compatibilidad BDC (veredicto general), espejo COMPACTO de [05]: solo el estado + contexto; el detalle por escenario y las tablas técnicas viven en el Assessment. #}
+      {% if ev.compatibility and ev.compatibility.state %}<p class="catalog-verdict-line"><span class="catalog-card__verdict catalog-card__verdict--{{ ev.compatibility.state.tone }}">{{ ev.compatibility.state.label }}</span> <span>{{ ev.compatibility.context }}</span></p>{% endif %}
     </div>
   </details>
   {% endif %}
   {% if ad %}
-  <details class="dashboard-section" id="eval-adopcion" open>
+  <details class="dashboard-section" id="eval-adopcion">
     <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Adopción metodológica</span>{# resumen y badge en el MISMO slot a la derecha, separados por «·» (un solo margin-left:auto) #}<span class="dashboard-section__state"><span class="dashboard-section__count">{{ ad.strengths_count }} evidencias favorables · {{ ad.reasons_count }} puntos de atención&nbsp;&nbsp;·&nbsp;&nbsp;</span><span class="catalog-card__verdict catalog-card__verdict--{{ ad.tone }}">{{ ad.level_label }}</span></span></summary>
     <div class="dashboard-section__body">
-      <p>{{ ad.headline }}</p>
       {{ contracts_evaluated(ad) }}
       {{ tile_grid(ad.tiles) }}
+      {# Convención de nombres y nivel: MISMO resultado y conclusión que el Assessment [02] (ad = header_for→judgment_view = naming_gate_view); sin recálculo. `detail=false`: conteos sin drill-down
+         a artefactos — el detalle vive en el Assessment (contrato de diseño de Mirada Danwor). Aparece solo con Juicio v5. #}
+      {% if ad.naming_gate %}{{ naming_gate_block(ad.naming_gate, detail=false) }}{% endif %}
+      {# Cierre editorial = MISMO callout que [02] del informe (tono + nivel + lectura): el headline va acá, no arriba, para no duplicarlo y para interpretar los indicadores. #}
+      {% call callout(ad.tone, "Lectura de la adopción · " ~ ad.level_label) %}<p>{{ ad.headline }}</p>{% endcall %}
     </div>
   </details>
   {% endif %}

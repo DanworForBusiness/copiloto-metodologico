@@ -49,6 +49,31 @@
     </tbody></table></details>
   {% endif %}
 {% endif %}{% endmacro %}
+{# Convención de nombres y nivel (Juicio v5): MISMO componente en el Assessment [02] y en «Mirada Danwor» → Adopción. Dato único `assessment_presenter.naming_gate_view` (sin recálculo).
+   Distingue BLOCK (incumplimiento acreditado) / NOT_ACCREDITED (responsabilidad no establecida: no se afirma incumplimiento) / PASS; el desglose de Gobernables va indentado y el número abre
+   el detalle SOLO cuando la evidencia conserva la lista completa. #}
+{# `detail=true` (Assessment): el número abre la lista de artefactos por categoría. `detail=false` (Mirada Danwor): conteos ESTÁTICOS, sin drill-down — el detalle de artefactos vive en el Assessment
+   (contrato de diseño de «Mirada Danwor»: tres lecturas independientes; el detalle de la evidencia está en el Assessment). Mismo dato y misma conclusión en ambas; cambia solo la profundidad. #}
+{% macro naming_gate_block(ng, detail=true) %}
+<section class="asr-naming-gate" data-asr-naming-gate="{{ ng.state }}"{% if detail %} x-data="{ open: null }"{% endif %}>
+<h3>Convención de nombres y nivel</h3>
+<p class="asr-ng-conclusion"><strong>{{ ng.headline }}</strong></p>
+<p data-asr-naming-detail>{{ ng.detail }}</p>
+<table class="asr-ng-table"><thead><tr><th>Población</th><th>Artefactos</th></tr></thead><tbody>
+{% for c in ng.counts %}
+<tr class="asr-ng-row{% if c.group == 'child' %} asr-ng-row--child{% endif %}" data-asr-ng-cat="{{ c.key }}">
+  <td><span class="asr-ng-labelwrap"><span class="asr-ng-label">{{ c.label }}</span><span class="chart-tooltip-anchor asr-ng-info">{{ info_parts(c.label, [c.tip]) }}</span></span></td>
+  <td class="asr-ng-count-cell">{% if detail and c.artifacts %}<a href="#" role="button" class="asr-ng-count" :aria-expanded="open === '{{ c.key }}'" aria-controls="asr-ng-d-{{ c.key }}" @click.prevent="open = (open === '{{ c.key }}') ? null : '{{ c.key }}'; if (open) $nextTick(() => $refs.ng_{{ c.key }}?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }))">{{ c.value }}</a>{% else %}<span class="asr-ng-count asr-ng-count--static">{{ c.value }}</span>{% endif %}</td>
+</tr>
+{% if detail and c.artifacts %}
+<tr class="asr-ng-detail" id="asr-ng-d-{{ c.key }}" x-ref="ng_{{ c.key }}" x-cloak x-show="open === '{{ c.key }}'" role="region" aria-label="Artefactos · {{ c.label }}">
+  <td colspan="2"><div class="asr-ng-detail__body"><div class="asr-ng-detail__head"><span class="catalog-note__ev">{{ c.label }} · {{ c.value }} artefacto{{ "s" if c.value != 1 }}</span> <button type="button" class="asr-ng-detail__close" @click="open = null" aria-label="Cerrar el detalle">×</button></div>{{ artifact_table(c.artifacts) }}</div></td>
+</tr>
+{% endif %}
+{% endfor %}
+</tbody></table>
+</section>
+{% endmacro %}
 {# Tabla de Gobierno / Portabilidad: filas ya escapadas por `asset_evaluation` (Markup); badge = `.catalog-card__verdict--{tone}`. #}
 {% macro evaluation_table(rows, headers, links=false) %}<table><thead><tr>{% for h in headers %}<th>{{ h }}</th>{% endfor %}</tr></thead><tbody>{% for r in rows %}<tr><td><span class="catalog-card__verdict catalog-card__verdict--{{ r.tone }}">{{ r.label }}</span></td><td>{{ r.title }}</td><td>{{ r.evidence }}{% if links and r.link %}<br><a href="{{ r.link.href }}"><code>{{ r.link.text }}</code></a>{% endif %}{% if r.reference_url %}<br>Referencia: <a class="reference-text-link" href="{{ r.reference_url }}" target="_blank" rel="noopener noreferrer">{{ r.reference_text }}</a>{% elif r.reference_text %}<br><em>Referencia: {{ r.reference_text }}</em>{% endif %}</td></tr>{% endfor %}</tbody></table>{% endmacro %}
 {# Compatibilidad con destinos BDC (eje ADITIVO, sin puntaje): `c` = `bdc_compatibility_service.build_view`. Mismo disclosure (`details.dashboard-section`) y tablas nativas del Hub; los estados usan los
