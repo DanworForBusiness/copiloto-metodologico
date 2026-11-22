@@ -114,42 +114,84 @@ def test_judgment_keeps_undetermined_as_external():
     assert ev.classify_source("1TR_SSF_FOCompany") == "EXTERNAL_CONTRACT_UNDETERMINED"
 
 
-# ───────────────────────────── paridad ad hoc (extracción live): enriquecer el workspace con la evidencia de conexión ─────────────────────────────
+# ───────────────────────────── paridad ad hoc (extracción live): autenticar + enriquecer el workspace con la evidencia de conexión ─────────────────────────────
+from tools.catalog.connectivity_governance.sources import PreflightReport, PreflightCheck, CheckStatus   # noqa: E402
+from tools.catalog.connectivity_governance.extraction import SourceError                                 # noqa: E402
+
+
 class _FakeConnSource:
-    """Fuente de conexión simulada (misma interfaz que CliConnectionSource) para probar el enriquecimiento del workspace sin red ni CLI."""
-    def __init__(self, **_kw):
-        pass
+    """Fuente de conexión simulada (interfaz de CliConnectionSource) para probar el flujo preflight→consulta sin red ni CLI. Registra el orden de llamadas y el cierre."""
+    def __init__(self, *, authorized=True, **_kw):
+        self._authorized = authorized
+        self.calls = []
+        self.closed = False
     def __enter__(self):
         return self
     def __exit__(self, *_a):
+        self.closed = True       # el `with` cierra el recurso en éxito y en error
         return False
+    def preflight_report(self):
+        self.calls.append("preflight")
+        if self._authorized:
+            checks = (PreflightCheck("oauth_token", CheckStatus.OK), PreflightCheck("list_connections", CheckStatus.OK))
+        else:                    # login falla: oauth_token FAILED (detalle ya saneado por la fuente real)
+            checks = (PreflightCheck("oauth_token", CheckStatus.FAILED, "OAuth no valido"), PreflightCheck("list_connections", CheckStatus.NOT_VERIFIED, "no ejecutada"))
+        return PreflightReport(checks)
     def list_connections(self, space):
+        self.calls.append("list")
         return [{"name": "SSFF"}, {"name": "GDA"}, {"name": "NOTYPE"}]
     def get_connection(self, space, name):
+        self.calls.append("get:" + name)
         return {"SSFF": {"name": "SSFF", "typeId": "SAPSF", "space_name": space},   # positivo
                 "GDA": {"name": "GDA", "typeId": "ODATA", "space_name": space},      # negativo: OData genérico
                 "NOTYPE": {"name": "NOTYPE", "space_name": space}}[name]              # negativo: sin typeId
 
 
-def test_adhoc_materializes_live_connections_with_source_parity(tmp_path, monkeypatch):
-    from webapp.services import datasphere_assessment_service as das
+def _patch_source(monkeypatch, *, authorized=True):
     from tools.catalog.connectivity_governance import sources as cg_sources
-    monkeypatch.setattr(cg_sources, "CliConnectionSource", _FakeConnSource)
-    pool_dir = tmp_path / "pool" / "Contreras"
-    pool_dir.mkdir(parents=True)
-    vals = das.FormValues.from_mapping({"host": "h", "token_url": "t", "client_id": "c", "space": "PRD", "root_object": "AM_X", "client": "Contreras"})
-    n = das._materialize_live_connections(pool_dir, vals, "secret")
-    assert n == 2                                                                     # SSFF + GDA materializadas; NOTYPE omitida (sin typeId → el clasificador se abstiene)
-    # Paridad: el MISMO reader que consume el clasificador (camino Catálogo) resuelve el typeId desde las fichas materializadas en el workspace ad hoc.
+    created = []
+    def _factory(**kw):
+        inst = _FakeConnSource(authorized=authorized, **kw)
+        created.append(inst)
+        return inst
+    monkeypatch.setattr(cg_sources, "CliConnectionSource", _factory)
+    return created
+
+
+def _vals(space="PRD"):
+    from webapp.services import datasphere_assessment_service as das
+    return das.FormValues.from_mapping({"host": "h", "token_url": "t", "client_id": "c", "space": space, "root_object": "AM_X", "client": "Contreras"})
+
+
+def test_adhoc_preflights_before_querying_and_materializes_sapsf(tmp_path, monkeypatch):
+    from webapp.services import datasphere_assessment_service as das
+    created = _patch_source(monkeypatch, authorized=True)
+    pool_dir = tmp_path / "pool" / "Contreras"; pool_dir.mkdir(parents=True)
+    n = das._materialize_live_connections(pool_dir, _vals(), "secret")
+    assert n == 2                                                                     # SSFF + GDA; NOTYPE omitida (sin typeId)
+    src = created[0]
+    assert src.calls[0] == "preflight" and src.calls.index("preflight") < src.calls.index("list")   # login/preflight ANTES de consultar
+    assert src.closed is True                                                         # recurso CLI cerrado en éxito
+    # Paridad: el MISMO reader que consume el clasificador resuelve el typeId desde las fichas materializadas.
     assert CC.connection_types(tmp_path / "pool", "Contreras") == {"SSFF": "SAPSF", "GDA": "ODATA"}
+
+
+def test_adhoc_failed_preflight_blocks_queries_and_does_not_accredit(tmp_path, monkeypatch):
+    from webapp.services import datasphere_assessment_service as das
+    created = _patch_source(monkeypatch, authorized=False)
+    pool_dir = tmp_path / "pool" / "Contreras"; pool_dir.mkdir(parents=True)
+    with pytest.raises(SourceError) as ei:
+        das._materialize_live_connections(pool_dir, _vals(), "secret")
+    assert ei.value.code == "PREFLIGHT_INSUFFICIENT"                                  # la excepción conserva un código diagnóstico seguro
+    src = created[0]
+    assert "list" not in src.calls and not any(c.startswith("get:") for c in src.calls)   # preflight fallido IMPIDE las consultas
+    assert src.closed is True                                                         # recurso CLI cerrado también en error
+    assert not (pool_dir / "Conexiones").exists()                                     # SOURCE no se acredita (sin fichas)
 
 
 def test_adhoc_materialize_is_noop_without_space(tmp_path, monkeypatch):
     from webapp.services import datasphere_assessment_service as das
-    from tools.catalog.connectivity_governance import sources as cg_sources
-    monkeypatch.setattr(cg_sources, "CliConnectionSource", _FakeConnSource)
-    pool_dir = tmp_path / "pool" / "Contreras"
-    pool_dir.mkdir(parents=True)
-    vals = das.FormValues.from_mapping({"host": "h", "token_url": "t", "client_id": "c", "space": "", "root_object": "AM_X", "client": "Contreras"})
-    assert das._materialize_live_connections(pool_dir, vals, "secret") == 0           # sin espacio no se puede acotar el ámbito: se abstiene
+    _patch_source(monkeypatch, authorized=True)
+    pool_dir = tmp_path / "pool" / "Contreras"; pool_dir.mkdir(parents=True)
+    assert das._materialize_live_connections(pool_dir, _vals(space=""), "secret") == 0   # sin espacio no se puede acotar el ámbito: se abstiene
     assert not (pool_dir / "Conexiones").exists()

@@ -690,21 +690,29 @@ def _materialize_live_connections(pool_dir: Path, values: "FormValues", client_s
     con la MISMA credencial y el MISMO CLI de la extracción (``CliConnectionSource`` → ``datasphere spaces connections list/get``). Así el clasificador
     SOURCE/SAPSF v6 (``connection_catalog``) dispone de la evidencia de tipo de conexión TAMBIÉN en el recorrido ad hoc, con paridad respecto del Catálogo.
 
+    · Autentica ANTES de consultar: reutiliza `preflight_report()` (oauth_preflight + login) y el gate `authorized_for_extraction()`; NO duplica OAuth. Un preflight insuficiente impide las consultas.
     · NO usa el Catálogo persistido como sustituto (podría ser otro snapshot/ambiente): la evidencia es la LIVE de esta misma extracción.
-    · Ámbito: SOLO el espacio extraído; el aislamiento por cliente lo garantiza el workspace temporal. Sin inferencias por nombre/URL.
-    · Falla silenciosa: sin catálogo de conexiones el assessment procede como hoy (SAPSF no reconocido), nunca se rompe. No altera el contrato SOURCE ni v6."""
+    · Ámbito: SOLO el espacio extraído (`values.space`, = `probe_space`); el aislamiento por cliente lo garantiza el workspace temporal. Sin inferencias por nombre/URL.
+    · Falla silenciosa y diagnosticable: ante error la excepción conserva `SourceError.code`; el llamador registra código + mensaje saneado. Sin catálogo, el assessment procede (SAPSF no reconocido). No altera el contrato SOURCE ni v6."""
     space = (values.space or "").strip()
     if not space or pool_dir is None:
         return 0
-    from tools.catalog.connectivity_governance.sources import CliConnectionSource
+    from tools.catalog.connectivity_governance.sources import CliConnectionSource, CheckStatus
+    from tools.catalog.connectivity_governance.extraction import SourceError
     out_dir = pool_dir / "Conexiones"
     written = 0
-    with CliConnectionSource(host=values.host, client_id=values.client_id, client_secret=client_secret, token_url=values.token_url) as src:
+    # `probe_space` = el MISMO espacio que se va a consultar, para que el preflight valide list_connections sobre ESE espacio (y su resultado sea significativo).
+    with CliConnectionSource(host=values.host, client_id=values.client_id, client_secret=client_secret, token_url=values.token_url, probe_space=space) as src:
+        # Autenticación ANTES de consultar: `preflight_report()` ejecuta oauth_preflight + login (la sesión que el helper omitía) y prueba list_connections en `space`.
+        report = src.preflight_report()
+        if not report.authorized_for_extraction():                   # exige oauth_token OK y list_connections OK (en ESTE espacio); NO garantiza read_detail/get_connection
+            failed = next((c for c in report.checks if c.status is not CheckStatus.OK and c.name in ("oauth_token", "list_connections")), None)
+            raise SourceError("PREFLIGHT_INSUFFICIENT", (getattr(failed, "detail", "") or "preflight insuficiente"))   # un preflight fallido impide las consultas; el detalle ya viene saneado
         names = [n for n in ((it.get("name") if isinstance(it, dict) else it) for it in (src.list_connections(space) or [])) if n]
         for name in names:
-            doc = src.get_connection(space, name)
+            doc = src.get_connection(space, name)                    # un SourceError acá propaga con su `code` real (sin corrección especulativa); el `with` cierra el CLI igual
             if not isinstance(doc, dict) or not doc.get("name") or not doc.get("typeId"):
-                continue                                         # sin typeId no hay evidencia de mecanismo: se omite (el clasificador se abstiene)
+                continue                                             # sin typeId no hay evidencia de mecanismo: se omite (el clasificador se abstiene)
             out_dir.mkdir(parents=True, exist_ok=True)
             safe = re.sub(r"[^A-Za-z0-9_.-]", "_", f"{space}_{name}")
             (out_dir / f"conn_space_{safe}.json").write_text(json.dumps(doc), encoding="utf-8")
@@ -788,7 +796,10 @@ def run(values: FormValues, client_secret: str, *, user_email: str = "", on_line
             _conns = _materialize_live_connections(result.pool_dir, values, client_secret)
             log.info("datasphere_assessment op=%s conexiones materializadas=%d space=%s", op_id, _conns, values.space)
         except Exception as exc:  # noqa: BLE001 — sin catálogo de conexiones el assessment procede igual que hoy (SOURCE NO se acredita: el clasificador se abstiene); jamás rompe el assessment
-            log.warning("datasphere_assessment op=%s materializacion de conexiones OMITIDA (SOURCE sin acreditar) space=%s exc=%s", op_id, values.space, type(exc).__name__)
+            # Diagnóstico identificable SIN secretos: `code` de SourceError (AUTH_401/SCOPE_DENIED/PREFLIGHT_INSUFFICIENT/…) + mensaje YA saneado. Para otras excepciones, solo el tipo (nunca str crudo).
+            _code = getattr(exc, "code", type(exc).__name__)
+            _msg = getattr(exc, "message", "")
+            log.warning("datasphere_assessment op=%s materializacion de conexiones OMITIDA (SOURCE sin acreditar) space=%s code=%s msg=%s", op_id, values.space, _code, _msg)
         profile, code = asvc.assess_evidence_root(workspace / "pool", client_dir, values.root_object, "General", evidence_scope=scope,
                                                   root_type=result.root_type)
         if code is not None or profile is None:
