@@ -3264,22 +3264,28 @@ details:not([open]) > summary > .panel-close[data-asr-close] { display: none; }
 .asr-subid { margin: 0 0 2px; }
 .asr-subid code { font: 600 .82rem var(--mono); color: var(--soft); overflow-wrap: anywhere; }
 .asr-hero .hero-meta { margin-top: 12px; }
-/* Oportunidad de actualización del Assessment gobernado (solo ad hoc): `.callout--punch` en escala COMPACTA (la de `.callout--feedback`), con un tinte
-   dorado más presente que el fondo casi blanco del tema claro para marcar oportunidad; niveles como badges del Hub y CTA a la derecha (abajo en angosto). */
-.methodology .asr-update-opp.callout { display: flex; align-items: center; gap: 16px; margin: 0; padding: 14px 18px; border-radius: 10px;
-  font-size: .82rem; line-height: 1.5; color: var(--content-ink-soft); background: color-mix(in srgb, var(--callout-accent) 14%, var(--content-tile)); }
-.asr-update-opp__main { flex: 1 1 auto; min-width: 0; }
-.asr-update-opp .callout__head { gap: 8px; margin-bottom: 6px; }
-.asr-update-opp .callout__icon { font-size: 1rem; color: var(--callout-accent); }
-.asr-update-opp .callout__title { color: var(--content-ink); font-size: .85rem; font-weight: 700; }
-.asr-update-opp__levels { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; color: inherit; font-size: .78rem; }
+/* Oportunidad de actualización del Assessment gobernado (solo ad hoc): banner CONTEXTUAL arriba del informe que REUSA `.whatsnew-banner` (tono, borde, padding y ✕ de los
+   avisos del Hub); solo se agrega la composición propia (título + niveles en línea + CTA compacto) y el acomodo en angosto. Los banners globales no cambian. */
+.asr-update-banner { flex-wrap: wrap; row-gap: 8px; }
+.asr-update-banner__msg { flex: 1 1 auto; flex-wrap: wrap; min-width: 0; row-gap: 6px; }
+.asr-update-banner__title { font-weight: 700; color: var(--content-ink); }
+.asr-update-banner__sep { color: var(--content-ink-dim); }
+.asr-update-banner__actions { display: inline-flex; align-items: center; gap: 6px; flex: none; margin-left: auto; }
+.asr-update-banner .asr-update-banner__cta { min-height: 0; padding: 6px 12px; font-size: .78rem; line-height: 1.3; white-space: nowrap; }
+@media (max-width: 720px) {                                         /* angosto: ícono + título en la misma línea, niveles debajo, acciones a la derecha; sin separador */
+  .asr-update-banner__msg { flex-basis: 100%; }
+  .asr-update-banner__title { flex: 1 1 0; min-width: 0; }
+  .asr-update-banner__sep { display: none; }
+  .asr-update-banner__msg .asr-update-opp__levels { flex-basis: 100%; padding-left: 26px; }
+}
+.asr-update-opp__levels { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; color: inherit; }
 .asr-update-opp__levels .catalog-card__verdict { font-size: .62rem; padding: 2px 6px; }
 .asr-update-opp__pair { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
-.methodology .asr-update-opp .asr-update-opp__ev { margin: 6px 0 0; color: inherit; font-size: .76rem; line-height: 1.5; }
-.asr-update-opp__cta { flex: none; white-space: nowrap; }
-@media (max-width: 720px) { .methodology .asr-update-opp.callout { flex-direction: column; align-items: stretch; } .asr-update-opp__cta { align-self: flex-start; } }
-.asr-update-dialog .asr-update-opp__levels { margin: 0 0 12px; }
-.asr-update-dialog .dw-confirm__msg + .dw-confirm__msg { margin-top: 10px; }
+.asr-update-dialog .asr-update-opp__levels { display: flex; margin: 0 0 12px; font-size: .85rem; }
+.asr-update-dialog__facts { margin: 12px 0 0; font-size: .82rem; line-height: 1.5; }
+.asr-update-dialog__facts dt { margin-top: 8px; font-weight: 650; }
+.asr-update-dialog__facts dd { margin: 2px 0 0; color: #55555c; }
+.content-theme-dark .asr-update-dialog__facts dd { color: #b2b2bc; }
 /* Metadatos contextuales del hero de Operaciones → Asignaciones / Carga de Horas: MISMA separación compacta que el hero de Assessment (12px). */
 .module-hero > [data-opsb-hero-meta] { margin-top: 12px; }
 

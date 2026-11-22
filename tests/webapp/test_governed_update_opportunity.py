@@ -100,9 +100,14 @@ def test_cta_only_opens_an_informative_dialog(monkeypatch):
     up = pres._update_opportunity_view(svc.governed_update_opportunity("Contreras", "AM_Workforce", {"status": "DETERMINED", "level": "BUENA"},
                                                                        _cand_profile("GOVERNED_SAP_APPLICATION_API"), space="DEV"))
     html = _render_callout(up)
-    assert re.search(r'<button type="button" class="btn-primary asr-update-opp__cta" data-dialog-open="asr-update-dialog">Revisar actualización</button>', html)
+    assert re.search(r'<button type="button" class="btn-primary asr-update-banner__cta" data-dialog-open="asr-update-dialog">Revisar actualización</button>', html)
+    assert 'class="whatsnew-banner asr-update-banner"' in html                          # MISMO lenguaje que los avisos del Hub
+    assert '@click="open = false"' in html and "x-show=\"open\"" in html                 # la ✕ solo oculta en esta vista (sin request)
     assert 'id="asr-update-dialog"' in html and 'method="dialog"' in html
     assert not re.search(r'\bhx-(get|post|put|delete)\b|\baction=|\bhref=|method="post"|onclick', html)
     assert "procedimiento gobernado supervisado" in html
     assert "catalog-card__verdict--neutra" in html and "catalog-card__verdict--plena" in html
-    assert html.count("No determinable") >= 1 and "Esta evaluación" in html and "Procedencia por validar" in html
+    assert html.count("No determinable") >= 1 and "Esta evaluación" in html
+    banner, dialog = html.split("<dialog", 1)
+    assert "API de aplicación SAP gobernada" not in banner and "API de aplicación SAP gobernada" in dialog   # el detalle vive en el diálogo
+    assert "requiere validación" in dialog and "Space «DEV»" in dialog
