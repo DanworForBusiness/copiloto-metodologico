@@ -189,6 +189,19 @@
   </div>
 </section>
 
+{# ── Actualización inteligente (SOLO ad hoc): oportunidad de revisar el Assessment gobernado vigente cuando hay diferencia relevante. DETECTA y EXPLICA; NO persiste el perfil ad hoc.
+   No intrusivo (tono «note»): es una propuesta de revisión, nunca una aprobación automática. La actualización efectiva se hace por el procedimiento gobernado. #}
+{% if v.update_opportunity %}{% set up = v.update_opportunity %}
+<div class="methodology">
+{% call callout("note", "Oportunidad de actualización del Assessment gobernado", icon="↻") %}
+<p>Assessment vigente <strong>{{ up.vigente_level }}</strong> → candidato <strong>{{ up.candidato_level }}</strong>. {{ up.motive }}</p>
+{% if up.source_classes_changed %}<p class="catalog-note__ev">Contratos de fuente que cambian: {{ up.source_classes_changed | join(", ") }}.</p>{% endif %}
+{% if not up.provenance_validated %}<p class="catalog-note__ev">La procedencia (Space «{{ up.candidate_space or "—" }}» de esta ejecución frente al Assessment vigente) <strong>requiere validación</strong> antes de actualizar.</p>{% endif %}
+<p>Esta evaluación ad hoc <strong>no</strong> reemplaza el Assessment gobernado y no ejecuta ninguna migración: es una <strong>notificación</strong>. La actualización se realiza, si corresponde, por el procedimiento gobernado supervisado (dry-run → aprobación del lote → aplicación asegurada).</p>
+{% endcall %}
+</div>
+{% endif %}
+
 {# ── estados sin informe y avisos de estado ──
    Viven FUERA de `<article class="methodology">` (van antes del índice del informe), por eso se envuelven en `.methodology`: sin ese ámbito el texto del callout perdía la tipografía/color del
    Hub (16 px gris claro en lugar de 14.4 px) y se veía distinto de los demás `callout("punch")` del informe. El punch de estado lleva el mismo ícono 💡 que el resto. #}

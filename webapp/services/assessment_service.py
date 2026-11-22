@@ -1096,6 +1096,53 @@ def governed_envelopes_of(client: str) -> dict[str, dict]:
     return out
 
 
+def _source_contract_counts(profile: dict | None) -> dict:
+    """``{clase_de_contrato_de_fuente: cantidad}`` de las hojas frontera del perfil (``source_contract_classes``). Vacío si no hay evidencia."""
+    sc = ((profile or {}).get("canonical_evidence") or {}).get("source_contract_classes") or {}
+    out: dict[str, int] = {}
+    for leaf in sc.get("leaves") or ():
+        cls = (leaf or {}).get("contract_class")
+        if cls:
+            out[cls] = out.get(cls, 0) + 1
+    return out
+
+
+def governed_update_opportunity(client: str | None, terminal_am: str | None, candidate_judgment: dict | None,
+                                candidate_profile: dict | None, space: str | None = None) -> dict | None:
+    """DETECCION (solo lectura; NUNCA persiste): compara una evaluacion AD HOC con el Assessment GOBERNADO vigente del MISMO cliente + modelo terminal.
+    Devuelve una oportunidad de REVISION supervisada si hay diferencia RELEVANTE (de nivel y/o de contratos de fuente), nunca un reemplazo directo: la
+    actualizacion efectiva se hace por el procedimiento gobernado (migracion/regeneracion), no con el perfil ad hoc. ``None`` si no hay sobre vigente o no hay
+    diferencia relevante. Distingue DETECCION de ELEGIBILIDAD: ``comparable``/``provenance_validated`` segun el espacio/procedencia (``space=None`` NO es
+    coincidencia automatica); si la procedencia no se acredita, se ofrece REVISAR (no reemplazar)."""
+    if not client or not terminal_am:
+        return None
+    env = _load_envelope(client, terminal_am)
+    if not isinstance(env, dict):
+        return None
+    gov_j = env.get("judgment") or {}
+    cand_j = candidate_judgment or {}
+    gov = {"status": gov_j.get("status"), "level": gov_j.get("level")}
+    cand = {"status": cand_j.get("status"), "level": cand_j.get("level")}
+    gov_prof = env.get("profile_json")
+    if isinstance(gov_prof, str):
+        try:
+            gov_prof = json.loads(gov_prof)
+        except ValueError:
+            gov_prof = {}
+    gov_counts, cand_counts = _source_contract_counts(gov_prof), _source_contract_counts(candidate_profile)
+    level_changed = (gov["status"], gov["level"]) != (cand["status"], cand["level"])
+    contracts_changed = gov_counts != cand_counts
+    if not level_changed and not contracts_changed:
+        return None                                                     # sin diferencia relevante: no se ofrece nada
+    gov_space = ((gov_prof or {}).get("scope") or {}).get("space")
+    cand_space = (space or "").strip() or None
+    comparable = not (gov_space and cand_space and gov_space != cand_space)   # solo NO comparable si ambos espacios existen y DIFIEREN
+    provenance_validated = bool(gov_space and cand_space and gov_space == cand_space)
+    return {"vigente": gov, "candidato": cand, "level_changed": level_changed, "contracts_changed": contracts_changed,
+            "source_contracts": {"vigente": gov_counts, "candidato": cand_counts}, "comparable": comparable,
+            "provenance_validated": provenance_validated, "gov_space": gov_space, "candidate_space": cand_space}
+
+
 def prepare_regeneration(entry: Any, res: Resolution | None = None) -> PreparedAssessment | None:
     """Corre el motor canónico en MEMORIA contra el pool actual y devuelve el sobre candidato (``status=OK``), o None si el AM no es aplicable. NO escribe nada y NO deja un sobre FAILED:
     cualquier falla lanza ``PrepareError`` (la publicación se deshace y conserva la última versión válida)."""
@@ -1330,6 +1377,31 @@ def _without_harmonization(profile: dict | None) -> dict | None:
     return out
 
 
+SOURCE_APPLICATION_API_MIGRATION = "evidence_source_application_api_v6"
+
+
+def _without_source_application_api(profile: dict | None) -> dict | None:
+    """Perfil sin lo UNICO que ``evidence_source_application_api_v6`` puede cambiar: (a) ``canonical_evidence.version``, ``versions.canonical_evidence``, la seccion ``source_contract_classes``
+    (clase / base / ``connection_type`` de las hojas reconocidas como contrato de API de aplicacion SAP) y su referencia en ``published_field_lineage.fields[*].frontier_leaves``; y (b) la revision
+    ``LAYER_BOUNDARY_REVIEW`` y lo derivado de ella, porque reconocer la fuente como contrato SAP GOBERNADO la SUPRIME (fuente gobernada ⇒ no se pide una frontera de armonizacion intermedia; MISMA
+    exencion que ``signals_layer_boundary_v4``, via el conjunto compartido ``GOVERNED_CONTRACT_CLASSES``). Todo lo demas (cobertura, cierre, OTRAS revisiones/observaciones, el resto de la confianza)
+    debe quedar IDENTICO; cualquier otra diferencia => ``NON_SOURCE_APPLICATION_API_CONTENT_CHANGED``. (``versions.signals`` NO cambia: el stripeo compartido lo quita de ambos lados sin efecto.)"""
+    out = _without_layer_boundary(profile)      # cascada legitima del reconocimiento SOURCE gobernado sobre LAYER_BOUNDARY_REVIEW
+    if out is None:
+        return None
+    ce = out.get("canonical_evidence")
+    if isinstance(ce, dict):
+        ce.pop("source_contract_classes", None)
+        ce.pop("version", None)
+        pfl = ce.get("published_field_lineage")
+        if isinstance(pfl, dict):
+            for f in (pfl.get("fields") or ()):
+                if isinstance(f, dict):
+                    f.pop("frontier_leaves", None)
+    (out.get("versions") or {}).pop("canonical_evidence", None)
+    return out
+
+
 LAYER_BOUNDARY_MIGRATION = "signals_layer_boundary_v4"
 _LAYER_BOUNDARY_ID = "LAYER_BOUNDARY_REVIEW"
 _LAYER_BOUNDARY_SURFACE = "rule.layer_boundary_review"
@@ -1424,6 +1496,8 @@ def migration_postcheck(name: str, doc: dict, previous: dict | None, versions: d
             raise EnrichmentError("NON_MATERIALIZATION_CONTENT_CHANGED")  # mismo Assessment metodologico: solo version + seccion nueva pueden diferir
         if name == HARMONIZATION_MIGRATION and _without_harmonization(doc) != _without_harmonization((previous or {}).get("profile_json")):
             raise EnrichmentError("NON_HARMONIZATION_CONTENT_CHANGED")   # solo el contrato de Armonizacion (y su resumen) puede cambiar
+        if name == SOURCE_APPLICATION_API_MIGRATION and _without_source_application_api(doc) != _without_source_application_api((previous or {}).get("profile_json")):
+            raise EnrichmentError("NON_SOURCE_APPLICATION_API_CONTENT_CHANGED")   # solo la clase de contrato de fuente SAPSF (y su referencia en el linaje publicado) puede cambiar
         if name == LAYER_BOUNDARY_MIGRATION:
             _check_layer_boundary_delta(doc, (previous or {}).get("profile_json"))      # solo la revision LAYER_BOUNDARY_REVIEW (y lo derivado de ella) puede diferir; la confianza no cambia de nivel
         return
@@ -1540,6 +1614,7 @@ def classify_judgment_revalidation(env: dict) -> tuple[str, dict | None]:
 
 
 JUDGMENT_REVALIDATING_MIGRATIONS = frozenset({MATERIALIZATION_MIGRATION, LAYER_BOUNDARY_MIGRATION})      # migraciones que NO recalifican: revalidan el Juicio (misma metodologia, nueva firma de perfil)
+JUDGMENT_REDERIVING_MIGRATIONS = frozenset({HARMONIZATION_MIGRATION, SOURCE_APPLICATION_API_MIGRATION})  # migraciones de canonical_evidence que RE-DERIVAN el Juicio (pueden cambiar nivel) con replay de ratificaciones; mismo hook
 
 
 def _materialization_envelope_hook(doc: dict, previous: dict | None) -> tuple[dict, dict]:
@@ -1593,7 +1668,7 @@ def regenerate_stale_evidence(entry: Any, migration: str) -> RegeneratedAssessme
 
     return _regenerate_core(entry, precondition=precondition, log_label=f"migración {migration}", postcheck=postcheck,
                             envelope_hook=(_materialization_envelope_hook if migration in JUDGMENT_REVALIDATING_MIGRATIONS
-                                           else _harmonization_envelope_hook if migration == HARMONIZATION_MIGRATION else None))
+                                           else _harmonization_envelope_hook if migration in JUDGMENT_REDERIVING_MIGRATIONS else None))
 
 
 def regenerate_current_evidence(entry: Any, snapshot: Any = None) -> RegeneratedAssessment:

@@ -544,7 +544,7 @@ ABSTENTION_CODES = frozenset({*svc.ERROR_MESSAGES, "PREVIOUS_NOT_TARGETED_VERSIO
                               "CLOSURE_NOT_VERIFIABLE", "TERMINAL_AM_CHANGED", "NON_MATERIALIZATION_CONTENT_CHANGED", "NON_LAYER_BOUNDARY_CONTENT_CHANGED", "CONFIDENCE_LEVEL_CHANGED", "CANDIDATE_VERSIONS_NOT_CURRENT", "CANDIDATE_TARGET_VERSIONS_MISMATCH",
                               "MATERIALIZATION_SECTION_MISSING", "MATERIALIZATION_NOT_EVALUATED", "MATERIALIZATION_CSN_NOT_PROVIDED", "MATERIALIZATION_POOL_SIGNATURE_MISMATCH",
                               "MATERIALIZATION_REFERENCES_INCOMPLETE", "MATERIALIZATION_SOURCE_NOT_RECOVERABLE", "MATERIALIZATION_REFERENCE_UNRESOLVED", "JUDGMENT_METHODOLOGY_DIVERGED"})
-CONFIRMATION_REQUIRED = frozenset({svc.MATERIALIZATION_MIGRATION, svc.LAYER_BOUNDARY_MIGRATION, svc.HARMONIZATION_MIGRATION})        # ``--apply`` de estas migraciones exige ``--confirm-migration <nombre>`` ademas de la autorizacion firmada
+CONFIRMATION_REQUIRED = frozenset({svc.MATERIALIZATION_MIGRATION, svc.LAYER_BOUNDARY_MIGRATION, svc.HARMONIZATION_MIGRATION, svc.SOURCE_APPLICATION_API_MIGRATION})        # ``--apply`` de estas migraciones exige ``--confirm-migration <nombre>`` ademas de la autorizacion firmada
 SECURED_MIGRATIONS = CONFIRMATION_REQUIRED                                  # solo se aplican por ``secured_migrate`` (autorizacion fail-closed + respaldo + olas); ``migrate_stale_evidence(apply=True)`` directo se NIEGA
 _PLAN_KEYS = ("previous_artifact_signature", "pool_signature", "candidate_artifact_signature", "judgment_action")
 
@@ -1973,8 +1973,10 @@ def main(argv: list[str] | None = None) -> int:
         ap.error("--decisions solo existe con --backfill-judgment o --regenerate-selected")
     if args.reevaluate_decision_stale and not args.backfill_judgment:
         ap.error("--reevaluate-decision-stale solo existe con --backfill-judgment")
-    if (args.root or args.expect_judgment) and not args.regenerate_selected:
-        ap.error("--root/--expect-judgment solo existen con --regenerate-selected")
+    if args.expect_judgment and not args.regenerate_selected:
+        ap.error("--expect-judgment solo existe con --regenerate-selected")
+    if args.root and not (args.regenerate_selected or args.regenerate_stale_evidence):
+        ap.error("--root solo existe con --regenerate-selected o --regenerate-stale-evidence (lote restringido a AM terminales exactos)")
     if args.regenerate_selected and (not args.client.strip() or not args.root):
         ap.error("--regenerate-selected exige --client y al menos un --root (jamás regenera por alcance amplio)")
     if args.reassess_current and not args.client.strip():                        # la reevaluación masiva DEBE ser explícita por cliente
@@ -1986,6 +1988,10 @@ def main(argv: list[str] | None = None) -> int:
         report = enrich_current(entries, args.enrich_current_missing, apply=args.apply)
         code = 1 if report["counts"]["failed"] else (2 if report["environment_warnings"] else 0)
     elif args.regenerate_stale_evidence:
+        if args.root:                                                   # lote RESTRINGIDO a AM terminales exactos (identidad cliente+AM); el plan/digest/aprobación cubren SOLO esos modelos
+            roots = {r.strip() for r in args.root if r.strip()}
+            _res = svc.resolve_entries(entries)
+            entries = [e for e in entries if (_res.get(e.entry_id) is not None and _res[e.entry_id].terminal_am in roots)]
         if args.apply and args.regenerate_stale_evidence in SECURED_MIGRATIONS:
             report = secured_migrate(entries, args.regenerate_stale_evidence, authorizer=ma.authorizer_from_file(args.approval or None, args.operator or None),
                                      backup_dir=args.backup_dir or None, allow_local_only=args.allow_local_only, waves=_cli_waves(ap, args, entries),
