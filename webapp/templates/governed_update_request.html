@@ -12,46 +12,37 @@
 
   {% include "partials/copilot_nav.html" %}
 
-  {# Revisión de una solicitud de actualización del Assessment gobernado (PR-1). SOLO LECTURA: muestra la solicitud, su vigencia y procedencia y, para
-     APP_OWNER / CONTENT_OWNER, permite calcular un dry-run gobernado (cero escrituras). No hay aprobación ni ejecución en esta etapa. #}
-  <main id="content" class="module-content" data-governed-update="{{ g.rec.request_id }}">
-    <section class="module-hero asr-hero">
+  {# Revisión de una solicitud de actualización del Assessment gobernado. SOLO LECTURA: la decisión necesita ver SIEMPRE la comparación de niveles,
+     el rol de quien mira, el origen autorizado pendiente y el próximo paso; los detalles técnicos secundarios van plegados. Las etapas están
+     SEPARADAS (autorización ≠ procedencia histórica ≠ origen autorizado ≠ dry-run ≠ aplicación); PR-2 suma la declaración del Space y la
+     aprobación en las filas «Origen autorizado» y «Aplicación», sin rehacer la pantalla. #}
+  <main id="content" class="module-content gu-page" data-governed-update="{{ g.rec.request_id }}">
+    <div class="catalog-actionbar">
+      <a class="catalog-back" href="/modules/04_Modelado_y_Desarrollo?pack={{ pack | urlencode }}&amp;tool=assessment">← Volver</a>
+    </div>
+    <section class="gu-head">
       <p class="eyebrow">Solicitud de actualización · Assessment gobernado</p>
-      <h1 class="asr-title">{{ g.rec.client }} · {{ g.rec.terminal_am }}</h1>
-      <div class="hero-meta">
-        <span class="catalog-verdict-line">
-          {% if g.obsolete %}<span class="catalog-card__verdict catalog-card__verdict--parcial" data-gu-state="OBSOLETE">Obsoleta</span>
-          {% else %}<span class="catalog-card__verdict catalog-card__verdict--plena" data-gu-state="{{ g.state }}">Abierta</span>{% endif %}
-          <span>Solicitada {{ (g.rec.requested_at or "").replace("T", " ").replace("+00:00", " UTC") }}</span>
-          <span>por {{ g.rec.requested_by }}</span>
-        </span>
-      </div>
+      <h1 class="gu-title">{{ g.rec.client }} · <span class="gu-title__model">{{ g.rec.terminal_am }}</span></h1>
+      <p class="catalog-verdict-line gu-meta">
+        {% if g.obsolete %}<span class="catalog-card__verdict catalog-card__verdict--parcial" data-gu-state="OBSOLETE">Obsoleta</span>
+        {% else %}<span class="catalog-card__verdict catalog-card__verdict--plena" data-gu-state="{{ g.state }}">Abierta</span>{% endif %}
+        <span class="catalog-card__verdict catalog-card__verdict--{{ 'plena' if g.role else 'neutra' }}" data-gu-role="{{ g.role or '' }}">Tu rol · {{ g.role_label }}</span>
+        <span>Solicitada {{ (g.rec.requested_at or "").replace("T", " ").replace("+00:00", " UTC") }} por {{ g.rec.requested_by }}</span>
+      </p>
     </section>
 
-    <div class="methodology gu-body">
-      {% if g.obsolete %}
-      <aside class="callout callout--punch" data-gu-obsolete><div class="callout__head"><strong class="callout__title">Solicitud obsoleta</strong></div><div class="callout__body"><p>El Assessment gobernado cambió después de esta solicitud. Ya no se puede revisar ni aprobar: si la mejora sigue vigente, generá una evaluación ad hoc nueva y volvé a solicitarla.</p></div></aside>
-      {% endif %}
+    {% if g.obsolete %}
+    <div class="methodology"><aside class="callout callout--punch callout--feedback" data-gu-obsolete><div class="callout__head"><strong class="callout__title">Solicitud obsoleta</strong></div><div class="callout__body"><p>El Assessment gobernado cambió después de esta solicitud: ya no se puede revisar ni aprobar.</p></div></aside></div>
+    {% endif %}
 
-      <h2 class="gu-h2">Propuesta</h2>
+    <section class="gu-card" aria-labelledby="gu-proposal-title">
+      <h2 class="gu-card__title" id="gu-proposal-title">Propuesta</h2>
       <p class="asr-update-opp__levels gu-levels"><span class="asr-update-opp__pair">Vigente <span class="catalog-card__verdict catalog-card__verdict--{{ g.vigente.tone }}" data-gu-vigente>{{ g.vigente.label }}</span></span><span aria-hidden="true">→</span><span class="asr-update-opp__pair">Evaluación ad hoc <span class="catalog-card__verdict catalog-card__verdict--{{ g.candidato.tone }}" data-gu-candidato>{{ g.candidato.label }}</span></span></p>
-      <dl class="gu-facts">
-        {% if g.contracts %}<dt>Contrato de fuente que cambia</dt><dd>{{ g.contracts | join(", ") }}</dd>{% endif %}
-        <dt>Procedencia</dt><dd data-gu-provenance="{{ g.provenance.status }}">{{ g.provenance.text }}{% if g.provenance.candidate_space %} (Space de la evaluación: «{{ g.provenance.candidate_space }}»{% if g.provenance.published_space %}; registro de publicación: «{{ g.provenance.published_space }}»{% endif %}){% endif %}</dd>
-        <dt>Notificación a Arquitectura</dt><dd data-gu-notification>{% if g.rec.notification %}{% if g.rec.notification.dispatch == "disabled" %}Notificaciones apagadas en este entorno.{% elif g.delivery and g.delivery.state %}{{ g.delivery.state }}{% else %}{{ g.rec.notification.dispatch }}{% endif %}{% else %}Pendiente.{% endif %}</dd>
-      </dl>
-      <p class="gu-note">La evaluación ad hoc es la señal; la propuesta real la define el dry-run gobernado sobre la fuente del Catálogo, que puede diferir.</p>
+      {% if g.contracts %}<p class="gu-line">Contrato de fuente que cambia: {{ g.contracts | join(", ") }}.</p>{% endif %}
+      <p class="gu-note">La evaluación ad hoc es la señal; el resultado real lo define el dry-run gobernado sobre la fuente del Catálogo.</p>
+    </section>
 
-      <h2 class="gu-h2">Dry-run gobernado</h2>
-      <div id="gu-preview">{% include "partials/governed_update_preview.html" %}</div>
-
-      {% if g.rec.reviews %}
-      <h2 class="gu-h2">Revisiones</h2>
-      <ul class="gu-reviews">{% for r in g.rec.reviews %}<li>{{ (r.at or "").replace("T", " ").replace("+00:00", " UTC") }} · {{ r.by }} ({{ r.role }})</li>{% endfor %}</ul>
-      {% endif %}
-
-      <p class="gu-note">Esta etapa no aprueba ni ejecuta: la actualización real seguirá el procedimiento gobernado supervisado (aprobación explícita y aplicación asegurada con respaldo).</p>
-    </div>
+    <div id="gu-status">{% include "partials/governed_update_status.html" %}</div>
   </main>
 </div>
 {% endblock %}

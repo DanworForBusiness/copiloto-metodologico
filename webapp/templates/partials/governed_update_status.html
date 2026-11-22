@@ -1,0 +1,52 @@
+{#- Estado de la solicitud (SOLO LECTURA): etapas del circuito, próximo paso, dry-run y correo. Se refresca solo (HTMX) mientras el dry-run corre o el
+    correo no llegó a un estado terminal (con tope de tiempo): el refresco CONSULTA el registro de notificaciones, nunca reenvía. El botón del dry-run
+    lo ve solo APP_OWNER / CONTENT_OWNER y solo calcula el plan. -#}
+{% set p = g.preview %}
+<div data-gu-status{% if g.poll %} hx-get="{{ g.base }}/preview?pack={{ g.pack | urlencode }}" hx-trigger="every 4s" hx-swap="outerHTML" hx-select="[data-gu-status]"{% endif %}>
+  <section class="gu-card" aria-labelledby="gu-stages-title">
+    <h2 class="gu-card__title" id="gu-stages-title">Estado del circuito</h2>
+    <ol class="gu-stages">
+      {% for s in g.stages %}
+      <li class="gu-stage" data-gu-stage="{{ s.key }}">
+        <span class="gu-stage__label">{{ s.label }}</span>
+        <span class="catalog-card__verdict catalog-card__verdict--{{ s.tone }}">{{ s.badge }}</span>
+        {% if s.key == "dry_run" and p and p.state == "READY" and g.preview_to %}<span class="gu-stage__detail">Nivel proyectado <span class="catalog-card__verdict catalog-card__verdict--{{ g.preview_to.tone }}" data-gu-projected>{{ g.preview_to.label }}</span> · sin escrituras.</span>
+        {% elif s.key == "dry_run" and p and p.state == "ABSTAINED" %}<span class="gu-stage__detail">{{ p.abstentions | join(", ") }}.</span>
+        {% elif s.key == "dry_run" and p and p.state == "FAILED" %}<span class="gu-stage__detail">{{ (p.failures or []) | join(", ") }}</span>
+        {% elif s.detail %}<span class="gu-stage__detail">{{ s.detail }}</span>{% endif %}
+      </li>
+      {% endfor %}
+      <li class="gu-stage" data-gu-stage="notification" data-gu-notification="{{ g.notification.state }}">
+        <span class="gu-stage__label">Notificación a Arquitectura</span>
+        <span class="catalog-card__verdict catalog-card__verdict--{{ g.notification.tone }}">{{ g.notification.label }}</span>
+        {% if g.notification.detail %}<span class="gu-stage__detail">{{ g.notification.detail }}</span>{% endif %}
+      </li>
+    </ol>
+    <p class="gu-next" data-gu-next><strong>Próximo paso:</strong> {{ g.next_step }}</p>
+    {% if g.can_preview and not g.preview_running %}
+    <form method="post" action="{{ g.base }}/preview" class="gu-actions">
+      <input type="hidden" name="pack" value="{{ g.pack }}">
+      <button type="submit" class="btn-secondary" data-gu-preview-submit>{% if p %}Recalcular dry-run{% else %}Calcular dry-run{% endif %}</button>
+      <span class="gu-note">Solo lectura: no aprueba ni modifica el Assessment gobernado.</span>
+    </form>
+    {% endif %}
+  </section>
+
+  <details class="dashboard-section gu-details" data-gu-details>
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Detalle técnico</span></summary>
+    <div class="dashboard-section__body">
+      <dl class="gu-facts">
+        <dt>Procedencia</dt><dd data-gu-provenance="{{ g.provenance.status }}">{{ g.provenance.text }}{% if g.provenance.candidate_space %} Space de la evaluación: «{{ g.provenance.candidate_space }}».{% endif %}</dd>
+        {% if p %}
+        {% if p.path %}<dt>Vía del dry-run</dt><dd>{{ p.path }}</dd>{% endif %}
+        {% if p.plan_digest %}<dt>Digest del plan</dt><dd><code data-gu-digest>{{ p.plan_digest }}</code></dd>{% endif %}
+        <dt>Escrituras del dry-run</dt><dd>{% if p.zero_writes %}Ninguna: el Assessment gobernado quedó intacto (verificado por bytes).{% elif p.zero_writes is none %}Sin verificación.{% else %}El Assessment gobernado cambió durante el cálculo.{% endif %}</dd>
+        <dt>Calculado</dt><dd>{{ (p.computed_at or "").replace("T", " ").replace("+00:00", " UTC") }}{% if p.by %} · {{ p.by }}{% endif %}{% if p.duration_s is not none %} · {{ p.duration_s }} s{% endif %}</dd>
+        {% endif %}
+        {% if g.rec.notification %}<dt>Correo</dt><dd>Evento {{ g.rec.notification.event }} · estado {{ g.notification.state }}</dd>{% endif %}
+        {% if g.rec.reviews %}<dt>Revisiones</dt><dd>{% for r in g.rec.reviews %}{{ (r.at or "").replace("T", " ").replace("+00:00", " UTC") }} · {{ r.by }} ({{ r.role }}){% if not loop.last %}<br>{% endif %}{% endfor %}</dd>{% endif %}
+        <dt>Solicitud</dt><dd><code>{{ g.rec.request_id }}</code></dd>
+      </dl>
+    </div>
+  </details>
+</div>

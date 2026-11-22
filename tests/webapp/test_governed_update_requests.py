@@ -319,11 +319,50 @@ def test_review_requires_a_session_and_metrics_require_metrics_access(routes):
     assert r.status_code in (302, 303, 307, 401, 403, 404) and "Catálogos y Assessments" not in r.text
 
 
-def test_review_shows_eligibility_and_never_presents_the_adhoc_level_as_governed(routes):
+def test_review_separates_authorization_from_provenance_dry_run_and_application(routes):
+    """El APP_OWNER ve que ESTÁ autorizado; la procedencia histórica, el origen autorizado, el dry-run y la aplicación son etapas aparte. No aparece
+    «No elegible» como titular ni ninguna acción de aprobar/aplicar."""
     rec, _ = _create()
     html = _client("owner@danwor.com").get(f"/copilot/governed-updates/{rec['request_id']}").text
-    assert 'data-gu-eligibility="NOT_ELIGIBLE"' in html and "falta calcular el dry-run gobernado" in html
-    assert "Evaluación ad hoc" in html and "la propuesta real la define el dry-run gobernado" in html
+    assert 'data-gu-role="APP_OWNER"' in html and "Autorizado · APP_OWNER" in html
+    for key in ("authorization", "historical_provenance", "authorized_origin", "dry_run", "application", "notification"):
+        assert f'data-gu-stage="{key}"' in html
+    assert "Pendiente de declaración" in html and "No disponible en esta versión" in html and "Desconocida" in html
+    assert "Próximo paso:" in html and "Calcular el dry-run gobernado" in html
+    assert "No elegible" not in html and "Aprobar" not in html
+    assert 'data-gu-vigente' in html and 'data-gu-candidato' in html and "Evaluación ad hoc" in html   # comparación siempre visible
+    reader = _client("consultor@danwor.com").get(f"/copilot/governed-updates/{rec['request_id']}").text
+    assert "Solo lectura" in reader and "data-gu-preview-submit" not in reader
+
+
+@pytest.mark.parametrize("dispatch,delivery,label,terminal", [
+    ("queued", {"state": "accepted"}, "Aceptada por el servidor de correo", True),
+    ("queued", {"state": "sending"}, "En envío", False),
+    ("queued", {"state": "uncertain"}, "Incierta", True),
+    ("disabled", None, "Notificaciones apagadas", True),
+    ("error", None, "No se pudo emitir", True),
+])
+def test_notification_state_is_readable_and_never_claims_delivery(dispatch, delivery, label, terminal):
+    from webapp.routers import governed_updates as gu
+    v = gu._notification_view({"notification": {"dispatch": dispatch}}, delivery)
+    assert v["label"] == label and v["terminal"] is terminal
+    assert "entregad" not in (v["label"] + v["detail"]).lower()                            # aceptada por Graph ≠ entrega confirmada
+
+
+def test_status_refresh_only_reads_and_stops_at_a_terminal_state(routes, monkeypatch):
+    from webapp.services import notifications
+    rec, _ = _create()
+    gur.record_notification(rec, "queued")
+    calls = []
+    monkeypatch.setattr(notifications, "emit", lambda *a, **k: calls.append("emit"))
+    monkeypatch.setattr(notifications, "delivery_status", lambda event, key: {"state": "sending"})
+    url = f"/copilot/governed-updates/{rec['request_id']}/preview"
+    owner = _client("owner@danwor.com")
+    assert 'hx-trigger="every 4s"' in owner.get(url).text                                 # mientras está en envío, se refresca
+    monkeypatch.setattr(notifications, "delivery_status", lambda event, key: {"state": "accepted"})
+    html = owner.get(url).text
+    assert 'hx-trigger' not in html and "Aceptada por el servidor de correo" in html       # terminal: deja de refrescar
+    assert calls == []                                                                     # el refresco jamás reenvía
 
 
 # ── ventana de restauración tras un redeploy ────────────────────────────────────────────────────────────────────────────────────────────────
