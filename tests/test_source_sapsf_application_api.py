@@ -112,3 +112,44 @@ def test_judgment_classifies_application_api_as_governed_source_contract():
 def test_judgment_keeps_undetermined_as_external():
     ev = ProfileEvidence(_profile("EXTERNAL_CONTRACT_UNDETERMINED"))
     assert ev.classify_source("1TR_SSF_FOCompany") == "EXTERNAL_CONTRACT_UNDETERMINED"
+
+
+# ───────────────────────────── paridad ad hoc (extracción live): enriquecer el workspace con la evidencia de conexión ─────────────────────────────
+class _FakeConnSource:
+    """Fuente de conexión simulada (misma interfaz que CliConnectionSource) para probar el enriquecimiento del workspace sin red ni CLI."""
+    def __init__(self, **_kw):
+        pass
+    def __enter__(self):
+        return self
+    def __exit__(self, *_a):
+        return False
+    def list_connections(self, space):
+        return [{"name": "SSFF"}, {"name": "GDA"}, {"name": "NOTYPE"}]
+    def get_connection(self, space, name):
+        return {"SSFF": {"name": "SSFF", "typeId": "SAPSF", "space_name": space},   # positivo
+                "GDA": {"name": "GDA", "typeId": "ODATA", "space_name": space},      # negativo: OData genérico
+                "NOTYPE": {"name": "NOTYPE", "space_name": space}}[name]              # negativo: sin typeId
+
+
+def test_adhoc_materializes_live_connections_with_source_parity(tmp_path, monkeypatch):
+    from webapp.services import datasphere_assessment_service as das
+    from tools.catalog.connectivity_governance import sources as cg_sources
+    monkeypatch.setattr(cg_sources, "CliConnectionSource", _FakeConnSource)
+    pool_dir = tmp_path / "pool" / "Contreras"
+    pool_dir.mkdir(parents=True)
+    vals = das.FormValues.from_mapping({"host": "h", "token_url": "t", "client_id": "c", "space": "PRD", "root_object": "AM_X", "client": "Contreras"})
+    n = das._materialize_live_connections(pool_dir, vals, "secret")
+    assert n == 2                                                                     # SSFF + GDA materializadas; NOTYPE omitida (sin typeId → el clasificador se abstiene)
+    # Paridad: el MISMO reader que consume el clasificador (camino Catálogo) resuelve el typeId desde las fichas materializadas en el workspace ad hoc.
+    assert CC.connection_types(tmp_path / "pool", "Contreras") == {"SSFF": "SAPSF", "GDA": "ODATA"}
+
+
+def test_adhoc_materialize_is_noop_without_space(tmp_path, monkeypatch):
+    from webapp.services import datasphere_assessment_service as das
+    from tools.catalog.connectivity_governance import sources as cg_sources
+    monkeypatch.setattr(cg_sources, "CliConnectionSource", _FakeConnSource)
+    pool_dir = tmp_path / "pool" / "Contreras"
+    pool_dir.mkdir(parents=True)
+    vals = das.FormValues.from_mapping({"host": "h", "token_url": "t", "client_id": "c", "space": "", "root_object": "AM_X", "client": "Contreras"})
+    assert das._materialize_live_connections(pool_dir, vals, "secret") == 0           # sin espacio no se puede acotar el ámbito: se abstiene
+    assert not (pool_dir / "Conexiones").exists()

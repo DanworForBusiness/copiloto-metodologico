@@ -685,6 +685,33 @@ def start_operation(owner: str, *, now: float | None = None, meta: dict | None =
 
 
 # ───────────────────────────── ejecución ─────────────────────────────
+def _materialize_live_connections(pool_dir: Path, values: "FormValues", client_secret: str) -> int:
+    """Escribe en ``<pool_dir>/Conexiones/`` las fichas de conexión (forma ``conn_space_*.json``, con ``typeId``) del espacio extraído, obtenidas EN VIVO
+    con la MISMA credencial y el MISMO CLI de la extracción (``CliConnectionSource`` → ``datasphere spaces connections list/get``). Así el clasificador
+    SOURCE/SAPSF v6 (``connection_catalog``) dispone de la evidencia de tipo de conexión TAMBIÉN en el recorrido ad hoc, con paridad respecto del Catálogo.
+
+    · NO usa el Catálogo persistido como sustituto (podría ser otro snapshot/ambiente): la evidencia es la LIVE de esta misma extracción.
+    · Ámbito: SOLO el espacio extraído; el aislamiento por cliente lo garantiza el workspace temporal. Sin inferencias por nombre/URL.
+    · Falla silenciosa: sin catálogo de conexiones el assessment procede como hoy (SAPSF no reconocido), nunca se rompe. No altera el contrato SOURCE ni v6."""
+    space = (values.space or "").strip()
+    if not space or pool_dir is None:
+        return 0
+    from tools.catalog.connectivity_governance.sources import CliConnectionSource
+    out_dir = pool_dir / "Conexiones"
+    written = 0
+    with CliConnectionSource(host=values.host, client_id=values.client_id, client_secret=client_secret, token_url=values.token_url) as src:
+        names = [n for n in ((it.get("name") if isinstance(it, dict) else it) for it in (src.list_connections(space) or [])) if n]
+        for name in names:
+            doc = src.get_connection(space, name)
+            if not isinstance(doc, dict) or not doc.get("name") or not doc.get("typeId"):
+                continue                                         # sin typeId no hay evidencia de mecanismo: se omite (el clasificador se abstiene)
+            out_dir.mkdir(parents=True, exist_ok=True)
+            safe = re.sub(r"[^A-Za-z0-9_.-]", "_", f"{space}_{name}")
+            (out_dir / f"conn_space_{safe}.json").write_text(json.dumps(doc), encoding="utf-8")
+            written += 1
+    return written
+
+
 def run(values: FormValues, client_secret: str, *, user_email: str = "", on_line=None, on_phase=None) -> Outcome:
     """Valida y encadena: extracción (MISMA función que el CLI) → assessment (MISMO motor) → resultado ad-hoc. El secreto no se
     almacena ni se devuelve y el assessment recibe SOLO rutas de evidencia.
@@ -755,6 +782,13 @@ def run(values: FormValues, client_secret: str, *, user_email: str = "", on_line
         # Alcance de evidencia REAL de la extracción (pedido y efectivo, tal como los informa el extractor): el documento lo conserva para
         # distinguir "adquirido y ausente" de "no adquirido". Sin metadato propio de la web.
         scope = {"requested_features": list(result.requested_features or ()), "effective_features": list(result.effective_features or ())}
+        # Paridad SOURCE/SAPSF v6: el extractor no emite fichas de conexión (solo aristas de nombre); se enriquece el workspace con la evidencia de tipo de
+        # conexión EN VIVO (misma credencial), para que el reconocimiento SAPSF también aplique en el ad hoc. Falla silenciosa (ver la función).
+        try:
+            _conns = _materialize_live_connections(result.pool_dir, values, client_secret)
+            log.info("datasphere_assessment op=%s conexiones materializadas=%d space=%s", op_id, _conns, values.space)
+        except Exception as exc:  # noqa: BLE001 — sin catálogo de conexiones el assessment procede igual que hoy (SOURCE NO se acredita: el clasificador se abstiene); jamás rompe el assessment
+            log.warning("datasphere_assessment op=%s materializacion de conexiones OMITIDA (SOURCE sin acreditar) space=%s exc=%s", op_id, values.space, type(exc).__name__)
         profile, code = asvc.assess_evidence_root(workspace / "pool", client_dir, values.root_object, "General", evidence_scope=scope,
                                                   root_type=result.root_type)
         if code is not None or profile is None:
