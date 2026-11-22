@@ -1188,6 +1188,9 @@ def build_summary(
         reaction_breakdowns[k] = {"dim": "usuario", "label": area_label(k), "rows": rows}
 
     return {
+        # «Catálogos y Assessments» (catalog_activity): eventos del área Catálogo YA filtrados por período/usuario/Ámbito/Área/visibilidad;
+        # el contenedor agrega sus propios filtros (cliente, modelo, herramienta, operación).
+        "catalog_events": [ev for ev in scope_area_user_filtered if ev["area"] == "catalog"],
         "date_from": date_from,
         "date_to": date_to,
         "selected_user": user,

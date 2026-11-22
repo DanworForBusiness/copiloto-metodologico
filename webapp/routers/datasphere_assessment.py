@@ -138,6 +138,12 @@ def run_assessment(
     failed_done = {"t": "done", "state": "FAILED", "error_code": "EXTRACTION_FAILED", "message": svc.ERROR_MESSAGES["EXTRACTION_FAILED"],
                    "title": svc.TITLE_EXTRACTION, "errors": {}, "operation_id": None, "duration_s": None, "result_url": None}
 
+    try:                                                                   # INICIO: con el FIN (mismo `run_id`) reconstruye la corrida aunque falle o se interrumpa
+        log_activity("datasphere_assessment_run_started", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG,
+                     client=values.client, space=values.space, root_object=values.root_object, run_id=run_id)
+    except Exception as exc:                                               # noqa: BLE001
+        log.warning("datasphere_assessment run=%s start activity log failed exc=%s", run_id, type(exc).__name__)
+
     def worker() -> None:
         # INVARIANTE: toda operación termina en UN `done`, publicado en el `finally` ANTES de la telemetría. Ni una falla del run ni una del
         # registro de actividad pueden dejar al navegador esperando, y la telemetría jamás cambia el resultado real del Assessment.
@@ -161,15 +167,27 @@ def run_assessment(
                 except Exception as exc:                                   # noqa: BLE001 — sin URL no hay informe que abrir: falla visible, nunca espera
                     log.warning("datasphere_assessment run=%s done build failed exc=%s", run_id, type(exc).__name__)
             svc.publish_event(run_id, done)
-        if outcome is None:
-            return
         try:                                                               # telemetría DESPUÉS del `done`: su falla solo se registra
+            if outcome is None:                                            # el worker falló antes de un resultado: igual queda el FIN (fallida)
+                log_activity("datasphere_assessment_run", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG,
+                             client=values.client, space=values.space, root_object=values.root_object, state="FAILED",
+                             error_code="WORKER_ERROR", run_id=run_id, outcome=outcome_of("FAILED"))
+                return
+            level, jstatus = None, None
+            if outcome.result_id:                                          # nivel PROVISIONAL de la ejecución (mismo Juicio que muestra el informe)
+                try:
+                    rec = svc.load_result(outcome.result_id) or {}
+                    jdg = asvc.provisional_judgment(rec.get("profile")) or {}
+                    level, jstatus = (jdg.get("level") or "ND"), jdg.get("status")
+                except Exception:                                          # noqa: BLE001
+                    pass
             log_activity("datasphere_assessment_run", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG,
                          client=values.client, space=values.space, root_object=values.root_object,
                          state=outcome.state, error_code=outcome.error_code, stage=outcome.stage, duration_s=outcome.duration_s,
-                         operation_id=outcome.operation_id, outcome=outcome_of(outcome.state))
+                         operation_id=outcome.operation_id, run_id=run_id, result_id=outcome.result_id or None, level=level, judgment_status=jstatus,
+                         outcome=outcome_of(outcome.state))
         except Exception as exc:                                           # noqa: BLE001 — solo el tipo: nunca valores del run ni del usuario
-            log.warning("datasphere_assessment run=%s op=%s activity log failed exc=%s", run_id, outcome.operation_id, type(exc).__name__)
+            log.warning("datasphere_assessment run=%s activity log failed exc=%s", run_id, type(exc).__name__)
 
     threading.Thread(target=worker, name="datasphere-assessment", daemon=True).start()
 
@@ -220,6 +238,32 @@ def _record_or_404(request: Request, result_id: str) -> dict:
     return record
 
 
+_OPPORTUNITY_SHOWN: set[str] = set()                     # un `opportunity_shown` por resultado ad hoc (y proceso): recargar no es otra oportunidad
+_OPPORTUNITY_LOCK = threading.Lock()
+
+
+def _level_code(level: str | None) -> str:
+    """Mismo vocabulario que el resto del circuito: código del nivel, «ND» para no determinable."""
+    return "ND" if not level or str(level).upper() in ("NO DETERMINABLE", "NOT_DETERMINABLE", "ND") else str(level)
+
+
+def _log_opportunity_shown(user: dict, record: dict, result_id: str, opp: dict | None) -> None:
+    """Navegación: el informe ad hoc MOSTRÓ una oportunidad de actualización. No es una solicitud (esa es `governed_update.requested`)."""
+    if not opp:
+        return
+    with _OPPORTUNITY_LOCK:
+        if result_id in _OPPORTUNITY_SHOWN:
+            return
+        _OPPORTUNITY_SHOWN.add(result_id)
+    try:
+        log_activity("governed_update.opportunity_shown", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG,
+                     client=record.get("client_dir") or record.get("client_display"), model=record.get("terminal_am"), result_id=result_id,
+                     vigente_level=_level_code(opp.get("vigente_level")), candidato_level=_level_code(opp.get("candidato_level")),
+                     contracts_changed=bool(opp.get("contracts_changed")), space=record.get("space"))
+    except Exception as exc:                                               # noqa: BLE001
+        log.warning("datasphere_assessment opportunity_shown log failed exc=%s", type(exc).__name__)
+
+
 @router.get("/modules/{stem}/datasphere-assessment/result/{result_id}", response_class=HTMLResponse, include_in_schema=False)
 def adhoc_report(request: Request, stem: str, result_id: str, pack: str = Query(DEFAULT_PACK)):
     """Informe ad-hoc: el MISMO informe del Catálogo, con el contexto de un resultado guardado (sin flujo, sin regenerar, sin linaje)."""
@@ -229,10 +273,12 @@ def adhoc_report(request: Request, stem: str, result_id: str, pack: str = Query(
     _report, json_url, md_url, back_url = _result_urls(stem, result_id, selected)
     view = presenter.report_view(svc.result_status(record), None, selected, adhoc=presenter.AdhocReport(back_url, json_url, md_url),
                                  space=record.get("space"))
+    _log_opportunity_shown(user, record, result_id, view.get("update_opportunity"))
     academy = [a for a in list_academy(selected) if not a.nav_hidden]
     return templates.TemplateResponse(
         request=request, name="datasphere_assessment_result.html",
         context={"v": view, "catalog_review_url": f"/modules/{stem}/datasphere-assessment/result/{result_id}/catalog?" + urlencode({"pack": selected}),
+                 "adhoc_result_id": result_id, "adhoc_stem": stem,
                  "modules": list_modules(selected), "appendices": [a for a in list_appendices(selected) if not a.nav_hidden],
                  "academy": academy, "academy_assets": {a.stem: academy_asset_for(a.stem, selected) for a in academy},
                  "active_group": "core", "active_stem": stem, "readonly": False, "pack": selected,

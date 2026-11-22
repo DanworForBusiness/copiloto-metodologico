@@ -48,6 +48,32 @@ def _isolate_notifications(tmp_path_factory, monkeypatch):
         monkeypatch.setattr(config, name, value, raising=False)
 
 
+@pytest.fixture(scope="session")
+def _isolation_root(tmp_path_factory):
+    """UN directorio por sesión; cada test toma subdirectorios con nombre ÚNICO (uuid). `tmp_path_factory.mktemp()` numerado lista el directorio
+    padre en cada llamada: llamado por test en una suite de ~13k tests, el costo crece en forma cuadrática (CI 19 → 55 min)."""
+    return tmp_path_factory.mktemp("isolation")
+
+
+@pytest.fixture(autouse=True)
+def _isolate_governed_update_requests_and_adhoc_cache(_isolation_root, monkeypatch):
+    """Ningún test escribe en el registro REAL de solicitudes de actualización gobernada, ni usa la caché ad hoc REAL: la primera vez que un
+    PROCESO usa el almacenamiento ad hoc (`datasphere_assessment_service._dirs`) BORRA sus resultados, y una corrida de pytest sobre la caché
+    por defecto del repo eliminaba los resultados que el owner estaba revisando en un servidor local. Los tests que la necesitan siguen
+    fijando su propia `config.ASSESSMENT_CACHE_DIR` (su monkeypatch gana sobre este)."""
+    import uuid
+
+    import config
+
+    base = _isolation_root / uuid.uuid4().hex
+    requests_dir, cache = base / "governed-update-requests", base / "assessment-cache"
+    requests_dir.mkdir(parents=True)
+    cache.mkdir()
+    monkeypatch.setenv("DANWOR_GOVERNED_UPDATE_REQUESTS_DIR", str(requests_dir))
+    monkeypatch.setenv("DANWOR_ASSESSMENT_CACHE_DIR", str(cache))                 # el override declarado (mismo contrato que en producción)
+    monkeypatch.setattr(config, "ASSESSMENT_CACHE_DIR", cache, raising=False)
+
+
 @pytest.fixture(autouse=True)
 def _isolate_remote_store_persistence(tmp_path_factory, monkeypatch):
     """MISMO criterio que `_isolate_runtime_logs` arriba — Integral Cold

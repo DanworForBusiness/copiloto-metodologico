@@ -46,11 +46,19 @@ def _header_cell(html: str) -> str:
 
 
 def test_every_event_header_is_byte_identical():
-    """La cabecera renderizada es IDÉNTICA entre todos los eventos (mismos metadatos de vertical de Operaciones)."""
+    """La cabecera renderizada es IDÉNTICA entre los eventos de la MISMA vertical; entre verticales solo cambia la identidad de la vertical
+    (título y acento de `workspaces.brand_identity`), nunca el layout."""
     headers = {event: _header_cell(_render(event)) for event in n.EVENTS}
-    reference = next(iter(headers.values()))
+    by_ws: dict[str, str] = {}
     for event, cell in headers.items():
-        assert cell == reference, f"el encabezado de {event} difiere del de referencia"
+        ws = n.EVENTS[event].workspace
+        reference = by_ws.setdefault(ws, cell)
+        assert cell == reference, f"el encabezado de {event} difiere del de referencia de su vertical ({ws})"
+    neutral = set()
+    for ws, cell in by_ws.items():
+        v = workspaces.brand_identity(ws)
+        neutral.add(cell.replace(v["title"], "<TITLE>").replace(v["accent"], "<ACCENT>"))
+    assert len(neutral) == 1                                                       # mismo layout para todas las verticales
 
 
 def test_header_has_the_approved_structure_and_styles():

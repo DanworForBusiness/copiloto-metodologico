@@ -1347,6 +1347,13 @@ def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: Adho
             view["update_opportunity"] = _update_opportunity_view(svc.governed_update_opportunity(status.client, status.terminal_am, status.judgment, doc, space))
         except Exception:  # noqa: BLE001
             view["update_opportunity"] = None
+        if view["update_opportunity"]:                    # ¿ya hay una solicitud ABIERTA y vigente de este modelo? (deduplicación visible: «Ver solicitud»)
+            try:
+                from webapp.services import governed_update_requests as gur
+                open_req = gur.find_open(status.client, status.terminal_am)
+                view["update_opportunity"]["open_request_id"] = open_req["request_id"] if open_req else None
+            except Exception:  # noqa: BLE001
+                view["update_opportunity"]["open_request_id"] = None
     if doc is None:
         return view
     # 3.er tile de la fila de adopción [02]: «Conformidad de nombres» (%), MISMO helper que Mirada Danwor → Adopción, para que nunca divergan.

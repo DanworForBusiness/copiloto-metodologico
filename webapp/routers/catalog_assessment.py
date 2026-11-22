@@ -33,6 +33,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 
 from core.content_registry import DEFAULT_PACK, resolve_pack
 from webapp import access, nav, same_origin_guard
+from webapp.services import catalog_model_activity
 from webapp.services import assessment_presenter as presenter
 from webapp.services import governed_decisions_presenter as gd_presenter
 from webapp.services import review_resolution_presenter
@@ -132,6 +133,7 @@ def assessment_get(request: Request, flow: str = "", pack: str = Query(DEFAULT_P
     status = svc.status_for_entry(entry)
     if not request.headers.get("HX-Request"):          # el informe es un fragmento del panel; navegación directa → detalle del flujo
         return RedirectResponse(presenter.flow_url(entry, selected), status_code=303)
+    catalog_model_activity.log_model_viewed(user, entry, "assessment", model=status.terminal_am or None)   # consulta del Assessment (deduplicada)
     return _report_response(request, status, entry, selected)
 
 
@@ -215,7 +217,7 @@ def client_assessment_regenerate(request: Request, flow: str = "", pack: str = Q
     targets = regen.eligible_targets(snap, entries)
     out = regen.start(snap["client"], targets, owner_email(request), pack=selected, result_url=presenter.flow_url(entry, selected))
     log_activity("catalog_client_assessment_regenerate", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG, flow=entry.entry_id,
-                 client=snap["client"], outcome=out["outcome"], total=out.get("total"))
+                 client=snap["client"], outcome=out["outcome"], total=out.get("total"), operation_id=out.get("run_id"))
     code = {regen.STARTED: 202, regen.NOTHING_TO_DO: 200}.get(out["outcome"], 409)
     msg = {regen.ALREADY_RUNNING: "Ya hay una regeneración en curso para este cliente.",
            regen.BLOCKED_TRANSITION: "Hay una activación de la metodología en curso: la regeneración no está disponible hasta que termine.",

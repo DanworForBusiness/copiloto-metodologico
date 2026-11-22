@@ -84,6 +84,17 @@ def _finish(client: str, run_id: str) -> None:
             _running.pop(client.lower(), None)
 
 
+def _log_model_result(owner: str, client: str, am: str, result: str, run_id: str) -> None:
+    """Trazabilidad por MODELO (Métricas de Uso → Catálogos y Assessments): resultado de cada regeneración de la operación consolidada."""
+    try:
+        from webapp.services.activity_context import AREA_CATALOG, SCOPE_COPILOT
+        from webapp.services.activity_service import log_activity
+        log_activity("assessment_regenerated", user={"sub": owner, "email": owner}, scope=SCOPE_COPILOT, area=AREA_CATALOG,
+                     client=client, model=am, result=result, origin="client_bulk", operation_id=run_id)
+    except Exception as exc:                                              # noqa: BLE001 — la telemetría nunca altera la regeneración
+        log.warning("client_assessment_regeneration activity log failed exc=%s", type(exc).__name__)
+
+
 def start(client: str, targets: list[Target], owner: str, *, pack: str, result_url: str | None,
           generate: Callable[[Any], svc.AssessmentStatus] | None = None, status_of: Callable[[Any], svc.AssessmentStatus] | None = None,
           run_async: bool = True) -> dict:
@@ -131,6 +142,7 @@ def start(client: str, targets: list[Target], owner: str, *, pack: str, result_u
                 operation_registry.publish_event(run_id, {"t": "progress", "done": i, "total": total, "am": t.terminal_am, "result": result, "detail": str(detail)[:200],
                                                           "counts": dict(counts)})
                 operation_registry.publish_event(run_id, {"t": "line", "v": f"[{i}/{total}] {t.terminal_am}: {result}" + (f" ({detail})" if detail else "")})
+                _log_model_result(owner, client, t.terminal_am, result, run_id)
             state = "SUCCESS" if not counts[RESULT_FAILED] else ("FAILED" if not counts[RESULT_UPDATED] else "PARTIAL")
             msg = f"{counts[RESULT_UPDATED]} actualizados · {counts[RESULT_SKIPPED]} omitidos · {counts[RESULT_FAILED]} fallidos."
             operation_registry.publish_event(run_id, {"t": "done", "state": state, "title": TITLE, "message": msg, "summary": {**counts, "total": total},

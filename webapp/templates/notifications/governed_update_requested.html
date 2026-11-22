@@ -1,0 +1,19 @@
+{#- Correo «Solicitud de actualización de Assessment gobernado» (evento `copilot.governed_update.requested`, Copiloto → Arquitectura e Innovación).
+    Solo un RESUMEN de la solicitud (niveles, contratos, procedencia): sin perfiles, evidencia ni credenciales. El enlace abre la revisión autenticada;
+    la actualización real sigue el procedimiento gobernado supervisado (nada se aplica desde el correo). Valores escapados por el autoescape de Jinja. -#}
+{% extends "notifications/_layout.html" %}
+{% import "notifications/_blocks.html" as blocks %}
+{% block content %}
+{{ blocks.intro(title, "Una evaluación ad hoc en " ~ vertical.title ~ " detectó una mejora frente al Assessment gobernado vigente y se solicitó su revisión.") }}
+{{ blocks.details([
+      ("Cliente", d.client),
+      ("Modelo", d.model),
+      ("Assessment vigente", d.vigente),
+      ("Esta evaluación", d.candidato),
+      ("Contrato de fuente que cambia", d.contracts),
+      ("Procedencia", d.provenance),
+      ("Solicitado por", d.requester),
+      ("Fecha", d.requested_at),
+    ], [("Qué sigue", "La revisión muestra el estado actual y permite calcular un dry-run gobernado de solo lectura. Nada se actualiza desde este correo.")]) }}
+{{ blocks.hub_button(d.url, "Revisar la solicitud en el Hub", brand) }}
+{% endblock %}

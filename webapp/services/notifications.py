@@ -106,6 +106,16 @@ EVENTS: dict[str, EventSpec] = {
         template="notifications/architecture_request_rejected.html",
         title="Solicitud rechazada y derivada a Operaciones",
     ),
+    # Copiloto: un Assessment ad hoc detectó una mejora frente al Assessment GOBERNADO y alguien pidió revisarla; actúa Arquitectura e Innovación.
+    # Evento SOLO-To. La clave es el `request_id` (una solicitud = como mucho un correo). El enlace lleva a la revisión autenticada (sin tokens).
+    "copilot.governed_update.requested": EventSpec(
+        workspace="copilot",
+        to_setting="NOTIFICATIONS_ARQ_RECIPIENTS",
+        cc_setting="",
+        subject=lambda d: f"Solicitud de actualización de Assessment gobernado | {d.get('client', '')} · {d.get('model', '')}",
+        template="notifications/governed_update_requested.html",
+        title="Solicitud de actualización de Assessment gobernado",
+    ),
     # Operaciones registra una nueva BÚSQUEDA de recurso; actúa Capital Humano. Evento SOLO-To (sin copia): `cc_setting=""`.
     "operations.search.created": EventSpec(
         workspace="operations",

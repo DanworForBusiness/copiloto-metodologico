@@ -590,6 +590,21 @@
 </details>
 {% endif %}
 
+{#- Catálogos y Assessments: actividad sobre modelos (Decisión, Diagnóstico, actualización gobernada). Del Copiloto: con otra vertical no se muestra. -#}
+{% if catalog and catalog.present and dash.show_copilot_panels %}
+<details class="dashboard-section" data-section-id="catalogos" open>
+  <summary class="dashboard-section__head" draggable="true">
+    <span class="dashboard-section__grip" aria-hidden="true">⋮⋮</span>
+    <span class="dashboard-section__caret"></span>
+    <span class="dashboard-section__title">Catálogos y Assessments</span>
+    <span class="dashboard-section__count">{{ catalog.total }} evento(s)</span>
+  </summary>
+  <div class="dashboard-section__body">
+    {% include "partials/admin_activity_catalog.html" %}
+  </div>
+</details>
+{% endif %}
+
 </div>
 {% endif %}
 </div>

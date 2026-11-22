@@ -1,0 +1,39 @@
+{#- «Catálogos y Assessments» (Métricas de Uso): trazabilidad individual de la actividad sobre modelos. Mismos primitivos que Reacciones/Árboles
+    (`.activity-kpi-grid`, `.activity-feed`, `.story-timeline`). Filtros propios (cliente, modelo, herramienta, operación) que conservan los del tablero.
+    Con cliente + modelo elegidos: HISTORIA del modelo (orden cronológico). No es el registro autoritativo: la solicitud enlazada re-verifica permisos. -#}
+{% set c = catalog %}
+<form class="whatsnew-filters catalog-activity__filters" method="get" action="/admin/activity" data-catalog-activity-filters>
+  {% for k, val in request.query_params.multi_items() if k not in ("cat_client", "cat_model", "cat_tool", "cat_op") %}<input type="hidden" name="{{ k }}" value="{{ val }}">{% endfor %}
+  <label>Cliente<select name="cat_client"><option value="">Todos</option>{% for x in c.clients %}<option value="{{ x }}"{% if x == c.selected.cat_client %} selected{% endif %}>{{ x }}</option>{% endfor %}</select></label>
+  <label>Modelo<select name="cat_model"><option value="">Todos</option>{% for x in c.models %}<option value="{{ x }}"{% if x == c.selected.cat_model %} selected{% endif %}>{{ x }}</option>{% endfor %}</select></label>
+  <label>Herramienta<select name="cat_tool"><option value="">Todas</option>{% for x in c.tools %}<option value="{{ x.key }}"{% if x.key == c.selected.cat_tool %} selected{% endif %}>{{ x.label }}</option>{% endfor %}</select></label>
+  <label>Operación<select name="cat_op"><option value="">Todas</option>{% for x in c.ops %}<option value="{{ x.key }}"{% if x.key == c.selected.cat_op %} selected{% endif %}>{{ x.label }}</option>{% endfor %}</select></label>
+  <button type="submit" class="btn-primary">Aplicar</button>
+</form>
+
+<div class="activity-kpi-grid" data-catalog-activity-kpis>
+  {% for k in c.kpis %}
+  <div class="activity-kpi" data-kpi="{{ k.key }}">
+    <span class="activity-kpi__value">{{ k.value }}</span>
+    <span class="activity-kpi__label">{{ k.label }}</span>
+    {% if k.hint %}<span class="activity-kpi__hint">{{ k.hint }}</span>{% endif %}
+  </div>
+  {% endfor %}
+</div>
+
+<p class="dashboard-subhead" style="margin-top:20px">{% if c.history %}Historia de {{ c.selected.cat_model }} · {{ c.selected.cat_client }} (cronológica){% else %}Eventos individuales{% endif %}
+  <span class="dashboard-subhead__hint">· {{ c.total }} evento(s){% if c.truncated %}, se muestran {{ c.rows|length }}{% endif %}</span></p>
+{% if c.rows %}
+<ul class="activity-feed" data-catalog-activity-rows>
+  {% for r in c.rows %}
+  <li class="activity-feed__item" data-event="{{ r.event }}" data-tool="{{ r.tool }}">
+    <span class="activity-feed__ts"><code>{{ r.ts[:19]|replace('T', ' · ') }}</code></span>
+    <span class="activity-feed__user">{{ r.user }}</span>
+    <span class="activity-feed__text"><strong>{{ r.op_label }}</strong>{% if r.client or r.model %} · {{ r.client }}{% if r.model %} · {{ r.model }}{% endif %}{% endif %}{% if r.detail %} — {{ r.detail }}{% endif %}
+      {% if r.request_url %} · <a class="whatsnew-banner__cta" href="{{ r.request_url }}">Ver solicitud</a>{% endif %}</span>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<div class="dashboard-empty"><span class="dashboard-empty__label">Sin actividad</span><p>No hay eventos de Catálogos y Assessments para los filtros elegidos.</p></div>
+{% endif %}

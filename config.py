@@ -80,6 +80,15 @@ def governed_assessments_dir() -> Path:
     return Path(override) if override else Path(BASE_DIR) / GOVERNED_ASSESSMENTS_NAME
 
 
+GOVERNED_UPDATE_REQUESTS_NAME = "governed-update-requests"
+
+
+def governed_update_requests_dir() -> Path:
+    """Registro de solicitudes de actualización del Assessment gobernado. Override (dev/tests): DANWOR_GOVERNED_UPDATE_REQUESTS_DIR."""
+    override = _env("DANWOR_GOVERNED_UPDATE_REQUESTS_DIR", "").strip()
+    return Path(override) if override else Path(BASE_DIR) / GOVERNED_UPDATE_REQUESTS_NAME
+
+
 # Registro de DECISIONES gobernadas (governed-decision/v1: ratificaciones CDS y resoluciones de revisión REVIEW_RESOLUTION).
 # En producción (DANWOR_PERSISTENCE=remote) viven SOLO en el namespace Spaces `governed-decisions/` (fuera de PERSIST_PATHS).
 # En dev local (DANWOR_PERSISTENCE=local, sin Spaces) `core.remote_store` usa ESTE directorio como backend local del MISMO store
@@ -155,7 +164,10 @@ PERSIST_PATHS     = [p.strip() for p in _env(
     # (`operations/timenotes/`). DEPLOYMENT: si el entorno YA define `SPACES_PERSIST_PATHS` explícito (override
     # de este default), hay que SUMAR "operations/timenotes" a esa variable en DO, o el FS efímero perdería las
     # excepciones y la auditoría en cada redeploy. Mismo criterio que "notifications"/"human-capital" arriba.
-    "operations/timenotes"
+    "operations/timenotes,"
+    # Solicitudes de actualización del Assessment gobernado (governed-update-request/v1): registro AUTORITATIVO de solicitudes y revisiones
+    # (no es telemetría). DEPLOYMENT: si DO define `SPACES_PERSIST_PATHS` explícito, SUMAR "governed-update-requests".
+    "governed-update-requests"
 ).split(",") if p.strip()]
 # ── Modo de persistencia (DANWOR_PERSISTENCE) ────────────────────────────────────────────────────────────────────────────
 # Las credenciales SPACES_* dicen qué está DISPONIBLE, no qué está AUTORIZADO: tenerlas en un `.env` local NO debe habilitar restore/sync/escrituras contra el

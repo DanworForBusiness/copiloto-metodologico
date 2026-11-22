@@ -78,11 +78,11 @@ def test_presenter_view_motive_only_when_level_unchanged(monkeypatch):
     assert v["level_changed"] is False and v["motive"].startswith("Mismo nivel")
 
 
-def _render_callout(up):
+def _render_callout(up, **ctx):
     from webapp.templating import templates
     src = ('{% from "partials/assessment_report_macros.html" import callout %}'
            '{% set v = {"update_opportunity": up} %}') + _callout_block()
-    return templates.env.from_string(src).render(up=up)
+    return templates.env.from_string(src).render(up=up, pack="datasphere_core", **ctx)
 
 
 def _callout_block():
@@ -92,22 +92,39 @@ def _callout_block():
     return text[start:text.index("{% endif %}", text.index("</dialog>", start)) + len("{% endif %}")]
 
 
-def test_cta_only_opens_an_informative_dialog(monkeypatch):
-    """El CTA «Revisar actualización» abre un <dialog> informativo: ningún request, formulario con destino, hx-* ni enlace operativo."""
-    import re
+def _opp_view(monkeypatch):
     from webapp.services import assessment_presenter as pres
     _patch_env(monkeypatch, _env(None, "NOT_DETERMINABLE", "EXTERNAL_CONTRACT_UNDETERMINED"))
-    up = pres._update_opportunity_view(svc.governed_update_opportunity("Contreras", "AM_Workforce", {"status": "DETERMINED", "level": "BUENA"},
-                                                                       _cand_profile("GOVERNED_SAP_APPLICATION_API"), space="DEV"))
-    html = _render_callout(up)
-    assert re.search(r'<button type="button" class="btn-primary asr-update-banner__cta" data-dialog-open="asr-update-dialog">Revisar actualización</button>', html)
+    return pres._update_opportunity_view(svc.governed_update_opportunity("Contreras", "AM_Workforce", {"status": "DETERMINED", "level": "BUENA"},
+                                                                         _cand_profile("GOVERNED_SAP_APPLICATION_API"), space="DEV"))
+
+
+def test_cta_requests_the_update_and_never_approves_or_executes(monkeypatch):
+    """PR-1: el CTA abre el diálogo con el detalle y su ÚNICA acción es REGISTRAR la solicitud (POST a /copilot/governed-updates/request).
+    Sin hx-*, sin enlaces operativos, sin aprobar ni ejecutar; la ✕ solo oculta en esta vista."""
+    import re
+    up = _opp_view(monkeypatch)
+    html = _render_callout(up, adhoc_result_id="a" * 32, adhoc_stem="04_Modelado_y_Desarrollo")
+    assert re.search(r'<button type="button" class="btn-primary asr-update-banner__cta" data-dialog-open="asr-update-dialog">Solicitar actualización</button>', html)
     assert 'class="whatsnew-banner asr-update-banner"' in html                          # MISMO lenguaje que los avisos del Hub
-    assert '@click="open = false"' in html and "x-show=\"open\"" in html                 # la ✕ solo oculta en esta vista (sin request)
+    assert "@click=\"$el.closest('[data-asr-update-opportunity]').remove()\"" in html and "x-show" not in html.split("<dialog", 1)[0]   # ✕ síncrona, sin request
     assert 'id="asr-update-dialog"' in html and 'method="dialog"' in html
-    assert not re.search(r'\bhx-(get|post|put|delete)\b|\baction=|\bhref=|method="post"|onclick', html)
-    assert "procedimiento gobernado supervisado" in html
+    assert re.findall(r'action="([^"]+)"', html) == ["/copilot/governed-updates/request"]    # la única acción del servidor: registrar la solicitud
+    assert not re.search(r'hx-(get|post|put|delete)|href=|onclick|/approve|/apply|/execute', html)
+    assert "procedimiento gobernado supervisado" in html and "No se modifica nada todavía" in html
     assert "catalog-card__verdict--neutra" in html and "catalog-card__verdict--plena" in html
-    assert html.count("No determinable") >= 1 and "Esta evaluación" in html
     banner, dialog = html.split("<dialog", 1)
     assert "API de aplicación SAP gobernada" not in banner and "API de aplicación SAP gobernada" in dialog   # el detalle vive en el diálogo
     assert "requiere validación" in dialog and "Space «DEV»" in dialog
+
+
+def test_with_an_open_request_the_cta_links_to_it(monkeypatch):
+    up = {**_opp_view(monkeypatch), "open_request_id": "b" * 32}
+    html = _render_callout(up, adhoc_result_id="a" * 32, adhoc_stem="04_Modelado_y_Desarrollo")
+    banner = html.split("<dialog", 1)[0]
+    assert f'href="/copilot/governed-updates/{"b" * 32}?pack=datasphere_core"' in banner and "Ver solicitud" in banner and "Solicitar actualización" not in banner
+
+
+def test_without_an_adhoc_result_the_dialog_has_no_request_form(monkeypatch):
+    html = _render_callout(_opp_view(monkeypatch))
+    assert "/copilot/governed-updates/request" not in html
