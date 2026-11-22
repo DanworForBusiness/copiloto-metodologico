@@ -35,6 +35,7 @@ from typing import Any
 import config
 from core import remote_store
 from webapp.services import assessment_service as svc
+from webapp.services import governed_evidence
 
 log = logging.getLogger("danwor.governed_update_requests")
 
@@ -233,7 +234,10 @@ def create(*, client_dir: str, client_display: str, terminal_am: str, space: str
             "client_dir": client_dir, "client": client_display or client_dir, "terminal_am": terminal_am,
             "requested_by": (requested_by or "").strip().lower(), "requested_at": _now(),
             "source": {"result_id": result_id, "space": (space or "").strip() or None, "judgment": _judgment_brief(opp["candidato"]),
-                       "source_contracts": opp["source_contracts"]["candidato"]},
+                       "source_contracts": opp["source_contracts"]["candidato"],
+                       # huella de la evidencia del ad hoc (identidad + equivalencia metodológica), desde el perfil canónico; PR-2 la compara con la
+                       # reconstrucción gobernada restringida al origen declarado. Solicitudes previas sin huella NO son elegibles.
+                       "fingerprint": governed_evidence.fingerprint(candidate_profile) if isinstance(candidate_profile, dict) else None},
             "governed": {"sha256": envelope_sha(client_dir, terminal_am), "judgment": _judgment_brief(opp["vigente"]),
                          "source_contracts": opp["source_contracts"]["vigente"], "generated_at": env.get("generated_at")},
             "change": {"level_changed": opp["level_changed"], "contracts_changed": opp["contracts_changed"]},
@@ -315,24 +319,39 @@ def eligibility(rec: dict) -> dict:
     return {"state": ELIGIBLE if not reasons else NOT_ELIGIBLE, "reasons": reasons}
 
 
-def compute_preview(rec: dict) -> dict:
-    """Dry-run gobernado de UN modelo con la vía asegurada en modo preview. CERO escrituras (se verifica por bytes del sobre)."""
+def compute_preview(rec: dict, spaces: Any = None) -> dict:
+    """Dry-run gobernado de UN modelo con la vía asegurada en modo preview. CERO escrituras (se verifica por bytes del sobre).
+    ``spaces`` (PR-2): ORIGEN DECLARADO — el motor solo lee las fichas de conexión de esos Spaces (``svc.connection_spaces``) y el resultado suma, por
+    separado, la identidad/equivalencia de la evidencia gobernada candidata, la acreditación de procedencia y la integridad operativa (sha del sobre +
+    firma de dependencias). Sin ``spaces`` es el dry-run de PR-1 (sin restricción ni procedencia)."""
     from webapp.services import assessment_backfill as ab
     client_dir, am = rec["client_dir"], rec["terminal_am"]
     before = envelope_sha(client_dir, am)
-    base = {"computed_at": _now(), "governed_sha256": before}
+    declared = sorted({str(x).strip() for x in spaces if str(x).strip()}) if spaces is not None else None
+    base = {"computed_at": _now(), "governed_sha256": before, "spaces": declared}
     if before != (rec.get("governed") or {}).get("sha256"):
         return {**base, "state": PREVIEW_OBSOLETE, "path": None, "zero_writes": True}
     entries = _entries_for(client_dir, am)
     if not entries:
         return {**base, "state": PREVIEW_NOT_FOUND, "path": None, "zero_writes": envelope_sha(client_dir, am) == before}
+    captured: dict = {}
+
+    def _capture(cand: Any) -> Any:
+        if cand is not None and getattr(cand, "profile", None) is not None:
+            captured["profile"] = cand.profile
+        return cand
+
     status = svc.status_for_entry(entries[0])
     migration = status.pending_migration or (status.stale_targeted if status.state == svc.STALE else None)
-    if migration:                                                          # preview + guardas: si algo intentara persistir, FALLA (nunca escribe)
-        report = ab.migrate_stale_evidence(entries[:1], migration, apply=False, commit=_write_forbidden, retry_remote=_write_forbidden)
-        path = f"MIGRATION:{migration}"
-    else:
-        report, path = ab.plan_selective_regeneration(entries[:1], [am], client=client_dir), f"SELECTIVE:{ab.SELECTIVE_MIGRATION}"
+    with svc.connection_spaces(declared):                                  # None = sin restricción (PR-1); lista = SOLO esas fichas de conexión
+        if migration:                                                      # preview + guardas: si algo intentara persistir, FALLA (nunca escribe)
+            report = ab.migrate_stale_evidence(entries[:1], migration, apply=False, commit=_write_forbidden, retry_remote=_write_forbidden,
+                                               regenerate=lambda e, m: _capture(svc.regenerate_stale_evidence(e, m)))
+            path = f"MIGRATION:{migration}"
+        else:
+            report = ab.plan_selective_regeneration(entries[:1], [am], client=client_dir,
+                                                    regenerate=lambda e, snap=None: _capture(svc.regenerate_current_evidence(e, snap)))
+            path = f"SELECTIVE:{ab.SELECTIVE_MIGRATION}"
     plan = report.get("plan") or {}
     items = [i for i in plan.get("items") or [] if i.get("client") == client_dir or str(i.get("root")) == am]
     recs = report.get("records") or []
@@ -347,12 +366,25 @@ def compute_preview(rec: dict) -> dict:
         state = PREVIEW_FAILED
     else:
         state = PREVIEW_NO_CHANGE
-    return {**base, "state": state, "path": path, "plan_digest": plan.get("digest") if items else None, "items": len(items),
-            "judgment": judgment, "abstentions": abstentions, "failures": failures,
-            "zero_writes": envelope_sha(client_dir, am) == before}
+    out = {**base, "state": state, "path": path, "plan_digest": plan.get("digest") if items else None, "items": len(items),
+           "judgment": judgment, "abstentions": abstentions, "failures": failures}
+    if declared is not None:
+        pool = svc.pool_root()
+        profile = captured.get("profile")
+        out["fingerprint"] = governed_evidence.fingerprint(profile) if profile else None
+        out["provenance"] = governed_evidence.verify_provenance(
+            client_dir=client_dir, am=am, declared_spaces=declared, governed_profile=profile or {},
+            adhoc_fingerprint=(rec.get("source") or {}).get("fingerprint"), adhoc_space=(rec.get("source") or {}).get("space"),
+            connection_records=svc.connection_records_of(client_dir), catalog_dir=svc.catalog_dir(), pool_root=pool)
+        try:                                                               # integridad operativa: firma de dependencias del modelo en el pool actual
+            out["dependency_signature"] = svc.closure_signature(svc.resolve_entry(entries[0]))
+        except Exception:                                                  # noqa: BLE001
+            out["dependency_signature"] = None
+    out["zero_writes"] = envelope_sha(client_dir, am) == before
+    return out
 
 
-def start_preview(rec: dict, user: dict, role: str, *, run: Any = None, on_done: Any = None) -> str:
+def start_preview(rec: dict, user: dict, role: str, *, run: Any = None, on_done: Any = None, spaces: Any = None) -> str:
     """Arranca el dry-run en un hilo (no depende del request HTTP). ``STARTED`` | ``ALREADY_RUNNING`` | ``OBSOLETE``."""
     rid = rec["request_id"]
     if current_status(rec) != OPEN:
@@ -367,7 +399,7 @@ def start_preview(rec: dict, user: dict, role: str, *, run: Any = None, on_done:
         t0 = time.time()
         try:
             try:
-                result = runner(rec)
+                result = runner(rec, spaces=spaces) if spaces is not None else runner(rec)
             except Exception as exc:                                                # noqa: BLE001 — falla visible en la solicitud, nunca silenciosa
                 log.warning("governed_update preview failed request=%s exc=%s", rid, type(exc).__name__)
                 result = {"computed_at": _now(), "state": PREVIEW_FAILED, "failures": [type(exc).__name__], "zero_writes": None}

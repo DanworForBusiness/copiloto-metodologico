@@ -12,6 +12,8 @@ JSON y Markdown no llevan marcas de tiempo: son deterministas para la misma entr
 """
 from __future__ import annotations
 
+from typing import Any
+
 import contextlib
 import hashlib
 import io
@@ -185,7 +187,8 @@ def semantic_universe(entities, group: dict[str, list[Path]]):
 
 
 def assess(inbound: Path, client: str, am: str | None, domain: str | None = None, *, evidence_scope: dict | None = None,
-           generic_root: bool = False, root_type: str | None = None, governed_names: dict | None = None) -> tuple[dict, dict]:
+           generic_root: bool = False, root_type: str | None = None, governed_names: dict | None = None,
+           connection_spaces: Any = None) -> tuple[dict, dict]:
     """(documento publico, metadatos de pool para el manifiesto). Lanza ClientNotFoundError/AmbiguousClientDomainError/UnknownTerminalAmError/
     TerminalAmSelectionRequired; un fallo de carga NO lanza: devuelve el documento INDETERMINATE.
     ``generic_root=True`` (producto "Assessment de tu modelo"): ``am`` es el OBJETO RAIZ y puede ser un AM, una vista o una tabla; se evalua su
@@ -213,7 +216,10 @@ def assess(inbound: Path, client: str, am: str | None, domain: str | None = None
     else:
         scope = universe.scope_for(am, pool_signature=signature)           # puede lanzar UnknownTerminalAmError / TerminalAmSelectionRequired
     # Catalogo de Conexiones del cliente (typeId por conexion), scopeado e inequivoco: propaga el MECANISMO de origen al clasificador de contrato de fuente (ver `connection_catalog`).
-    conn_types = connection_catalog.connection_types(inbound, key[0])
+    # ``connection_spaces`` (opcional): contexto de ORIGEN AUTORIZADO de una reconstruccion gobernada; sin el, todas las fichas del cliente (como siempre).
+    conn_types = connection_catalog.connection_types(inbound, key[0], spaces=connection_spaces)
+    if connection_spaces is not None:
+        meta["connection_spaces"] = sorted(str(s) for s in connection_spaces)
     facts = [] if scope.root is None else collect_facts(universe, entities, scope.root, SupplementaryEvidence.from_files(group["jsons"], root=inbound, acquired_flow_families=_acquired_flow_families(evidence_scope),
                                                                                                   view_type_of=bridge.view_type_of_export, family_of_dir=bridge.artifact_family_of_dir,
                                                                                                   effective_features=(evidence_scope or {}).get("effective_features") if evidence_scope else None),

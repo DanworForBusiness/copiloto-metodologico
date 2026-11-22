@@ -38,6 +38,8 @@ Con varios procesos/instancias cada uno tendría su propia caché y su propio lo
 """
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import copy
 import hashlib
 import json
@@ -53,6 +55,7 @@ from typing import Any, Iterable
 
 import config
 from core import publication_gate, remote_store
+from tools.catalog.modeling_assessment import connection_catalog as ma_connections
 from tools.catalog.modeling_assessment import dependency_signature as ma_dependencies
 from tools.catalog.modeling_assessment import paths as ma_paths
 from tools.catalog.modeling_assessment import profile as ma_profile
@@ -917,6 +920,33 @@ def status_for_entry(entry: Any) -> AssessmentStatus:
 
 
 # ═══════════════════════════ generación (POST) ═══════════════════════════
+# Contexto de ORIGEN AUTORIZADO de una reconstrucción gobernada (actualización desde el Hub, PR-2): los Spaces cuyas fichas de conexión puede leer el
+# motor. Lo fija SOLO quien ejecuta la reconstrucción (``with connection_spaces([...])``) en su propio hilo; sin contexto (None) el motor lee todas las
+# fichas del cliente, como siempre: no hay restricción global.
+_CONNECTION_SPACES: contextvars.ContextVar = contextvars.ContextVar("governed_connection_spaces", default=None)
+
+
+def connection_spaces_of(client_dir: str) -> list[str]:
+    """Spaces del Catálogo de Conexiones del cliente en el pool del Catálogo (lectura pura; vacío sin pool)."""
+    pool = pool_root()
+    return ma_connections.spaces_of(pool, client_dir) if pool else []
+
+
+def connection_records_of(client_dir: str) -> list[dict]:
+    """Fichas de conexión del cliente con su Space ``[{space, name, typeId, file}]`` (lectura pura; vacío sin pool)."""
+    pool = pool_root()
+    return ma_connections.connection_records(pool, client_dir) if pool else []
+
+
+@contextlib.contextmanager
+def connection_spaces(spaces):
+    token = _CONNECTION_SPACES.set(tuple(sorted({str(s) for s in spaces})) if spaces is not None else None)
+    try:
+        yield
+    finally:
+        _CONNECTION_SPACES.reset(token)
+
+
 def _engine_assess(root: Path, client_dir: str, am: str, domain_dir: str, evidence_scope: dict | None = None,
                    generic_root: bool = False, root_type: str | None = None) -> tuple[dict, dict]:
     """Único punto de contacto con el motor (API Python existente; sin shell-out). Seam de tests. Sin argumentos opcionales es la llamada de
@@ -931,6 +961,9 @@ def _engine_assess(root: Path, client_dir: str, am: str, domain_dir: str, eviden
     governed = _governed_for(root, client_dir)
     if governed:
         kw["governed_names"] = governed                 # reemplazo de Space confirmado: misma autoridad que el Catálogo
+    spaces = _CONNECTION_SPACES.get()
+    if spaces is not None:
+        kw["connection_spaces"] = spaces                # reconstrucción gobernada: solo las fichas del origen autorizado
     return ma_shadow.assess(root, client_dir, am, domain_dir, **kw)
 
 

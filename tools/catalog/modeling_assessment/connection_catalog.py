@@ -26,14 +26,64 @@ def _safe_json(path: Path) -> Any:
         return None
 
 
-def connection_types(inbound: Path, client_dir: str) -> dict[str, str]:
+_INDEX_PREFIX = "conn_space_"
+
+
+def spaces_of(inbound: Path, client_dir: str) -> list[str]:
+    """Spaces del Catalogo de Conexiones del cliente, por su INDICE ``conn_space_<SPACE>.json`` (lista de conexiones del Space). El ``space_id`` de las
+    fichas es un identificador interno (GUID), no el nombre del Space: la identidad del Space sale del nombre del indice."""
+    base = Path(inbound) / client_dir / _CONEXIONES_DIR
+    if not base.is_dir():
+        return []
+    out = []
+    for f in sorted(base.glob(_FICHA_GLOB)):
+        if isinstance(_safe_json(f), list):                                  # solo el INDICE del Space es una lista
+            out.append(f.stem[len(_INDEX_PREFIX):])
+    return out
+
+
+def _space_of_file(f: Path, spaces: list[str]) -> str | None:
+    """Space de una ficha por su nombre: el indice ``conn_space_<SPACE>.json`` o la ficha ``conn_space_<SPACE>_<CONEXION>.json`` de un Space CONOCIDO (por el
+    indice). Si el prefijo calza con mas de un Space conocido (nombres con ``_``), se toma el MAS LARGO; sin Space conocido, None (no se atribuye)."""
+    rest = f.stem[len(_INDEX_PREFIX):]
+    if rest in spaces:
+        return rest
+    hits = [s for s in spaces if rest.startswith(s + "_")]
+    return max(hits, key=len) if hits else None
+
+
+def connection_records(inbound: Path, client_dir: str) -> list[dict]:
+    """Fichas del cliente con su Space: ``[{space, name, typeId, file}]`` (una por conexion y Space; el indice y la ficha detallada se deduplican). Lectura pura."""
+    base = Path(inbound) / client_dir / _CONEXIONES_DIR
+    spaces = spaces_of(inbound, client_dir)
+    seen, out = set(), []
+    for f in sorted(base.glob(_FICHA_GLOB)) if base.is_dir() else []:
+        space = _space_of_file(f, spaces)
+        doc = _safe_json(f)
+        for it in (doc if isinstance(doc, list) else [doc]):
+            if not isinstance(it, dict) or not isinstance(it.get("name"), str) or not it.get("name"):
+                continue
+            key = (space, it["name"], it.get("typeId"))
+            if key not in seen:
+                seen.add(key)
+                out.append({"space": space, "name": it["name"], "typeId": it.get("typeId"), "file": f.name})
+    return out
+
+
+def connection_types(inbound: Path, client_dir: str, spaces: Any = None) -> dict[str, str]:
     """``{nombre de conexion -> typeId}`` INEQUIVOCO del Catalogo de Conexiones del cliente. Un ``name`` con ``typeId`` divergente entre fichas se OMITE (abstencion).
-    Vacio si no existe la carpeta ``Conexiones/``. El resultado YA esta scopeado al cliente; el consumidor solo debe resolver por nombre exacto."""
+    Vacio si no existe la carpeta ``Conexiones/``. El resultado YA esta scopeado al cliente; el consumidor solo debe resolver por nombre exacto.
+    ``spaces`` (opcional): CONTEXTO DE ORIGEN AUTORIZADO — solo se leen las fichas de esos Spaces (por el nombre de archivo; una ficha cuyo Space no se puede
+    atribuir queda FUERA). Sin ``spaces`` el comportamiento es el de siempre (todas las fichas del cliente): no hay restriccion global."""
     base = Path(inbound) / client_dir / _CONEXIONES_DIR
     if not base.is_dir():
         return {}
+    allowed = None if spaces is None else {str(s) for s in spaces}
+    known = spaces_of(inbound, client_dir) if allowed is not None else []
     acc: dict[str, Any] = {}
     for f in sorted(base.glob(_FICHA_GLOB)):
+        if allowed is not None and _space_of_file(f, known) not in allowed:
+            continue
         doc = _safe_json(f)
         for it in (doc if isinstance(doc, list) else [doc]):
             if not isinstance(it, dict):

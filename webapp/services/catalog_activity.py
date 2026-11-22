@@ -31,6 +31,10 @@ EVENTS: dict[str, tuple[str, str]] = {
     "governed_update.notified": (TOOL_GOVERNED, "notificacion"),
     "governed_update.reviewed": (TOOL_GOVERNED, "revision"),
     "governed_update.dry_run": (TOOL_GOVERNED, "dry_run"),
+    "governed_update.provenance_declared": (TOOL_GOVERNED, "origen_declarado"),
+    "governed_update.approved": (TOOL_GOVERNED, "aprobacion"),
+    "governed_update.rejected": (TOOL_GOVERNED, "rechazo"),
+    "governed_update.executed": (TOOL_GOVERNED, "ejecucion"),
     "catalog_client_assessment_regenerate": (TOOL_MAINTENANCE, "regeneracion_cliente"),
     "assessment_regenerated": (TOOL_MAINTENANCE, "regeneracion_modelo"),
     "datasphere_publication_run": (TOOL_MAINTENANCE, "publicacion"),
@@ -40,7 +44,8 @@ OP_LABEL = {
     "consulta": "Consulta", "informe_assessment": "Informe de Assessment (Catálogo)",
     "assessment_inicio": "Assessment ad hoc — inicio", "assessment_resultado": "Assessment ad hoc — resultado",
     "oportunidad_mostrada": "Oportunidad mostrada", "solicitud": "Solicitud registrada", "notificacion": "Notificación emitida",
-    "revision": "Revisión", "dry_run": "Dry-run gobernado",
+    "revision": "Revisión", "dry_run": "Dry-run gobernado", "origen_declarado": "Origen declarado", "aprobacion": "Aprobación",
+    "rechazo": "Rechazada antes de ejecutar", "ejecucion": "Ejecución asegurada",
     "regeneracion_cliente": "Regeneración (cliente)", "regeneracion_modelo": "Regeneración (modelo)", "publicacion": "Publicación",
 }
 MAX_ROWS = 200
@@ -91,6 +96,14 @@ def _detail(event: str, a: dict) -> str:
         if a.get("plan_digest"):
             bits.append(f"digest {a['plan_digest']}")
         return " · ".join(bits)
+    if event == "governed_update.provenance_declared":
+        return str(a.get("spaces") or "")
+    if event == "governed_update.approved":
+        return " · ".join(str(x) for x in (a.get("role"), a.get("spaces"), (f"plan {a['plan_digest']}" if a.get("plan_digest") else None)) if x)
+    if event == "governed_update.rejected":
+        return " · ".join(str(x) for x in (a.get("stage"), a.get("reason")) if x)
+    if event == "governed_update.executed":
+        return " · ".join(str(x) for x in (a.get("state"), a.get("outcome")) if x)
     if event == "assessment_regenerated":
         return str(a.get("result") or "")
     if event in ("catalog_client_assessment_regenerate", "catalog_assessment_generate", "datasphere_publication_run"):
@@ -138,6 +151,10 @@ def build(events: list[dict], params: Mapping[str, str], *, pack: str = "") -> d
         {"key": "notificaciones", "label": "Notificaciones emitidas", "value": len(notified) - len(not_sent),
          "hint": f"no emitidas (apagadas o con error) {len(not_sent)}" if not_sent else "entrega: ver el estado en la solicitud"},
         {"key": "revisiones", "label": "Revisiones", "value": by_event["governed_update.reviewed"], "hint": f"dry-runs {by_event['governed_update.dry_run']}"},
+        {"key": "aprobaciones", "label": "Aprobaciones", "value": by_event["governed_update.approved"],
+         "hint": f"rechazadas antes de ejecutar {by_event['governed_update.rejected']}"},
+        {"key": "aplicadas", "label": "Actualizaciones aplicadas", "value": sum(1 for r in rows if r["event"] == "governed_update.executed" and r["detail"].startswith("APPLIED")),
+         "hint": " · ".join(f"{k.lower()} {sum(1 for r in rows if r['event'] == 'governed_update.executed' and r['detail'].startswith(k))}" for k in ("ABSTAINED", "FAILED"))},
     ]
     history = bool(sel["cat_client"] and sel["cat_model"])
     rows_sorted = sorted(rows, key=lambda r: r["ts"], reverse=not history)

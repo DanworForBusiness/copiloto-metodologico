@@ -59,8 +59,11 @@ def test_create_registers_a_summary_without_sensitive_payloads(world):
     rec, created = _create()
     assert created and rec["status"] == gur.OPEN and rec["schema"] == gur.SCHEMA
     assert rec["governed"]["sha256"] == "a" * 64 and rec["governed"]["judgment"]["level"] is None
-    assert rec["source"] == {"result_id": RID, "space": "DEV", "judgment": {"status": "DETERMINED", "level": "BUENA"},
-                             "source_contracts": {"GOVERNED_SAP_APPLICATION_API": 15}}
+    src = dict(rec["source"])
+    fp = src.pop("fingerprint")
+    assert src == {"result_id": RID, "space": "DEV", "judgment": {"status": "DETERMINED", "level": "BUENA"},
+                   "source_contracts": {"GOVERNED_SAP_APPLICATION_API": 15}}
+    assert fp["schema"] == "governed-evidence-fingerprint/v1" and len(fp["equivalence_digest"]) == 64 and len(fp["identity_digest"]) == 64
     on_disk = json.loads(next(config.governed_update_requests_dir().glob("*/*/*.json")).read_text(encoding="utf-8"))
     assert on_disk["request_id"] == rec["request_id"]
     blob = json.dumps(on_disk)
@@ -233,10 +236,12 @@ def test_review_is_visible_to_requester_and_approvers_only_and_offers_no_approva
     assert mine.status_code == 200 and "data-gu-preview-submit" not in mine.text                   # quien solicita no calcula el dry-run
     html = _client("owner@danwor.com").get(url).text
     assert "data-gu-preview-submit" in html and "Calcular dry-run" in html
-    for forbidden in ("Aprobar", "Confirmar actualización", "/approve", "/apply", "/execute"):
-        assert forbidden not in html                                                                # PR-1: sin aprobación ni ejecución
+    assert "data-gu-approve" not in html and "/apply" not in html and "/execute" not in html            # sin origen acreditado no hay «Aprobar»
     assert [e for e, _ in routes] == ["governed_update.reviewed"]                                   # solo la del aprobador cuenta como revisión
-    assert _client("owner@danwor.com").post(f"{url}/approve", headers=ORIGIN).status_code in (404, 405)
+    owner = _client("owner@danwor.com")
+    assert owner.post(f"{url}/approve", headers=ORIGIN, follow_redirects=False).status_code == 400        # sin confirmación explícita
+    r = owner.post(f"{url}/approve", data={"confirm": "1", "idempotency_key": "k1", "spaces": ["DEV"]}, headers=ORIGIN, follow_redirects=False)
+    assert r.status_code == 409 and "No se puede aprobar todavía" in r.text                         # nada aprobable todavía
 
 
 def test_preview_route_is_for_approvers_only(routes, monkeypatch):
@@ -244,7 +249,7 @@ def test_preview_route_is_for_approvers_only(routes, monkeypatch):
     url = f"/copilot/governed-updates/{rec['request_id']}/preview"
     assert _client("consultor@danwor.com").post(url, headers=ORIGIN, follow_redirects=False).status_code == 403
     started = []
-    monkeypatch.setattr(gur, "start_preview", lambda r, u, role, on_done=None: started.append(role) or "STARTED")
+    monkeypatch.setattr(gur, "start_preview", lambda r, u, role, on_done=None, spaces=None: started.append(role) or "STARTED")
     assert _client("owner@danwor.com").post(url, headers=ORIGIN, follow_redirects=False).status_code == 303 and started == ["APP_OWNER"]
 
 
@@ -327,7 +332,7 @@ def test_review_separates_authorization_from_provenance_dry_run_and_application(
     assert 'data-gu-role="APP_OWNER"' in html and "Autorizado · APP_OWNER" in html
     for key in ("authorization", "historical_provenance", "authorized_origin", "dry_run", "application", "notification"):
         assert f'data-gu-stage="{key}"' in html
-    assert "Pendiente de declaración" in html and "No disponible en esta versión" in html and "Desconocida" in html
+    assert "Pendiente de declaración" in html and "Todavía no" in html and "Desconocida" in html
     assert "Próximo paso:" in html and "Calcular el dry-run gobernado" in html
     assert "No elegible" not in html and "Aprobar" not in html
     assert 'data-gu-vigente' in html and 'data-gu-candidato' in html and "Evaluación ad hoc" in html   # comparación siempre visible
