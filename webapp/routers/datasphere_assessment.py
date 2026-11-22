@@ -247,6 +247,11 @@ def _level_code(level: str | None) -> str:
     return "ND" if not level or str(level).upper() in ("NO DETERMINABLE", "NOT_DETERMINABLE", "ND") else str(level)
 
 
+def _approver_role(user: dict | None) -> str | None:
+    from webapp.services import governed_update_requests as gur
+    return gur.approver_role(user)
+
+
 def _log_opportunity_shown(user: dict, record: dict, result_id: str, opp: dict | None) -> None:
     """Navegación: el informe ad hoc MOSTRÓ una oportunidad de actualización. No es una solicitud (esa es `governed_update.requested`)."""
     if not opp:
@@ -278,7 +283,7 @@ def adhoc_report(request: Request, stem: str, result_id: str, pack: str = Query(
     return templates.TemplateResponse(
         request=request, name="datasphere_assessment_result.html",
         context={"v": view, "catalog_review_url": f"/modules/{stem}/datasphere-assessment/result/{result_id}/catalog?" + urlencode({"pack": selected}),
-                 "adhoc_result_id": result_id, "adhoc_stem": stem,
+                 "adhoc_result_id": result_id, "adhoc_stem": stem, "adhoc_approver": bool(_approver_role(user)),
                  "modules": list_modules(selected), "appendices": [a for a in list_appendices(selected) if not a.nav_hidden],
                  "academy": academy, "academy_assets": {a.stem: academy_asset_for(a.stem, selected) for a in academy},
                  "active_group": "core", "active_stem": stem, "readonly": False, "pack": selected,

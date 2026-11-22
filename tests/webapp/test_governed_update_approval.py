@@ -293,3 +293,79 @@ def test_approve_route_registers_once_and_runs_in_background(routes, monkeypatch
     assert len(started) == 1
     assert [e for e, _ in routes].count("governed_update.approved") == 1
     assert _client("c@danwor.com").post(url, data=data, headers=ORIGIN, follow_redirects=False).status_code == 403   # quien solicitó no aprueba
+
+
+# ── bifurcación por rol de quien solicita ────────────────────────────────────────────────────────────────────────────────────────────────────
+def _route_record(monkeypatch, owner_email):
+    import time as _t
+    from types import SimpleNamespace
+    from webapp.services import datasphere_assessment_service as dsa
+    record = {"result_id": RID, "owner": owner_email, "client_dir": "Contreras", "client_display": "Contreras", "terminal_am": "AM_Workforce",
+              "space": "DEV", "created_at": _t.time(), "profile": CAND_PROFILE}
+    monkeypatch.setattr(dsa, "load_result", lambda rid: record if rid == RID else None)
+    monkeypatch.setattr(dsa, "result_status", lambda rec: SimpleNamespace(client="Contreras", terminal_am="AM_Workforce", profile=CAND_PROFILE,
+                                                                       judgment={"status": "DETERMINED", "level": "BUENA"}))
+
+
+def test_approver_requester_goes_straight_to_review_without_emailing_itself(routes, monkeypatch):
+    from webapp.services import notifications
+    _route_record(monkeypatch, "owner@danwor.com")
+    sent = []
+    monkeypatch.setattr(notifications, "enabled", lambda: True)
+    monkeypatch.setattr(notifications, "emit", lambda *a, **k: sent.append(a) or "queued")
+    r = _client("owner@danwor.com").post("/copilot/governed-updates/request", data={"result_id": RID, "stem": STEM}, headers=ORIGIN, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"].startswith("/copilot/governed-updates/")
+    rec = gur.find_open("Contreras", "AM_Workforce")
+    assert sent == [] and rec["notification"]["dispatch"] == "not_required" and rec["requested_by_role"] == "APP_OWNER"
+    events = [(e, kw.get("dispatch") or kw.get("requester_role")) for e, kw in routes if e.startswith("governed_update.")]
+    assert events == [("governed_update.requested", "APP_OWNER"), ("governed_update.notified", "not_required")]   # auditado igual
+    html = _client("owner@danwor.com").get(r.headers["location"]).text
+    assert 'data-gu-notification="not_required"' in html and "No requerida" in html
+    assert "data-gu-preview-submit" in html                                                          # ya puede operar la revisión
+
+
+def test_common_requester_registers_and_notifies_architecture(routes, monkeypatch):
+    from webapp.services import notifications
+    _route_record(monkeypatch, "consultor@danwor.com")
+    sent = []
+    monkeypatch.setattr(notifications, "enabled", lambda: True)
+    monkeypatch.setattr(notifications, "emit", lambda event, key, data, origin=None: sent.append((event, key)) or "queued")
+    r = _client("consultor@danwor.com").post("/copilot/governed-updates/request", data={"result_id": RID, "stem": STEM}, headers=ORIGIN, follow_redirects=False)
+    assert r.status_code == 303
+    rec = gur.find_open("Contreras", "AM_Workforce")
+    assert sent == [(gur.NOTIFY_EVENT, rec["request_id"])] and rec["requested_by_role"] is None and rec["notification"]["dispatch"] == "queued"
+    assert [kw.get("requester_role") for e, kw in routes if e == "governed_update.requested"] == ["REQUESTER"]
+
+
+def test_approver_resolves_a_common_users_request_and_permissions_are_rechecked_at_confirm(routes, monkeypatch, world):
+    from webapp import access
+    rec = _ready_request(world)                                                                     # solicitada por un usuario común
+    started = []
+    monkeypatch.setattr(gua, "start", lambda r, a, on_event=None: started.append(a["approval_id"]) or "STARTED_THREAD")
+    url = f"/copilot/governed-updates/{rec['request_id']}"
+    owner = _client("owner@danwor.com")
+    page = owner.get(url).text
+    assert "data-gu-approve" in page                                                                 # el responsable resuelve desde el enlace
+    monkeypatch.setattr(access, "APP_OWNER", "otro@danwor.com")                                       # pierde el rol entre la vista y la confirmación
+    r = owner.post(f"{url}/approve", data={"confirm": "1", "idempotency_key": "k", "spaces": ["DEV"]}, headers=ORIGIN, follow_redirects=False)
+    assert r.status_code == 404 and started == []        # re-verificado en el servidor: sin rol ni autoría la solicitud es indistinguible de inexistente
+
+
+def test_banner_cta_depends_on_the_viewers_role(monkeypatch):
+    from tests.webapp.test_governed_update_opportunity import _opp_view, _render_callout
+    up = _opp_view(monkeypatch)
+    approver = _render_callout(up, adhoc_result_id="a" * 32, adhoc_stem=STEM, adhoc_approver=True)
+    common = _render_callout(up, adhoc_result_id="a" * 32, adhoc_stem=STEM, adhoc_approver=False)
+    assert "Revisar y aprobar" in approver and "Abrir revisión" in approver and "No se envía correo" in approver
+    assert "Solicitar actualización" in common and "se notifica a Arquitectura" in common
+    import re
+    for html in (approver, common):
+        assert re.findall(r'action="([^"]+)"', html) == ["/copilot/governed-updates/request"]        # la única acción sigue siendo registrar
+
+
+def test_not_required_notification_is_not_counted_as_emitted():
+    from webapp.services import catalog_activity
+    ev = lambda d: {"event": "governed_update.notified", "ts_utc": "t", "user": "u", "payload": {"dispatch": d}}   # noqa: E731
+    view = catalog_activity.build([ev("not_required"), ev("queued")], {})
+    k = {x["key"]: x for x in view["kpis"]}
+    assert k["notificaciones"]["value"] == 1 and "no requeridas" in k["notificaciones"]["hint"]

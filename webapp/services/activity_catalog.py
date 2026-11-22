@@ -349,7 +349,7 @@ _SPECS: tuple[EventSpec, ...] = (
     _spec("governed_update.opportunity_shown", KIND_NAVIGATION, SCOPE_COPILOT, AREA_CATALOG, "Actualización gobernada — oportunidad mostrada",
           ("client", "model", "result_id", "vigente_level", "candidato_level", "contracts_changed", "space")),
     _spec("governed_update.requested", KIND_ACTION, SCOPE_COPILOT, AREA_CATALOG, "Actualización gobernada — solicitud",
-          ("request_id", "client", "model", "result_id", "space", "created", "vigente_level", "candidato_level", "provenance")),
+          ("request_id", "client", "model", "result_id", "space", "created", "vigente_level", "candidato_level", "provenance", "requester_role")),
     _spec("governed_update.notified", KIND_OUTCOME, SCOPE_COPILOT, AREA_CATALOG, "Actualización gobernada — notificación",
           ("request_id", "client", "model", "dispatch")),
     _spec("governed_update.reviewed", KIND_ACTION, SCOPE_COPILOT, AREA_CATALOG, "Actualización gobernada — revisión",

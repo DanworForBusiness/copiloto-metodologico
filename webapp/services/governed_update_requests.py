@@ -209,7 +209,7 @@ def _judgment_brief(j: dict | None) -> dict:
 
 
 def create(*, client_dir: str, client_display: str, terminal_am: str, space: str | None, result_id: str, candidate_judgment: dict | None,
-           candidate_profile: dict | None, requested_by: str) -> tuple[dict, bool]:
+           candidate_profile: dict | None, requested_by: str, requested_by_role: str | None = None) -> tuple[dict, bool]:
     """Registra la solicitud (o devuelve la abierta vigente). ``(registro, creada)``. ``NoOpportunity`` si no hay diferencia relevante.
     La oportunidad se RECALCULA en el servidor con el sobre de ahora (nunca se confía en lo que mandó el navegador)."""
     _ensure_restored()                                                     # nunca sobre un registro incompleto: sin restauración completa no se crea
@@ -232,7 +232,7 @@ def create(*, client_dir: str, client_display: str, terminal_am: str, space: str
         rec = {
             "schema": SCHEMA, "request_id": rid, "status": OPEN,
             "client_dir": client_dir, "client": client_display or client_dir, "terminal_am": terminal_am,
-            "requested_by": (requested_by or "").strip().lower(), "requested_at": _now(),
+            "requested_by": (requested_by or "").strip().lower(), "requested_by_role": requested_by_role, "requested_at": _now(),
             "source": {"result_id": result_id, "space": (space or "").strip() or None, "judgment": _judgment_brief(opp["candidato"]),
                        "source_contracts": opp["source_contracts"]["candidato"],
                        # huella de la evidencia del ad hoc (identidad + equivalencia metodológica), desde el perfil canónico; PR-2 la compara con la

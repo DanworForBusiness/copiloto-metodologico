@@ -107,16 +107,24 @@ def request_update(request: Request, result_id: str = Form(""), stem: str = Form
     try:
         rec, created = gur.create(client_dir=str(record.get("client_dir") or status.client), client_display=str(record.get("client_display") or status.client),
                                   terminal_am=str(status.terminal_am), space=record.get("space"), result_id=result_id,
-                                  candidate_judgment=status.judgment, candidate_profile=profile, requested_by=dsa.owner_email(request))
+                                  candidate_judgment=status.judgment, candidate_profile=profile, requested_by=dsa.owner_email(request),
+                                  requested_by_role=gur.approver_role(user))
     except gur.NoOpportunity:
         raise HTTPException(409, "Ya no hay una diferencia relevante con el Assessment gobernado: no se registró ninguna solicitud.")
     _activity("governed_update.requested", user, request_id=rec["request_id"], client=rec["client_dir"], model=rec["terminal_am"],
               result_id=result_id, space=(rec.get("source") or {}).get("space"), created=created,
               vigente_level=((rec.get("governed") or {}).get("judgment") or {}).get("level") or "ND",
               candidato_level=((rec.get("source") or {}).get("judgment") or {}).get("level") or "ND",
-              provenance=(rec.get("provenance") or {}).get("status"))
+              provenance=(rec.get("provenance") or {}).get("status"), requester_role=gur.approver_role(user) or "REQUESTER")
     if created:
-        _notify(rec, request, user)
+        if gur.approver_role(user):
+            # Quien solicita YA puede aprobar (APP_OWNER / CONTENT_OWNER): va directo a la revisión; no se envía a sí mismo un correo de solicitud. La decisión
+            # queda auditada igual (registro + evento `notified` con dispatch=not_required); las validaciones técnicas y de permisos no cambian.
+            gur.record_notification(rec, NOT_REQUIRED)
+            _activity("governed_update.notified", user, request_id=rec["request_id"], client=rec["client_dir"], model=rec["terminal_am"],
+                      dispatch=NOT_REQUIRED)
+        else:
+            _notify(rec, request, user)
     return RedirectResponse(f"{BASE}/{rec['request_id']}?" + urlencode({"pack": resolve_pack(pack)}), status_code=303)
 
 
@@ -152,6 +160,7 @@ NOTIFICATION_STATES = {
     "uncertain": ("Incierta", "parcial", True, "No se sabe si salió; no se reenvía automáticamente para no duplicar."),
     "failed": ("Fallida", "parcial", True, "No se pudo enviar. La solicitud sigue registrada."),
     "disabled": ("Notificaciones apagadas", "neutra", True, "En este entorno no se envían correos. La solicitud sigue registrada."),
+    "not_required": ("No requerida", "neutra", True, "Quien solicitó puede aprobar: no se envió correo de solicitud a Arquitectura."),
     "error": ("No se pudo emitir", "parcial", True, "La solicitud sigue registrada."),
     "unknown": ("Sin dato", "neutra", True, ""),
 }
@@ -161,6 +170,7 @@ PREVIEW_STAGE = {
 }
 
 
+NOT_REQUIRED = "not_required"            # quien solicitó puede aprobar: no se envía correo de solicitud (decisión auditada)
 NOTIFICATION_POLL_MAX_S = 600            # el refresco del estado del correo se detiene en un estado terminal o a los 10 min de la solicitud
 
 
@@ -176,7 +186,7 @@ def _notification_view(rec: dict, delivery: dict | None) -> dict:
     n = rec.get("notification") or {}
     if not n:
         state = "pending"
-    elif n.get("dispatch") in ("disabled", "error"):
+    elif n.get("dispatch") in ("disabled", "error", "not_required"):
         state = n["dispatch"]
     else:
         state = (delivery or {}).get("state") or "pending"

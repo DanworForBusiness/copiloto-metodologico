@@ -138,7 +138,7 @@ def build(events: list[dict], params: Mapping[str, str], *, pack: str = "") -> d
     ended = {r["run_id"] for r in ends if r["run_id"]}
     end_outcomes = Counter(r["outcome"] or "unknown" for r in ends)
     notified = [r for r in rows if r["event"] == "governed_update.notified"]
-    not_sent = [r for r in notified if r["detail"] in ("disabled", "error", "")]           # intención sin envío: NO cuenta como emitida
+    not_sent = [r for r in notified if r["detail"] in ("disabled", "error", "not_required", "")]           # intención sin envío: NO cuenta como emitida
     kpis = [
         {"key": "consultas", "label": "Consultas de modelos", "value": len(consult),
          "hint": " · ".join(f"{OP_LABEL[o]} {n}" for o, n in sorted(Counter(r['op'] for r in consult).items()) if o in OP_LABEL)},
@@ -149,7 +149,7 @@ def build(events: list[dict], params: Mapping[str, str], *, pack: str = "") -> d
         {"key": "solicitudes", "label": "Solicitudes registradas", "value": sum(1 for r in rows if r["event"] == "governed_update.requested" and r["detail"].startswith("nueva")),
          "hint": f"reintentos sobre una existente {sum(1 for r in rows if r['event'] == 'governed_update.requested' and not r['detail'].startswith('nueva'))}"},
         {"key": "notificaciones", "label": "Notificaciones emitidas", "value": len(notified) - len(not_sent),
-         "hint": f"no emitidas (apagadas o con error) {len(not_sent)}" if not_sent else "entrega: ver el estado en la solicitud"},
+         "hint": f"no emitidas (no requeridas, apagadas o con error) {len(not_sent)}" if not_sent else "entrega: ver el estado en la solicitud"},
         {"key": "revisiones", "label": "Revisiones", "value": by_event["governed_update.reviewed"], "hint": f"dry-runs {by_event['governed_update.dry_run']}"},
         {"key": "aprobaciones", "label": "Aprobaciones", "value": by_event["governed_update.approved"],
          "hint": f"rechazadas antes de ejecutar {by_event['governed_update.rejected']}"},
