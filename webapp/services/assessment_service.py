@@ -1330,6 +1330,31 @@ def _without_harmonization(profile: dict | None) -> dict | None:
     return out
 
 
+SOURCE_APPLICATION_API_MIGRATION = "evidence_source_application_api_v6"
+
+
+def _without_source_application_api(profile: dict | None) -> dict | None:
+    """Perfil sin lo UNICO que ``evidence_source_application_api_v6`` puede cambiar: (a) ``canonical_evidence.version``, ``versions.canonical_evidence``, la seccion ``source_contract_classes``
+    (clase / base / ``connection_type`` de las hojas reconocidas como contrato de API de aplicacion SAP) y su referencia en ``published_field_lineage.fields[*].frontier_leaves``; y (b) la revision
+    ``LAYER_BOUNDARY_REVIEW`` y lo derivado de ella, porque reconocer la fuente como contrato SAP GOBERNADO la SUPRIME (fuente gobernada ⇒ no se pide una frontera de armonizacion intermedia; MISMA
+    exencion que ``signals_layer_boundary_v4``, via el conjunto compartido ``GOVERNED_CONTRACT_CLASSES``). Todo lo demas (cobertura, cierre, OTRAS revisiones/observaciones, el resto de la confianza)
+    debe quedar IDENTICO; cualquier otra diferencia => ``NON_SOURCE_APPLICATION_API_CONTENT_CHANGED``. (``versions.signals`` NO cambia: el stripeo compartido lo quita de ambos lados sin efecto.)"""
+    out = _without_layer_boundary(profile)      # cascada legitima del reconocimiento SOURCE gobernado sobre LAYER_BOUNDARY_REVIEW
+    if out is None:
+        return None
+    ce = out.get("canonical_evidence")
+    if isinstance(ce, dict):
+        ce.pop("source_contract_classes", None)
+        ce.pop("version", None)
+        pfl = ce.get("published_field_lineage")
+        if isinstance(pfl, dict):
+            for f in (pfl.get("fields") or ()):
+                if isinstance(f, dict):
+                    f.pop("frontier_leaves", None)
+    (out.get("versions") or {}).pop("canonical_evidence", None)
+    return out
+
+
 LAYER_BOUNDARY_MIGRATION = "signals_layer_boundary_v4"
 _LAYER_BOUNDARY_ID = "LAYER_BOUNDARY_REVIEW"
 _LAYER_BOUNDARY_SURFACE = "rule.layer_boundary_review"
@@ -1424,6 +1449,8 @@ def migration_postcheck(name: str, doc: dict, previous: dict | None, versions: d
             raise EnrichmentError("NON_MATERIALIZATION_CONTENT_CHANGED")  # mismo Assessment metodologico: solo version + seccion nueva pueden diferir
         if name == HARMONIZATION_MIGRATION and _without_harmonization(doc) != _without_harmonization((previous or {}).get("profile_json")):
             raise EnrichmentError("NON_HARMONIZATION_CONTENT_CHANGED")   # solo el contrato de Armonizacion (y su resumen) puede cambiar
+        if name == SOURCE_APPLICATION_API_MIGRATION and _without_source_application_api(doc) != _without_source_application_api((previous or {}).get("profile_json")):
+            raise EnrichmentError("NON_SOURCE_APPLICATION_API_CONTENT_CHANGED")   # solo la clase de contrato de fuente SAPSF (y su referencia en el linaje publicado) puede cambiar
         if name == LAYER_BOUNDARY_MIGRATION:
             _check_layer_boundary_delta(doc, (previous or {}).get("profile_json"))      # solo la revision LAYER_BOUNDARY_REVIEW (y lo derivado de ella) puede diferir; la confianza no cambia de nivel
         return
@@ -1540,6 +1567,7 @@ def classify_judgment_revalidation(env: dict) -> tuple[str, dict | None]:
 
 
 JUDGMENT_REVALIDATING_MIGRATIONS = frozenset({MATERIALIZATION_MIGRATION, LAYER_BOUNDARY_MIGRATION})      # migraciones que NO recalifican: revalidan el Juicio (misma metodologia, nueva firma de perfil)
+JUDGMENT_REDERIVING_MIGRATIONS = frozenset({HARMONIZATION_MIGRATION, SOURCE_APPLICATION_API_MIGRATION})  # migraciones de canonical_evidence que RE-DERIVAN el Juicio (pueden cambiar nivel) con replay de ratificaciones; mismo hook
 
 
 def _materialization_envelope_hook(doc: dict, previous: dict | None) -> tuple[dict, dict]:
@@ -1593,7 +1621,7 @@ def regenerate_stale_evidence(entry: Any, migration: str) -> RegeneratedAssessme
 
     return _regenerate_core(entry, precondition=precondition, log_label=f"migración {migration}", postcheck=postcheck,
                             envelope_hook=(_materialization_envelope_hook if migration in JUDGMENT_REVALIDATING_MIGRATIONS
-                                           else _harmonization_envelope_hook if migration == HARMONIZATION_MIGRATION else None))
+                                           else _harmonization_envelope_hook if migration in JUDGMENT_REDERIVING_MIGRATIONS else None))
 
 
 def regenerate_current_evidence(entry: Any, snapshot: Any = None) -> RegeneratedAssessment:
