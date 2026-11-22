@@ -324,3 +324,67 @@ def test_review_shows_eligibility_and_never_presents_the_adhoc_level_as_governed
     html = _client("owner@danwor.com").get(f"/copilot/governed-updates/{rec['request_id']}").text
     assert 'data-gu-eligibility="NOT_ELIGIBLE"' in html and "falta calcular el dry-run gobernado" in html
     assert "Evaluación ad hoc" in html and "la propuesta real la define el dry-run gobernado" in html
+
+
+# ── ventana de restauración tras un redeploy ────────────────────────────────────────────────────────────────────────────────────────────────
+@pytest.fixture
+def restoring(monkeypatch):
+    """Persistencia remota habilitada y una restauración de arranque cuyo estado controla el test (sin Spaces real)."""
+    from core import remote_store
+    state = {"reason": "restore en curso", "waited": []}
+    monkeypatch.setattr(remote_store, "enabled", lambda: True)
+    monkeypatch.setattr(remote_store, "await_restore", lambda timeout: state["waited"].append(timeout) or "in_progress")
+    monkeypatch.setattr(remote_store, "sync_blocked_reason", lambda: state["reason"])
+    monkeypatch.setattr(remote_store, "write_through", lambda path, data, **kw: (Path(path).write_text(data, encoding="utf-8"), "local")[1])
+    return state
+
+
+from pathlib import Path  # noqa: E402
+
+
+@pytest.mark.parametrize("reason", ["restore en curso", "el restore falló", "el restore quedó incompleto (fallos de listado o descarga)"])
+def test_no_read_or_create_on_an_incomplete_registry(world, restoring, reason):
+    restoring["reason"] = reason
+    with pytest.raises(gur.RegistryUnavailable):
+        _create()
+    with pytest.raises(gur.RegistryUnavailable):
+        gur.load("a" * 32)
+    with pytest.raises(gur.RegistryUnavailable):
+        gur.find_open("Contreras", "AM_Workforce")
+    assert restoring["waited"] and restoring["waited"][0] == gur.RESTORE_WAIT_S          # reutiliza await_restore con espera acotada
+    assert not list(config.governed_update_requests_dir().glob("*/*/*.json"))
+
+
+def test_an_existing_request_restored_late_is_not_duplicated(world, restoring):
+    restoring["reason"] = None                                                          # registro completo: se crea la primera
+    first, created = _create()
+    assert created
+    restoring["reason"] = "restore en curso"                                            # redeploy: el registro vuelve a estar en restauración
+    with pytest.raises(gur.RegistryUnavailable):
+        _create(requested_by="otro@danwor.com")                                        # NO se crea otra sobre un estado parcial
+    restoring["reason"] = None                                                          # restauración terminada: se reutiliza la existente
+    again, created_again = _create(requested_by="otro@danwor.com")
+    assert not created_again and again["request_id"] == first["request_id"]
+    assert len(list(config.governed_update_requests_dir().glob("*/*/*.json"))) == 1
+
+
+def test_routes_answer_503_retry_after_while_the_registry_is_restoring(routes, restoring):
+    restoring["reason"] = None
+    rec, _ = _create()
+    restoring["reason"] = "restore en curso"
+    for method, url in (("get", f"/copilot/governed-updates/{rec['request_id']}"), ("post", "/copilot/governed-updates/request"),
+                        ("post", f"/copilot/governed-updates/{rec['request_id']}/preview")):
+        kw = {"headers": ORIGIN, "follow_redirects": False}
+        if url.endswith("/request"):
+            kw["data"] = {"result_id": RID, "stem": STEM}
+        r = getattr(_client("owner@danwor.com" if "preview" in url or method == "get" else "consultor@danwor.com"), method)(url, **kw)
+        assert r.status_code == 503 and r.headers["Retry-After"] == str(gur.RETRY_AFTER_S) and "Reintentá" in r.text, url
+    assert not [e for e, _ in routes if e == "governed_update.requested"]                 # nada registrado mientras restaura
+
+
+def test_without_remote_persistence_there_is_nothing_to_wait_for(world, monkeypatch):
+    from core import remote_store
+    monkeypatch.setattr(remote_store, "enabled", lambda: False)
+    monkeypatch.setattr(remote_store, "await_restore", lambda timeout: (_ for _ in ()).throw(AssertionError("no debe esperar")))
+    rec, created = _create()
+    assert created and gur.load(rec["request_id"])["request_id"] == rec["request_id"]

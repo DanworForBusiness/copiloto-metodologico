@@ -68,6 +68,31 @@ class NoOpportunity(Exception):
     """No hay diferencia relevante con el Assessment gobernado (o no hay sobre): no se registra nada."""
 
 
+class RegistryUnavailable(Exception):
+    """El registro todavía no es una copia fiel del durable (restauración desde Spaces en curso, fallida o incompleta tras un redeploy): no se lee ni
+    se crea nada sobre un estado parcial (una solicitud ya existente no se vería y se DUPLICARÍA). La web responde 503 + Retry-After."""
+
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
+
+
+RESTORE_WAIT_S = 15.0
+RETRY_AFTER_S = 30
+
+
+def _ensure_restored() -> None:
+    """Toda lectura o creación del registro espera a que termine la restauración de arranque (``remote_store.await_restore``, mismo mecanismo que los
+    demás repositorios del Hub) y, a diferencia de ellos, NO sigue sobre un estado incompleto: si no terminó, falló o quedó degradada,
+    ``RegistryUnavailable``. Sin persistencia remota (local) no hay nada que esperar."""
+    if not remote_store.enabled():
+        return
+    remote_store.await_restore(timeout=RESTORE_WAIT_S)
+    reason = remote_store.sync_blocked_reason()
+    if reason is not None:
+        raise RegistryUnavailable(reason)
+
+
 # ── almacenamiento ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 def _dir() -> Path:
     return config.governed_update_requests_dir()
@@ -102,6 +127,7 @@ def _read(path: Path) -> dict | None:
 def load(request_id: str) -> dict | None:
     if not _RID_RE.match(request_id or ""):
         return None
+    _ensure_restored()
     root = _dir()
     if not root.is_dir():
         return None
@@ -111,6 +137,7 @@ def load(request_id: str) -> dict | None:
 
 
 def _requests_for(client_dir: str, am: str) -> list[dict]:
+    _ensure_restored()
     folder = _dir() / _safe(client_dir) / _safe(am)
     out = [r for r in (_read(p) for p in folder.glob("*.json")) if r] if folder.is_dir() else []
     return sorted(out, key=lambda r: r.get("requested_at") or "", reverse=True)
@@ -184,6 +211,7 @@ def create(*, client_dir: str, client_display: str, terminal_am: str, space: str
            candidate_profile: dict | None, requested_by: str) -> tuple[dict, bool]:
     """Registra la solicitud (o devuelve la abierta vigente). ``(registro, creada)``. ``NoOpportunity`` si no hay diferencia relevante.
     La oportunidad se RECALCULA en el servidor con el sobre de ahora (nunca se confía en lo que mandó el navegador)."""
+    _ensure_restored()                                                     # nunca sobre un registro incompleto: sin restauración completa no se crea
     opp = svc.governed_update_opportunity(client_dir, terminal_am, candidate_judgment, candidate_profile, space)
     if not opp:
         raise NoOpportunity()
@@ -344,11 +372,15 @@ def start_preview(rec: dict, user: dict, role: str, *, run: Any = None, on_done:
                 log.warning("governed_update preview failed request=%s exc=%s", rid, type(exc).__name__)
                 result = {"computed_at": _now(), "state": PREVIEW_FAILED, "failures": [type(exc).__name__], "zero_writes": None}
             result.update(by=user_email(user), role=role, duration_s=round(time.time() - t0, 1))
-            with _lock:
-                fresh = load(rid) or rec
-                fresh["preview"] = result
-                fresh["previews"] = ([result] + list(fresh.get("previews") or []))[:PREVIEW_HISTORY]
-                _write(fresh)
+            try:
+                with _lock:
+                    fresh = load(rid) or rec
+                    fresh["preview"] = result
+                    fresh["previews"] = ([result] + list(fresh.get("previews") or []))[:PREVIEW_HISTORY]
+                    _write(fresh)
+            except RegistryUnavailable as exc:                             # no se escribe sobre un registro incompleto; el dry-run se puede recalcular
+                log.warning("governed_update preview not stored request=%s reason=%s", rid, exc.reason)
+                return
             if on_done:
                 on_done(fresh, result)
         finally:

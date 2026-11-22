@@ -37,6 +37,14 @@ log = logging.getLogger(__name__)
 BASE = gur.BASE_PATH
 
 
+def registry_unavailable_response(exc: gur.RegistryUnavailable):
+    """Respuesta CONTROLADA mientras el registro no está restaurado (tras un redeploy): 503 + Retry-After; el usuario reintenta en unos segundos."""
+    from fastapi.responses import PlainTextResponse
+    log.warning("governed_update registry unavailable reason=%s", exc.reason)
+    return PlainTextResponse("El registro de solicitudes se está restaurando después de una actualización del Hub. Reintentá en unos segundos.",
+                             status_code=503, headers={"Retry-After": str(gur.RETRY_AFTER_S)})
+
+
 def _user(request: Request) -> dict:
     user = auth_service.session_user(request)
     if not user:
