@@ -21,6 +21,7 @@ CONTRACT_CLASS_TEXT = {
     "GOVERNED_SAP_ODP_SAPI_CONTRACT": "Extractor ODP/SAPI gobernado",
     "SAP_STANDARD_VIEW_ON_PHYSICAL_TABLE": "Vista estándar SAP sobre tabla física",
     "PHYSICAL_ABAP_TABLE_BOUNDARY": "Tabla física ABAP",
+    "GOVERNED_SAP_APPLICATION_API": "API de aplicación SAP gobernada",
     "EXTERNAL_CONTRACT_UNDETERMINED": "Contrato externo no determinado",
     "MIXED_BOUNDARY_CLASSES": "Clases de contrato mixtas",
     "PLATFORM_PROVIDED": "Provisto por la plataforma",

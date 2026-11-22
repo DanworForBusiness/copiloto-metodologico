@@ -192,14 +192,29 @@
 {# ── Actualización inteligente (SOLO ad hoc): oportunidad de revisar el Assessment gobernado vigente cuando hay diferencia relevante. DETECTA y EXPLICA; NO persiste el perfil ad hoc.
    No intrusivo (tono «note»): es una propuesta de revisión, nunca una aprobación automática. La actualización efectiva se hace por el procedimiento gobernado. #}
 {% if v.update_opportunity %}{% set up = v.update_opportunity %}
+{# Tono «punch» (dorado = oportunidad/atención del Hub) en escala compacta; niveles como badges del Hub (`status_tone`). El CTA SOLO abre un diálogo
+   INFORMATIVO (`<dialog>` nativo; su único form es `method="dialog"`, que solo lo cierra: sin requests): no modifica sobres, no ejecuta backfill ni ninguna operación gobernada. #}
 <div class="methodology">
-{% call callout("note", "Oportunidad de actualización del Assessment gobernado", icon="↻") %}
-<p>Assessment vigente <strong>{{ up.vigente_level }}</strong> → candidato <strong>{{ up.candidato_level }}</strong>. {{ up.motive }}</p>
-{% if up.source_classes_changed %}<p class="catalog-note__ev">Contratos de fuente que cambian: {{ up.source_classes_changed | join(", ") }}.</p>{% endif %}
-{% if not up.provenance_validated %}<p class="catalog-note__ev">La procedencia (Space «{{ up.candidate_space or "—" }}» de esta ejecución frente al Assessment vigente) <strong>requiere validación</strong> antes de actualizar.</p>{% endif %}
-<p>Esta evaluación ad hoc <strong>no</strong> reemplaza el Assessment gobernado y no ejecuta ninguna migración: es una <strong>notificación</strong>. La actualización se realiza, si corresponde, por el procedimiento gobernado supervisado (dry-run → aprobación del lote → aplicación asegurada).</p>
-{% endcall %}
+<aside class="callout callout--punch asr-update-opp" data-asr-update-opportunity>
+  <div class="asr-update-opp__main">
+    <div class="callout__head"><span class="callout__icon" aria-hidden="true">↻</span><strong class="callout__title">Oportunidad de actualización del Assessment gobernado</strong></div>
+    <p class="asr-update-opp__levels"><span class="asr-update-opp__pair">Vigente <span class="catalog-card__verdict catalog-card__verdict--{{ up.vigente_tone }}" data-asr-opp-vigente>{{ up.vigente_label }}</span></span><span aria-hidden="true">→</span><span class="asr-update-opp__pair">Esta evaluación <span class="catalog-card__verdict catalog-card__verdict--{{ up.candidato_tone }}" data-asr-opp-candidato>{{ up.candidato_label }}</span></span></p>
+    <p class="asr-update-opp__ev">{% if up.motive %}{{ up.motive }} {% endif %}{% if up.source_classes_text %}Contrato de fuente que cambia: {{ up.source_classes_text | join(", ") }}.{% endif %}{% if not up.provenance_validated %} Procedencia por validar (Space «{{ up.candidate_space or "—" }}»).{% endif %}</p>
+  </div>
+  <button type="button" class="btn-primary asr-update-opp__cta" data-dialog-open="asr-update-dialog">Revisar actualización</button>
+</aside>
 </div>
+<dialog class="dw-confirm asr-update-dialog" id="asr-update-dialog" aria-labelledby="asr-update-dialog-title">
+  <form method="dialog">
+    <div class="dw-confirm__body">
+      <h2 class="dw-confirm__title" id="asr-update-dialog-title">Revisar actualización</h2>
+      <p class="asr-update-opp__levels"><span class="catalog-card__verdict catalog-card__verdict--{{ up.vigente_tone }}">{{ up.vigente_label }}</span><span aria-hidden="true">→</span><span class="catalog-card__verdict catalog-card__verdict--{{ up.candidato_tone }}">{{ up.candidato_label }}</span></p>
+      <p class="dw-confirm__msg">Esta evaluación ad hoc detecta una mejora respecto del Assessment gobernado vigente{% if up.source_classes_text %} ({{ up.source_classes_text | join(", ") }}){% endif %}. No lo reemplaza ni ejecuta ninguna migración.</p>
+      <p class="dw-confirm__msg">La actualización real sigue el procedimiento gobernado supervisado: dry-run del lote, aprobación explícita y aplicación asegurada con respaldo.{% if not up.provenance_validated %} Antes hay que validar la procedencia (Space «{{ up.candidate_space or "—" }}»).{% endif %}</p>
+    </div>
+    <div class="dw-confirm__actions"><button type="submit" value="close" class="btn-secondary">Entendido</button></div>
+  </form>
+</dialog>
 {% endif %}
 
 {# ── estados sin informe y avisos de estado ──
