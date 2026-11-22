@@ -852,6 +852,10 @@ tbody tr.is-selected:has(> td.hc-select-col) > td { background: rgba(231, 176, 8
 }
 .content-theme-dark .activity-kpi__value { color: #e4e4ec; }
 .activity-kpi__label { color: var(--kpi-accent, var(--gold)); font: 600 .62rem var(--mono); text-transform: uppercase; letter-spacing: .06em; }
+/* «Catálogos y Assessments» (Métricas de Uso): aclaración bajo el indicador (desglose del MISMO estado, nunca otro estado sumado) y filtros propios. */
+.activity-kpi__hint { display: block; margin-top: 4px; color: var(--soft); font-size: .7rem; line-height: 1.35; }
+.catalog-activity__filters label { display: flex; flex-direction: column; gap: 4px; font: 600 .62rem var(--mono); text-transform: uppercase; letter-spacing: .06em; }
+.catalog-activity__filters select { min-width: 160px; }
 /* Acento distinto por tile — paleta canónica de estados de catálogo (azul/verde/
    ámbar/naranja/dorado), para que se diferencien sin romper la identidad. Solo
    borde + label; el valor queda neutro por legibilidad. */

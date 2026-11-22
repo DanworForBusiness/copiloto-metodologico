@@ -331,7 +331,31 @@ _SPECS: tuple[EventSpec, ...] = (
     _spec("connectivity_catalog_publish", KIND_OUTCOME, SCOPE_COPILOT, AREA_CATALOG, "Conectividad — publicación al catálogo",
           ("error", "published", "durability") + _RUN),
     _spec("datasphere_assessment_run", KIND_OUTCOME, SCOPE_COPILOT, AREA_CATALOG, "Assessment de modelo — ejecución",
-          ("client", "space", "root_object", "stage") + _RUN),
+          ("client", "space", "root_object", "stage", "result_id", "level", "judgment_status", "run_id") + _RUN),
+    # Inicio del Assessment ad hoc: junto con `datasphere_assessment_run` (fin) reconstruye la corrida por `operation_id`, incluso si falla o se
+    # interrumpe (un inicio sin fin = interrumpida). La correlación es `run_id` (registro de operaciones).
+    _spec("datasphere_assessment_run_started", KIND_ACTION, SCOPE_COPILOT, AREA_CATALOG, "Assessment de modelo — inicio",
+          ("client", "space", "root_object", "run_id")),
+    # Consulta SIGNIFICATIVA de un modelo desde Herramientas de Decisión (Catálogo), registrada en el SERVIDOR con identidad cliente + modelo
+    # (la `section_view` del cliente no la trae). Deduplicada por usuario/modelo/vista: un render parcial o un refresh no cuentan como otra consulta.
+    _spec("catalog_model_viewed", KIND_NAVIGATION, SCOPE_COPILOT, AREA_CATALOG, "Catálogo — consulta de modelo",
+          ("client", "model", "view", "flow")),
+    _spec("catalog_client_assessment_regenerate", KIND_ACTION, SCOPE_COPILOT, AREA_CATALOG, "Catálogo — regenerar Assessments del cliente",
+          ("flow", "client", "outcome", "total", "operation_id")),
+    _spec("assessment_regenerated", KIND_OUTCOME, SCOPE_COPILOT, AREA_CATALOG, "Assessment gobernado — regeneración por modelo",
+          ("client", "model", "result", "origin", "operation_id")),
+    # ── Actualización gobernada (Assessment ad hoc → gobernado). Estados DISTINTOS: mostrada ≠ solicitada ≠ notificada ≠ revisada (PR-1);
+    # aprobada/rechazada/ejecutada llegan con PR-2. El registro AUTORITATIVO es `governed_update_requests` (`request_id`); acá solo identificadores.
+    _spec("governed_update.opportunity_shown", KIND_NAVIGATION, SCOPE_COPILOT, AREA_CATALOG, "Actualización gobernada — oportunidad mostrada",
+          ("client", "model", "result_id", "vigente_level", "candidato_level", "contracts_changed", "space")),
+    _spec("governed_update.requested", KIND_ACTION, SCOPE_COPILOT, AREA_CATALOG, "Actualización gobernada — solicitud",
+          ("request_id", "client", "model", "result_id", "space", "created", "vigente_level", "candidato_level", "provenance")),
+    _spec("governed_update.notified", KIND_OUTCOME, SCOPE_COPILOT, AREA_CATALOG, "Actualización gobernada — notificación",
+          ("request_id", "client", "model", "dispatch")),
+    _spec("governed_update.reviewed", KIND_ACTION, SCOPE_COPILOT, AREA_CATALOG, "Actualización gobernada — revisión",
+          ("request_id", "client", "model", "role", "status", "provenance")),
+    _spec("governed_update.dry_run", KIND_OUTCOME, SCOPE_COPILOT, AREA_CATALOG, "Actualización gobernada — dry-run",
+          ("request_id", "client", "model", "role", "state", "path", "plan_digest", "projected_level", "abstentions", "zero_writes", "duration_s")),
     _spec("datasphere_assessment_refresh_catalog", KIND_OUTCOME, SCOPE_COPILOT, AREA_CATALOG,
           "Assessment de modelo — refresco de catálogo", _RUN),
     _spec("datasphere_publication_run", KIND_OUTCOME, SCOPE_COPILOT, AREA_CATALOG, "Publicación de modelo",

@@ -25,6 +25,7 @@ from core.content_registry import (
 )
 from core import publication_gate, remote_store
 from core.utils import slugify
+from webapp.services import catalog_activity, catalog_model_activity
 from webapp.services import auth_service
 from webapp.services import catalog_reads
 from webapp.services import odoo_client  # pool de conexiones de proceso (cierre en lifespan)
@@ -490,7 +491,8 @@ def _activity_dashboard_context(
         params, summary=summary, visible_verticals=allowed_scopes, allowed_areas=allowed_areas,
         log_dir=activity_analytics.ACTIVITY_LOG_DIR, today=today,
     )
-    return {"summary": summary, "dash": dash, "date_from": legacy["date_from"], "date_to": legacy["date_to"]}
+    catalog = catalog_activity.build(summary.get("catalog_events") or [], qp, pack=DEFAULT_PACK)       # «Catálogos y Assessments»
+    return {"summary": summary, "dash": dash, "catalog": catalog, "date_from": legacy["date_from"], "date_to": legacy["date_to"]}
 
 
 @app.get("/admin/activity", response_class=HTMLResponse, include_in_schema=False)
@@ -3196,6 +3198,9 @@ def catalog_flow(request: Request, cliente: str = "", dominio: str = "", flow: s
                    "focus_missing": focus_state.get("missing", focus_names),
                    "assessment_url": assessment_presenter.assessment_url(entry, selected),
                    "clear_focus_url": assessment_presenter.flow_url(entry, selected)}
+    # Consulta significativa del modelo (Métricas de Uso → Catálogos y Assessments): deduplicada en el servidor; «Ver en linaje» (foco) o el
+    # bloque del diagrama cuentan como vista de LINAJE, la apertura del flujo como vista del MODELO.
+    catalog_model_activity.log_model_viewed(user, entry, "lineage" if (frag == "lineage" or focus_names) else "model")
     if frag == "lineage":   # solo el bloque del diagrama (toggle Asociaciones)
         return templates.TemplateResponse(request=request, name="partials/catalog_lineage.html",
                                           context=lineage_ctx)
