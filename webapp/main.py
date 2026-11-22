@@ -70,6 +70,7 @@ from webapp.routers import commercial as commercial_router
 from webapp.routers import human_capital as human_capital_router
 from webapp.routers import catalog_assessment as catalog_assessment_router
 from webapp.routers import datasphere_assessment as datasphere_assessment_router
+from webapp.routers import governed_updates as governed_updates_router
 from webapp.routers import datasphere_publication as datasphere_publication_router
 from webapp.routers import copilot_operations as copilot_operations_router
 from webapp.routers import connectivity_inventory as connectivity_inventory_router
@@ -328,6 +329,7 @@ app.include_router(commercial_strategy_router.router)
 app.include_router(commercial_presentations_router.router)
 app.include_router(catalog_assessment_router.router)
 app.include_router(datasphere_assessment_router.router)
+app.include_router(governed_updates_router.router)
 app.include_router(datasphere_publication_router.router)
 app.include_router(copilot_operations_router.router)
 app.include_router(connectivity_inventory_router.router)

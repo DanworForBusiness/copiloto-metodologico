@@ -1,0 +1,37 @@
+{#- Estado del dry-run gobernado (SOLO LECTURA) de una solicitud. Mientras corre, se refresca solo (HTMX). El botón lo ve solo APP_OWNER / CONTENT_OWNER
+    y solo calcula el plan: no aprueba ni escribe. -#}
+{% set p = g.preview %}
+<div data-gu-preview{% if g.preview_running %} hx-get="{{ g.base }}/preview?pack={{ g.pack | urlencode }}" hx-trigger="every 3s" hx-swap="outerHTML" hx-select="[data-gu-preview]"{% endif %}>
+  {% if g.preview_running %}
+  <div class="section-analysis-loading" role="status"><span class="section-analysis-spinner"></span><span class="section-analysis-loading-copy">Calculando el dry-run gobernado (solo lectura)…</span></div>
+  {% elif p %}
+  <dl class="gu-facts" data-gu-preview-state="{{ p.state }}">
+    <dt>Resultado</dt>
+    <dd>{% if p.state == "READY" %}El procedimiento gobernado actualizaría este Assessment{% if g.preview_to %}: nivel proyectado <span class="catalog-card__verdict catalog-card__verdict--{{ g.preview_to.tone }}" data-gu-projected>{{ g.preview_to.label }}</span>{% endif %}.
+        {% elif p.state == "NO_CHANGE" %}El procedimiento gobernado no produce cambios sobre el Assessment vigente.
+        {% elif p.state == "ABSTAINED" %}El procedimiento gobernado se abstendría: {{ p.abstentions | join(", ") }}.
+        {% elif p.state == "OBSOLETE" %}La solicitud quedó obsoleta: el Assessment gobernado cambió.
+        {% elif p.state == "ENTRY_NOT_FOUND" %}No se encontró este modelo en el Catálogo publicado del cliente.
+        {% else %}No se pudo calcular{% if p.failures %} ({{ p.failures | join(", ") }}){% endif %}.{% endif %}</dd>
+    {% if p.path %}<dt>Vía</dt><dd>{{ p.path }}</dd>{% endif %}
+    {% if p.plan_digest %}<dt>Digest del plan</dt><dd><code data-gu-digest>{{ p.plan_digest }}</code></dd>{% endif %}
+    <dt>Escrituras</dt><dd>{% if p.zero_writes %}Ninguna: el Assessment gobernado quedó intacto (verificado por bytes).{% elif p.zero_writes is none %}Sin verificación.{% else %}El Assessment gobernado cambió durante el cálculo: revisá la solicitud.{% endif %}</dd>
+    <dt>Calculado</dt><dd>{{ (p.computed_at or "").replace("T", " ").replace("+00:00", " UTC") }}{% if p.by %} · {{ p.by }}{% endif %}{% if p.duration_s is not none %} · {{ p.duration_s }} s{% endif %}</dd>
+  </dl>
+  {% else %}
+  <p class="gu-note">Todavía no se calculó.</p>
+  {% endif %}
+  {% if not g.preview_running %}
+  <dl class="gu-facts" data-gu-eligibility="{{ g.eligibility.state }}">
+    <dt>Elegibilidad para aprobación</dt>
+    <dd>{% if g.eligibility.state == "ELIGIBLE" %}Elegible: procedencia verificada y plan gobernado vigente. La aprobación todavía no está disponible en el Hub.{% else %}No elegible: {{ g.eligibility.reasons | join("; ") }}.{% endif %}</dd>
+  </dl>
+  {% endif %}
+  {% if g.can_preview and not g.preview_running %}
+  <form method="post" action="{{ g.base }}/preview" class="gu-actions">
+    <input type="hidden" name="pack" value="{{ g.pack }}">
+    <button type="submit" class="btn-secondary" data-gu-preview-submit>{% if p %}Recalcular dry-run{% else %}Calcular dry-run{% endif %}</button>
+    <span class="gu-note">Solo lectura: no aprueba ni modifica el Assessment gobernado.</span>
+  </form>
+  {% endif %}
+</div>

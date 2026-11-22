@@ -49,6 +49,20 @@ def _isolate_notifications(tmp_path_factory, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_governed_update_requests_and_adhoc_cache(tmp_path_factory, monkeypatch):
+    """Ningún test escribe en el registro REAL de solicitudes de actualización gobernada, ni usa la caché ad hoc REAL: la primera vez que un
+    PROCESO usa el almacenamiento ad hoc (`datasphere_assessment_service._dirs`) BORRA sus resultados, y una corrida de pytest sobre la caché
+    por defecto del repo eliminaba los resultados que el owner estaba revisando en un servidor local. Los tests que la necesitan siguen
+    fijando su propia `config.ASSESSMENT_CACHE_DIR` (su monkeypatch gana sobre este)."""
+    import config
+
+    monkeypatch.setenv("DANWOR_GOVERNED_UPDATE_REQUESTS_DIR", str(tmp_path_factory.mktemp("governed-update-requests")))
+    cache = tmp_path_factory.mktemp("assessment-cache")
+    monkeypatch.setenv("DANWOR_ASSESSMENT_CACHE_DIR", str(cache))                 # el override declarado (mismo contrato que en producción)
+    monkeypatch.setattr(config, "ASSESSMENT_CACHE_DIR", cache, raising=False)
+
+
+@pytest.fixture(autouse=True)
 def _isolate_remote_store_persistence(tmp_path_factory, monkeypatch):
     """MISMO criterio que `_isolate_runtime_logs` arriba — Integral Cold
     Start Fase 1 (ver HANDOFF, reporting_time_logs_durable.py): un test que

@@ -3297,6 +3297,16 @@ details:not([open]) > summary > .panel-close[data-asr-close] { display: none; }
 .asr-update-dialog__facts { margin: 12px 0 0; font-size: .82rem; line-height: 1.5; }
 .asr-update-dialog__facts dt { margin-top: 8px; font-weight: 650; }
 .asr-update-dialog__facts dd { margin: 2px 0 0; color: var(--content-ink-soft); }
+/* Revisión de una solicitud de actualización gobernada (governed_update_request.html): mismos tokens que el informe; sin colores literales. */
+.gu-body { margin-top: 32px; }
+.gu-h2 { margin: 28px 0 10px; font-size: 1.05rem; }
+.gu-levels { display: flex; margin: 0 0 12px; font-size: .9rem; }
+.gu-facts { margin: 0; font-size: .85rem; line-height: 1.55; }
+.gu-facts dt { margin-top: 10px; font-weight: 650; color: var(--content-ink); }
+.gu-facts dd { margin: 2px 0 0; color: var(--content-ink-soft); }
+.gu-note { margin: 12px 0 0; color: var(--content-ink-soft); font-size: .8rem; }
+.gu-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 14px; }
+.gu-reviews { margin: 0; padding-left: 18px; color: var(--content-ink-soft); font-size: .82rem; }
 /* Metadatos contextuales del hero de Operaciones → Asignaciones / Carga de Horas: MISMA separación compacta que el hero de Assessment (12px). */
 .module-hero > [data-opsb-hero-meta] { margin-top: 12px; }
 
