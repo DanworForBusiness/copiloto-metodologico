@@ -1342,6 +1342,14 @@ button.star-rating__star:focus-visible { outline: 2px solid var(--gold); outline
 .dw-inline-form { display: contents; }
 /* Acción que se alinea a la DERECHA dentro de una botonera `.admin-actions` (p. ej. "Eliminar" de Assessments recientes). */
 .admin-actions__end { margin-left: auto; }
+/* «Assessments recientes» (Herramientas de Diagnóstico): la fila necesita 316px con el gap de 10px y el padding estándar, así que en el ancho habitual del panel
+   el ícono de eliminar bajaba de línea con espacio todavía libre. Con una container query sobre la TARJETA se achican primero el gap y el padding horizontal de
+   los dos botones (los íconos conservan sus 28×28) y recién por debajo de ~290px se permite el salto. Alcance: solo esta tarjeta; `.admin-actions` no cambia. */
+[data-dsa-recent-item] { container-type: inline-size; }
+@container (max-width: 340px) {
+  [data-dsa-recent-item] .admin-actions { gap: 4px; }
+  [data-dsa-recent-item] .admin-actions .btn-secondary { padding-left: 6px; padding-right: 6px; }
+}
 
 /* Badge de estado — misma forma que .catalog-card__verdict (borde +
    padding chico + mayúsculas), colores propios y restringidos a 3 (verde/
@@ -2461,9 +2469,15 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 /* Landing inmersivo (módulo 00): cuando hay banner adentro, el stage pasa a columna
    flex y el iframe llena el resto. Vía :has() → no cambia la clase base (academy-stage
    queda intacta para el resto/los tests); solo aplica si contiene el banner. */
-.academy-stage:has(> .whatsnew-banner) { display: flex; flex-direction: column; }
+.academy-stage:has(> .whatsnew-banner),
+.academy-stage:has(> .copilot-ops:not([hidden])) { display: flex; flex-direction: column; }
 .academy-stage > .whatsnew-banner { flex: none; margin: 12px 12px 0; }
-.academy-stage:has(> .whatsnew-banner) .academy-embed { flex: 1 1 auto; height: auto; min-height: 0; }
+/* Aviso de operaciones (`.copilot-ops`, p. ej. «Assessment en curso»): en el landing los banners van DENTRO de ese contenedor, no como hijos directos del stage,
+   así que la regla de arriba no los alcanzaba y quedaban pegados al borde del tile. Mismo inset que el banner de Novedades; sin margen inferior propio. */
+.academy-stage > .copilot-ops:not([hidden]) { flex: none; margin: 12px 12px 0; }
+.academy-stage > .copilot-ops > .whatsnew-banner:last-child { margin-bottom: 0; }
+.academy-stage:has(> .whatsnew-banner) .academy-embed,
+.academy-stage:has(> .copilot-ops:not([hidden])) .academy-embed { flex: 1 1 auto; height: auto; min-height: 0; }
 
 /* Página de Novedades: filtros (categoría/fecha) + colapsables por fecha + items.
    Colores explícitos por tema (no --ink, ilegible en claro); grises con alfa en bordes. */
@@ -3258,6 +3272,27 @@ details:not([open]) > summary > .panel-close[data-asr-close] { display: none; }
 .asr-subid { margin: 0 0 2px; }
 .asr-subid code { font: 600 .82rem var(--mono); color: var(--soft); overflow-wrap: anywhere; }
 .asr-hero .hero-meta { margin-top: 12px; }
+/* Oportunidad de actualización del Assessment gobernado (solo ad hoc): banner CONTEXTUAL arriba del informe que REUSA `.whatsnew-banner` (tono, borde, padding y ✕ de los
+   avisos del Hub); solo se agrega la composición propia (título + niveles en línea + CTA compacto) y el acomodo en angosto. Los banners globales no cambian. */
+.asr-update-banner { flex-wrap: wrap; row-gap: 8px; }
+.asr-update-banner__msg { flex: 1 1 auto; flex-wrap: wrap; min-width: 0; row-gap: 6px; }
+.asr-update-banner__title { font-weight: 700; color: var(--content-ink); }
+.asr-update-banner__sep { color: var(--content-ink-dim); }
+.asr-update-banner__actions { display: inline-flex; align-items: center; gap: 6px; flex: none; margin-left: auto; }
+.asr-update-banner .asr-update-banner__cta { min-height: 0; padding: 6px 12px; font-size: .78rem; line-height: 1.3; white-space: nowrap; }
+@media (max-width: 720px) {                                         /* angosto: ícono + título en la misma línea, niveles debajo, acciones a la derecha; sin separador */
+  .asr-update-banner__msg { flex-basis: 100%; }
+  .asr-update-banner__title { flex: 1 1 0; min-width: 0; }
+  .asr-update-banner__sep { display: none; }
+  .asr-update-banner__msg .asr-update-opp__levels { flex-basis: 100%; padding-left: 26px; }
+}
+.asr-update-opp__levels { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; color: inherit; }
+.asr-update-opp__levels .catalog-card__verdict { font-size: .62rem; padding: 2px 6px; }
+.asr-update-opp__pair { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.asr-update-dialog .asr-update-opp__levels { display: flex; margin: 0 0 12px; font-size: .85rem; }
+.asr-update-dialog__facts { margin: 12px 0 0; font-size: .82rem; line-height: 1.5; }
+.asr-update-dialog__facts dt { margin-top: 8px; font-weight: 650; }
+.asr-update-dialog__facts dd { margin: 2px 0 0; color: var(--content-ink-soft); }
 /* Metadatos contextuales del hero de Operaciones → Asignaciones / Carga de Horas: MISMA separación compacta que el hero de Assessment (12px). */
 .module-hero > [data-opsb-hero-meta] { margin-top: 12px; }
 

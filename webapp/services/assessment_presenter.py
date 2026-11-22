@@ -1297,12 +1297,18 @@ def _update_opportunity_view(opp: dict | None) -> dict | None:
     gained = sorted(k for k in cc if cc.get(k, 0) != gc.get(k, 0))                    # clases de contrato de fuente que cambian a favor del candidato
     vig_lvl = (opp["vigente"].get("level") or "NO DETERMINABLE")
     cand_lvl = (opp["candidato"].get("level") or "NO DETERMINABLE")
-    if opp["level_changed"]:
-        motive = f"La evaluación reciente arroja «{cand_lvl}» frente al Assessment vigente «{vig_lvl}»."
-    else:
-        motive = "Cambió la evidencia de contrato de fuente respecto del Assessment vigente."
-    return {"vigente_level": vig_lvl, "candidato_level": cand_lvl, "level_changed": opp["level_changed"], "contracts_changed": opp["contracts_changed"],
-            "source_classes_changed": gained, "comparable": opp["comparable"], "provenance_validated": opp["provenance_validated"],
+
+    def _badge(level: str | None) -> tuple[str, str]:                                 # (rótulo, tono) con el MISMO mapeo del Hub que el badge de Adopción
+        label = _JDG_LEVEL_LABEL.get(level or "", "No determinable")
+        return label, status_tone(label)
+
+    (vig_label, vig_tone), (cand_label, cand_tone) = _badge(opp["vigente"].get("level")), _badge(opp["candidato"].get("level"))
+    # UNA sola formulación (el nivel ya lo dicen los badges): el motivo solo se explicita cuando el nivel NO cambia.
+    motive = "" if opp["level_changed"] else "Mismo nivel; cambió la evidencia de contrato de fuente respecto del Assessment vigente."
+    return {"vigente_level": vig_lvl, "candidato_level": cand_lvl, "vigente_label": vig_label, "vigente_tone": vig_tone,
+            "candidato_label": cand_label, "candidato_tone": cand_tone, "level_changed": opp["level_changed"], "contracts_changed": opp["contracts_changed"],
+            "source_classes_changed": gained, "source_classes_text": [AQ.CONTRACT_CLASS_TEXT.get(k, k) for k in gained],
+            "comparable": opp["comparable"], "provenance_validated": opp["provenance_validated"],
             "gov_space": opp["gov_space"], "candidate_space": opp["candidate_space"], "motive": motive}
 
 

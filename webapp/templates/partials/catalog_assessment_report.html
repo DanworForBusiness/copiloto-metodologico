@@ -147,6 +147,39 @@
 {# Estado vacío estándar del Hub (`.dashboard-empty`): "No detectado" = se evaluó y no apareció el patrón (≠ No disponible ≠ No aplica). #}
 {% macro not_detected(text) %}<div class="dashboard-empty"><span class="dashboard-empty__label">No detectado</span><p>{{ text }}</p></div>{% endmacro %}
 
+{# ── Actualización inteligente (SOLO ad hoc): oportunidad de revisar el Assessment gobernado vigente cuando hay diferencia relevante. DETECTA y EXPLICA; NO persiste el perfil ad hoc.
+   Banner CONTEXTUAL arriba del informe con el MISMO lenguaje que los avisos del Hub (`.whatsnew-banner`, como «Assessment en curso»): una fila, niveles como badges (`status_tone`),
+   CTA gold y ✕. La ✕ solo lo oculta en ESTA vista (Alpine, sin requests ni estado persistido). El CTA abre un diálogo INFORMATIVO (`<dialog>` nativo; su único form es
+   `method="dialog"`, que solo lo cierra): no modifica sobres, no ejecuta backfill ni ninguna operación gobernada. El detalle (contratos, procedencia, proceso) vive en el diálogo. #}
+{% if v.update_opportunity %}{% set up = v.update_opportunity %}
+<div class="whatsnew-banner asr-update-banner" role="status" data-asr-update-opportunity x-data="{ open: true }" x-show="open">
+  <span class="whatsnew-banner__msg asr-update-banner__msg">
+    <span class="whatsnew-banner__mark" aria-hidden="true">↻</span>
+    <strong class="asr-update-banner__title">Oportunidad de actualización del Assessment gobernado</strong>
+    <span class="asr-update-banner__sep" aria-hidden="true">·</span>
+    <span class="asr-update-opp__levels"><span class="asr-update-opp__pair">Vigente <span class="catalog-card__verdict catalog-card__verdict--{{ up.vigente_tone }}" data-asr-opp-vigente>{{ up.vigente_label }}</span></span><span aria-hidden="true">→</span><span class="asr-update-opp__pair">Esta evaluación <span class="catalog-card__verdict catalog-card__verdict--{{ up.candidato_tone }}" data-asr-opp-candidato>{{ up.candidato_label }}</span></span></span>
+  </span>
+  <span class="asr-update-banner__actions">
+    <button type="button" class="btn-primary asr-update-banner__cta" data-dialog-open="asr-update-dialog">Revisar actualización</button>
+    <button type="button" class="whatsnew-banner__close" title="Ocultar (solo en esta vista)" aria-label="Ocultar aviso de oportunidad de actualización" @click="open = false">✕</button>
+  </span>
+</div>
+<dialog class="dw-confirm asr-update-dialog" id="asr-update-dialog" aria-labelledby="asr-update-dialog-title">
+  <form method="dialog">
+    <div class="dw-confirm__body">
+      <h2 class="dw-confirm__title" id="asr-update-dialog-title">Revisar actualización</h2>
+      <p class="asr-update-opp__levels"><span class="asr-update-opp__pair">Vigente <span class="catalog-card__verdict catalog-card__verdict--{{ up.vigente_tone }}">{{ up.vigente_label }}</span></span><span aria-hidden="true">→</span><span class="asr-update-opp__pair">Esta evaluación <span class="catalog-card__verdict catalog-card__verdict--{{ up.candidato_tone }}">{{ up.candidato_label }}</span></span></p>
+      <p class="dw-confirm__msg">Esta evaluación ad hoc detecta una mejora respecto del Assessment gobernado vigente. No lo reemplaza ni ejecuta ninguna migración.{% if up.motive %} {{ up.motive }}{% endif %}</p>
+      <dl class="asr-update-dialog__facts">
+        {% if up.source_classes_text %}<dt>Contrato de fuente que cambia</dt><dd>{{ up.source_classes_text | join(", ") }}</dd>{% endif %}
+        <dt>Procedencia</dt><dd>{% if up.provenance_validated %}Space «{{ up.candidate_space }}», el mismo del Assessment vigente.{% else %}Space «{{ up.candidate_space or "—" }}» de esta ejecución; requiere validación antes de actualizar.{% endif %}</dd>
+        <dt>Proceso</dt><dd>La actualización real sigue el procedimiento gobernado supervisado: dry-run del lote, aprobación explícita y aplicación asegurada con respaldo.</dd>
+      </dl>
+    </div>
+    <div class="dw-confirm__actions"><button type="submit" value="close" class="btn-secondary">Entendido</button></div>
+  </form>
+</dialog>
+{% endif %}
 {# §1 Barra de acciones transversal: ← Volver a la izquierda, acciones de contexto a la derecha, MISMA línea y gutter que el
    contenido. Un solo patrón (`.catalog-actionbar`) compartido con la página de modelo del Catálogo; el hero arranca debajo. #}
 <div class="catalog-actionbar">
@@ -188,19 +221,6 @@
     </span>
   </div>
 </section>
-
-{# ── Actualización inteligente (SOLO ad hoc): oportunidad de revisar el Assessment gobernado vigente cuando hay diferencia relevante. DETECTA y EXPLICA; NO persiste el perfil ad hoc.
-   No intrusivo (tono «note»): es una propuesta de revisión, nunca una aprobación automática. La actualización efectiva se hace por el procedimiento gobernado. #}
-{% if v.update_opportunity %}{% set up = v.update_opportunity %}
-<div class="methodology">
-{% call callout("note", "Oportunidad de actualización del Assessment gobernado", icon="↻") %}
-<p>Assessment vigente <strong>{{ up.vigente_level }}</strong> → candidato <strong>{{ up.candidato_level }}</strong>. {{ up.motive }}</p>
-{% if up.source_classes_changed %}<p class="catalog-note__ev">Contratos de fuente que cambian: {{ up.source_classes_changed | join(", ") }}.</p>{% endif %}
-{% if not up.provenance_validated %}<p class="catalog-note__ev">La procedencia (Space «{{ up.candidate_space or "—" }}» de esta ejecución frente al Assessment vigente) <strong>requiere validación</strong> antes de actualizar.</p>{% endif %}
-<p>Esta evaluación ad hoc <strong>no</strong> reemplaza el Assessment gobernado y no ejecuta ninguna migración: es una <strong>notificación</strong>. La actualización se realiza, si corresponde, por el procedimiento gobernado supervisado (dry-run → aprobación del lote → aplicación asegurada).</p>
-{% endcall %}
-</div>
-{% endif %}
 
 {# ── estados sin informe y avisos de estado ──
    Viven FUERA de `<article class="methodology">` (van antes del índice del informe), por eso se envuelven en `.methodology`: sin ese ámbito el texto del callout perdía la tipografía/color del
