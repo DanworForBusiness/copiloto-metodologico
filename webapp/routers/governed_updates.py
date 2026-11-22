@@ -133,6 +133,93 @@ def _notify(rec: dict, request: Request, user: dict) -> None:
     _activity("governed_update.notified", user, request_id=rec["request_id"], client=rec["client_dir"], model=rec["terminal_am"], dispatch=dispatch)
 
 
+# ── presentación de la revisión (solo lectura; no cambia validaciones ni elegibilidad) ──
+# Estado del correo: «aceptada» = el servidor de correo (Graph) la ACEPTÓ (202); NUNCA se presenta como entrega confirmada.
+NOTIFICATION_STATES = {
+    "accepted": ("Aceptada por el servidor de correo", "plena", True, "Graph aceptó el envío; la entrega final al buzón no se confirma."),
+    "pending": ("En cola", "neutra", False, ""),
+    "sending": ("En envío", "neutra", False, ""),
+    "retry": ("Reintentando", "buena", False, "El servicio reintenta solo; no hace falta reenviar."),
+    "uncertain": ("Incierta", "parcial", True, "No se sabe si salió; no se reenvía automáticamente para no duplicar."),
+    "failed": ("Fallida", "parcial", True, "No se pudo enviar. La solicitud sigue registrada."),
+    "disabled": ("Notificaciones apagadas", "neutra", True, "En este entorno no se envían correos. La solicitud sigue registrada."),
+    "error": ("No se pudo emitir", "parcial", True, "La solicitud sigue registrada."),
+    "unknown": ("Sin dato", "neutra", True, ""),
+}
+PREVIEW_STAGE = {
+    gur.PREVIEW_READY: ("Plan listo", "plena"), gur.PREVIEW_NO_CHANGE: ("Sin cambios", "neutra"), gur.PREVIEW_ABSTAINED: ("Se abstendría", "parcial"),
+    gur.PREVIEW_FAILED: ("No se pudo calcular", "parcial"), gur.PREVIEW_OBSOLETE: ("Obsoleta", "parcial"), gur.PREVIEW_NOT_FOUND: ("Modelo no encontrado", "parcial"),
+}
+
+
+NOTIFICATION_POLL_MAX_S = 600            # el refresco del estado del correo se detiene en un estado terminal o a los 10 min de la solicitud
+
+
+def _age_s(iso: str | None) -> float:
+    from datetime import datetime, timezone
+    try:
+        return (datetime.now(timezone.utc) - datetime.fromisoformat(str(iso))).total_seconds()
+    except (TypeError, ValueError):
+        return float("inf")
+
+
+def _notification_view(rec: dict, delivery: dict | None) -> dict:
+    n = rec.get("notification") or {}
+    if not n:
+        state = "pending"
+    elif n.get("dispatch") in ("disabled", "error"):
+        state = n["dispatch"]
+    else:
+        state = (delivery or {}).get("state") or "pending"
+    label, tone, terminal, detail = NOTIFICATION_STATES.get(state, NOTIFICATION_STATES["unknown"])
+    return {"state": state, "label": label, "tone": tone, "terminal": terminal, "detail": detail}
+
+
+def _stages(rec: dict, role: str | None, state: str, prev: dict | None, preview_running: bool, can_preview: bool) -> list[dict]:
+    """Etapas del circuito, SEPARADAS (autorización ≠ procedencia histórica ≠ origen autorizado ≠ dry-run ≠ aplicación). Solo presenta datos ya
+    calculados; la elegibilidad real sigue siendo ``gur.eligibility`` (sin cambios)."""
+    prov = rec.get("provenance") or {}
+    stages = [{"key": "authorization", "label": "Autorización",
+               "badge": (f"Autorizado · {role}" if role else "Solo lectura"), "tone": "plena" if role else "neutra",
+               "detail": ("Podés calcular el dry-run gobernado. La aprobación llega en una próxima versión." if role
+                          else "Revisa y aprueba Arquitectura (APP_OWNER o CONTENT_OWNER).")}]
+    if prov.get("verified"):
+        stages.append({"key": "historical_provenance", "label": "Procedencia del Assessment vigente", "badge": f"Space «{prov.get('governed_space')}»",
+                       "tone": "plena", "detail": "Registrada en el Assessment gobernado."})
+    else:
+        stages.append({"key": "historical_provenance", "label": "Procedencia del Assessment vigente", "badge": "Desconocida", "tone": "neutra",
+                       "detail": "El Assessment gobernado no registra el Space del que proviene; no se infiere."
+                                 + (f" El registro de publicación indica «{prov['published_space']}» (evidencia auxiliar)." if prov.get("published_space") else "")})
+    stages.append({"key": "authorized_origin", "label": "Origen autorizado para la reconstrucción", "badge": "Pendiente de declaración", "tone": "buena",
+                   "detail": "Se declara al aprobar (próxima versión)."
+                             + (f" La evaluación ad hoc se hizo en el Space «{prov['candidate_space']}»." if prov.get("candidate_space") else "")})
+    if preview_running:
+        dry = {"badge": "Calculando…", "tone": "neutra", "detail": "Solo lectura: no modifica el Assessment gobernado."}
+    elif prev:
+        badge, tone = PREVIEW_STAGE.get(prev.get("state"), ("Sin dato", "neutra"))
+        dry = {"badge": badge, "tone": tone, "detail": ""}
+    else:
+        dry = {"badge": "Pendiente", "tone": "neutra", "detail": "Todavía no se calculó." if can_preview else "Lo calcula Arquitectura."}
+    stages.append({"key": "dry_run", "label": "Dry-run gobernado", **dry})
+    stages.append({"key": "application", "label": "Aplicación", "badge": "No disponible en esta versión", "tone": "neutra",
+                   "detail": "La actualización real seguirá el procedimiento gobernado supervisado (aprobación explícita y aplicación asegurada con respaldo)."})
+    return stages
+
+
+def _next_step(state: str, role: str | None, prev: dict | None, preview_running: bool) -> str:
+    if state == gur.OBSOLETE:
+        return "El Assessment gobernado cambió: si la mejora sigue vigente, generá una evaluación ad hoc nueva y volvé a solicitarla."
+    if not role:
+        return "Arquitectura revisa la solicitud y calcula el dry-run gobernado."
+    if preview_running:
+        return "Esperá el resultado del dry-run gobernado."
+    if not prev:
+        return "Calcular el dry-run gobernado (solo lectura)."
+    if prev.get("state") == gur.PREVIEW_READY:
+        return "Declarar el origen autorizado y aprobar la actualización: disponible en una próxima versión."
+    return "Revisar la causa del dry-run antes de continuar."
+
+
 # ── revisar ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 def _view(rec: dict, user: dict, pack: str) -> dict:
     role = gur.approver_role(user)
@@ -144,12 +231,18 @@ def _view(rec: dict, user: dict, pack: str) -> dict:
         except Exception:                                                          # noqa: BLE001
             delivery = None
     prev = rec.get("preview") or None
+    running = gur.preview_running(rec["request_id"])
+    can_preview = bool(role) and state == gur.OPEN
+    notification = _notification_view(rec, delivery)
     return {
-        "rec": rec, "state": state, "obsolete": state == gur.OBSOLETE, "role": role, "can_preview": bool(role) and state == gur.OPEN,
+        "notification": notification, "stages": _stages(rec, role, state, prev, running, can_preview),
+        "next_step": _next_step(state, role, prev, running), "role_label": role or "Solo lectura",
+        "poll": running or (not notification["terminal"] and _age_s(rec.get("requested_at")) < NOTIFICATION_POLL_MAX_S),
+        "rec": rec, "state": state, "obsolete": state == gur.OBSOLETE, "role": role, "can_preview": can_preview,
         "is_requester": gur.user_email(user) == rec.get("requested_by"),
         "vigente": _level_badge((rec.get("governed") or {}).get("judgment")), "candidato": _level_badge((rec.get("source") or {}).get("judgment")),
         "contracts": _contracts_text(rec), "provenance": rec.get("provenance") or {}, "delivery": delivery,
-        "preview": prev, "preview_running": gur.preview_running(rec["request_id"]),
+        "preview": prev, "preview_running": running,
         "preview_to": _level_badge({"level": ((prev or {}).get("judgment") or {}).get("to")}) if (prev or {}).get("judgment") else None,
         "eligibility": gur.eligibility(rec), "base": f"{BASE}/{rec['request_id']}", "pack": pack,
     }
@@ -199,5 +292,5 @@ def preview(request: Request, request_id: str, pack: str = Form(DEFAULT_PACK)):
 @router.get(f"{BASE}/{{request_id}}/preview", response_class=HTMLResponse, include_in_schema=False)
 def preview_fragment(request: Request, request_id: str, pack: str = Query(DEFAULT_PACK)):
     user, rec = _visible(request, request_id)
-    return templates.TemplateResponse(request=request, name="partials/governed_update_preview.html",
+    return templates.TemplateResponse(request=request, name="partials/governed_update_status.html",      # estado (dry-run + correo): solo lectura, sin reenvíos
                                       context={"g": _view(gur.load(request_id) or rec, user, resolve_pack(pack))})
