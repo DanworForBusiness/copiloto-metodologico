@@ -1288,6 +1288,24 @@ def _coverage_reading(rs: dict) -> str:
     return f"{counts} {meaning}{excl}"
 
 
+def _update_opportunity_view(opp: dict | None) -> dict | None:
+    """Vista COMPACTA de la oportunidad de actualización (de ``svc.governed_update_opportunity``): nivel vigente→candidato, contratos de fuente que cambiaron,
+    motivo y estado de comparabilidad/procedencia. ``None`` si no hay oportunidad. Solo PRESENTA: la acción es «Revisar actualización», nunca un reemplazo directo."""
+    if not opp:
+        return None
+    gc, cc = opp["source_contracts"]["vigente"], opp["source_contracts"]["candidato"]
+    gained = sorted(k for k in cc if cc.get(k, 0) != gc.get(k, 0))                    # clases de contrato de fuente que cambian a favor del candidato
+    vig_lvl = (opp["vigente"].get("level") or "NO DETERMINABLE")
+    cand_lvl = (opp["candidato"].get("level") or "NO DETERMINABLE")
+    if opp["level_changed"]:
+        motive = f"La evaluación reciente arroja «{cand_lvl}» frente al Assessment vigente «{vig_lvl}»."
+    else:
+        motive = "Cambió la evidencia de contrato de fuente respecto del Assessment vigente."
+    return {"vigente_level": vig_lvl, "candidato_level": cand_lvl, "level_changed": opp["level_changed"], "contracts_changed": opp["contracts_changed"],
+            "source_classes_changed": gained, "comparable": opp["comparable"], "provenance_validated": opp["provenance_validated"],
+            "gov_space": opp["gov_space"], "candidate_space": opp["candidate_space"], "motive": motive}
+
+
 def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: AdhocReport | None = None, space: str | None = None) -> dict:
     """View-model del informe. ``status.profile`` es el JSON canónico validado; nada se deriva de otra fuente.
     ``adhoc`` (opcional) reemplaza el contexto del Catálogo (flujo/URLs/linaje) por el de un assessment ad-hoc; el contenido es el mismo.
@@ -1315,6 +1333,14 @@ def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: Adho
     }
     view["title_desc"], view["title_id"] = terminal_titles(status, entry, doc, adhoc is not None)     # canónico → Catálogo → nombre técnico legible; sin modelo terminal: neutro
     view["module_label"] = MODULE_LABEL
+    # Actualización inteligente (SOLO ad hoc): ¿hay un Assessment gobernado vigente del mismo modelo con diferencia relevante? Se DETECTA y se EXPLICA; nunca se persiste el perfil ad hoc.
+    # FAIL-SAFE: la detección JAMÁS rompe el informe ad hoc (sin oportunidad si no hay sobre gobernado o si su lectura falla).
+    view["update_opportunity"] = None
+    if adhoc is not None:
+        try:
+            view["update_opportunity"] = _update_opportunity_view(svc.governed_update_opportunity(status.client, status.terminal_am, status.judgment, doc, space))
+        except Exception:  # noqa: BLE001
+            view["update_opportunity"] = None
     if doc is None:
         return view
     # 3.er tile de la fila de adopción [02]: «Conformidad de nombres» (%), MISMO helper que Mirada Danwor → Adopción, para que nunca divergan.

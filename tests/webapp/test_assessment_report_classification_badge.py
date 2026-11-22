@@ -105,13 +105,12 @@ def test_adhoc_report_shows_its_own_provisional_judgment_from_the_canonical_engi
     profile = dsvc.load_result(rid)["profile"]
     official = presenter.judgment_view(evaluate_judgment(profile, ruleset=CURRENT_RULESET_VERSION, ratified_contracts=[]))
 
-    def no_catalog(*a, **k):
-        raise AssertionError("el informe ad hoc no lee el Catálogo")
-
     def no_registry(*a, **k):
         raise AssertionError("el informe ad hoc no lee el registro de decisiones gobernadas")
     from webapp.services import governed_decisions_store, judgment_decisions
-    monkeypatch.setattr(asvc, "_load_envelope", no_catalog)
+    # El JUICIO provisional ad hoc es independiente del Catálogo y del registro de decisiones (se verifica contra el motor, abajo). La detección de «oportunidad de
+    # actualización» (objetivo 1) SÍ consulta el sobre gobernado del mismo modelo, de forma fail-safe (si no hay/ no se puede leer, no ofrece nada): acá no hay sobre → None.
+    monkeypatch.setattr(asvc, "_load_envelope", lambda *a, **k: None)
     monkeypatch.setattr(governed_decisions_store, "load_events", no_registry)
     monkeypatch.setattr(judgment_decisions, "take_snapshot", no_registry)
     html = owner.get(url).text

@@ -1096,6 +1096,53 @@ def governed_envelopes_of(client: str) -> dict[str, dict]:
     return out
 
 
+def _source_contract_counts(profile: dict | None) -> dict:
+    """``{clase_de_contrato_de_fuente: cantidad}`` de las hojas frontera del perfil (``source_contract_classes``). Vacío si no hay evidencia."""
+    sc = ((profile or {}).get("canonical_evidence") or {}).get("source_contract_classes") or {}
+    out: dict[str, int] = {}
+    for leaf in sc.get("leaves") or ():
+        cls = (leaf or {}).get("contract_class")
+        if cls:
+            out[cls] = out.get(cls, 0) + 1
+    return out
+
+
+def governed_update_opportunity(client: str | None, terminal_am: str | None, candidate_judgment: dict | None,
+                                candidate_profile: dict | None, space: str | None = None) -> dict | None:
+    """DETECCION (solo lectura; NUNCA persiste): compara una evaluacion AD HOC con el Assessment GOBERNADO vigente del MISMO cliente + modelo terminal.
+    Devuelve una oportunidad de REVISION supervisada si hay diferencia RELEVANTE (de nivel y/o de contratos de fuente), nunca un reemplazo directo: la
+    actualizacion efectiva se hace por el procedimiento gobernado (migracion/regeneracion), no con el perfil ad hoc. ``None`` si no hay sobre vigente o no hay
+    diferencia relevante. Distingue DETECCION de ELEGIBILIDAD: ``comparable``/``provenance_validated`` segun el espacio/procedencia (``space=None`` NO es
+    coincidencia automatica); si la procedencia no se acredita, se ofrece REVISAR (no reemplazar)."""
+    if not client or not terminal_am:
+        return None
+    env = _load_envelope(client, terminal_am)
+    if not isinstance(env, dict):
+        return None
+    gov_j = env.get("judgment") or {}
+    cand_j = candidate_judgment or {}
+    gov = {"status": gov_j.get("status"), "level": gov_j.get("level")}
+    cand = {"status": cand_j.get("status"), "level": cand_j.get("level")}
+    gov_prof = env.get("profile_json")
+    if isinstance(gov_prof, str):
+        try:
+            gov_prof = json.loads(gov_prof)
+        except ValueError:
+            gov_prof = {}
+    gov_counts, cand_counts = _source_contract_counts(gov_prof), _source_contract_counts(candidate_profile)
+    level_changed = (gov["status"], gov["level"]) != (cand["status"], cand["level"])
+    contracts_changed = gov_counts != cand_counts
+    if not level_changed and not contracts_changed:
+        return None                                                     # sin diferencia relevante: no se ofrece nada
+    gov_space = ((gov_prof or {}).get("scope") or {}).get("space")
+    cand_space = (space or "").strip() or None
+    comparable = not (gov_space and cand_space and gov_space != cand_space)   # solo NO comparable si ambos espacios existen y DIFIEREN
+    provenance_validated = bool(gov_space and cand_space and gov_space == cand_space)
+    return {"vigente": gov, "candidato": cand, "level_changed": level_changed, "contracts_changed": contracts_changed,
+            "source_contracts": {"vigente": gov_counts, "candidato": cand_counts}, "comparable": comparable,
+            "provenance_validated": provenance_validated, "gov_space": gov_space, "candidate_space": cand_space}
+
+
 def prepare_regeneration(entry: Any, res: Resolution | None = None) -> PreparedAssessment | None:
     """Corre el motor canónico en MEMORIA contra el pool actual y devuelve el sobre candidato (``status=OK``), o None si el AM no es aplicable. NO escribe nada y NO deja un sobre FAILED:
     cualquier falla lanza ``PrepareError`` (la publicación se deshace y conserva la última versión válida)."""
