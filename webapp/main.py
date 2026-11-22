@@ -25,6 +25,7 @@ from core.content_registry import (
 )
 from core import publication_gate, remote_store
 from core.utils import slugify
+from webapp.services import governed_update_requests
 from webapp.services import catalog_activity, catalog_model_activity
 from webapp.services import auth_service
 from webapp.services import catalog_reads
@@ -296,6 +297,12 @@ app = FastAPI(title="Copiloto Metodológico Danwor Beta", version="0.2.0", lifes
 
 
 # P1 — compuerta de lectores de la publicación del Catálogo: mientras una versión nueva se activa (o queda sin confirmar) los lectores reciben un 503 reintentable, nunca una vista a medias.
+# Solicitudes de actualización gobernada: el registro no se lee ni se crea sobre una restauración incompleta (tras un redeploy) → 503 reintentable.
+@app.exception_handler(governed_update_requests.RegistryUnavailable)
+async def _governed_update_registry_unavailable(request, exc):
+    return governed_updates_router.registry_unavailable_response(exc)
+
+
 @app.exception_handler(publication_gate.PublicationInProgress)
 async def _publication_in_progress(request, exc):
     return PlainTextResponse("Se está publicando una versión nueva del Catálogo. Reintentá en unos segundos.", status_code=503, headers={"Retry-After": str(exc.retry_after)})
