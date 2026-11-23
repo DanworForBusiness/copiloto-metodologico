@@ -130,8 +130,15 @@ def context_of(record: dict) -> tuple[str, str]:
 # labels es SOLO para módulos compartidos nuevos que no vienen de un content
 # pack (hoy, únicamente Asignaciones). Un módulo sin label mapeado muestra su
 # key cruda (mismo criterio que scope_label/area_label).
+# Módulo analítico VIRTUAL «Catálogos» (vertical Copiloto): agrupa TODA la actividad `area == catalog`
+# (Decisión, Diagnóstico, actualización gobernada, Mantenimiento) en una dimensión de módulo propia,
+# SIN entrar en la numeración metodológica oficial (sale del content pack / module_registry, no de acá).
+# Clave reservada que `module_registry.resolve` no reconoce → cae a MODULE_LABELS. Ver `normalize_record`.
+CATALOG_VIRTUAL_MODULE = "__catalog__"
+
 MODULE_LABELS: dict[str, str] = {
     MODULE_ASSIGNMENTS: "Asignaciones",
+    CATALOG_VIRTUAL_MODULE: "Catálogos",
 }
 
 
@@ -298,6 +305,11 @@ def normalize_record(raw: dict) -> dict | None:
         resolved = module_registry.resolve(raw_module)
         if resolved:
             module = resolved.module_id
+    # Catálogos como módulo analítico virtual: la actividad `area == catalog` se atribuye a un módulo propio
+    # (no metodológico), read-time. `raw_module` conserva el módulo ambiente original (evidencia histórica,
+    # sin reescrituras): una combinación histórica como `04 + section=catalog_*` no produce atribución falsa.
+    if area == _catalog.AREA_CATALOG:
+        module = CATALOG_VIRTUAL_MODULE
     spec = _catalog.spec_of(canonical_event)
     return {
         "v": 2 if is_v2 else 1,
