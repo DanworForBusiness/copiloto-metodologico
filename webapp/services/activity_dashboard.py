@@ -30,6 +30,7 @@ el router les pasa el período/vertical/módulo/usuario resueltos acá
 """
 from __future__ import annotations
 
+import functools
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Iterable, Mapping
 from urllib.parse import urlencode
@@ -142,10 +143,24 @@ def _parse_iso(value: str) -> date | None:
         return None
 
 
+def _functional_catalog(section: str) -> str:
+    """Catálogo funcional ACREDITADO de una sección `catalog_*`, o "" si es compartida/transversal/no acreditable."""
+    return activity_catalog.CATALOG_FUNCTIONAL.get(section, "")
+
+
+def _catalog_members(cat_key: str) -> list[str]:
+    """Slugs de superficie que pertenecen INEQUÍVOCAMENTE a un catálogo funcional."""
+    return sorted(s for s, c in activity_catalog.CATALOG_FUNCTIONAL.items() if c == cat_key)
+
+
 def section_label(slug: str) -> str:
     if not slug:
         return "Sin sección (vista general)"
-    return _ALL_SECTIONS.get(slug, (None, slug))[1]
+    if slug in activity_catalog.CATALOG_FUNCTIONAL_LABELS:          # «Sección» = catálogo funcional (módulo virtual «Catálogos»)
+        return activity_catalog.CATALOG_FUNCTIONAL_LABELS[slug]
+    if slug in _ALL_SECTIONS:
+        return _ALL_SECTIONS[slug][1]
+    return _methodology_label_map().get(slug, slug)      # sección metodológica oficial (content pack) o slug crudo
 
 
 def _module_label(key: str) -> str:
@@ -253,13 +268,48 @@ def _module_inventory(visible: frozenset[str], allowed_areas: frozenset[str] | N
     return out
 
 
+@functools.lru_cache(maxsize=1)
+def _methodology_sections() -> tuple[dict, ...]:
+    """Secciones metodológicas OFICIALES por módulo, desde el content pack (FUENTE CANÓNICA):
+    `content_service.load_module(stem).sections` → `(number global, title, slug=slugify(title))`, con el módulo
+    resuelto a su id canónico (`module_registry`, p. ej. CP04). Independiente de que tengan eventos registrados.
+    Cacheado por proceso (el pack no cambia en runtime); `load_module` ya es lru_cache."""
+    out: list[dict] = []
+    try:
+        for m in content_service.list_modules():
+            resolved = module_registry.resolve(m.stem)
+            mod_id = resolved.module_id if resolved else m.stem
+            for s in content_service.load_module(m.stem).sections:
+                if s.slug:
+                    out.append({"key": s.slug, "label": f"#{s.number} · {s.title}",
+                                "vertical": activity_catalog.SCOPE_COPILOT, "module": mod_id})
+    except Exception:  # noqa: BLE001 — el inventario es complementario: sin pack, sólo lo que haya en datos
+        pass
+    return tuple(out)
+
+
+@functools.lru_cache(maxsize=1)
+def _methodology_label_map() -> dict[str, str]:
+    """{slug → '#n · título'} para que `section_label` muestre el rótulo oficial también cuando la sección llega
+    desde los datos (no sólo desde el inventario). Si un slug se repite entre módulos, gana el primero (raro)."""
+    out: dict[str, str] = {}
+    for s in _methodology_sections():
+        out.setdefault(s["key"], s["label"])
+    return out
+
+
 def _section_inventory(visible: frozenset[str]) -> list[dict]:
-    # `module`: las secciones del inventario Copiloto son TODAS del Catálogo (no hay secciones metodológicas
-    # en el inventario; las oficiales salen del content pack/datos) → pertenecen al módulo virtual «Catálogos».
-    # El resto (CCHH/Plataforma/Operaciones) no tiene módulo: su desglose es por sección dentro de su vertical.
-    return [{"key": slug, "label": label, "vertical": vertical,
-             "module": CATALOG_VIRTUAL_MODULE if vertical == activity_catalog.SCOPE_COPILOT else ""}
-            for slug, (vertical, label) in _ALL_SECTIONS.items() if vertical in visible]
+    # `module`: una sección del inventario pertenece al módulo virtual «Catálogos» si está en la FUENTE COMPARTIDA
+    # canónica (`activity_catalog.CATALOG_SECTION_SLUGS`) — la MISMA que usa `normalize_record`, sin heurística por
+    # vertical. El resto (CCHH/Plataforma/Operaciones) no tiene módulo: su desglose es por sección en su vertical.
+    inv = [{"key": slug, "label": label, "vertical": vertical,
+            "module": CATALOG_VIRTUAL_MODULE if slug in activity_catalog.CATALOG_SECTION_SLUGS else ""}
+           for slug, (vertical, label) in _ALL_SECTIONS.items() if vertical in visible]
+    # Secciones metodológicas OFICIALES (content pack): dependencia ESTRICTA módulo → sección (cada una con su
+    # módulo canónico). Se ofrecen aunque tengan 0 eventos; NUNCA llevan navegación funcional del Catálogo.
+    if activity_catalog.SCOPE_COPILOT in visible:
+        inv += [dict(s) for s in _methodology_sections()]
+    return inv
 
 
 # ── construcción ─────────────────────────────────────────────────────────────
@@ -281,6 +331,8 @@ def build(params: dict, *, summary: dict, visible_verticals: Iterable[str], allo
         vertical = ""
     module = str(params.get("module") or "").strip()[:64]
     section = str(params.get("section") or "").strip()
+    # Validez de la sección por la regex canónica (ya admite guiones): cubre los slugs metodológicos del content
+    # pack (`referencias-de-arquitectura`) y las claves de catálogo funcional (`conectividad`…), todas canónicas.
     if section and section != NONE_KEY and not activity_catalog.is_valid_section_slug(section):
         section = ""
     # Una sección inventariada de una vertical que el viewer no ve (p. ej. CCHH forzada por URL) se ignora:
@@ -332,7 +384,14 @@ def build(params: dict, *, summary: dict, visible_verticals: Iterable[str], allo
         if module:
             filters["module"] = [""] if module == NONE_KEY else module
         if section:
-            filters["section"] = [""] if section == NONE_KEY else section
+            if section == NONE_KEY:
+                filters["section"] = [""]
+            elif module == CATALOG_VIRTUAL_MODULE and section in activity_catalog.CATALOG_FUNCTIONAL_LABELS:
+                # «Sección» = catálogo funcional → se EXPANDE a sus slugs de superficie acreditados (los eventos
+                # conservan su sección original; no se remapea ni se duplica). Sin miembros ⇒ [""] (nada acreditado).
+                filters["section"] = _catalog_members(section) or [""]
+            else:
+                filters["section"] = section
         if kind:
             filters["kind"] = kind
         data = activity_aggregates.query(start, end, filters, visible_verticals=visible, today=today_key)
@@ -507,6 +566,22 @@ def _drill_rows(level, data, state, vertical_inv, module_inv, section_inv, verti
             if m["vertical"] == vertical and m["key"] not in seen:
                 rows.append(_row(m["key"], m["label"], None, _url(keep, vertical=vertical, module=m["key"])))
         title = "Módulos"
+    elif level == "module" and module == CATALOG_VIRTUAL_MODULE:
+        # Bajo «Catálogos» el desglose es por CATÁLOGO FUNCIONAL: se agregan las vistas ACREDITADAS de cada uno.
+        # Las compartidas/transversales NO se listan (no son atribuibles): quedan contadas sólo en «Todas».
+        cat_acc: dict[str, dict] = {}
+        for v in breakdown:
+            for m in v["modules"]:
+                for s in m["sections"]:
+                    ck = _functional_catalog(s["section"])
+                    if not ck:
+                        continue
+                    acc = cat_acc.setdefault(ck, {"visits": 0, "users": 0, "events": 0})
+                    for k in ("visits", "users", "events"):
+                        acc[k] += s.get(k, 0)
+        for ck, label in activity_catalog.CATALOG_FUNCTIONAL_LABELS.items():
+            rows.append(_row(ck, label, cat_acc.get(ck), _url(keep, vertical=vertical, module=module, section=ck)))
+        title = "Catálogos"
     elif level == "module":
         merged: dict[str, dict] = {}
         for v in breakdown:
@@ -559,6 +634,10 @@ def _module_options(options_data, module_inv, vertical_filter, selected) -> list
 
 
 def _section_options(options_data, section_inv, vertical_filter, vertical, module, selected) -> list[dict]:
+    # Bajo el módulo virtual «Catálogos» la «Sección» representa los CUATRO catálogos funcionales (no las vistas
+    # crudas). «Todas» (opción vacía del template) incluye además las compartidas y transversales. Orden canónico.
+    if module == CATALOG_VIRTUAL_MODULE:
+        return [{"value": k, "label": v} for k, v in activity_catalog.CATALOG_FUNCTIONAL_LABELS.items()]
     out: dict[str, str] = {}
     for v in options_data["breakdown"]:
         for m in v["modules"]:

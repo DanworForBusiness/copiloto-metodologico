@@ -76,6 +76,40 @@ AREA_PRESENTATIONS = "presentations"
 AREA_CCHH = "cchh"
 AREA_UNKNOWN = "unknown"
 
+# Slugs de SECCIÓN que son actividad funcional del Catálogo (del Copiloto): espejo de los `data-dw-section`
+# de las pantallas de Catálogo/conectividad/contratos gobernados. FUENTE COMPARTIDA (única, sin ciclo): la usan
+# `activity_context.normalize_record` (para atribuir al módulo virtual «Catálogos» una navegación histórica que
+# llega con area=methodology/hub y module=CP04) y `activity_dashboard` (etiqueta de módulo del inventario de
+# secciones). Un test guarda que coincida exactamente con las entradas Copiloto de SECTION_INVENTORY (sin drift).
+CATALOG_SECTION_SLUGS: frozenset[str] = frozenset({
+    "catalog_connections", "catalog_connection_detail", "connectivity_review", "catalog_connectivity_registry",
+    "catalog_security", "catalog_security_detail", "catalog_domain", "catalog_lob", "catalog_client",
+    "catalog_client_assessment", "catalog_assessment", "catalog_data_product", "catalog_flow",
+    "catalog_sap_types", "catalog_cds", "catalog_sql", "governed_contracts_list", "governed_contracts_detail",
+})
+
+# Los CUATRO catálogos FUNCIONALES (orden y rótulo). El módulo virtual «Catálogos» los usa como «Sección».
+CATALOG_FUNCTIONAL_LABELS: dict[str, str] = {
+    "conectividad": "Conectividad",
+    "seguridad": "Seguridad de Roles/Datos",
+    "dominios": "Dominios",
+    "data_products": "Data Products",
+}
+
+# Clasificación ACREDITABLE: slug → catálogo funcional, SÓLO cuando el slug determina el catálogo de forma
+# INEQUÍVOCA (verificado en rutas/templates). Las vistas COMPARTIDAS (catalog_lob/client/flow/cds/sql: agrupan
+# modelos que pueden ser Dominios o Data Products, o son detalle de objeto transversal) y las TRANSVERSALES que
+# no son catálogos (catalog_assessment/client_assessment, governed_contracts_*) NO están acá: quedan sin
+# categoría funcional (visibles sólo en «Todas»), sin atribución artificial. Los eventos no se tocan ni se duplican.
+CATALOG_FUNCTIONAL: dict[str, str] = {
+    "catalog_connections": "conectividad", "catalog_connection_detail": "conectividad",
+    "connectivity_review": "conectividad", "catalog_connectivity_registry": "conectividad",
+    "catalog_sap_types": "conectividad",
+    "catalog_security": "seguridad", "catalog_security_detail": "seguridad",
+    "catalog_domain": "dominios",
+    "catalog_data_product": "data_products",
+}
+
 # --- kind ---
 KIND_NAVIGATION = "navigation"
 KIND_ACTION = "action"
@@ -108,10 +142,10 @@ NAV_TYPES = frozenset({"navigate", "reload", "back_forward", "prerender"})
 VISIT_NAV_TYPES = frozenset({"navigate", "back_forward", "prerender"})
 
 # `section_view.section`: slug DECLARATIVO del markup (`data-dw-section`).
-# Regex estricta: minúsculas/dígitos/guion bajo, empieza con letra, acotado.
-# Un slug que no matchea NO se escribe (el beacon se descarta): el cliente no
-# puede meter texto libre en el campo `section` del envelope.
-SECTION_SLUG_RE = re.compile(r"^[a-z][a-z0-9_]{1,47}$")
+# Regex estricta: minúsculas/dígitos/guion bajo/guion, empieza con letra, acotada (≤48). El guion se admite
+# porque los slugs OFICIALES del content pack lo usan (`referencias-de-arquitectura` = slugify del título). Sigue
+# rechazando texto libre, espacios y mayúsculas: el cliente no puede meter texto arbitrario en `section`.
+SECTION_SLUG_RE = re.compile(r"^[a-z][a-z0-9_-]{1,47}$")
 
 
 def is_valid_section_slug(value) -> bool:

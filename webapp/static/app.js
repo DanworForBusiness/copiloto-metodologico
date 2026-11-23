@@ -155,13 +155,36 @@ function copilotLayout(activeGroup = "core", readonly = false, initialTab = "", 
       // anchor el panel quedaba una sección atrás (y el router creía que no estabas ahí).
       const sections = [...document.querySelectorAll(".module-hero, .content-section")];
       const SPY_REF = 120;
+      // Métricas de Uso v2: la NAVEGACIÓN metodológica se registra como `section_view` REUTILIZANDO este scroll-spy
+      // (ningún observador nuevo). El slug es el `id` de la `.content-section` (= ModuleSection.slug del content pack).
+      // Reglas: sólo tras scroll REAL del usuario (no el aterrizaje inicial ni re-render/resize), con exposición
+      // ESTABLE (debounce 700ms) y UNA vez por (visita de página = DW_VIEW_ID, sección). `__module__` (hero) se omite.
+      const DW_SECTION_SLUG = /^[a-z][a-z0-9_-]{1,47}$/;
+      let spyScrolled = false, spyView = "", spySeen = new Set(), spyTimer = null, spyPending = "";
+      const emitSectionView = (slug) => {
+        const view = window.DW_VIEW_ID || "";
+        if (view !== spyView) { spyView = view; spySeen = new Set(); }   // nueva visita de página → dedup nueva
+        if (!view || !slug || slug === "__module__" || !DW_SECTION_SLUG.test(slug) || spySeen.has(slug)) return;
+        spySeen.add(slug);
+        const body = JSON.stringify({ event: "section_view", section: slug, view_id: view,
+          path: location.pathname, module_id: window.DW_MODULE_ID || "" });
+        if (navigator.sendBeacon) navigator.sendBeacon("/telemetry/event", new Blob([body], { type: "application/json" }));
+        else fetch("/telemetry/event", { method: "POST", headers: { "Content-Type": "application/json" }, body, keepalive: true });
+      };
       const recomputeActive = () => {
         let active = null;
         for (const s of sections) {          // en orden vertical de documento
           if (s.getBoundingClientRect().top <= SPY_REF) active = s; else break;
         }
-        const id = (active || sections[0])?.id;
-        if (id) this.activeSection = id;
+        const el = active || sections[0];
+        const id = el?.id;
+        if (!id) return;
+        this.activeSection = id;
+        if (spyScrolled && id !== "__module__" && !(el && el.classList && el.classList.contains("module-hero")) && id !== spyPending) {
+          spyPending = id;                     // debounce + confirmación de permanencia: evita micro-scroll y pasar de largo
+          clearTimeout(spyTimer);
+          spyTimer = setTimeout(() => { if (this.activeSection === id) emitSectionView(id); }, 700);
+        }
       };
       this.activeSection = sections[0]?.id || "";
       let spyRaf = false;
@@ -170,8 +193,9 @@ function copilotLayout(activeGroup = "core", readonly = false, initialTab = "", 
         spyRaf = true;
         requestAnimationFrame(() => { spyRaf = false; recomputeActive(); });
       };
-      // El scroll no burbujea pero llega en captura → atrapamos venga del scroller que venga.
-      document.addEventListener("scroll", scheduleSpy, { capture: true, passive: true });
+      // El scroll no burbujea pero llega en captura → atrapamos venga del scroller que venga. Sólo el scroll marca
+      // `spyScrolled` (no el resize): un cambio de layout nunca cuenta como exposición del usuario.
+      document.addEventListener("scroll", () => { spyScrolled = true; scheduleSpy(); }, { capture: true, passive: true });
       window.addEventListener("resize", scheduleSpy, { passive: true });
       requestAnimationFrame(recomputeActive);   // aterrizaje inicial (incluye landing por #anchor)
       setTimeout(recomputeActive, 150);         // reevaluar tras montar embeds / scroll del anchor
@@ -399,7 +423,7 @@ function dwBeacon(event, payload = {}, once = false) {
 // es una vista de sección. `data-dw-module` (opcional) pisa DW_MODULE_ID.
 // Solo `location.pathname` (nunca query). El servidor valida el slug.
 (function dwSectionViews() {
-  const SLUG = /^[a-z][a-z0-9_]{1,47}$/;
+  const SLUG = /^[a-z][a-z0-9_-]{1,47}$/;   // alineado con el servidor (SECTION_SLUG_RE): admite guiones del content pack
   function humanTrigger(d) {
     const te = d && d.requestConfig && d.requestConfig.triggeringEvent;
     if (!te) return false;

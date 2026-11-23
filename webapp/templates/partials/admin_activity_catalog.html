@@ -4,7 +4,7 @@
 {% set c = catalog %}
 {# Filtros propios del contenedor con los MISMOS primitivos transversales de Métricas de Uso (`whatsnew-filters activity-filters` + `whatsnew-filter`/`<span>`), vía HTMX al tablero
    (`#activity-dashboard`), conservando los filtros globales (período/usuario/ámbito…) como hidden. «✕ Limpiar» limpia SOLO cat_client/cat_model/cat_tool/cat_op (preserva los globales). #}
-<form class="whatsnew-filters activity-filters catalog-activity__filters" hx-get="/admin/activity" hx-target="#activity-dashboard" hx-swap="outerHTML" hx-push-url="true" hx-trigger="submit" data-catalog-activity-filters>
+<form class="whatsnew-filters activity-filters catalog-activity__filters" hx-get="/admin/activity" hx-target="#activity-dashboard" hx-swap="outerHTML" hx-push-url="true" hx-trigger="submit" hx-sync="#activity-dashboard:replace" data-catalog-activity-filters>
   {% for k, val in c.globals %}<input type="hidden" name="{{ k }}" value="{{ val }}">{% endfor %}
   <label class="whatsnew-filter"><span>Cliente</span><select name="cat_client"><option value="">Todos</option>{% for x in c.clients %}<option value="{{ x }}"{% if x == c.selected.cat_client %} selected{% endif %}>{{ x }}</option>{% endfor %}</select></label>
   <label class="whatsnew-filter"><span>Modelo</span><select name="cat_model"><option value="">Todos</option>{% for x in c.models %}<option value="{{ x }}"{% if x == c.selected.cat_model %} selected{% endif %}>{{ x }}</option>{% endfor %}</select></label>

@@ -205,16 +205,60 @@ def test_catalog_subform_preserves_only_normalized_globals_not_raw_params(logdir
     assert 'type="hidden" name="cat_' not in t                                                 # los cat_* no se duplican como hidden
 
 
+def test_module_change_auto_submits_and_dashboard_requests_are_synced(logdir, monkeypatch):
+    t = _hx(_client(monkeypatch), "/admin/activity")
+    # Cambiar Módulo limpia Sección y RE-ENVÍA → las opciones de Sección (server-side) se refrescan al instante.
+    module_attrs = t.split('<select name="module"', 1)[1].split(">", 1)[0]
+    assert "requestSubmit()" in module_attrs and "section.value" in module_attrs
+    # Requests del dashboard sincronizados («gana el último»): una respuesta tardía no restablece estado anterior.
+    assert 'hx-sync="#activity-dashboard:replace"' in t
+
+
 def test_section_selector_depends_on_selected_module(logdir, monkeypatch):
     c = _client(monkeypatch)
-    # Módulo metodológico: el selector de Sección NO ofrece secciones de Catálogo.
+    # Módulo metodológico 01: Sección ofrece sus secciones OFICIALES del content pack, NUNCA catalog_*.
     meth = _select_block(_hx(c, "/admin/activity?vertical=copilot&module=CP01"), "section")
     assert "catalog_domain" not in meth and "catalog_client" not in meth
-    # Módulo virtual «Catálogos»: ofrece exclusivamente sus secciones.
+    assert 'value="referencias-de-arquitectura"' in meth                 # sección oficial del pack (aunque tenga 0 eventos)
+    # Módulo virtual «Catálogos»: Sección = los CUATRO catálogos funcionales (no las vistas crudas).
     cat = _select_block(_hx(c, "/admin/activity?vertical=copilot&module=__catalog__"), "section")
-    assert "catalog_domain" in cat and "catalog_client" in cat
+    assert all(f'value="{k}"' in cat for k in ("conectividad", "seguridad", "dominios", "data_products"))
+    assert "catalog_domain" not in cat and "catalog_client" not in cat   # las vistas crudas no se ofrecen como sección
     # El módulo virtual aparece como opción del selector de Módulo del Copiloto.
     assert 'value="__catalog__"' in _select_block(_hx(c, "/admin/activity?vertical=copilot"), "module")
+
+
+def test_methodology_sections_from_content_pack_even_with_zero_events(logdir, monkeypatch):
+    import webapp.services.activity_dashboard as D
+    # Dependencia estricta módulo → sección: CP04 ofrece SUS secciones oficiales del content pack (aunque 0 eventos).
+    cp04 = {s["key"] for s in D._section_inventory(frozenset({"copilot"})) if s["module"] == "CP04"}
+    assert cp04 and cp04 == {s["key"] for s in D._methodology_sections() if s["module"] == "CP04"}
+    sec = _select_block(_hx(_client(monkeypatch), "/admin/activity?vertical=copilot&module=CP04"), "section")
+    assert 'value="modelado-de-vistas"' in sec                      # oficial del pack, sin eventos
+    assert "catalog_" not in sec                                    # jamás navegación de Catálogo bajo un módulo metodológico
+
+
+def test_catalog_functional_classification_shared_and_transversal_stay_uncategorized(logdir, monkeypatch):
+    import webapp.services.activity_dashboard as D
+    from webapp.services import activity_catalog as C
+    # Sólo los slugs INEQUÍVOCOS están clasificados; compartidas y transversales NO (sin atribución artificial).
+    for shared in ("catalog_flow", "catalog_client", "catalog_lob", "catalog_cds", "catalog_sql"):
+        assert D._functional_catalog(shared) == ""
+    for transversal in ("catalog_assessment", "catalog_client_assessment", "governed_contracts_list", "governed_contracts_detail"):
+        assert D._functional_catalog(transversal) == ""
+    assert D._functional_catalog("catalog_connections") == "conectividad" and D._functional_catalog("catalog_domain") == "dominios"
+    assert set(C.CATALOG_FUNCTIONAL) <= C.CATALOG_SECTION_SLUGS     # guardia anti-drift
+    # Drill por catálogo: la acreditada cuenta en su catálogo; compartida/transversal NO se listan (sólo en «Todas»).
+    bd = {"breakdown": [{"vertical": "copilot", "label": "Copiloto", "modules": [{"module": D.CATALOG_VIRTUAL_MODULE, "sections": [
+        {"section": "catalog_connections", "visits": 0, "users": 1, "events": 5},
+        {"section": "catalog_flow", "visits": 0, "users": 1, "events": 9},
+        {"section": "catalog_assessment", "visits": 0, "users": 1, "events": 3}]}]}]}
+    state = {"period": "", "date_from": "", "date_to": "", "kind": "", "user": ""}
+    rows, title, _ = D._drill_rows("module", bd, state, [], [], D._section_inventory(frozenset({"copilot"})), None, "copilot", D.CATALOG_VIRTUAL_MODULE)
+    byk = {r["key"]: r for r in rows}
+    assert title == "Catálogos" and set(byk) == {"conectividad", "seguridad", "dominios", "data_products"}
+    assert byk["conectividad"]["events"] == 5 and byk["conectividad"]["zero"] is False
+    assert byk["dominios"]["zero"] is True                          # 0 acreditado; el flow/assessment NO suman a ningún catálogo
 
 
 def test_session_crossing_midnight_counts_once_in_two_day_range(logdir, monkeypatch):
@@ -282,17 +326,19 @@ def test_drilldown_levels_and_event_list(logdir, monkeypatch):
     assert re.search(r'Filtrado por <strong aria-current="page">Copiloto › [^<]+</strong>', subhead)
     assert 'class="dashboard-subhead__reset" data-drill-nav hx-get="/admin/activity?vertical=copilot"' in subhead
 
-    # Módulo analítico VIRTUAL «Catálogos»: ahí sí viven las secciones catalog_* (datos + inventario).
+    # Módulo analítico VIRTUAL «Catálogos»: el desglose es por los CUATRO catálogos FUNCIONALES.
     cat_module = _hx(c, "/admin/activity?vertical=copilot&module=__catalog__")
     rows = _drill_rows(cat_module)
-    assert rows["catalog_domain"][2] == 1 and rows["catalog_domain"][3] is False
-    assert rows["catalog_lob"] == (0, 0, 0, True)          # sección del inventario de Catálogo sin actividad
+    assert {"conectividad", "seguridad", "dominios", "data_products"} <= set(rows)
+    assert rows["dominios"][2] == 1 and rows["dominios"][3] is False       # catalog_domain (acreditado) cae en Dominios
+    assert rows["conectividad"] == (0, 0, 0, True)                          # sin actividad acreditada
+    assert "catalog_domain" not in rows and "catalog_flow" not in rows      # las vistas crudas no se listan como catálogo
 
-    section = _hx(c, "/admin/activity?vertical=copilot&module=__catalog__&section=catalog_domain")
+    section = _hx(c, "/admin/activity?vertical=copilot&module=__catalog__&section=dominios")
     assert 'data-drill-level="section"' in section and "data-drill-events" in section
     events = section.split("data-drill-events", 1)[1].split("</table>", 1)[0]
-    assert "Dos" in events or "dos@d.com" in events
-    assert re.search(r'<strong aria-current="page">Copiloto › Catálogos › Catálogo · Dominio</strong>', section)
+    assert "Dos" in events or "dos@d.com" in events                         # el filtro se expande a catalog_domain
+    assert re.search(r'<strong aria-current="page">Copiloto › Catálogos › Dominios</strong>', section)
     assert "1 registro(s)" in section
 
     none_section = _hx(c, "/admin/activity?vertical=copilot&module=CP01&section=_none")
@@ -363,10 +409,10 @@ def test_url_state_round_trips(logdir, monkeypatch):
     assert 'option value="copilot" selected' in _select_block(first, "vertical")
     assert 'option value="__catalog__" selected' in _select_block(first, "module")   # el módulo virtual round-trippea como cualquier otro
     assert 'option value="navigation" selected' in _select_block(first, "kind")
-    # Las filas del drill-down conservan TODO el estado y suman un nivel.
-    href = re.search(r'hx-get="(/admin/activity\?[^"]*section=catalog_domain[^"]*)"', first).group(1)
+    # Las filas del drill-down (por catálogo funcional) conservan TODO el estado y suman un nivel.
+    href = re.search(r'hx-get="(/admin/activity\?[^"]*section=dominios[^"]*)"', first).group(1)
     q = parse_qs(urlparse(href.replace("&amp;", "&")).query)
-    assert q == {"period": ["7d"], "vertical": ["copilot"], "module": ["__catalog__"], "section": ["catalog_domain"],
+    assert q == {"period": ["7d"], "vertical": ["copilot"], "module": ["__catalog__"], "section": ["dominios"],
                  "kind": ["navigation"], "user": ["dos@d.com"]}
     # La página completa (recarga/compartir) reconstruye lo mismo que el fragmento HTMX.
     full = c.get(url).text
