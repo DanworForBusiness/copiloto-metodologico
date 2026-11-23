@@ -641,3 +641,17 @@ def test_gets_and_the_dry_run_stay_available_while_pending_but_do_not_offer_to_a
     rec = _ready_request(pending)
     r = _client("owner@danwor.com").get(f"/copilot/governed-updates/{rec['request_id']}")
     assert r.status_code == 200 and "data-gu-approve" not in r.text and "recuperación de arranque" in r.text
+
+
+def test_the_dry_run_provenance_of_a_renewed_request_uses_its_fingerprint_not_the_legacy_absence(world, tmp_path, monkeypatch):
+    """B — tras renovar, la verificación de procedencia del dry-run recibe la huella de la solicitud NUEVA: ya no falla por NO_ADHOC_FINGERPRINT
+    (puede acreditar o abstenerse por otras causas reales; verify_provenance no se relaja)."""
+    from tests.webapp.test_governed_update_requests import _legacy
+    real_fp = ge.fingerprint(_profile())
+    legacy = _legacy()
+    assert "NO_ADHOC_FINGERPRINT" in _verify(tmp_path / "old", adhoc_fp=(legacy["source"].get("fingerprint") or {}))["reasons"]
+    monkeypatch.setattr(ge, "fingerprint", lambda profile: dict(real_fp))
+    renewed, created = _create()
+    assert created and renewed["supersedes"] == legacy["request_id"]
+    out = _verify(tmp_path / "new", adhoc_fp=renewed["source"]["fingerprint"])
+    assert "NO_ADHOC_FINGERPRINT" not in out["reasons"] and out["state"] == ge.ACCREDITED
