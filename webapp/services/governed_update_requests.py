@@ -41,6 +41,9 @@ log = logging.getLogger("danwor.governed_update_requests")
 
 SCHEMA = "governed-update-request/v1"
 OPEN, OBSOLETE = "OPEN", "OBSOLETE"
+SUPERSEDED = "SUPERSEDED"                # reemplazada por una solicitud nueva con huella de evidencia (renovación de una anterior a la huella)
+SUPERSEDE_REASON = "NO_EVIDENCE_FINGERPRINT"
+_APPROVAL_IN_FLIGHT = frozenset({"REGISTERED", "VERIFYING", "STARTED", "RECONCILIATION_REQUIRED", "INTERRUPTED"})
 NOTIFY_EVENT = "copilot.governed_update.requested"
 BASE_PATH = "/copilot/governed-updates"
 REVIEW_DEDUP_S = 600                                   # una revisión por persona y solicitud cada 10 min (la recarga no cuenta como otra revisión)
@@ -165,6 +168,18 @@ def find_open(client_dir: str, am: str) -> dict | None:
     return None
 
 
+def has_valid_fingerprint(fp: Any) -> bool:
+    """Huella de evidencia utilizable (#320): identidad Y equivalencia con digests no vacíos."""
+    return isinstance(fp, dict) and bool(fp.get("identity_digest")) and bool(fp.get("equivalence_digest"))
+
+
+def is_renewable(rec: dict | None) -> bool:
+    """Solicitud ABIERTA anterior a la huella de evidencia, sin aprobación en curso ni pendiente de reconciliar: un ad hoc nuevo CON huella puede
+    reemplazarla (no puede aprobarse nunca). No cambia su elegibilidad: solo permite registrar la nueva."""
+    return (bool(rec) and not has_valid_fingerprint((rec.get("source") or {}).get("fingerprint"))
+            and ((rec.get("approval") or {}).get("state") not in _APPROVAL_IN_FLIGHT))
+
+
 def assess_provenance(candidate_space: str | None, governed_space: str | None, published: str | None) -> dict:
     cand = (candidate_space or "").strip() or None
     gov = (governed_space or "").strip() or None
@@ -224,10 +239,11 @@ def create(*, client_dir: str, client_display: str, terminal_am: str, space: str
         except ValueError:
             gov_prof = {}
     gov_scope_space = ((gov_prof or {}).get("scope") or {}).get("space")
+    fingerprint = governed_evidence.fingerprint(candidate_profile) if isinstance(candidate_profile, dict) else None
     with _lock:
         existing = find_open(client_dir, terminal_am)
-        if existing is not None:
-            return existing, False
+        if existing is not None and not (is_renewable(existing) and has_valid_fingerprint(fingerprint)):
+            return existing, False                                         # deduplicación: una sola solicitud activa por cliente + modelo
         rid = uuid.uuid4().hex
         rec = {
             "schema": SCHEMA, "request_id": rid, "status": OPEN,
@@ -237,14 +253,31 @@ def create(*, client_dir: str, client_display: str, terminal_am: str, space: str
                        "source_contracts": opp["source_contracts"]["candidato"],
                        # huella de la evidencia del ad hoc (identidad + equivalencia metodológica), desde el perfil canónico; PR-2 la compara con la
                        # reconstrucción gobernada restringida al origen declarado. Solicitudes previas sin huella NO son elegibles.
-                       "fingerprint": governed_evidence.fingerprint(candidate_profile) if isinstance(candidate_profile, dict) else None},
+                       "fingerprint": fingerprint},
             "governed": {"sha256": envelope_sha(client_dir, terminal_am), "judgment": _judgment_brief(opp["vigente"]),
                          "source_contracts": opp["source_contracts"]["vigente"], "generated_at": env.get("generated_at")},
             "change": {"level_changed": opp["level_changed"], "contracts_changed": opp["contracts_changed"]},
             "provenance": assess_provenance(space, gov_scope_space, svc.published_space(client_dir, terminal_am)),
             "notification": None, "reviews": [], "preview": None, "previews": [],
         }
-        rec["durability"] = _write(rec)
+        if existing is None:
+            rec["durability"] = _write(rec)
+            return rec, True
+        # RENOVACIÓN: la abierta es anterior a la huella y el ad hoc nuevo sí la tiene. Orden: 1) la anterior pasa a SUPERSEDED (conserva todo su
+        # historial y NO recibe la huella nueva); 2) se escribe la nueva. Si 2) falla, 1) se revierte al registro original: nunca quedan cero ni dos
+        # activas. Todo bajo ``_lock`` (una sola renovación por proceso). La notificación la emite el llamador solo tras ``created=True``.
+        rec["supersedes"] = existing["request_id"]
+        retired = dict(existing, status=SUPERSEDED,
+                       superseded={"by": rid, "at": _now(), "reason": SUPERSEDE_REASON, "by_user": rec["requested_by"]})
+        _write(retired)
+        try:
+            rec["durability"] = _write(rec)
+        except BaseException:
+            try:
+                _write(existing)                                           # mismo serializador: vuelve a los bytes originales
+            except Exception:                                              # noqa: BLE001 — se informa la falla original
+                log.exception("governed_update: no se pudo revertir la solicitud reemplazada %s", existing["request_id"])
+            raise
     return rec, True
 
 

@@ -501,5 +501,123 @@ def test_a_request_without_evidence_fingerprint_explains_that_a_new_request_is_n
     assert "REQUEST_WITHOUT_FINGERPRINT" in gua.approvable(stored, ["DEV"])                                 # elegibilidad: la misma de antes
     html = _client("owner@danwor.com").get(f"/copilot/governed-updates/{rec['request_id']}").text
     assert "data-gu-legacy" in html and "requiere una solicitud nueva" in html and "no puede aprobarse" in html
-    assert "Volver a ejecutar la evaluación ad hoc" in html and "data-gu-approve" not in html
+    assert "Solicitar actualización" in html and "data-gu-approve" not in html
     assert gur.load(rec["request_id"]) == stored                                                            # sin migración: el registro no cambia
+
+
+# ── HOTFIX: renovación de solicitudes anteriores a la huella de evidencia ─────────────────────────────────────────────────────────────────────
+VALID_FP = {"schema": "x", "identity": {}, "identity_digest": "i" * 64, "equivalence_digest": "e" * 64}
+
+
+def _legacy(**kw):
+    rec, _ = _create(**kw)
+    with gur._lock:
+        fresh = gur.load(rec["request_id"])
+        fresh["source"].pop("fingerprint", None)
+        gur._write(fresh)
+    return gur.load(rec["request_id"])
+
+
+@pytest.fixture
+def fp(monkeypatch):
+    from webapp.services import governed_evidence
+    monkeypatch.setattr(governed_evidence, "fingerprint", lambda profile: dict(VALID_FP))
+
+
+def test_a_legacy_open_request_is_renewed_by_a_new_adhoc_with_fingerprint(world, fp):
+    old = _legacy()
+    before = dict(old)
+    new, created = _create()
+    assert created and new["request_id"] != old["request_id"] and new["supersedes"] == old["request_id"]
+    assert new["source"]["fingerprint"]["equivalence_digest"] == "e" * 64
+    retired = gur.load(old["request_id"])
+    assert retired["status"] == gur.SUPERSEDED and retired["superseded"]["by"] == new["request_id"]
+    assert "fingerprint" not in retired["source"]                                                     # la histórica NO recibe la huella nueva
+    assert {k: v for k, v in retired.items() if k not in ("status", "superseded")} == {k: v for k, v in before.items() if k not in ("status", "superseded")}
+    assert gur.find_open("Contreras", "AM_Workforce")["request_id"] == new["request_id"]              # una sola activa
+    again, created2 = _create()
+    assert not created2 and again["request_id"] == new["request_id"]                                    # con huella: deduplicación de siempre
+
+
+def test_an_open_request_with_fingerprint_is_still_deduplicated(world, fp):
+    first, c1 = _create()
+    second, c2 = _create()
+    assert c1 and not c2 and second["request_id"] == first["request_id"] and "supersedes" not in first
+
+
+def test_a_legacy_request_is_kept_when_the_new_adhoc_has_no_valid_fingerprint(world, monkeypatch):
+    from webapp.services import governed_evidence
+    old = _legacy()
+    monkeypatch.setattr(governed_evidence, "fingerprint", lambda profile: {"identity_digest": "", "equivalence_digest": ""})
+    same, created = _create()
+    assert not created and same["request_id"] == old["request_id"] and gur.load(old["request_id"])["status"] == gur.OPEN
+
+
+def test_a_legacy_request_with_an_approval_in_flight_is_not_superseded(world, fp):
+    old = _legacy()
+    with gur._lock:
+        fresh = gur.load(old["request_id"])
+        fresh["approval"] = {"approval_id": "a" * 32, "state": "RECONCILIATION_REQUIRED"}
+        gur._write(fresh)
+    same, created = _create()
+    assert not created and same["request_id"] == old["request_id"]
+
+
+def test_concurrent_renewals_leave_exactly_one_active_request(world, fp):
+    import threading
+    old = _legacy()
+    out, barrier = [], threading.Barrier(8)
+
+    def go():
+        barrier.wait()
+        out.append(_create())
+    threads = [threading.Thread(target=go) for _ in range(8)]
+    [t.start() for t in threads]
+    [t.join() for t in threads]
+    assert sum(1 for _, created in out if created) == 1 and len({r["request_id"] for r, _ in out}) == 1
+    actives = [r for r in gur._requests_for("Contreras", "AM_Workforce") if gur.current_status(r) == gur.OPEN]
+    assert len(actives) == 1 and gur.load(old["request_id"])["status"] == gur.SUPERSEDED
+
+
+def test_a_persistence_failure_while_renewing_rolls_back_without_partial_effects(world, fp, monkeypatch):
+    old = _legacy()
+    original = gur._path("Contreras", "AM_Workforce", old["request_id"]).read_bytes()
+    real = gur._write
+
+    def failing(rec):
+        if rec["request_id"] != old["request_id"]:
+            raise OSError("spaces caído")
+        return real(rec)
+    monkeypatch.setattr(gur, "_write", failing)
+    with pytest.raises(OSError):
+        _create()
+    assert gur._path("Contreras", "AM_Workforce", old["request_id"]).read_bytes() == original          # la anterior vuelve a estar intacta
+    assert [r["request_id"] for r in gur._requests_for("Contreras", "AM_Workforce")] == [old["request_id"]]
+
+
+def test_renewal_through_the_route_notifies_once_and_the_old_review_points_to_the_new(routes, fp):
+    old = _legacy()
+    c = _client("consultor@danwor.com")
+    r = c.post("/copilot/governed-updates/request", data={"result_id": RID, "stem": STEM}, headers=ORIGIN, follow_redirects=False)
+    new_id = r.headers["location"].split("/copilot/governed-updates/")[1].split("?")[0]
+    assert new_id != old["request_id"]
+    assert [e for e, _ in routes].count("governed_update.notified") == 1
+    c.post("/copilot/governed-updates/request", data={"result_id": RID, "stem": STEM}, headers=ORIGIN, follow_redirects=False)
+    assert [e for e, _ in routes].count("governed_update.notified") == 1                              # deduplicado: sin segundo correo
+    html = _client("owner@danwor.com").get(f"/copilot/governed-updates/{old['request_id']}").text
+    assert "data-gu-superseded" in html and f"/copilot/governed-updates/{new_id}" in html and "data-gu-legacy" not in html
+    assert "data-gu-origin-submit" not in html and "data-gu-approve" not in html
+
+
+def test_the_legacy_notice_does_not_ask_to_repeat_an_evaluation(routes):
+    old = _legacy()
+    html = _client("owner@danwor.com").get(f"/copilot/governed-updates/{old['request_id']}").text
+    assert "data-gu-legacy" in html and "volvé a ejecutar" not in html.lower() and "Volver a ejecutar" not in html
+    assert "Solicitar actualización" in html
+
+
+def test_the_adhoc_cta_offers_a_new_request_instead_of_the_legacy_one(world):
+    old = _legacy()
+    assert gur.is_renewable(gur.load(old["request_id"]))
+    fresh, _ = _create()
+    assert not gur.is_renewable(fresh)

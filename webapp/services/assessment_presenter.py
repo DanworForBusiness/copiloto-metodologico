@@ -1351,7 +1351,8 @@ def report_view(status: svc.AssessmentStatus, entry: Any, pack: str, adhoc: Adho
             try:
                 from webapp.services import governed_update_requests as gur
                 open_req = gur.find_open(status.client, status.terminal_am)
-                view["update_opportunity"]["open_request_id"] = open_req["request_id"] if open_req else None
+                # una abierta ANTERIOR a la huella no bloquea: el CTA vuelve a «Solicitar» y create() la renueva (no puede aprobarse nunca)
+                view["update_opportunity"]["open_request_id"] = open_req["request_id"] if open_req and not gur.is_renewable(open_req) else None
             except Exception:  # noqa: BLE001
                 view["update_opportunity"]["open_request_id"] = None
     if doc is None:
