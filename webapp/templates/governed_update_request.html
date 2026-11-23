@@ -33,6 +33,9 @@
 
     {% if g.obsolete %}
     <div class="methodology"><aside class="callout callout--punch callout--feedback" data-gu-obsolete><div class="callout__head"><strong class="callout__title">Solicitud obsoleta</strong></div><div class="callout__body"><p>El Assessment gobernado cambió después de esta solicitud: ya no se puede revisar ni aprobar.</p></div></aside></div>
+    {% elif g.legacy %}
+    {# Solicitud anterior a la huella de evidencia: solo se EXPLICA (la elegibilidad no cambia y no hay migración). #}
+    <div class="methodology"><aside class="callout callout--punch callout--feedback" data-gu-legacy><div class="callout__head"><strong class="callout__title">Solicitud anterior: requiere una solicitud nueva</strong></div><div class="callout__body"><p>Esta solicitud se registró antes de que el Hub guardara la huella de evidencia de la evaluación ad hoc. Sin esa huella no se puede comprobar que el dry-run gobernado reconstruye la misma evidencia, así que <strong>no puede aprobarse</strong>.</p><p>Para avanzar, volvé a ejecutar la evaluación ad hoc de {{ g.rec.terminal_am }} y solicitá la actualización desde su informe: la solicitud nueva incluye la huella. Esta queda como registro y no se modifica.</p></div></aside></div>
     {% endif %}
 
     <section class="gu-card" aria-labelledby="gu-proposal-title">

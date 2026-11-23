@@ -470,3 +470,36 @@ def test_without_remote_persistence_there_is_nothing_to_wait_for(world, monkeypa
     monkeypatch.setattr(remote_store, "await_restore", lambda timeout: (_ for _ in ()).throw(AssertionError("no debe esperar")))
     rec, created = _create()
     assert created and gur.load(rec["request_id"])["request_id"] == rec["request_id"]
+
+
+# ── UX: «Seguimiento de la actualización» (solo presentación) ───────────────────────────────────────────────────────────────────────────────
+def test_tracking_section_is_a_collapsible_table_with_every_stage_and_a_gold_origin_button(routes, monkeypatch):
+    from webapp.routers import governed_updates as gu_router
+    monkeypatch.setattr(gu_router, "_known_spaces", lambda rec: ["DEV", "PRD"])
+    rec, _ = _create()
+    html = _client("owner@danwor.com").get(f"/copilot/governed-updates/{rec['request_id']}").text
+    assert "Seguimiento de la actualización" in html and "Estado del circuito" not in html
+    assert '<details class="dashboard-section gu-tracking" data-gu-tracking open>' in html                   # plegable, abierto por defecto
+    assert "<th>Etapa</th><th>Estado</th><th>Detalle</th>" in html                                          # tabla-display del informe
+    for key in ("authorization", "historical_provenance", "authorized_origin", "dry_run", "application", "notification"):
+        assert f'<tr class="gu-tracking__row" data-gu-stage="{key}"' in html
+    assert 'data-gu-tracking-state>Todavía no<' in html                                                     # estado de la aplicación visible plegado
+    assert 'class="btn-primary gu-btn-compact"' in html and "data-gu-origin-submit>Calcular dry-run<" in html   # botón dorado (btn-primary)
+    assert "Verificar origen y calcular dry-run</button>" not in html
+    assert 'data-gu-vigente' in html and 'data-gu-candidato' in html                                         # la Propuesta se mantiene
+    assert "data-gu-legacy" not in html
+
+
+def test_a_request_without_evidence_fingerprint_explains_that_a_new_request_is_needed_without_changing_eligibility(routes):
+    from webapp.services import governed_update_approval as gua
+    rec, _ = _create()
+    with gur._lock:
+        fresh = gur.load(rec["request_id"])
+        fresh["source"].pop("fingerprint", None)
+        gur._write(fresh)
+    stored = gur.load(rec["request_id"])
+    assert "REQUEST_WITHOUT_FINGERPRINT" in gua.approvable(stored, ["DEV"])                                 # elegibilidad: la misma de antes
+    html = _client("owner@danwor.com").get(f"/copilot/governed-updates/{rec['request_id']}").text
+    assert "data-gu-legacy" in html and "requiere una solicitud nueva" in html and "no puede aprobarse" in html
+    assert "Volver a ejecutar la evaluación ad hoc" in html and "data-gu-approve" not in html
+    assert gur.load(rec["request_id"]) == stored                                                            # sin migración: el registro no cambia

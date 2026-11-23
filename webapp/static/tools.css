@@ -3309,14 +3309,20 @@ details:not([open]) > summary > .panel-close[data-asr-close] { display: none; }
 .gu-levels { display: flex; margin: 0 0 8px; font-size: .9rem; color: var(--content-ink); }
 .gu-line { margin: 0 0 6px; font-size: .84rem; color: var(--content-ink); }
 .gu-note { margin: 6px 0 0; color: var(--content-ink-soft); font-size: .78rem; line-height: 1.5; }
-.gu-stages { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
-.gu-stage { display: grid; grid-template-columns: minmax(170px, 240px) max-content 1fr; align-items: center; gap: 4px 12px; padding: 9px 0; border-top: 1px solid var(--content-line); font-size: .84rem; }
-.gu-stage:first-child { border-top: 0; padding-top: 2px; }
 .gu-stage__label { font-weight: 650; color: var(--content-ink); }
 .gu-stage__detail { color: var(--content-ink-soft); font-size: .8rem; line-height: 1.45; }
 .gu-next { margin: 12px 0 0; padding-top: 10px; border-top: 1px solid var(--content-line); font-size: .86rem; color: var(--content-ink); }
 .gu-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 12px; }
 .gu-details { margin: 0 0 14px; }
+/* «Seguimiento de la actualización»: `.dashboard-section` + `.methodology table` (lenguaje de los informes); solo ajustes de columnas y celdas. */
+.gu-tracking { margin: 0 0 14px; }
+.gu-tracking .gu-tracking__table { width: 100%; margin: 4px 0 0; }
+.gu-tracking .gu-tracking__table td { vertical-align: top; }
+.gu-tracking .gu-tracking__table td:first-child { width: 28%; }
+.gu-tracking .gu-stage__label { font-weight: 650; color: var(--content-ink); }
+.gu-stage__cell { display: grid; gap: 8px; justify-items: start; }
+.gu-tracking .gu-next { margin-top: 14px; }
+.gu-btn-compact { min-height: 0; padding: 6px 12px; font-size: .78rem; line-height: 1.3; white-space: nowrap; }
 .gu-origin { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 4px 0 2px; }
 .gu-origin__spaces { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin: 0; padding: 0; border: 0; }
 .gu-origin__space { display: inline-flex; align-items: center; gap: 6px; font: 600 .78rem var(--mono); color: var(--content-ink); }
@@ -3326,10 +3332,6 @@ details:not([open]) > summary > .panel-close[data-asr-close] { display: none; }
 .gu-facts dt { margin-top: 8px; font-weight: 650; color: var(--content-ink); }
 .gu-facts dt:first-child { margin-top: 0; }
 .gu-facts dd { margin: 2px 0 0; color: var(--content-ink-soft); overflow-wrap: anywhere; }
-@media (max-width: 720px) {
-  .gu-stage { grid-template-columns: 1fr; gap: 4px; }
-  .gu-stage .catalog-card__verdict { justify-self: start; }
-}
 /* Metadatos contextuales del hero de Operaciones → Asignaciones / Carga de Horas: MISMA separación compacta que el hero de Assessment (12px). */
 .module-hero > [data-opsb-hero-meta] { margin-top: 12px; }
 

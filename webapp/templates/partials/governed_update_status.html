@@ -1,49 +1,61 @@
-{#- Estado de la solicitud (SOLO LECTURA): etapas del circuito, próximo paso, dry-run y correo. Se refresca solo (HTMX) mientras el dry-run corre o el
+{#- Seguimiento de la solicitud (SOLO LECTURA): etapas del circuito, próximo paso, dry-run y correo. Se refresca solo (HTMX) mientras el dry-run corre o el
     correo no llegó a un estado terminal (con tope de tiempo): el refresco CONSULTA el registro de notificaciones, nunca reenvía. El botón del dry-run
     lo ve solo APP_OWNER / CONTENT_OWNER y solo calcula el plan. -#}
 {% set p = g.preview %}
 <div data-gu-status{% if g.poll %} hx-get="{{ g.base }}/preview?pack={{ g.pack | urlencode }}" hx-trigger="every 4s" hx-swap="outerHTML" hx-select="[data-gu-status]"{% endif %}>
-  <section class="gu-card" aria-labelledby="gu-stages-title">
-    <h2 class="gu-card__title" id="gu-stages-title">Estado del circuito</h2>
-    <ol class="gu-stages">
-      {% for s in g.stages %}
-      <li class="gu-stage" data-gu-stage="{{ s.key }}">
-        <span class="gu-stage__label">{{ s.label }}</span>
-        <span class="catalog-card__verdict catalog-card__verdict--{{ s.tone }}">{{ s.badge }}</span>
-        {% if s.key == "dry_run" and p and p.state == "READY" and g.preview_to %}<span class="gu-stage__detail">Nivel proyectado <span class="catalog-card__verdict catalog-card__verdict--{{ g.preview_to.tone }}" data-gu-projected>{{ g.preview_to.label }}</span> · sin escrituras.</span>
-        {% elif s.key == "dry_run" and p and p.state == "ABSTAINED" %}<span class="gu-stage__detail">{{ p.abstentions | join(", ") }}.</span>
-        {% elif s.key == "dry_run" and p and p.state == "FAILED" %}<span class="gu-stage__detail">{{ (p.failures or []) | join(", ") }}</span>
-        {% elif s.detail %}<span class="gu-stage__detail">{{ s.detail }}</span>{% endif %}
-        {% if s.key == "authorized_origin" and g.can_preview and g.known_spaces and not g.preview_running and not (g.approval and g.approval.state in ("REGISTERED", "VERIFYING", "STARTED", "APPLIED")) %}
-        {# Declaración EXPLÍCITA del origen: ningún Space viene marcado; el dry-run se recalcula restringido a las fichas de conexión de lo elegido. #}
-        <form method="post" action="{{ g.base }}/preview" class="gu-origin" data-gu-origin-form>
-          <input type="hidden" name="pack" value="{{ g.pack }}">
-          <fieldset class="gu-origin__spaces"><legend class="gu-stage__detail">Space autorizado</legend>
-            {% for sp in g.known_spaces %}<label class="gu-origin__space"><input type="checkbox" name="spaces" value="{{ sp }}"> {{ sp }}</label>{% endfor %}
-          </fieldset>
-          <button type="submit" class="btn-secondary" data-gu-origin-submit>Verificar origen y calcular dry-run</button>
-        </form>
-        {% endif %}
-        {% if s.key == "application" and g.can_approve %}
-        <button type="button" class="btn-primary gu-approve" data-dialog-open="gu-approve-dialog" data-gu-approve>Aprobar y actualizar</button>
-        {% endif %}
-      </li>
-      {% endfor %}
-      <li class="gu-stage" data-gu-stage="notification" data-gu-notification="{{ g.notification.state }}">
-        <span class="gu-stage__label">Notificación a Arquitectura</span>
-        <span class="catalog-card__verdict catalog-card__verdict--{{ g.notification.tone }}">{{ g.notification.label }}</span>
-        {% if g.notification.detail %}<span class="gu-stage__detail">{{ g.notification.detail }}</span>{% endif %}
-      </li>
-    </ol>
-    <p class="gu-next" data-gu-next><strong>Próximo paso:</strong> {{ g.next_step }}</p>
-    {% if g.can_preview and not g.preview_running and not (p and p.spaces) %}
-    <form method="post" action="{{ g.base }}/preview" class="gu-actions">
-      <input type="hidden" name="pack" value="{{ g.pack }}">
-      <button type="submit" class="btn-secondary" data-gu-preview-submit>{% if p %}Recalcular dry-run{% else %}Calcular dry-run{% endif %}</button>
-      <span class="gu-note">Solo lectura: no aprueba ni modifica el Assessment gobernado.</span>
-    </form>
-    {% endif %}
-  </section>
+  {#- «Seguimiento de la actualización»: MISMO lenguaje que los informes de Assessment — contenedor plegable `.dashboard-section` (abierto por
+      defecto) y tabla nativa `.methodology table` (Etapa · Estado · Detalle) con los badges `.catalog-card__verdict--*`. Solo presentación: las
+      etapas, validaciones, formularios y botones son los mismos de antes. En el encabezado, el estado de la aplicación (visible aun plegado). -#}
+  {% set _app = (g.stages | selectattr("key", "equalto", "application") | list | first) %}
+  <details class="dashboard-section gu-tracking" data-gu-tracking open>
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title" id="gu-stages-title">Seguimiento de la actualización</span>
+      {% if _app %}<span class="dashboard-section__state"><span class="catalog-card__verdict catalog-card__verdict--{{ _app.tone }}" data-gu-tracking-state>{{ _app.badge }}</span></span>{% endif %}</summary>
+    <div class="dashboard-section__body methodology">
+      <table class="gu-tracking__table" aria-labelledby="gu-stages-title">
+        <thead><tr><th>Etapa</th><th>Estado</th><th>Detalle</th></tr></thead>
+        <tbody>
+          {% for s in g.stages %}
+          <tr class="gu-tracking__row" data-gu-stage="{{ s.key }}">
+            <td class="gu-stage__label">{{ s.label }}</td>
+            <td><span class="catalog-card__verdict catalog-card__verdict--{{ s.tone }}">{{ s.badge }}</span></td>
+            <td><div class="gu-stage__cell">
+              {% if s.key == "dry_run" and p and p.state == "READY" and g.preview_to %}<span class="gu-stage__detail">Nivel proyectado <span class="catalog-card__verdict catalog-card__verdict--{{ g.preview_to.tone }}" data-gu-projected>{{ g.preview_to.label }}</span> · sin escrituras.</span>
+              {% elif s.key == "dry_run" and p and p.state == "ABSTAINED" %}<span class="gu-stage__detail">{{ p.abstentions | join(", ") }}.</span>
+              {% elif s.key == "dry_run" and p and p.state == "FAILED" %}<span class="gu-stage__detail">{{ (p.failures or []) | join(", ") }}</span>
+              {% elif s.detail %}<span class="gu-stage__detail">{{ s.detail }}</span>{% else %}<span class="gu-stage__detail">—</span>{% endif %}
+              {% if s.key == "authorized_origin" and g.can_preview and g.known_spaces and not g.preview_running and not (g.approval and g.approval.state in ("REGISTERED", "VERIFYING", "STARTED", "APPLIED")) %}
+              {# Declaración EXPLÍCITA del origen: ningún Space viene marcado; el dry-run se recalcula restringido a las fichas de conexión de lo elegido. #}
+              <form method="post" action="{{ g.base }}/preview" class="gu-origin" data-gu-origin-form>
+                <input type="hidden" name="pack" value="{{ g.pack }}">
+                <fieldset class="gu-origin__spaces"><legend class="gu-stage__detail">Space autorizado</legend>
+                  {% for sp in g.known_spaces %}<label class="gu-origin__space"><input type="checkbox" name="spaces" value="{{ sp }}"> {{ sp }}</label>{% endfor %}
+                </fieldset>
+                <button type="submit" class="btn-primary gu-btn-compact" title="Verifica el origen declarado y calcula el dry-run restringido a ese Space (solo lectura)" data-gu-origin-submit>Calcular dry-run</button>
+              </form>
+              {% endif %}
+              {% if s.key == "application" and g.can_approve %}
+              <button type="button" class="btn-primary gu-btn-compact gu-approve" data-dialog-open="gu-approve-dialog" data-gu-approve>Aprobar y actualizar</button>
+              {% endif %}
+            </div></td>
+          </tr>
+          {% endfor %}
+          <tr class="gu-tracking__row" data-gu-stage="notification" data-gu-notification="{{ g.notification.state }}">
+            <td class="gu-stage__label">Notificación a Arquitectura</td>
+            <td><span class="catalog-card__verdict catalog-card__verdict--{{ g.notification.tone }}">{{ g.notification.label }}</span></td>
+            <td><span class="gu-stage__detail">{{ g.notification.detail or "—" }}</span></td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="gu-next" data-gu-next><strong>Próximo paso:</strong> {{ g.next_step }}</p>
+      {% if g.can_preview and not g.preview_running and not (p and p.spaces) %}
+      <form method="post" action="{{ g.base }}/preview" class="gu-actions">
+        <input type="hidden" name="pack" value="{{ g.pack }}">
+        <button type="submit" class="btn-secondary gu-btn-compact" data-gu-preview-submit>{% if p %}Recalcular dry-run{% else %}Calcular dry-run{% endif %}</button>
+        <span class="gu-note">Sin restricción de Space. Solo lectura: no aprueba ni modifica el Assessment gobernado.</span>
+      </form>
+      {% endif %}
+    </div>
+  </details>
 
   {% if g.can_approve %}
   {# Confirmación EXPLÍCITA: resume lo que se aprueba; un reintento con la misma clave devuelve la misma aprobación (nunca ejecuta dos veces). #}
