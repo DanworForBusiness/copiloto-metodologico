@@ -43,6 +43,7 @@ SCHEMA = "governed-update-request/v1"
 OPEN, OBSOLETE = "OPEN", "OBSOLETE"
 SUPERSEDED = "SUPERSEDED"                # reemplazada por una solicitud nueva con huella de evidencia (renovación de una anterior a la huella)
 SUPERSEDE_REASON = "NO_EVIDENCE_FINGERPRINT"
+SUPERSEDE_REASON_SCHEMA = "FINGERPRINT_SCHEMA_SUPERSEDED"        # E4: huella de un esquema anterior al vigente (p. ej. v1 → v2)
 _APPROVAL_IN_FLIGHT = frozenset({"REGISTERED", "VERIFYING", "STARTED", "RECONCILIATION_REQUIRED", "INTERRUPTED"})
 NOTIFY_EVENT = "copilot.governed_update.requested"
 BASE_PATH = "/copilot/governed-updates"
@@ -173,11 +174,23 @@ def has_valid_fingerprint(fp: Any) -> bool:
     return isinstance(fp, dict) and bool(fp.get("identity_digest")) and bool(fp.get("equivalence_digest"))
 
 
+def _renewal_reason(rec: dict | None) -> str | None:
+    """Por qué una solicitud ABIERTA puede ser reemplazada por un ad hoc nuevo con la huella VIGENTE (None = no renovable): sin huella válida, o con
+    huella de un esquema ANTERIOR (E4). Nunca con una aprobación en curso, pendiente de reconciliar o con resultado incierto."""
+    if not rec or ((rec.get("approval") or {}).get("state") in _APPROVAL_IN_FLIGHT):
+        return None
+    fp = (rec.get("source") or {}).get("fingerprint")
+    if not has_valid_fingerprint(fp):
+        return SUPERSEDE_REASON
+    if fp.get("schema") != governed_evidence.FINGERPRINT_SCHEMA:
+        return SUPERSEDE_REASON_SCHEMA
+    return None
+
+
 def is_renewable(rec: dict | None) -> bool:
-    """Solicitud ABIERTA anterior a la huella de evidencia, sin aprobación en curso ni pendiente de reconciliar: un ad hoc nuevo CON huella puede
-    reemplazarla (no puede aprobarse nunca). No cambia su elegibilidad: solo permite registrar la nueva."""
-    return (bool(rec) and not has_valid_fingerprint((rec.get("source") or {}).get("fingerprint"))
-            and ((rec.get("approval") or {}).get("state") not in _APPROVAL_IN_FLIGHT))
+    """Solicitud ABIERTA que un ad hoc nuevo con la huella VIGENTE puede reemplazar (ver ``_renewal_reason``). No cambia su elegibilidad: solo permite
+    registrar la nueva; la histórica conserva su huella original (nunca se recalcula)."""
+    return _renewal_reason(rec) is not None
 
 
 def assess_provenance(candidate_space: str | None, governed_space: str | None, published: str | None) -> dict:
@@ -244,7 +257,9 @@ def create(*, client_dir: str, client_display: str, terminal_am: str, space: str
     fingerprint = governed_evidence.fingerprint(candidate_profile, candidate_extensions) if isinstance(candidate_profile, dict) else None
     with _lock:
         existing = find_open(client_dir, terminal_am)
-        if existing is not None and not (is_renewable(existing) and has_valid_fingerprint(fingerprint)):
+        renewable = (is_renewable(existing) and has_valid_fingerprint(fingerprint)
+                     and fingerprint.get("schema") == governed_evidence.FINGERPRINT_SCHEMA) if existing is not None else False
+        if existing is not None and not renewable:
             return existing, False                                         # deduplicación: una sola solicitud activa por cliente + modelo
         rid = uuid.uuid4().hex
         rec = {
@@ -270,7 +285,7 @@ def create(*, client_dir: str, client_display: str, terminal_am: str, space: str
         # activas. Todo bajo ``_lock`` (una sola renovación por proceso). La notificación la emite el llamador solo tras ``created=True``.
         rec["supersedes"] = existing["request_id"]
         retired = dict(existing, status=SUPERSEDED,
-                       superseded={"by": rid, "at": _now(), "reason": SUPERSEDE_REASON, "by_user": rec["requested_by"]})
+                       superseded={"by": rid, "at": _now(), "reason": _renewal_reason(existing), "by_user": rec["requested_by"]})
         _write(retired)
         try:
             rec["durability"] = _write(rec)
