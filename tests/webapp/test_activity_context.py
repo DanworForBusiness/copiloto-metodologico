@@ -717,3 +717,24 @@ def test_catalog_events_without_section_gain_no_artificial_section():
     for event in ("catalog_regenerate", "datasphere_assessment_run", "governed_update.requested"):
         rec = _norm_catalog(event)
         assert rec["module"] == ax.CATALOG_VIRTUAL_MODULE and rec["section"] == "", event
+
+
+def test_catalog_navigation_with_methodology_area_maps_to_virtual_module():
+    # Caso REAL de producción: un section_view de Catálogo abierto desde el workspace del módulo 04 llega con
+    # area=methodology y module=CP04 (NO area=catalog). Debe atribuirse al módulo virtual por el slug de sección.
+    raw = {"v": 2, "event": "section_view", "scope": "copilot", "area": "methodology", "kind": "navigation",
+           "ts_utc": "2026-11-21T10:00:00", "user": "a@d.com", "module": "CP04", "section": "catalog_client",
+           "attrs": {"view_id": "x"}}
+    r = ax.normalize_record(raw)
+    assert r["module"] == ax.CATALOG_VIRTUAL_MODULE        # atribución corregida
+    assert r["raw_module"] == "CP04"                        # evidencia histórica
+    assert r["area"] == "methodology"                       # el área histórica NO se toca (sólo el módulo)
+    assert r["section"] == "catalog_client"
+
+
+def test_catalog_section_slugs_are_the_copilot_section_inventory_without_drift():
+    # Fuente compartida única: el set canónico == las secciones Copiloto del inventario del dashboard (sin drift).
+    from webapp.services import activity_dashboard as D
+    from webapp.services import activity_catalog as C
+    copilot_inv = {slug for slug, (vertical, _label) in D.SECTION_INVENTORY.items() if vertical == C.SCOPE_COPILOT}
+    assert copilot_inv == C.CATALOG_SECTION_SLUGS
