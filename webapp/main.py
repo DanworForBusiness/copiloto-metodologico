@@ -3562,8 +3562,16 @@ def admin_catalog_generate(request: Request, graph_token: str = Form(""), scope:
     _require_diagnostic(request)
     if scope == "apis_only":
         return _admin_apis_only(request, graph_token, step, plan, confirm, journal)
-    output = admin_tools.run_catalog_generation(graph_token=graph_token)
-    _invalidate_catalog_cache()
+    # Generación/regeneración COMPLETA del Catálogo (panel owner). Serializada por el MISMO lock que el self-service `/catalog/regenerate` y auditada en Métricas de Uso
+    # (misma taxonomía `catalog_regenerate`): operación multi-modelo, sin cliente único. outcome: corrió → success; no corrió (lock/otra operación en curso) → rejected.
+    user = auth_service.session_user(request) or {}
+    started = time.monotonic()
+    ran, output = admin_tools.run_catalog_generation_locked(graph_token=graph_token)
+    duration_s = round(time.monotonic() - started, 1)
+    if ran:
+        _invalidate_catalog_cache()
+    log_activity("catalog_regenerate", user=user, scope=SCOPE_COPILOT, area=AREA_CATALOG, ran=ran, ok=ran, duration_s=duration_s, source="admin_panel",
+                 outcome=(OUTCOME_SUCCESS if ran else OUTCOME_REJECTED))
     return _admin_result(request, "Catálogo CSN — regeneración", output)
 
 

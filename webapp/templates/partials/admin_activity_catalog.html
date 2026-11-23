@@ -2,13 +2,19 @@
     (`.activity-kpi-grid`, `.activity-feed`, `.story-timeline`). Filtros propios (cliente, modelo, herramienta, operación) que conservan los del tablero.
     Con cliente + modelo elegidos: HISTORIA del modelo (orden cronológico). No es el registro autoritativo: la solicitud enlazada re-verifica permisos. -#}
 {% set c = catalog %}
-<form class="whatsnew-filters catalog-activity__filters" method="get" action="/admin/activity" data-catalog-activity-filters>
+{# Filtros propios del contenedor con los MISMOS primitivos transversales de Métricas de Uso (`whatsnew-filters activity-filters` + `whatsnew-filter`/`<span>`), vía HTMX al tablero
+   (`#activity-dashboard`), conservando los filtros globales (período/usuario/ámbito…) como hidden. «✕ Limpiar» limpia SOLO cat_client/cat_model/cat_tool/cat_op (preserva los globales). #}
+<form class="whatsnew-filters activity-filters catalog-activity__filters" hx-get="/admin/activity" hx-target="#activity-dashboard" hx-swap="outerHTML" hx-push-url="true" hx-trigger="submit" data-catalog-activity-filters>
   {% for k, val in request.query_params.multi_items() if k not in ("cat_client", "cat_model", "cat_tool", "cat_op") %}<input type="hidden" name="{{ k }}" value="{{ val }}">{% endfor %}
-  <label>Cliente<select name="cat_client"><option value="">Todos</option>{% for x in c.clients %}<option value="{{ x }}"{% if x == c.selected.cat_client %} selected{% endif %}>{{ x }}</option>{% endfor %}</select></label>
-  <label>Modelo<select name="cat_model"><option value="">Todos</option>{% for x in c.models %}<option value="{{ x }}"{% if x == c.selected.cat_model %} selected{% endif %}>{{ x }}</option>{% endfor %}</select></label>
-  <label>Herramienta<select name="cat_tool"><option value="">Todas</option>{% for x in c.tools %}<option value="{{ x.key }}"{% if x.key == c.selected.cat_tool %} selected{% endif %}>{{ x.label }}</option>{% endfor %}</select></label>
-  <label>Operación<select name="cat_op"><option value="">Todas</option>{% for x in c.ops %}<option value="{{ x.key }}"{% if x.key == c.selected.cat_op %} selected{% endif %}>{{ x.label }}</option>{% endfor %}</select></label>
+  <label class="whatsnew-filter"><span>Cliente</span><select name="cat_client"><option value="">Todos</option>{% for x in c.clients %}<option value="{{ x }}"{% if x == c.selected.cat_client %} selected{% endif %}>{{ x }}</option>{% endfor %}</select></label>
+  <label class="whatsnew-filter"><span>Modelo</span><select name="cat_model"><option value="">Todos</option>{% for x in c.models %}<option value="{{ x }}"{% if x == c.selected.cat_model %} selected{% endif %}>{{ x }}</option>{% endfor %}</select></label>
+  <label class="whatsnew-filter"><span>Herramienta</span><select name="cat_tool"><option value="">Todas</option>{% for x in c.tools %}<option value="{{ x.key }}"{% if x.key == c.selected.cat_tool %} selected{% endif %}>{{ x.label }}</option>{% endfor %}</select></label>
+  <label class="whatsnew-filter"><span>Operación</span><select name="cat_op"><option value="">Todas</option>{% for x in c.ops %}<option value="{{ x.key }}"{% if x.key == c.selected.cat_op %} selected{% endif %}>{{ x.label }}</option>{% endfor %}</select></label>
   <button type="submit" class="btn-primary">Aplicar</button>
+  {% if c.selected.cat_client or c.selected.cat_model or c.selected.cat_tool or c.selected.cat_op %}
+  {% set ns = namespace(pairs=[]) %}{% for k, val in request.query_params.multi_items() if k not in ("cat_client", "cat_model", "cat_tool", "cat_op") %}{% set ns.pairs = ns.pairs + [(k, val)] %}{% endfor %}
+  <button type="button" class="whatsnew-filter__clear" hx-get="/admin/activity{% if ns.pairs %}?{{ ns.pairs|urlencode }}{% endif %}" hx-target="#activity-dashboard" hx-swap="outerHTML" hx-push-url="true">✕ Limpiar</button>
+  {% endif %}
 </form>
 
 <div class="activity-kpi-grid" data-catalog-activity-kpis>
