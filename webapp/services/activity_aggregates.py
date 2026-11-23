@@ -48,7 +48,7 @@ from typing import Any, Iterable
 from config import ACTIVITY_LOG_DIR
 from webapp.services import activity_catalog
 from webapp.services.activity_context import (
-    EVENT_CLASS_USAGE, area_label, is_visit, module_label, normalize_record, scope_label,
+    EVENT_CLASS_USAGE, NORMALIZE_TAXONOMY_VERSION, area_label, is_visit, module_label, normalize_record, scope_label,
 )
 
 log = logging.getLogger(__name__)
@@ -153,8 +153,11 @@ def _agg_path(day: str) -> Path:
 
 def _signature(source: Path) -> dict:
     st = source.stat()
+    # `norm`: versión del contrato de normalización (atribución a dimensiones). Un cambio de taxonomía en
+    # `normalize_record` (p. ej. el módulo virtual «Catálogos») invalida los agregados viejos y fuerza recálculo
+    # cuando hay JSONL — igual que `catalog`/`schema`, pero para reglas que viven en activity_context.
     return {"size": st.st_size, "mtime_ns": st.st_mtime_ns,
-            "catalog": activity_catalog.version(), "schema": AGG_SCHEMA}
+            "catalog": activity_catalog.version(), "norm": NORMALIZE_TAXONOMY_VERSION, "schema": AGG_SCHEMA}
 
 
 def _read_records(day: str) -> list[dict]:

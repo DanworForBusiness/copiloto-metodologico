@@ -130,8 +130,21 @@ def context_of(record: dict) -> tuple[str, str]:
 # labels es SOLO para módulos compartidos nuevos que no vienen de un content
 # pack (hoy, únicamente Asignaciones). Un módulo sin label mapeado muestra su
 # key cruda (mismo criterio que scope_label/area_label).
+# Módulo analítico VIRTUAL «Catálogos» (vertical Copiloto): agrupa TODA la actividad `area == catalog`
+# (Decisión, Diagnóstico, actualización gobernada, Mantenimiento) en una dimensión de módulo propia,
+# SIN entrar en la numeración metodológica oficial (sale del content pack / module_registry, no de acá).
+# Clave reservada que `module_registry.resolve` no reconoce → cae a MODULE_LABELS. Ver `normalize_record`.
+CATALOG_VIRTUAL_MODULE = "__catalog__"
+
+# Versión EXPLÍCITA del contrato de normalización que afecta la AGREGACIÓN (dimensiones vertical/area/module/
+# section). La firma de `activity_aggregates` la incluye: un cambio acá invalida los agregados derivados de la
+# taxonomía anterior y fuerza el recálculo (cuando hay JSONL). Se bumpea SÓLO ante cambios semánticos de
+# atribución (no por refactors). 2 = módulo virtual «Catálogos» por area=catalog Y por slug de sección.
+NORMALIZE_TAXONOMY_VERSION = 2
+
 MODULE_LABELS: dict[str, str] = {
     MODULE_ASSIGNMENTS: "Asignaciones",
+    CATALOG_VIRTUAL_MODULE: "Catálogos",
 }
 
 
@@ -298,6 +311,14 @@ def normalize_record(raw: dict) -> dict | None:
         resolved = module_registry.resolve(raw_module)
         if resolved:
             module = resolved.module_id
+    # Catálogos como módulo analítico virtual: la actividad FUNCIONAL del Catálogo se atribuye a un módulo propio
+    # (no metodológico), read-time. Dos formas: (a) eventos con `area == catalog` (resultados/acciones del servidor);
+    # (b) NAVEGACIÓN del Catálogo (`section_view`), que históricamente llega con area=methodology/hub y module=CP04
+    # (módulo ambiente) — se reconoce por el slug de sección del inventario canónico compartido. `raw_module` y el
+    # área original se conservan (sin reescrituras): una combinación histórica como `CP04 + catalog_*` ya no atribuye
+    # falso. NOTA: sólo se remapea el MÓDULO; el área histórica no se toca (ver filtro Área = Catálogo).
+    if area == _catalog.AREA_CATALOG or (section and section in _catalog.CATALOG_SECTION_SLUGS):
+        module = CATALOG_VIRTUAL_MODULE
     spec = _catalog.spec_of(canonical_event)
     return {
         "v": 2 if is_v2 else 1,

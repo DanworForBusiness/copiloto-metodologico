@@ -90,7 +90,8 @@ def test_section_view_without_module_resolves_origin_by_path(logdir, client):
     assert (rec["scope"], rec["area"]) == ("human_capital", "cchh") and "module" not in rec
 
 
-@pytest.mark.parametrize("bad", ["", "Catalog_flow", "catalog flow", "catalog-flow", "1catalog", "x",
+# `catalog-flow` ya NO está: el guion es válido (slugs del content pack). Los de abajo siguen siendo inválidos.
+@pytest.mark.parametrize("bad", ["", "Catalog_flow", "catalog flow", "catalog--flow x", "1catalog", "x",
                                  "a" * 49, "catalog_flow<script>", None, 42, ["catalog_flow"]])
 def test_section_view_with_invalid_slug_is_dropped(logdir, client, bad):
     r = client.post("/telemetry/event", json={"event": "section_view", "section": bad, "view_id": "pv1",

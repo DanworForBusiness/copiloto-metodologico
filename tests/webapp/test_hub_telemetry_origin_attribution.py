@@ -245,3 +245,51 @@ def test_g_no_strategy_specific_conditional_exists_in_telemetry_py():
     for node in ast.walk(tree):
         if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docstring_nodes:
             assert node.value.strip().lower() not in banned, node.value
+
+
+# ============================================================================
+# G — section_view metodológico (scroll-spy): slug con guiones del content pack.
+# ============================================================================
+
+def _enable_logging(monkeypatch, tmp_path):
+    monkeypatch.setattr(activity_service, "LOG_ACTIVITY", "VERBOSE", raising=False)
+    monkeypatch.setattr(activity_service, "ACTIVITY_LOG_DIR", tmp_path)
+    monkeypatch.setattr(activity_analytics, "ACTIVITY_LOG_DIR", tmp_path)
+    fb = tmp_path / "_no_feedback"
+    fb.mkdir()
+    monkeypatch.setattr(activity_analytics, "FEEDBACK_LOG_DIR", fb)
+
+
+def test_g_methodology_section_view_hyphenated_slug_is_accepted_and_methodology(monkeypatch, tmp_path):
+    _enable_logging(monkeypatch, tmp_path)
+    c = _owner_client(monkeypatch)
+    res = c.post("/telemetry/event", json={"event": "section_view", "section": "referencias-de-arquitectura",
+                                           "module_id": "CP01", "view_id": "abc123", "path": "/modules/01"})
+    assert res.status_code == 204
+    rec = json.loads(list(tmp_path.glob("activity_*.jsonl"))[0].read_text(encoding="utf-8").strip())
+    assert rec["event"] == "section_view" and rec["scope"] == "copilot" and rec["area"] == "methodology"
+    assert rec["module"] == "CP01" and rec["section"] == "referencias-de-arquitectura"
+    # Normaliza como metodológica (NO cae al módulo virtual «Catálogos»): distinción preservada.
+    from webapp.services import activity_context as ax
+    norm = ax.normalize_record(rec)
+    assert norm["module"] == "CP01" and norm["module"] != ax.CATALOG_VIRTUAL_MODULE
+
+
+def test_g_arbitrary_section_text_is_still_rejected(monkeypatch, tmp_path):
+    _enable_logging(monkeypatch, tmp_path)
+    c = _owner_client(monkeypatch)
+    for bad in ("DROP TABLE x", "Texto Libre", "../../etc"):
+        assert c.post("/telemetry/event", json={"event": "section_view", "section": bad, "module_id": "CP01"}).status_code == 204
+    assert not list(tmp_path.glob("activity_*.jsonl"))          # nada se logueó: validación estricta intacta
+
+
+def test_g_catalog_section_view_still_maps_to_virtual_catalog(monkeypatch, tmp_path):
+    _enable_logging(monkeypatch, tmp_path)
+    c = _owner_client(monkeypatch)
+    res = c.post("/telemetry/event", json={"event": "section_view", "section": "catalog_connections",
+                                           "module_id": "CP01", "view_id": "def456", "path": "/modules/01"})
+    assert res.status_code == 204
+    rec = json.loads(list(tmp_path.glob("activity_*.jsonl"))[0].read_text(encoding="utf-8").strip())
+    from webapp.services import activity_context as ax
+    norm = ax.normalize_record(rec)
+    assert norm["module"] == ax.CATALOG_VIRTUAL_MODULE and norm["raw_module"] == "CP01"   # taxonomía de Catálogo intacta

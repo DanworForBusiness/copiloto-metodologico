@@ -33,7 +33,10 @@
      preset limpia Desde/Hasta (el servidor los recalcula y los muestra); tocar una fecha pasa a
      "Rango personalizado". Las opciones de Módulo/Sección salen de los datos del período + el inventario
      real del Hub, siempre dentro de lo que este usuario puede ver (activity_dashboard.build). #}
-  <form class="whatsnew-filters activity-filters" hx-get="/admin/activity" hx-target="#activity-dashboard" hx-swap="outerHTML" hx-push-url="true" hx-trigger="submit, change from:.scope-area-checkbox">
+  {# `hx-sync="#activity-dashboard:replace"`: Período/Vertical/Módulo y los checkboxes disparan envíos en ráfaga; sin sincronizar,
+     una respuesta tardía podía pisar el dashboard con un estado anterior (filtros que «se restablecían solos»). «Gana el último»
+     aborta el request en vuelo. El ancla es el contenedor swapeado (compartido con el sub-form de «Catálogos y Assessments»). #}
+  <form class="whatsnew-filters activity-filters" hx-get="/admin/activity" hx-target="#activity-dashboard" hx-swap="outerHTML" hx-push-url="true" hx-trigger="submit, change from:.scope-area-checkbox" hx-sync="#activity-dashboard:replace">
     <label class="whatsnew-filter">
       <span>Período</span>
       <select name="period" onchange="if (this.value !== 'custom') { this.form.date_from.value = ''; this.form.date_to.value = ''; this.form.requestSubmit(); }">
@@ -75,7 +78,9 @@
       {# Transversal (corrective A2 — Copilot Y Operations): {value, label} — value es el identificador
          estable (round-trips en la URL), label es lo visible (p. ej. "Asignaciones" para OP01). v2: datos
          del período ∪ módulos del inventario (incluye los que no tuvieron actividad). #}
-      <select name="module" onchange="this.form.section.value = '';">
+      {# Cambiar Módulo limpia Sección (puede no pertenecerle) y RE-ENVÍA: las opciones de Sección dependen del módulo
+         (server-side `_section_options`) y deben refrescarse al instante — igual que Vertical/Período. #}
+      <select name="module" onchange="this.form.section.value = ''; this.form.requestSubmit();">
         <option value="">Todos</option>
         {% for m in dash.module_options %}
         <option value="{{ m.value }}" {% if m.value == dash.module %}selected{% endif %}>{{ m.label }}</option>
@@ -590,8 +595,9 @@
 </details>
 {% endif %}
 
-{#- Catálogos y Assessments: actividad sobre modelos (Decisión, Diagnóstico, actualización gobernada). Del Copiloto: con otra vertical no se muestra. -#}
-{% if catalog and catalog.present and dash.show_copilot_panels %}
+{#- Catálogos y Assessments: actividad sobre modelos (Decisión, Diagnóstico, actualización gobernada). Es funcionalidad del Copiloto: con otra vertical NO
+    aplica y se omite; dentro del ámbito del Copiloto se muestra siempre (con «Sin actividad» si está vacío) para distinguir «no aplicable» de «sin actividad». -#}
+{% if catalog and dash.show_copilot_panels %}
 <details class="dashboard-section" data-section-id="catalogos" open>
   <summary class="dashboard-section__head" draggable="true">
     <span class="dashboard-section__grip" aria-hidden="true">⋮⋮</span>
