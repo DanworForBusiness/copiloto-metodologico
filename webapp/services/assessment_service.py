@@ -510,6 +510,94 @@ def _envelope(client: str, am: str, *, status: str, profile: dict | None, pool_s
     return env
 
 
+# ═══════════════════════════ REEMPLAZO de un sobre gobernado: replay VERIFICADO de decisiones (P0.1) ═══════════════════════════
+# Un reemplazo (regenerar / republicar / enriquecer) NO puede omitir las decisiones de gobierno que el Juicio vigente CONSUMIÓ ni destruir su trazabilidad.
+# Contrato: se REAPLICAN solo las decisiones ya consumidas (``decision_inputs``), nunca se descubren ni se agregan otras; cada una se REVERIFICA contra la
+# evidencia nueva (hoja, clase, identidad, digest per-CDS) y contra el registro (vigente, NO revocada, NO reemplazada por otra ratificación), consultando
+# SOLO los contratos consumidos. Si algo no puede acreditarse, el reemplazo se ABSTIENE sin escribir. Ver _handoffs/P01_PRESERVACION_DECISIONES_REGENERACION.
+REPLACEMENT_ABSTENTIONS = {
+    "DECISION_PENDING_REEVALUATION": "El Juicio vigente tiene decisiones de gobierno pendientes de reevaluación: la regeneración no se aplicó.",
+    "RULESET_ACTIVATION_IN_PROGRESS": "Hay una activación de la metodología en curso para este modelo: la regeneración no se aplicó.",
+    "PREVIOUS_JUDGMENT_NOT_CURRENT": "El Juicio vigente consumió decisiones de gobierno bajo otra versión de la metodología: la regeneración no se aplicó.",
+    "RATIFIED_LEAF_MISSING": "Una fuente con contrato ratificado ya no está en el modelo: la ratificación requiere revisión y la regeneración no se aplicó.",
+    "RATIFIED_LEAF_RECLASSIFIED": "Una fuente con contrato ratificado cambió de clasificación: la ratificación requiere revisión y la regeneración no se aplicó.",
+    "RATIFIED_IDENTITY_CHANGED": "Cambió la identidad de una fuente con contrato ratificado: la ratificación requiere revisión y la regeneración no se aplicó.",
+    "RATIFIED_EVIDENCE_CHANGED": "Cambió la evidencia de una fuente con contrato ratificado: la ratificación requiere revisión y la regeneración no se aplicó.",
+    "DECISION_STATUS_UNVERIFIABLE": "No se pudo verificar la vigencia de una decisión de gobierno: la regeneración no se aplicó.",
+    "RATIFICATION_NOT_ACTIVE": "Una decisión de gobierno consumida ya no está vigente (revocada o reemplazada): la regeneración no se aplicó.",
+    "RATIFICATION_NOT_REAPPLIED": "Una decisión de gobierno consumida no se pudo reaplicar al nuevo Assessment: la regeneración no se aplicó.",
+}
+_SIBLINGS_CARRIED = ("previous_judgment",)            # escalar de la última consolidación de ruleset (único escritor: finalize_judgment_candidate): se conserva tal cual
+
+
+class ReplacementAbstained(Exception):
+    """El reemplazo no puede reaplicar las decisiones del Juicio vigente: NO se escribe nada. ``code`` estable (``REPLACEMENT_ABSTENTIONS``); ``detail`` sin trazas."""
+
+    def __init__(self, code: str, detail: str = ""):
+        super().__init__(code)
+        self.code, self.detail = code, detail
+
+
+def _verify_consumed_decision(client: str, item: dict, leaves: dict, now: Any) -> None:
+    """Reverifica UNA decisión consumida contra la evidencia NUEVA y el registro (solo su contrato). Lanza ``ReplacementAbstained``."""
+    from core.remote_store import RemoteReadError
+    from webapp.services import governed_decisions as gd
+    from webapp.services import governed_decisions_store as store
+    leaf = leaves.get(item.get("leaf"))
+    if leaf is None:
+        raise ReplacementAbstained("RATIFIED_LEAF_MISSING", str(item.get("leaf")))
+    if leaf.get("leaf_kind") != gd.LEAF_KIND_REMOTE_IMPORTED or leaf.get("contract_class") != "EXTERNAL_CONTRACT_UNDETERMINED":
+        raise ReplacementAbstained("RATIFIED_LEAF_RECLASSIFIED", str(item.get("leaf")))
+    try:
+        identity = gd.cds_identity(leaf)
+        technical_id = gd.cds_technical_id(identity)
+        digest = gd.cds_contract_digest(leaf)
+    except gd.ValidationError:
+        raise ReplacementAbstained("RATIFIED_IDENTITY_CHANGED", str(item.get("leaf"))) from None
+    if identity != item.get("identity") or technical_id != item.get("technical_id"):
+        raise ReplacementAbstained("RATIFIED_IDENTITY_CHANGED", str(item.get("leaf")))
+    if digest != item.get("digest"):
+        raise ReplacementAbstained("RATIFIED_EVIDENCE_CHANGED", str(item.get("leaf")))
+    try:                                                # vigencia: SOLO este contrato (list/get); nunca escribe ni descubre otras decisiones
+        status = store.reconstruct(client, technical_id, digest, now)["status"]
+    except (RemoteReadError, gd.GovernedDecisionError, store.GovernedDecisionStoreError, OSError, ValueError):
+        raise ReplacementAbstained("DECISION_STATUS_UNVERIFIABLE", str(item.get("leaf"))) from None
+    if (status.get("decision") != gd.DECISION_RATIFIED or status.get("ratified_event_id") != item.get("event_id")
+            or status.get("evidence") != gd.EVIDENCE_MATCH):
+        raise ReplacementAbstained("RATIFICATION_NOT_ACTIVE", str(item.get("leaf")))
+
+
+def judgment_for_replacement(profile: dict, previous: dict | None, *, now: Any = None) -> tuple[dict | None, dict]:
+    """(Juicio a persistir, claves hermanas a conservar) para REEMPLAZAR el sobre ``previous`` con ``profile``. Sin sobre previo (creación): Juicio sin
+    decisiones, como siempre. Lanza ``ReplacementAbstained`` si no puede reaplicar TODAS las decisiones consumidas o si el sobre está en una transición
+    (reevaluación pendiente / activación de ruleset): en ese caso el llamador NO escribe."""
+    from datetime import datetime, timezone
+    from webapp.services import judgment_decisions as jd
+    if not previous:
+        return _derive_judgment(profile), {}
+    if previous.get("judgment_candidate"):
+        raise ReplacementAbstained("RULESET_ACTIVATION_IN_PROGRESS")
+    if previous.get("judgment_review"):
+        raise ReplacementAbstained("DECISION_PENDING_REEVALUATION")
+    carried = {k: previous[k] for k in _SIBLINGS_CARRIED if previous.get(k) is not None}
+    prev_judgment = previous.get("judgment")
+    consumed = jd.consumed(prev_judgment)
+    if not consumed:
+        return _derive_judgment(profile), carried
+    if not judgment_is_current_version(prev_judgment):
+        raise ReplacementAbstained("PREVIOUS_JUDGMENT_NOT_CURRENT")
+    ce = (profile or {}).get("canonical_evidence") or {}
+    leaves = {str(lf.get("leaf")): lf for lf in ((ce.get("source_contract_classes") or {}).get("leaves") or ()) if isinstance(lf, dict)}
+    when = now or datetime.now(timezone.utc)
+    client = str(previous.get("client") or "")
+    for item in consumed:
+        _verify_consumed_decision(client, item, leaves, when)
+    fresh = _derive_judgment(profile, consumed)
+    if fresh is None or jd.lost_decisions(prev_judgment, fresh):
+        raise ReplacementAbstained("RATIFICATION_NOT_REAPPLIED")
+    return fresh, carried
+
+
 # ═══════════════════════════ almacén: memoria + disco DURABLE (gobernado) ═══════════════════════════
 _cache_lock = threading.RLock()
 _memory: dict[tuple[str, str], dict] = {}
@@ -1021,11 +1109,17 @@ def _generate_locked(entry: Any, res: Resolution, versions: dict, *, force: bool
         if state == "ASSESSED":
             ma_profile.validate_assessment(doc)
             sig = (doc.get("scope") or {}).get("pool_signature") or meta.get("pool_signature")
-            durable = _store_envelope(_envelope(client, am, status="OK", profile=doc, pool_signature=sig, versions=dict(doc["versions"]),
-                                                domain_classification=_derive_domain_classification(entry, am),
-                                                business_classification=_derive_business_classification(entry, am),
-                                                review_evidence=meta.get("review_evidence"),   # Iteración II: sidecar del MISMO ciclo de evaluación
-                                                closure_signature=closure_signature(res) if sig == res.pool_signature else None))
+            try:                                        # P0.1: el reemplazo reaplica (verificadas) las decisiones del Juicio vigente o se abstiene SIN escribir
+                judgment, carried = judgment_for_replacement(doc, previous)
+            except ReplacementAbstained as exc:
+                log.warning("assessment: reemplazo abstenido para %s/%s: %s %s", client, am, exc.code, exc.detail)
+                return replace(current, error_code=exc.code, reason=REPLACEMENT_ABSTENTIONS.get(exc.code))
+            env = _envelope(client, am, status="OK", profile=doc, pool_signature=sig, versions=dict(doc["versions"]), judgment=judgment,
+                            domain_classification=_derive_domain_classification(entry, am),
+                            business_classification=_derive_business_classification(entry, am),
+                            review_evidence=meta.get("review_evidence"),   # Iteración II: sidecar del MISMO ciclo de evaluación
+                            closure_signature=closure_signature(res) if sig == res.pool_signature else None)
+            durable = _store_envelope({**env, **carried})
             return replace(_status_from(entry, res, versions), durable=durable)
         if state == "NOT_APPLICABLE":
             return AssessmentStatus(NOT_APPLICABLE, entry.entry_id, client, None, reason=NA_REASONS["NO_TERMINAL_AM"])
@@ -1043,13 +1137,19 @@ def _generate_locked(entry: Any, res: Resolution, versions: dict, *, force: bool
     except Exception:                                   # noqa: BLE001 — traza SOLO al log del servidor
         code = "GENERATION_ERROR"
         log.exception("assessment: fallo de generación para %s/%s", client, am)
-    durable = _store_envelope(_envelope(
+    failed = _envelope(
         client, am, status="FAILED", profile=retained["profile_json"] if retained else None,
         pool_signature=retained.get("input_pool_signature") if retained else None,
         versions=retained.get("assessment_versions") if retained else None,
         error_code=code, generated_at=retained.get("generated_at") if retained else None,
+        # P0.1: el Juicio del perfil retenido es el PERSISTIDO (con sus decisiones consumidas), no una re-derivación sin decisiones
+        judgment=retained.get("judgment") if retained else None,
         domain_classification=(retained or {}).get("domain_classification"), business_classification=(retained or {}).get("business_classification"),
-        review_evidence=(retained or {}).get("review_evidence")))      # conserva el sidecar del perfil retenido (no se descarta en FAILED)
+        review_evidence=(retained or {}).get("review_evidence"))      # conserva el sidecar del perfil retenido (no se descarta en FAILED)
+    for key in (*_SIBLINGS_CARRIED, "judgment_review", "judgment_candidate"):   # la falla no borra marcas ni trazas del Juicio retenido
+        if retained and retained.get(key) is not None:
+            failed[key] = retained[key]
+    durable = _store_envelope(failed)
     return replace(_status_from(entry, res, versions), durable=durable)
 
 
@@ -1176,10 +1276,16 @@ def prepare_regeneration(entry: Any, res: Resolution | None = None) -> PreparedA
     sig = (doc.get("scope") or {}).get("pool_signature") or (meta or {}).get("pool_signature")
     if sig != res.pool_signature:
         raise PrepareError("POOL_SIGNATURE_MISMATCH", am)
-    env = _envelope(client, am, status="OK", profile=doc, pool_signature=sig, versions=dict(doc["versions"]),
+    try:                                                # P0.1: validado ANTES de escribir nada (la etapa corre antes del commit local y de la confirmación remota)
+        judgment, carried = judgment_for_replacement(doc, _load_envelope(client, am))
+    except ReplacementAbstained as exc:
+        log.warning("assessment: reemplazo abstenido (publicación) para %s/%s: %s %s", client, am, exc.code, exc.detail)
+        raise PrepareError(exc.code, am) from None
+    env = _envelope(client, am, status="OK", profile=doc, pool_signature=sig, versions=dict(doc["versions"]), judgment=judgment,
                     domain_classification=_derive_domain_classification(entry, am), business_classification=_derive_business_classification(entry, am),
                     review_evidence=(meta or {}).get("review_evidence"),      # sidecar del MISMO ciclo de evaluación (no se descarta al regenerar)
                     closure_signature=closure_signature(res))
+    env.update(carried)
     if not (env.get("assessment_versions") == current_assessment_versions() and _valid_profile(env)):
         raise PrepareError("WOULD_NOT_BE_CURRENT", am)
     return PreparedAssessment(client, am, "REGENERATE", env, getattr(entry, "entry_id", ""))
@@ -1287,9 +1393,14 @@ def _regenerate_core(entry: Any, *, precondition: Any, postcheck: Any, log_label
     postcheck(doc, previous, res, versions)
     notes: dict = {}
     if envelope_hook is None:
-        env = _envelope(client, am, status="OK", profile=doc, pool_signature=sig, versions=dict(doc["versions"]),
+        try:                                            # P0.1: mismo contrato de reemplazo (replay verificado) que generate / publicación
+            judgment, carried = judgment_for_replacement(doc, previous)
+        except ReplacementAbstained as exc:
+            raise EnrichmentError(exc.code) from None
+        env = _envelope(client, am, status="OK", profile=doc, pool_signature=sig, versions=dict(doc["versions"]), judgment=judgment,
                         domain_classification=_derive_domain_classification(entry, am), business_classification=_derive_business_classification(entry, am),
                         review_evidence=(meta or {}).get("review_evidence"))      # sidecar del MISMO ciclo (no se descarta al enriquecer/regenerar)
+        env.update(carried)
     else:                                                 # migracion estricta: el gancho decide el Juicio y los derivados hermanos (sin recalificar ni re-derivar a escondidas)
         overrides, notes = envelope_hook(doc, previous)
         env = _envelope(client, am, status="OK", profile=doc, pool_signature=sig, versions=dict(doc["versions"]),
