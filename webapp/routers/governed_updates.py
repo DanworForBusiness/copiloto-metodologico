@@ -247,7 +247,7 @@ APPROVAL_STAGE = {
     "NOT_APPLIED": ("No aplicada (verificada)", "neutra", "Se verificó que no se escribió nada; se puede volver a aprobar."),
 }
 APPROVAL_GAP = {"REQUEST_OBSOLETE": "la solicitud está obsoleta",
-                "REQUEST_WITHOUT_FINGERPRINT": "la solicitud no tiene huella de evidencia (es anterior: generá una nueva)",
+                "REQUEST_WITHOUT_FINGERPRINT": "una solicitud nueva (esta es anterior a la huella de evidencia y no puede aprobarse)",
                 "NO_SPACE_DECLARED": "declarar el origen autorizado",
                 "PREVIEW_NOT_FOR_DECLARED_SPACES": "calcular el dry-run restringido al origen declarado",
                 "PREVIEW_NOT_READY": "un dry-run con plan aplicable", "PROVENANCE_NOT_ACCREDITED": "acreditar la procedencia",
@@ -273,6 +273,10 @@ def _application_stage(rec: dict) -> dict:
     if not reasons:
         return {"badge": "Lista para aprobar", "tone": "buena", "detail": "Procedencia acreditada y plan gobernado vigente."}
     return {"badge": "Todavía no", "tone": "neutra", "detail": "Falta: " + ", ".join(APPROVAL_GAP.get(r, r) for r in reasons) + "."}
+
+
+LEGACY_NEXT_STEP = ("Volver a ejecutar la evaluación ad hoc y solicitar la actualización desde su informe: esta solicitud es anterior a la huella "
+                    "de evidencia y no puede aprobarse.")
 
 
 def _next_step(state: str, role: str | None, prev: dict | None, preview_running: bool, rec_approval: dict | None = None) -> str:
@@ -312,11 +316,13 @@ def _view(rec: dict, user: dict, pack: str) -> dict:
     notification = _notification_view(rec, delivery)
     return {
         "notification": notification, "stages": _stages(rec, role, state, prev, running, can_preview),
-        "next_step": _next_step(state, role, prev, running, rec.get("approval")), "role_label": role or "Solo lectura",
+        "next_step": (LEGACY_NEXT_STEP if state != gur.OBSOLETE and not (rec.get("source") or {}).get("fingerprint")
+                      else _next_step(state, role, prev, running, rec.get("approval"))), "role_label": role or "Solo lectura",
         "known_spaces": _known_spaces(rec) if can_preview else [], "approval": rec.get("approval"),
         "can_approve": bool(role) and not _approval_reasons(rec), "idempotency_key": uuid.uuid4().hex,
         "poll": running or ((rec.get("approval") or {}).get("state") in ("REGISTERED", "VERIFYING", "STARTED")) or (not notification["terminal"] and _age_s(rec.get("requested_at")) < NOTIFICATION_POLL_MAX_S),
         "rec": rec, "state": state, "obsolete": state == gur.OBSOLETE, "role": role, "can_preview": can_preview,
+        "legacy": state != gur.OBSOLETE and not (rec.get("source") or {}).get("fingerprint"),   # solo presentación: anterior a la huella (no cambia elegibilidad)
         "is_requester": gur.user_email(user) == rec.get("requested_by"),
         "vigente": _level_badge((rec.get("governed") or {}).get("judgment")), "candidato": _level_badge((rec.get("source") or {}).get("judgment")),
         "contracts": _contracts_text(rec), "provenance": rec.get("provenance") or {}, "delivery": delivery,
