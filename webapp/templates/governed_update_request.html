@@ -25,6 +25,7 @@
       <h1 class="gu-title">{{ g.rec.client }} · <span class="gu-title__model">{{ g.rec.terminal_am }}</span></h1>
       <p class="catalog-verdict-line gu-meta">
         {% if g.obsolete %}<span class="catalog-card__verdict catalog-card__verdict--parcial" data-gu-state="OBSOLETE">Obsoleta</span>
+        {% elif g.superseded %}<span class="catalog-card__verdict catalog-card__verdict--neutra" data-gu-state="SUPERSEDED">Reemplazada</span>
         {% else %}<span class="catalog-card__verdict catalog-card__verdict--plena" data-gu-state="{{ g.state }}">Abierta</span>{% endif %}
         <span class="catalog-card__verdict catalog-card__verdict--{{ 'plena' if g.role else 'neutra' }}" data-gu-role="{{ g.role or '' }}">Tu rol · {{ g.role_label }}</span>
         <span>Solicitada {{ (g.rec.requested_at or "").replace("T", " ").replace("+00:00", " UTC") }} por {{ g.rec.requested_by }}</span>
@@ -33,9 +34,11 @@
 
     {% if g.obsolete %}
     <div class="methodology"><aside class="callout callout--punch callout--feedback" data-gu-obsolete><div class="callout__head"><strong class="callout__title">Solicitud obsoleta</strong></div><div class="callout__body"><p>El Assessment gobernado cambió después de esta solicitud: ya no se puede revisar ni aprobar.</p></div></aside></div>
+    {% elif g.superseded %}
+    <div class="methodology"><aside class="callout callout--punch callout--feedback" data-gu-superseded><div class="callout__head"><strong class="callout__title">Solicitud reemplazada</strong></div><div class="callout__body"><p>Esta solicitud era anterior a la huella de evidencia y no podía aprobarse. Se reemplazó por una solicitud nueva registrada desde una evaluación ad hoc con huella{% if g.superseded_by %}: <a href="/copilot/governed-updates/{{ g.superseded_by }}?pack={{ g.pack | urlencode }}" data-gu-superseded-by>ver la solicitud vigente</a>{% endif %}. Se conserva como registro.</p></div></aside></div>
     {% elif g.legacy %}
     {# Solicitud anterior a la huella de evidencia: solo se EXPLICA (la elegibilidad no cambia y no hay migración). #}
-    <div class="methodology"><aside class="callout callout--punch callout--feedback" data-gu-legacy><div class="callout__head"><strong class="callout__title">Solicitud anterior: requiere una solicitud nueva</strong></div><div class="callout__body"><p>Esta solicitud se registró antes de que el Hub guardara la huella de evidencia de la evaluación ad hoc. Sin esa huella no se puede comprobar que el dry-run gobernado reconstruye la misma evidencia, así que <strong>no puede aprobarse</strong>.</p><p>Para avanzar, volvé a ejecutar la evaluación ad hoc de {{ g.rec.terminal_am }} y solicitá la actualización desde su informe: la solicitud nueva incluye la huella. Esta queda como registro y no se modifica.</p></div></aside></div>
+    <div class="methodology"><aside class="callout callout--punch callout--feedback" data-gu-legacy><div class="callout__head"><strong class="callout__title">Solicitud anterior: requiere una solicitud nueva</strong></div><div class="callout__body"><p>Esta solicitud se registró antes de que el Hub guardara la huella de evidencia de la evaluación ad hoc. Sin esa huella no se puede comprobar que el dry-run gobernado reconstruye la misma evidencia, así que <strong>no puede aprobarse</strong>.</p><p>Para avanzar, abrí el informe de una evaluación ad hoc vigente de {{ g.rec.terminal_am }} (si acabás de ejecutarla, sirve esa) y usá «Solicitar actualización»: se registra una solicitud nueva con la huella y esta queda como reemplazada, con su historial intacto.</p></div></aside></div>
     {% endif %}
 
     <section class="gu-card" aria-labelledby="gu-proposal-title">

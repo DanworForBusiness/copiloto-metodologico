@@ -50,6 +50,20 @@
     return a;
   }
 
+  // A2 — UNA sola representación visible por (tipo, cliente, modelo): la ejecución más reciente reemplaza a las anteriores en el aviso. Solo
+  // presentación: los registros y resultados del servidor no se tocan ni se cancelan, y los avisos de otros modelos siguen independientes.
+  // Si la más reciente ya se cerró (o la sigue su propio panel), las anteriores tampoco reaparecen.
+  function visible(ops, dismissed, followed) {
+    const newest = new Map();
+    ops.forEach((op) => {
+      const key = op.kind + "|" + opKey(op.client, op.root_object);
+      const cur = newest.get(key);
+      if (!cur || Number(op.created_at || 0) > Number(cur.created_at || 0)) newest.set(key, op);
+    });
+    return ops.filter((op) => newest.get(op.kind + "|" + opKey(op.client, op.root_object)) === op)
+      .filter((op) => !dismissed.has(op.run_id) && !followed.has(op.run_id)).slice(0, MAX_SHOWN);
+  }
+
   function subject(op) {
     return [op.client, op.root_object].filter(Boolean).join(" · ");
   }
@@ -70,7 +84,11 @@
     const head = op.state === "RUNNING" ? op.kind_label + " en curso" : op.state === "SUCCESS" ? op.done_label : op.kind_label + ": " + (op.title || op.state_label);
     text.appendChild(document.createTextNode(head + (subject(op) ? " · " + subject(op) : "") + (op.state === "RUNNING" ? ". Podés seguir navegando. " : ". ")));
     if (op.state === "SUCCESS" && op.result_url) {
-      text.appendChild(link(op.result_url, op.result_label));
+      const open = link(op.result_url, op.result_label);
+      open.dataset.opOpenResult = "1";
+      // A1 — abrir el resultado CONSUME el aviso (igual que ✕): se marca cerrado antes de navegar; no se impide la navegación ni se toca el resultado.
+      open.addEventListener("click", () => { dismiss(op.run_id); box.remove(); onClose(); });
+      text.appendChild(open);
       text.appendChild(document.createTextNode(" · "));
     }
     text.appendChild(link(op.log_url, op.state === "RUNNING" || op.state === "SUCCESS" ? "Ver ejecución" : "Ver detalle"));
@@ -187,8 +205,7 @@
       lastOps = ops;
       lockForms(ops);
       applySurfaces(ops);
-      const dismissed = readDismissed();
-      const shown = ops.filter((op) => !dismissed.has(op.run_id) && !attached.has(op.run_id)).slice(0, MAX_SHOWN);
+      const shown = visible(ops, readDismissed(), attached);
       const signature = shown.map((op) => op.run_id + ":" + op.state).join("|");
       if (signature !== host.dataset.signature) {               // solo se redibuja si algo cambió (no pisa un clic ni un foco en curso)
         host.dataset.signature = signature;
@@ -248,6 +265,9 @@
     }
     setTimeout(poll, LIVE_POLL_MS);
   }
+
+  window.dwCopilotOps._visible = visible;                       // solo para pruebas (función pura)
+  window.dwCopilotOps._banner = banner;
 
   function init() { initNotice(); initLivePage(); }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init); else init();
