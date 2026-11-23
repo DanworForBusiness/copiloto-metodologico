@@ -237,6 +237,7 @@ def assess(inbound: Path, client: str, am: str | None, domain: str | None = None
     except Exception:                                                      # noqa: BLE001
         pass
     if ext:
+        ext["profile_binding"] = platform_boundary.profile_binding(doc)   # I1: liga el sidecar al perfil EXACTO de esta evaluación (ya validado)
         meta["evidence_extensions"] = ext
     meta["terminal_analytic_models_in_pool"] = len(universe.terminal_ams)
     # Iteración II — sidecar `review-evidence/v1`: huella material de las revisiones desde los HECHOS COMPLETOS de ESTA misma

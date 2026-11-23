@@ -115,12 +115,27 @@ def _platform_collapse(closure: set[str], pb: Any) -> tuple[set[str], set[str], 
     return collapsed, frontiers, used
 
 
+def extensions_bound(profile: Any, extensions: Any) -> bool:
+    """I1: el sidecar pertenece a ESTE perfil (vínculo de la misma evaluación = sha256 del JSON canónico del perfil, la firma del artefacto).
+    Sidecar ausente, sin vínculo, de otro perfil o alterado ⇒ False. No compara firmas de pool entre ad hoc y reconstrucción."""
+    from webapp.services.assessment_service import _artifact_signature    # la MISMA firma canónica del artefacto (integración autorizada del motor)
+    b = (extensions or {}).get("profile_binding") if isinstance(extensions, dict) else None
+    p = _profile(profile)
+    if not isinstance(b, dict) or b.get("method") != "sha256:canonical-assessment-json" or not p:
+        return False
+    try:
+        return b.get("digest") == _artifact_signature(p)
+    except (TypeError, ValueError):
+        return False
+
+
 def equivalence_v2(profile: Any, extensions: Any = None) -> dict:
     """Vista material (contrato ``equivalence/v2``). Estrictos: versiones (evidencia, cierre, identidad y sidecars), cierre del cliente, fronteras
     de plataforma acreditadas (su identidad), hojas no colapsadas (clase, conexión, conector, entidades, sistemas) y miembros producidos por
     flujos. NO entra el alcance DECLARADO. ``undetermined`` lista lo que impide acreditar equivalencia (abstención, nunca equivalencia)."""
     p = _profile(profile)
-    ext = extensions if isinstance(extensions, dict) else {}
+    bound = extensions_bound(p, extensions)
+    ext = extensions if bound else {}                                    # I1: un sidecar ajeno, alterado o ausente NO acredita nada
     sc, ce, vs = p.get("scope") or {}, p.get("canonical_evidence") or {}, p.get("versions") or {}
     closure = {str(a) for a in sc.get("closure_artifacts") or []}
     pb, obs = ext.get("platform_boundary"), ext.get("evidence_observability")
@@ -133,6 +148,8 @@ def equivalence_v2(profile: Any, extensions: Any = None) -> dict:
     pc = ((ce.get("closure") or {}).get("plane_context") or {})
     rr = ((ce.get("closure") or {}).get("reference_resolution") or {})
     undetermined = set()
+    if not bound:
+        undetermined.add("EVIDENCE_EXTENSIONS_UNBOUND")                    # sin sidecar ligado a este perfil: abstención (nunca equivalencia)
     counts = rr.get("counts") or {}
     if not rr or counts.get("UNRESOLVED", 0) or counts.get("AMBIGUOUS", 0) or rr.get("members_with_open_references"):
         undetermined.add("CLOSURE_INCOMPLETE")                              # sin cierre completo no se acredita qué produce qué
@@ -277,14 +294,17 @@ def verify_provenance(*, client_dir: str, am: str, declared_spaces: Iterable[str
     # Equivalencia metodológica ad hoc (del Space declarado) ↔ reconstrucción gobernada restringida: exigida en ambas vías.
     # Se interpreta SIEMPRE bajo el esquema de la huella del ad hoc (v1 histórica = v1 estricta; v2 = material). Nunca se comparan esquemas distintos.
     schema = (adhoc_fingerprint or {}).get("schema")
+    if schema != FINGERPRINT_SCHEMA_V2:                                    # I2: v1 (y sin huella) conserva EXACTAMENTE la estructura histórica de ``checks``
+        checks["governed_fingerprint"] = {k: v for k, v in fingerprint_v1(gp).items() if k in ("identity_digest", "equivalence_digest")}
     if not adhoc_fingerprint or not schema:
         reasons.append("NO_ADHOC_FINGERPRINT")
     elif schema not in SUPPORTED_SCHEMAS:
         reasons.append("FINGERPRINT_SCHEMA_UNSUPPORTED")
     else:
         gov_fp = fingerprint(gp, governed_extensions, schema=schema)
-        checks["fingerprint_schema"] = schema
-        checks["governed_fingerprint"] = {k: gov_fp[k] for k in ("identity_digest", "equivalence_digest")}
+        if schema == FINGERPRINT_SCHEMA_V2:
+            checks["fingerprint_schema"] = schema                          # solo v2: el digest de procedencia v1 no cambia
+            checks["governed_fingerprint"] = {k: gov_fp[k] for k in ("identity_digest", "equivalence_digest")}
         undetermined = sorted(set(adhoc_fingerprint.get("undetermined") or []) | set(gov_fp.get("undetermined") or []))
         if undetermined:
             checks["undetermined"] = undetermined

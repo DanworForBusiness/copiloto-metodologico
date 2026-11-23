@@ -97,8 +97,14 @@ def _verify(tmp_path, *, declared=("DEV",), adhoc_space="DEV", adhoc_fp=None, re
         f.write_text(content, encoding="utf-8")
     recs = records if records is not None else [{"space": "DEV", "name": "SSFF", "typeId": "SAPSF"}, {"space": "PRD", "name": "SSFF", "typeId": "SAPSF"}]
     return ge.verify_provenance(client_dir="Acme", am="AM_X", declared_spaces=declared, governed_profile=_profile(),
-                                adhoc_fingerprint=adhoc_fp if adhoc_fp is not None else ge.fingerprint(_profile()), adhoc_space=adhoc_space,
-                                connection_records=recs, catalog_dir=catalog, pool_root=pool)
+                                adhoc_fingerprint=adhoc_fp if adhoc_fp is not None else ge.fingerprint(_profile(), _bound_ext(_profile())), adhoc_space=adhoc_space,
+                                connection_records=recs, catalog_dir=catalog, pool_root=pool, governed_extensions=_bound_ext(_profile()))
+
+
+def _bound_ext(profile):
+    """Sidecar mínimo ligado a SU perfil (I1), como lo entrega el motor en la misma evaluación."""
+    from tools.catalog.modeling_assessment import platform_boundary as pbm
+    return {"profile_binding": pbm.profile_binding(profile)}
 
 
 def test_provenance_accredited_by_reconstructed_evidence_without_any_manifest(tmp_path):
@@ -651,7 +657,7 @@ def test_the_dry_run_provenance_of_a_renewed_request_uses_its_fingerprint_not_th
     """B — tras renovar, la verificación de procedencia del dry-run recibe la huella de la solicitud NUEVA: ya no falla por NO_ADHOC_FINGERPRINT
     (puede acreditar o abstenerse por otras causas reales; verify_provenance no se relaja)."""
     from tests.webapp.test_governed_update_requests import _legacy
-    real_fp = ge.fingerprint(_profile())
+    real_fp = ge.fingerprint(_profile(), _bound_ext(_profile()))
     legacy = _legacy()
     assert "NO_ADHOC_FINGERPRINT" in _verify(tmp_path / "old", adhoc_fp=(legacy["source"].get("fingerprint") or {}))["reasons"]
     monkeypatch.setattr(ge, "fingerprint", lambda profile, ext=None, **k: dict(real_fp))

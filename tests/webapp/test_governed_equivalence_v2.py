@@ -64,8 +64,13 @@ def workforce_like():
     return adhoc, a_ext, gov, g_ext
 
 
+def _bound(profile, ext):
+    """Liga el sidecar a SU perfil como lo hace el motor en la MISMA evaluación (I1)."""
+    return None if ext is None else {**ext, "profile_binding": pbm.profile_binding(profile)}
+
+
 def _eq(a, ae, g, gx):
-    fa, fg = ge.fingerprint_v2(a, ae), ge.fingerprint_v2(g, gx)
+    fa, fg = ge.fingerprint_v2(a, _bound(a, ae)), ge.fingerprint_v2(g, _bound(g, gx))
     return fa["equivalence_digest"] == fg["equivalence_digest"] and fa["identity_digest"] == fg["identity_digest"], fa, fg
 
 
@@ -185,7 +190,7 @@ def test_n11_n13_local_table_without_assessed_provenance_abstains_even_with_empt
 def test_n12_adhoc_without_core_evidence_abstains():
     a, ae, g, gx = workforce_like()
     ae["evidence_observability"] = _obs("EXTRACTOR", {**ALL_OBSERVED, "views": "NOT_OBSERVED"})
-    assert "CORE_CATEGORY_NOT_OBSERVED" in ge.fingerprint_v2(a, ae)["undetermined"]
+    assert "CORE_CATEGORY_NOT_OBSERVED" in ge.fingerprint_v2(a, _bound(a, ae))["undetermined"]
 
 
 def test_n14_incomplete_closure_abstains():
@@ -222,21 +227,21 @@ def _vp(tmp_path, adhoc_fp, gov, gov_ext):
 
 def test_provenance_v2_accredits_the_workforce_like_case(tmp_path):
     a, ae, g, gx = workforce_like()
-    out = _vp(tmp_path, ge.fingerprint_v2(a, ae), g, gx)
+    out = _vp(tmp_path, ge.fingerprint_v2(a, _bound(a, ae)), g, _bound(g, gx))
     assert out["state"] == ge.ACCREDITED and out["checks"]["fingerprint_schema"] == ge.FINGERPRINT_SCHEMA_V2
 
 
 def test_provenance_v2_abstains_with_explicit_undetermined_reason(tmp_path):
     a, ae, g, gx = workforce_like()
     g["canonical_evidence"]["closure"]["reference_resolution"]["counts"]["AMBIGUOUS"] = 1
-    out = _vp(tmp_path, ge.fingerprint_v2(a, ae), g, gx)
+    out = _vp(tmp_path, ge.fingerprint_v2(a, _bound(a, ae)), g, _bound(g, gx))
     assert out["state"] == ge.NOT_ACCREDITED and any(r.startswith("EVIDENCE_SCOPE_UNDETERMINED:") for r in out["reasons"])
 
 
 def test_c1_a_v1_fingerprint_is_still_interpreted_as_v1(tmp_path):
     a, ae, g, gx = workforce_like()
     out = _vp(tmp_path, ge.fingerprint_v1(a), g, gx)
-    assert out["checks"]["fingerprint_schema"] == ge.FINGERPRINT_SCHEMA_V1 and "EVIDENCE_NOT_EQUIVALENT" in out["reasons"]   # mismo resultado que antes
+    assert "fingerprint_schema" not in out["checks"] and "EVIDENCE_NOT_EQUIVALENT" in out["reasons"]       # mismo resultado y estructura que antes (I2)
     same = _vp(tmp_path, ge.fingerprint_v1(g), g, gx)
     assert same["state"] == ge.ACCREDITED                                                                  # v1 idéntica sigue acreditando
 
@@ -339,3 +344,93 @@ def test_e2_observability_distinguishes_observed_not_observed_and_unavailable(tm
     assert ex["source"] == "EXTRACTOR" and ex["categories"]["data-flows"]["state"] == "NOT_OBSERVED" and ex["categories"]["tables"] == {"state": "OBSERVED", "artifacts": 1}
     pool = eo.build_observability(None, files)
     assert pool["source"] == "POOL" and pool["categories"]["views"]["state"] == "OBSERVED" and pool["categories"]["data-flows"]["state"] == "UNAVAILABLE"
+
+
+# ── I1: integridad del sidecar (ligado al perfil de la MISMA evaluación) ─────────────────────────────────────────────────────────────────────
+def test_i1_the_engine_binds_the_sidecar_to_the_exact_profile_with_the_artifact_signature():
+    import hashlib
+    from tools.catalog.modeling_assessment import profile as ma_profile
+    a, ae, g, gx = workforce_like()
+    b = pbm.profile_binding(a)
+    assert b == {"method": "sha256:canonical-assessment-json", "digest": hashlib.sha256(ma_profile.canonical_assessment_json(a).encode("utf-8")).hexdigest()}
+    assert ge.extensions_bound(a, _bound(a, ae)) and "Acme" not in json.dumps(b)                            # solo un digest: sin datos del modelo
+
+
+@pytest.mark.parametrize("case", ["ajeno", "alterado", "sin_vinculo", "ausente", "metodo_desconocido"])
+def test_i1_a_foreign_altered_or_missing_sidecar_never_accredits(tmp_path, case):
+    a, ae, g, gx = workforce_like()
+    if case == "ajeno":
+        ext = _bound(g, ae)                                                    # sidecar ligado a OTRO perfil (el gobernado)
+    elif case == "alterado":
+        ext = _bound(a, ae)
+        a["scope"]["closure_artifacts"].append("2VD_ALTERADO")                 # el perfil cambió después de ligar el sidecar
+    elif case == "sin_vinculo":
+        ext = dict(ae)
+    elif case == "ausente":
+        ext = None
+    else:
+        ext = {**_bound(a, ae), "profile_binding": {**_bound(a, ae)["profile_binding"], "method": "sha1:otro"}}
+    fa = ge.fingerprint_v2(a, ext)
+    assert "EVIDENCE_EXTENSIONS_UNBOUND" in fa["undetermined"] and fa["contract_versions"]["platform_boundary"] is None   # nada del sidecar se usó
+    out = _vp(tmp_path, fa, g, _bound(g, gx))
+    assert out["state"] == ge.NOT_ACCREDITED
+    assert any(r.startswith("EVIDENCE_SCOPE_UNDETERMINED:") and "EVIDENCE_EXTENSIONS_UNBOUND" in r for r in out["reasons"])
+
+
+def test_i1_does_not_require_equal_pool_signatures_between_adhoc_and_reconstruction():
+    a, ae, g, gx = workforce_like()
+    a["scope"]["pool_signature"], g["scope"]["pool_signature"] = "pool-en-vivo", "pool-del-catalogo"
+    assert _eq(a, ae, g, gx)[0]
+
+
+# ── I2: procedencia v1 idéntica a la histórica ───────────────────────────────────────────────────────────────────────────────────────────────
+# Digests calculados con ``verify_provenance`` de c3199af (anterior a v2) sobre ESTA misma evidencia sintética: deben reproducirse exactamente.
+V1_GOLDEN = {"adhoc_distinto": ("385d61aac735d20c6cd009ba8594dc9cd57cbf1c533fc11b92259b1220e9555e", "NOT_ACCREDITED"),
+             "mismo": ("6960dd824981635c0634ec36fc007506484305b903737b55b0629e62b8d05a5c", "ACCREDITED")}
+
+
+@pytest.mark.parametrize("case", sorted(V1_GOLDEN))
+def test_i2_v1_provenance_digest_and_structure_are_the_historical_ones(tmp_path, case):
+    a, ae, g, gx = workforce_like()
+    out = ge.verify_provenance(client_dir="Acme", am="AM_X", declared_spaces=["DEV"], governed_profile=g,
+                               adhoc_fingerprint=ge.fingerprint_v1(a if case == "adhoc_distinto" else g), adhoc_space="DEV",
+                               connection_records=[{"space": "DEV", "name": "SSFF", "typeId": "SAPSF"}], catalog_dir=tmp_path, pool_root=None,
+                               governed_extensions=_bound(g, gx))
+    assert (out["digest"], out["state"]) == V1_GOLDEN[case]
+    assert "fingerprint_schema" not in out["checks"] and "undetermined" not in out["checks"]
+
+
+def test_i2_a_real_dry_run_of_a_v1_request_is_computed_and_accredited_under_v1(world, monkeypatch):
+    """Dry-run REAL (``compute_preview`` completo: migración en modo preview + procedencia) de una solicitud v1: huella gobernada v1 y digest de
+    procedencia igual al de ``verify_provenance`` v1 sobre la misma evidencia (el sidecar no interviene)."""
+    from webapp.services import assessment_backfill as ab
+    from webapp.services import assessment_service as svc
+    a, ae, g, gx = workforce_like()
+    rec, _ = _create()
+    with gur._lock:
+        fresh = gur.load(rec["request_id"])
+        fresh["source"]["fingerprint"] = ge.fingerprint_v1(g)                 # solicitud histórica v1 (misma evidencia que la reconstrucción)
+        gur._write(fresh)
+    rec = gur.load(rec["request_id"])
+    cand = SimpleNamespace(profile=g, extensions=_bound(g, gx))
+
+    def migrate(entries, migration, *, apply=False, regenerate=None, **kw):
+        regenerate(entries[0], migration)
+        return {"plan": {"digest": "d" * 64, "items": [{"client": "Contreras", "root": "AM_Workforce"}]}, "records": []}
+    monkeypatch.setattr(gur, "_entries_for", lambda c, am: [SimpleNamespace(entry_id="e1", cliente=c)])
+    monkeypatch.setattr(svc, "status_for_entry", lambda e: SimpleNamespace(state=svc.CURRENT, pending_migration="evidence_source_application_api_v6", stale_targeted=None))
+    monkeypatch.setattr(svc, "regenerate_stale_evidence_replay", lambda e, m: cand)
+    monkeypatch.setattr(ab, "migrate_stale_evidence", migrate)
+    monkeypatch.setattr(svc, "connection_records_of", lambda c: [{"space": "DEV", "name": "SSFF", "typeId": "SAPSF"}])
+    monkeypatch.setattr(svc, "pool_root", lambda: None)
+    monkeypatch.setattr(svc, "closure_signature", lambda res: "dep")
+    monkeypatch.setattr(svc, "resolve_entry", lambda e: e)
+    out = gur.compute_preview(rec, spaces=["DEV"])
+    assert out["fingerprint_schema"] == ge.FINGERPRINT_SCHEMA_V1 and out["fingerprint"]["schema"] == ge.FINGERPRINT_SCHEMA_V1
+    assert out["fingerprint"]["equivalence_digest"] == rec["source"]["fingerprint"]["equivalence_digest"]
+    prov = out["provenance"]
+    assert prov["state"] == ge.ACCREDITED and "fingerprint_schema" not in prov["checks"]
+    expected = ge.verify_provenance(client_dir="Contreras", am="AM_Workforce", declared_spaces=["DEV"], governed_profile=g,
+                                    adhoc_fingerprint=rec["source"]["fingerprint"], adhoc_space="DEV",
+                                    connection_records=[{"space": "DEV", "name": "SSFF", "typeId": "SAPSF"}], catalog_dir=svc.catalog_dir(), pool_root=None)
+    assert prov["digest"] == expected["digest"]

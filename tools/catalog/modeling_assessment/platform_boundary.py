@@ -24,6 +24,7 @@ PLATFORM_BOUNDARY_VERSION = "platform-boundary/v1"
 BASIS_TIME_DIMENSION_SETTING = "TIME_DIMENSION_SETTING"
 BASIS_NAMESPACE_ONLY = "NAMESPACE_ONLY"
 RESOLVED, PLATFORM_PROVIDED = "RESOLVED", "PLATFORM_PROVIDED"
+BINDING_METHOD = "sha256:canonical-assessment-json"   # la MISMA firma canónica del artefacto (``profile.canonical_assessment_json``); no se crea otra
 _TDS_TOKEN = b'"timeDimensionSetting"'
 
 
@@ -80,6 +81,13 @@ def build_platform_boundary(universe: Any, root: str, files: Iterable[Path]) -> 
         consumers[n] = sorted({c for c in graph.consumers(n) if c in closure_set and c != n})
     return {"version": PLATFORM_BOUNDARY_VERSION, "objects": objects,
             "references": [uniq[k] for k in sorted(uniq)], "direct_consumers": consumers}
+
+
+def profile_binding(doc: Mapping[str, Any]) -> dict:
+    """Vínculo determinista del sidecar con EL perfil del que se derivó: sha256 de su JSON canónico (la firma del artefacto). Sin datos sensibles."""
+    import hashlib
+    from .profile import canonical_assessment_json
+    return {"method": BINDING_METHOD, "digest": hashlib.sha256(canonical_assessment_json(dict(doc)).encode("utf-8")).hexdigest()}
 
 
 def extensions(universe: Any, root: str | None, files: Iterable[Path]) -> dict:
