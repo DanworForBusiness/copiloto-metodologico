@@ -367,6 +367,7 @@ def compute_preview(rec: dict, spaces: Any = None) -> dict:
     else:
         state = PREVIEW_NO_CHANGE
     out = {**base, "state": state, "path": path, "plan_digest": plan.get("digest") if items else None, "items": len(items),
+           "candidate_artifact_signature": items[0].get("candidate_artifact_signature") if items else None,
            "judgment": judgment, "abstentions": abstentions, "failures": failures}
     if declared is not None:
         pool = svc.pool_root()

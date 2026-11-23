@@ -243,13 +243,16 @@ APPROVAL_STAGE = {
     "ABSTAINED": ("Abstenida", "parcial", "La vía asegurada no aplicó; el Assessment gobernado quedó intacto."),
     "FAILED": ("Fallida", "parcial", "La operación empezó y falló; el respaldo durable permite verificar y restaurar."),
     "INTERRUPTED": ("Interrumpida", "parcial", "El proceso se reinició durante la aplicación: requiere verificación antes de reintentar."),
+    "RECONCILIATION_REQUIRED": ("Requiere reconciliación", "parcial", "No se pudo acreditar el resultado de la aplicación: no se admite otra aprobación hasta reconciliar."),
+    "NOT_APPLIED": ("No aplicada (verificada)", "neutra", "Se verificó que no se escribió nada; se puede volver a aprobar."),
 }
 APPROVAL_GAP = {"REQUEST_OBSOLETE": "la solicitud está obsoleta",
                 "REQUEST_WITHOUT_FINGERPRINT": "la solicitud no tiene huella de evidencia (es anterior: generá una nueva)",
                 "NO_SPACE_DECLARED": "declarar el origen autorizado",
                 "PREVIEW_NOT_FOR_DECLARED_SPACES": "calcular el dry-run restringido al origen declarado",
                 "PREVIEW_NOT_READY": "un dry-run con plan aplicable", "PROVENANCE_NOT_ACCREDITED": "acreditar la procedencia",
-                "PREVIEW_OUTDATED": "recalcular el dry-run (el Assessment cambió)", "APPROVAL_IN_PROGRESS": "esperar la aprobación en curso"}
+                "PREVIEW_OUTDATED": "recalcular el dry-run (el Assessment cambió)", "APPROVAL_IN_PROGRESS": "esperar la aprobación en curso",
+                "RECONCILIATION_REQUIRED": "reconciliar la aplicación anterior (mantenimiento)"}
 
 
 def _approval_reasons(rec: dict) -> list[str]:
@@ -262,7 +265,7 @@ def _application_stage(rec: dict) -> dict:
     if appr.get("state") in APPROVAL_STAGE:
         badge, tone, detail = APPROVAL_STAGE[appr["state"]]
         why = appr.get("reason") or appr.get("outcome")
-        tail = f" Causa: {why}." if why and appr["state"] in ("DENIED", "ABSTAINED", "FAILED", "INTERRUPTED") else ""
+        tail = f" Causa: {why}." if why and appr["state"] in ("DENIED", "ABSTAINED", "FAILED", "INTERRUPTED", "RECONCILIATION_REQUIRED") else ""
         return {"badge": badge, "tone": tone, "detail": detail + tail}
     reasons = _approval_reasons(rec)
     if not reasons:
@@ -332,8 +335,7 @@ def _shell(request: Request, user: dict, pack: str) -> dict:
 @router.get(f"{BASE}/{{request_id}}", response_class=HTMLResponse, include_in_schema=False)
 def review(request: Request, request_id: str, pack: str = Query(DEFAULT_PACK)):
     from webapp.services import governed_update_approval as gua
-    user, rec = _visible(request, request_id)
-    rec = gua.recover(rec)
+    user, rec = _visible(request, request_id)                                       # C2: un GET nunca cambia estados (la recuperación es de arranque)
     selected = resolve_pack(pack)
     role = gur.approver_role(user)
     if role and gur.record_review(rec, user, role):                                # revisión = la abre alguien que puede aprobar (la recarga no cuenta)
@@ -386,7 +388,6 @@ def approve(request: Request, request_id: str, pack: str = Form(DEFAULT_PACK), s
         raise HTTPException(403, "Solo APP_OWNER o CONTENT_OWNER pueden aprobar.")
     if confirm != "1" or not idempotency_key.strip():
         raise HTTPException(400, "Falta la confirmación explícita.")
-    rec = gua.recover(rec)
     try:
         appr, created = gua.register(rec, user, role, spaces, idempotency_key=idempotency_key.strip()[:64])
     except gua.ApprovalRefused as exc:

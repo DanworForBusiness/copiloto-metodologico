@@ -230,16 +230,63 @@ def test_started_is_persisted_before_executing_and_applied_after(world):
     assert stored["status"] == "APPLIED" and [h["state"] for h in stored["approval"]["history"]] == ["REGISTERED", "VERIFYING", "STARTED", "APPLIED"]
 
 
-@pytest.mark.parametrize("report,state", [({"outcome": "STOPPED_AT_WAVE"}, gua.ABSTAINED), ({"outcome": "DENIED"}, gua.ABSTAINED),
-                                          ({"outcome": "REMOTE_REQUIRED"}, gua.ABSTAINED), ({"outcome": "WHATEVER"}, gua.FAILED)])
-def test_secured_outcomes_map_to_abstained_or_failed(world, report, state):
+READY_EV = {**READY, "candidate_artifact_signature": "c" * 64}                  # el dry-run aprobado identifica el artefacto candidato (evidencia C3)
+
+
+def _started(world, rec, *, pre="a" * 64, expected="c" * 64):
+    """Aprobación consumida (STARTED) con la evidencia que se registra al consumir, sin hilo vivo (simula otro proceso / reinicio)."""
+    appr, _ = gua.register(rec, OWNER, "APP_OWNER", ["DEV"], idempotency_key="k-started")
+    gua._transition(rec["request_id"], appr["approval_id"], gua.VERIFYING)
+    gua._transition(rec["request_id"], appr["approval_id"], gua.STARTED, pre_sha256=pre, expected_candidate_signature=expected)
+    return appr
+
+
+def _write_result(world, *, sha, signature):
+    world["sha"] = sha
+    world["env"] = {**world["env"], "assessment_artifact_signature": signature}
+
+
+def _state(rec):
+    return (gur.load(rec["request_id"]).get("approval") or {}).get("state")
+
+
+# ── C1: transiciones estrictas ─────────────────────────────────────────────────────────
+def test_transitions_require_the_allowed_origin_and_never_repeat(world):
     rec = _ready_request(world)
     appr, _ = gua.register(rec, OWNER, "APP_OWNER", ["DEV"], idempotency_key="k")
-    gua.start(rec, appr, compute=lambda r, spaces=None: dict(READY), execute=lambda *a: report)
+    aid = appr["approval_id"]
+    assert gua._transition(rec["request_id"], aid, gua.STARTED) is None                             # REGISTERED→STARTED: salto prohibido
+    assert gua._transition(rec["request_id"], aid, gua.APPLIED) is None
+    assert gua._transition(rec["request_id"], aid, gua.VERIFYING) is not None
+    assert gua._transition(rec["request_id"], aid, gua.VERIFYING) is None                           # repetida: la segunda pierde, no escribe
+    assert gua._transition(rec["request_id"], aid, gua.STARTED) is not None
+    assert gua._transition(rec["request_id"], aid, gua.STARTED) is None                             # STARTED→STARTED no existe
+    assert gua._transition(rec["request_id"], "otra", gua.APPLIED) is None                          # aprobación reemplazada / ajena
+    assert [h["state"] for h in gur.load(rec["request_id"])["approval"]["history"]] == ["REGISTERED", "VERIFYING", "STARTED"]
+
+
+# ── resultados de la vía asegurada: el estado lo decide la EVIDENCIA ──────────────────────
+@pytest.mark.parametrize("report,state", [({"outcome": "STOPPED_AT_WAVE"}, gua.ABSTAINED), ({"outcome": "DENIED"}, gua.ABSTAINED),
+                                          ({"outcome": "REMOTE_REQUIRED"}, gua.ABSTAINED), ({"outcome": "RECOVERY_ONLY"}, gua.ABSTAINED),
+                                          ({"outcome": "WHATEVER"}, gua.FAILED)])
+def test_not_applied_outcomes_keep_their_state_only_if_the_envelope_is_unchanged(world, report, state):
+    rec = _ready_request(world)
+    appr, _ = gua.register(rec, OWNER, "APP_OWNER", ["DEV"], idempotency_key="k")
+    gua.start(rec, appr, compute=lambda r, spaces=None: dict(READY_EV), execute=lambda *a: report)
     assert _wait(rec["request_id"], {state}) == state
+    assert gur.load(rec["request_id"])["approval"]["evidence"] == gua.EV_UNCHANGED
 
 
-def test_an_execution_exception_after_start_is_failed_not_retried(world):
+@pytest.mark.parametrize("signature,state", [("c" * 64, gua.APPLIED), ("otra", gua.RECONCILIATION_REQUIRED)])
+def test_a_not_applied_report_with_a_changed_envelope_is_settled_by_evidence(world, signature, state):
+    rec = _ready_request(world)
+    appr, _ = gua.register(rec, OWNER, "APP_OWNER", ["DEV"], idempotency_key="k")
+    gua.start(rec, appr, compute=lambda r, spaces=None: dict(READY_EV),
+              execute=lambda *a: _write_result(world, sha="b" * 64, signature=signature) or {"outcome": "STOPPED_AT_WAVE"})
+    assert _wait(rec["request_id"], {state}) == state                                             # una escritura parcial no se disfraza de abstenida
+
+
+def test_an_execution_exception_without_effects_is_failed_and_never_re_executed(world):
     rec = _ready_request(world)
     appr, _ = gua.register(rec, OWNER, "APP_OWNER", ["DEV"], idempotency_key="k")
     calls = []
@@ -247,37 +294,170 @@ def test_an_execution_exception_after_start_is_failed_not_retried(world):
     def boom(*a):
         calls.append(1)
         raise RuntimeError("x")
-    gua.start(rec, appr, compute=lambda r, spaces=None: dict(READY), execute=boom)
+    gua.start(rec, appr, compute=lambda r, spaces=None: dict(READY_EV), execute=boom)
     assert _wait(rec["request_id"], {gua.FAILED}) == gua.FAILED
-    assert gua.start(gur.load(rec["request_id"]), appr, compute=lambda r, spaces=None: dict(READY), execute=boom) == "STARTED_THREAD"
+    assert gua.start(gur.load(rec["request_id"]), appr, compute=lambda r, spaces=None: dict(READY_EV), execute=boom) == "NOT_STARTABLE"
     time.sleep(0.2)
-    assert calls == [1]                                                                            # una aprobación terminal no se re-ejecuta
+    assert calls == [1]                                                                            # una aprobación procesada nunca se re-ejecuta
 
 
-def test_restart_recovery_interrupts_started_and_denies_verifying(world):
+def test_an_execution_exception_after_a_partial_write_blocks_new_approvals(world):
     rec = _ready_request(world)
     appr, _ = gua.register(rec, OWNER, "APP_OWNER", ["DEV"], idempotency_key="k")
-    gua._transition(rec["request_id"], appr["approval_id"], gua.VERIFYING)
-    assert gua.recover(gur.load(rec["request_id"]))["approval"]["state"] == gua.DENIED                  # no había empezado: no se consumió
-    fresh = gur.load(rec["request_id"])
-    appr2, _ = gua.register(fresh, OWNER, "APP_OWNER", ["DEV"], idempotency_key="k2")
-    gua._transition(rec["request_id"], appr2["approval_id"], gua.VERIFYING)
-    gua._transition(rec["request_id"], appr2["approval_id"], gua.STARTED)
-    assert gua.recover(gur.load(rec["request_id"]))["approval"]["state"] == gua.INTERRUPTED           # pudo haber escrito: requiere verificación
-    assert gua.approvable(gur.load(rec["request_id"]), ["DEV"]) == []                                 # terminal: se puede revisar y volver a aprobar
+
+    def partial(*a):
+        _write_result(world, sha="b" * 64, signature="otra")
+        raise RuntimeError("caída a mitad")
+    gua.start(rec, appr, compute=lambda r, spaces=None: dict(READY_EV), execute=partial)
+    assert _wait(rec["request_id"], {gua.RECONCILIATION_REQUIRED}) == gua.RECONCILIATION_REQUIRED
+    assert "RECONCILIATION_REQUIRED" in gua.approvable(gur.load(rec["request_id"]), ["DEV"])
+    with pytest.raises(gua.ApprovalRefused, match="RECONCILIATION_REQUIRED"):
+        gua.register(gur.load(rec["request_id"]), OWNER, "APP_OWNER", ["DEV"], idempotency_key="k-otra")
 
 
+def test_a_duplicate_concurrent_start_executes_at_most_once(world):
+    rec = _ready_request(world)
+    appr, _ = gua.register(rec, OWNER, "APP_OWNER", ["DEV"], idempotency_key="k")
+    gate, calls = threading.Event(), []
+
+    def slow(*a):
+        calls.append(1)
+        gate.wait(2)
+        return {"outcome": "APPLIED"}
+    first = gua.start(rec, appr, compute=lambda r, spaces=None: dict(READY_EV), execute=slow)
+    second = gua.start(rec, appr, compute=lambda r, spaces=None: dict(READY_EV), execute=slow)
+    gate.set()
+    assert first == "STARTED_THREAD" and second in ("ALREADY_RUNNING", "NOT_STARTABLE")
+    assert _wait(rec["request_id"], {gua.APPLIED}) == gua.APPLIED and calls == [1]
+    assert gua.register(gur.load(rec["request_id"]), OWNER, "APP_OWNER", ["DEV"], idempotency_key="k")[0]["state"] == gua.APPLIED   # misma clave: misma
+
+
+# ── C2/C3: recuperación de ARRANQUE por evidencia (nunca desde un GET) ──────────────────────
+@pytest.mark.parametrize("pre_state", [gua.REGISTERED, gua.VERIFYING])
+def test_boot_recovery_denies_a_not_started_approval_without_consuming_it(world, pre_state):
+    rec = _ready_request(world)
+    appr, _ = gua.register(rec, OWNER, "APP_OWNER", ["DEV"], idempotency_key="k")
+    if pre_state == gua.VERIFYING:
+        gua._transition(rec["request_id"], appr["approval_id"], gua.VERIFYING)
+    assert gua.recover_on_boot() == [{"request_id": rec["request_id"], "approval_id": appr["approval_id"], "from": pre_state, "to": gua.DENIED}]
+    assert gua.approvable(gur.load(rec["request_id"]), ["DEV"]) == []                                # no se consumió: se puede volver a aprobar
+
+
+def test_boot_recovery_marks_applied_only_when_the_exact_result_is_accredited(world):
+    rec = _ready_request(world)
+    _started(world, rec)
+    _write_result(world, sha="b" * 64, signature="c" * 64)                                         # completó, pero el proceso murió antes de persistir el estado
+    gua.recover_on_boot()
+    stored = gur.load(rec["request_id"])
+    assert stored["approval"]["state"] == gua.APPLIED and stored["approval"]["reconciled"] is True and stored["status"] == "APPLIED"
+
+
+@pytest.mark.parametrize("pre,expected,result,evidence", [
+    ("a" * 64, "c" * 64, None, gua.EV_UNCHANGED),                     # el sobre anterior sigue: NO equivale a «seguro reintentar» (otro proceso podría seguir)
+    ("a" * 64, "c" * 64, ("b" * 64, "otra"), gua.EV_DIVERGENT),        # escritura parcial / resultado ajeno
+    (None, None, None, gua.EV_UNVERIFIABLE),                           # consumida sin evidencia registrada (p. ej. anterior a la fase B)
+])
+def test_boot_recovery_blocks_every_ambiguous_execution(world, pre, expected, result, evidence):
+    rec = _ready_request(world)
+    _started(world, rec, pre=pre, expected=expected)
+    if result:
+        _write_result(world, sha=result[0], signature=result[1])
+    gua.recover_on_boot()
+    appr = gur.load(rec["request_id"])["approval"]
+    assert appr["state"] == gua.RECONCILIATION_REQUIRED and appr["evidence"] == evidence
+    with pytest.raises(gua.ApprovalRefused, match="RECONCILIATION_REQUIRED"):
+        gua.register(gur.load(rec["request_id"]), OWNER, "APP_OWNER", ["DEV"], idempotency_key="k-new")
+
+
+def test_boot_recovery_skips_an_execution_alive_in_this_process(world):
+    rec = _ready_request(world)
+    appr = _started(world, rec)
+    gua._running.add(appr["approval_id"])
+    try:
+        assert gua.recover_on_boot() == [] and _state(rec) == gua.STARTED
+    finally:
+        gua._running.discard(appr["approval_id"])
+
+
+def test_repeated_gets_never_recover_or_change_states(routes, world):
+    rec = _ready_request(world)
+    _started(world, rec)                                                                            # huérfana: sin hilo vivo en este proceso
+    url = f"/copilot/governed-updates/{rec['request_id']}"
+    client = _client("owner@danwor.com")
+    client.get(url)                                                                                 # primera visita: registra la revisión (auditoría deduplicada)
+    before = gur._path("Contreras", "AM_Workforce", rec["request_id"]).read_bytes()
+    for _ in range(3):
+        assert client.get(url).status_code == 200
+    assert gur._path("Contreras", "AM_Workforce", rec["request_id"]).read_bytes() == before and _state(rec) == gua.STARTED
+
+
+# ── C3: reconciliación EXPLÍCITA de mantenimiento ────────────────────────────────────────────
+def _blocked(world, rec, monkeypatch, tmp_path):
+    monkeypatch.setattr(gua, "_backup_dir", lambda aid: tmp_path / aid)
+    appr = _started(world, rec)
+    gua.recover_on_boot()
+    assert _state(rec) == gua.RECONCILIATION_REQUIRED
+    return appr
+
+
+def test_reconcile_requires_the_operator_confirmation(world, monkeypatch, tmp_path):
+    rec = _ready_request(world)
+    _blocked(world, rec, monkeypatch, tmp_path)
+    assert gua.reconcile(rec["request_id"], operator="op", confirm_no_active_execution=False)["result"] == "CONFIRMATION_REQUIRED"
+    assert _state(rec) == gua.RECONCILIATION_REQUIRED
+
+
+def test_reconcile_reopens_only_with_no_effect_accredited(world, monkeypatch, tmp_path):
+    rec = _ready_request(world)
+    _blocked(world, rec, monkeypatch, tmp_path)                                                    # sin directorio de respaldo y sin Spaces: no empezó a escribir
+    out = gua.reconcile(rec["request_id"], operator="op", confirm_no_active_execution=True)
+    assert out["result"] == gua.NOT_APPLIED and gua.approvable(gur.load(rec["request_id"]), ["DEV"]) == []
+
+
+def test_reconcile_keeps_blocked_when_the_journal_shows_a_commit(world, monkeypatch, tmp_path):
+    from webapp.services import governed_backup as gb
+    rec = _ready_request(world)
+    appr = _blocked(world, rec, monkeypatch, tmp_path)
+    (tmp_path / appr["approval_id"]).mkdir()
+    gb.append_journal(tmp_path / appr["approval_id"], {"event": gb.EV_COMMITTED, "key": "x"})
+    out = gua.reconcile(rec["request_id"], operator="op", confirm_no_active_execution=True)
+    assert out["result"] == "STILL_BLOCKED" and out["journal_committed"] is True and _state(rec) == gua.RECONCILIATION_REQUIRED
+
+
+def test_reconcile_marks_applied_with_the_exact_result_and_the_cli_reports_it(world, monkeypatch, tmp_path, capsys):
+    rec = _ready_request(world)
+    _blocked(world, rec, monkeypatch, tmp_path)
+    _write_result(world, sha="b" * 64, signature="c" * 64)
+    assert gua._main(["--reconcile", rec["request_id"], "--operator", "op", "--confirm-no-active-execution"]) == 0
+    assert json.loads(capsys.readouterr().out)["result"] == gua.APPLIED and gur.load(rec["request_id"])["status"] == "APPLIED"
+
+
+# ── C4: verificación inmediatamente antes de escribir (no es un CAS distribuido) ─────────────
 def test_hub_authorizer_grants_only_the_started_approval_with_the_exact_plan(world):
     rec = _ready_request(world)
     appr, _ = gua.register(rec, OWNER, "APP_OWNER", ["DEV"], idempotency_key="k")
-    auth = gua.hub_authorizer(rec["request_id"], appr["approval_id"], "p" * 64)
+    aid = appr["approval_id"]
+    auth = gua.hub_authorizer(rec["request_id"], aid, "p" * 64)
     assert not auth("m", {"digest": "p" * 64}).granted                                                # todavía REGISTERED
-    gua._transition(rec["request_id"], appr["approval_id"], gua.VERIFYING)
-    gua._transition(rec["request_id"], appr["approval_id"], gua.STARTED)
-    assert auth("m", {"digest": "q" * 64}).reason == "PLAN_DIGEST_MISMATCH"
-    ok = auth("m", {"digest": "p" * 64})
-    assert ok.granted and ok.reason == "HUB_HUMAN_APPROVAL" and ok.document["schema"] == "hub-human-approval/v1"
-    assert ok.document["declared_spaces"] == ["DEV"] and ok.operator_assurance == "AUTHENTICATED_HUB_SESSION"
+    gua._transition(rec["request_id"], aid, gua.VERIFYING)
+    gua._transition(rec["request_id"], aid, gua.STARTED, pre_sha256="a" * 64, expected_candidate_signature="c" * 64)
+    assert auth("m", {"digest": "p" * 64}).reason == "NOT_EXECUTING_IN_THIS_PROCESS"                 # STARTED pero sin hilo propio
+    gua._running.add(aid)
+    try:
+        assert auth("m", {"digest": "q" * 64}).reason == "PLAN_DIGEST_MISMATCH"
+        ok = auth("m", {"digest": "p" * 64})
+        assert ok.granted and ok.reason == "HUB_HUMAN_APPROVAL" and ok.document["schema"] == "hub-human-approval/v1"
+        assert ok.document["declared_spaces"] == ["DEV"] and ok.operator_assurance == "AUTHENTICATED_HUB_SESSION"
+        world["sha"] = "b" * 64
+        assert auth("m", {"digest": "p" * 64}).reason == "ENVELOPE_CHANGED"                         # el sobre cambió desde el consumo
+        world["sha"] = "a" * 64
+        with gur._lock:
+            fresh = gur.load(rec["request_id"])
+            fresh["approvals"] = [{"state": gua.APPLIED}]
+            gur._write(fresh)
+        assert auth("m", {"digest": "p" * 64}).reason == "ALREADY_APPLIED"
+    finally:
+        gua._running.discard(aid)
 
 
 # ── ruta de confirmación ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────

@@ -228,6 +228,15 @@ async def lifespan(app: FastAPI):
             log.warning("restore en background falló: %s", exc)
         await _publication_boot_recovery()
         await _notifications_boot()
+        await _governed_updates_boot()
+
+    async def _governed_updates_boot():
+        """Actualizaciones gobernadas (PR #320, C2/C3): cierra por EVIDENCIA lo que un proceso anterior dejó activo (tras el restore; nunca desde un GET)."""
+        try:
+            from webapp.services import governed_update_approval
+            await asyncio.to_thread(governed_update_approval.recover_on_boot)
+        except Exception as exc:
+            log.warning("recuperación de actualizaciones gobernadas al arranque falló: %s", type(exc).__name__)
 
     async def _publication_boot_recovery():
         """P1: una publicación que la caída del proceso dejó a medias se completa o se deshace VERIFICANDO Spaces, recién con el restore terminado (nunca antes)."""
@@ -265,6 +274,7 @@ async def lifespan(app: FastAPI):
         tasks.append(asyncio.create_task(remote_store.sync_loop()))
     else:
         await _publication_boot_recovery()
+        await _governed_updates_boot()
         tasks.append(asyncio.create_task(_notifications_boot()))
     try:
         yield
