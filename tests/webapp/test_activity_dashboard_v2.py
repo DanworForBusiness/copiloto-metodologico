@@ -159,6 +159,64 @@ def test_kpis_over_full_history_union_users_and_midnight_session(logdir, monkeyp
     assert "67% de éxito" in t                                            # 2 éxitos (sync de APIs + acción de CCHH) / 3
 
 
+def _has_catalog_section(html):
+    return 'data-section-id="catalogos"' in html
+
+
+# ── Regla transversal de ámbito: «Catálogos y Assessments» aplicable / no aplicable / sin actividad ──────────────────────────────────────────
+def test_catalog_container_applicable_within_copilot_scope(logdir, monkeypatch):
+    t = _hx(_client(monkeypatch), "/admin/activity")                       # ámbito por defecto (todas) → el Copiloto aplica
+    assert _has_catalog_section(t)
+    assert _kpi(t, "Generaciones del Catálogo") == "2"                     # 2 catalog_apis_sync (dos@d.com)
+    assert _has_catalog_section(_hx(_client(monkeypatch), "/admin/activity?vertical=copilot"))
+
+
+def test_catalog_container_omitted_where_not_applicable(logdir, monkeypatch):
+    # Otra vertical: la funcionalidad no le corresponde → se OMITE server-side (no por CSS), no se muestra vacía ni con reacciones ajenas.
+    assert not _has_catalog_section(_hx(_client(monkeypatch), "/admin/activity?vertical=operations"))
+    assert not _has_catalog_section(_hx(_client(monkeypatch), "/admin/activity?vertical=commercial"))
+    assert not _has_catalog_section(_hx(_client(monkeypatch), "/admin/activity?vertical=human_capital"))
+
+
+def test_catalog_container_distinguishes_no_activity_from_not_applicable(logdir, monkeypatch):
+    # Copiloto aplica pero el usuario no tiene actividad de catálogo → se MUESTRA con «Sin actividad» del ámbito (≠ omitido por no aplicable).
+    t = _hx(_client(monkeypatch), "/admin/activity?user=uno%40d.com")
+    assert _has_catalog_section(t)
+    assert "No hay actividad de Catálogos y Assessments en el ámbito seleccionado" in t
+    assert _kpi(t, "Generaciones del Catálogo") == "0"
+
+
+def test_catalog_particular_filter_restricts_kpis_coherently(logdir, monkeypatch):
+    # El filtro particular sólo restringe el universo; KPIs/empty-state coherentes.
+    t = _hx(_client(monkeypatch), "/admin/activity?cat_op=sync_apis")
+    assert _has_catalog_section(t) and _kpi(t, "Generaciones del Catálogo") == "2"
+    none = _hx(_client(monkeypatch), "/admin/activity?cat_op=generacion_catalogo")           # operación sin eventos en el universo
+    assert _has_catalog_section(none) and _kpi(none, "Generaciones del Catálogo") == "0"
+    assert "para los filtros elegidos" in none                                                # ≠ «sin actividad del ámbito»
+
+
+def test_catalog_subform_preserves_only_normalized_globals_not_raw_params(logdir, monkeypatch):
+    # El sub-form del contenedor preserva el estado global YA normalizado (period/user/…), nunca params crudos:
+    # un `scope` inválido NO se refleja como hidden del contenedor (cae a «todo» server-side).
+    t = _hx(_client(monkeypatch), "/admin/activity?scope=zzz-inexistente&user=dos%40d.com")
+    assert _has_catalog_section(t)
+    assert "zzz-inexistente" not in t
+    assert '<input type="hidden" name="user" value="dos@d.com">' in t                          # global válido preservado
+    assert 'type="hidden" name="cat_' not in t                                                 # los cat_* no se duplican como hidden
+
+
+def test_section_selector_depends_on_selected_module(logdir, monkeypatch):
+    c = _client(monkeypatch)
+    # Módulo metodológico: el selector de Sección NO ofrece secciones de Catálogo.
+    meth = _select_block(_hx(c, "/admin/activity?vertical=copilot&module=CP01"), "section")
+    assert "catalog_domain" not in meth and "catalog_client" not in meth
+    # Módulo virtual «Catálogos»: ofrece exclusivamente sus secciones.
+    cat = _select_block(_hx(c, "/admin/activity?vertical=copilot&module=__catalog__"), "section")
+    assert "catalog_domain" in cat and "catalog_client" in cat
+    # El módulo virtual aparece como opción del selector de Módulo del Copiloto.
+    assert 'value="__catalog__"' in _select_block(_hx(c, "/admin/activity?vertical=copilot"), "module")
+
+
 def test_session_crossing_midnight_counts_once_in_two_day_range(logdir, monkeypatch):
     c = _client(monkeypatch)
     t = _hx(c, "/admin/activity?date_from=2026-10-20&date_to=2026-10-21&user=uno%40d.com")
@@ -175,8 +233,10 @@ def test_filters_narrow_kpis(logdir, monkeypatch):
     assert _kpi(ops, "Visitas") == "1" and _kpi(ops, "Usuarios únicos") == "1"
     actions = _hx(c, "/admin/activity?kind=outcome")
     assert _kpi(actions, "Visitas") == "0" and _kpi(actions, "Operaciones (éxito / falla)") == "1 / 1"
-    sec = _hx(c, "/admin/activity?vertical=copilot&module=CP01&section=catalog_domain")
+    sec = _hx(c, "/admin/activity?vertical=copilot&module=__catalog__&section=catalog_domain")   # catalog_* vive en el módulo virtual «Catálogos»
     assert _kpi(sec, "Visitas") == "0" and _kpi(sec, "Usuarios únicos") == "1"
+    # La combinación histórica inválida (módulo metodológico + sección de Catálogo) no atribuye nada.
+    assert _kpi(_hx(c, "/admin/activity?vertical=copilot&module=CP01&section=catalog_domain"), "Usuarios únicos") == "0"
     week = _hx(c, "/admin/activity?period=today")
     assert _kpi(week, "Usuarios únicos") == "1"
     assert 'name="date_from" value="2026-10-21"' in week and 'name="date_to" value="2026-10-21"' in week
@@ -213,9 +273,8 @@ def test_drilldown_levels_and_event_list(logdir, monkeypatch):
 
     module = _hx(c, "/admin/activity?vertical=copilot&module=CP01")
     rows = _drill_rows(module)
-    assert rows["catalog_domain"][2] == 1 and rows["catalog_domain"][3] is False
-    assert rows["_none"][0] == 3                            # vistas del módulo sin sección
-    assert rows["catalog_lob"] == (0, 0, 0, True)          # sección del inventario sin actividad
+    assert rows["_none"][0] == 3                            # vistas del módulo metodológico sin sección
+    assert "catalog_domain" not in rows and "catalog_lob" not in rows   # las secciones de Catálogo NO cuelgan de un módulo metodológico
     assert "cchh_candidate_contact" not in rows            # pertenece a otra vertical
     # Subhead como «Eventos»: título del nivel + pista + «Filtrado por Copiloto › <módulo>» y ✕ que sube a la vertical.
     subhead = module.split("data-drill-subhead", 1)[1].split("</p>", 1)[0]
@@ -223,11 +282,17 @@ def test_drilldown_levels_and_event_list(logdir, monkeypatch):
     assert re.search(r'Filtrado por <strong aria-current="page">Copiloto › [^<]+</strong>', subhead)
     assert 'class="dashboard-subhead__reset" data-drill-nav hx-get="/admin/activity?vertical=copilot"' in subhead
 
-    section = _hx(c, "/admin/activity?vertical=copilot&module=CP01&section=catalog_domain")
+    # Módulo analítico VIRTUAL «Catálogos»: ahí sí viven las secciones catalog_* (datos + inventario).
+    cat_module = _hx(c, "/admin/activity?vertical=copilot&module=__catalog__")
+    rows = _drill_rows(cat_module)
+    assert rows["catalog_domain"][2] == 1 and rows["catalog_domain"][3] is False
+    assert rows["catalog_lob"] == (0, 0, 0, True)          # sección del inventario de Catálogo sin actividad
+
+    section = _hx(c, "/admin/activity?vertical=copilot&module=__catalog__&section=catalog_domain")
     assert 'data-drill-level="section"' in section and "data-drill-events" in section
     events = section.split("data-drill-events", 1)[1].split("</table>", 1)[0]
     assert "Dos" in events or "dos@d.com" in events
-    assert re.search(r'<strong aria-current="page">Copiloto › [^<]+ › Catálogo · Dominio</strong>', section)
+    assert re.search(r'<strong aria-current="page">Copiloto › Catálogos › Catálogo · Dominio</strong>', section)
     assert "1 registro(s)" in section
 
     none_section = _hx(c, "/admin/activity?vertical=copilot&module=CP01&section=_none")
@@ -237,7 +302,8 @@ def test_drilldown_levels_and_event_list(logdir, monkeypatch):
 
 
 def test_event_list_shows_outcome_badges_and_only_whitelisted_attrs(logdir, monkeypatch):
-    t = _hx(_client(monkeypatch), "/admin/activity?vertical=copilot&module=_none&section=_none&kind=outcome")
+    # Los resultados del Catálogo (catalog_apis_sync) son `area=catalog` → módulo virtual «Catálogos», sin sección.
+    t = _hx(_client(monkeypatch), "/admin/activity?vertical=copilot&module=__catalog__&section=_none&kind=outcome")
     events = t.split("data-drill-events", 1)[1].split("</table>", 1)[0]
     assert "status-badge--activo\">Éxito" in events and "status-badge--inactivo\">Falla" in events
     assert "outcome=success" in events
@@ -291,17 +357,17 @@ def test_unauthorized_viewer_gets_403(logdir, monkeypatch):
 
 def test_url_state_round_trips(logdir, monkeypatch):
     c = _client(monkeypatch)
-    url = "/admin/activity?period=7d&vertical=copilot&module=CP01&kind=navigation&user=uno%40d.com"
+    url = "/admin/activity?period=7d&vertical=copilot&module=__catalog__&kind=navigation&user=dos%40d.com"
     first = _hx(c, url)
     assert 'option value="7d" selected' in first
     assert 'option value="copilot" selected' in _select_block(first, "vertical")
-    assert 'option value="CP01" selected' in _select_block(first, "module")
+    assert 'option value="__catalog__" selected' in _select_block(first, "module")   # el módulo virtual round-trippea como cualquier otro
     assert 'option value="navigation" selected' in _select_block(first, "kind")
     # Las filas del drill-down conservan TODO el estado y suman un nivel.
     href = re.search(r'hx-get="(/admin/activity\?[^"]*section=catalog_domain[^"]*)"', first).group(1)
     q = parse_qs(urlparse(href.replace("&amp;", "&")).query)
-    assert q == {"period": ["7d"], "vertical": ["copilot"], "module": ["CP01"], "section": ["catalog_domain"],
-                 "kind": ["navigation"], "user": ["uno@d.com"]}
+    assert q == {"period": ["7d"], "vertical": ["copilot"], "module": ["__catalog__"], "section": ["catalog_domain"],
+                 "kind": ["navigation"], "user": ["dos@d.com"]}
     # La página completa (recarga/compartir) reconstruye lo mismo que el fragmento HTMX.
     full = c.get(url).text
     assert _drill_rows(full) == _drill_rows(first) and _kpi(full, "Visitas") == _kpi(first, "Visitas")

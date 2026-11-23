@@ -681,3 +681,39 @@ def test_historical_jsonl_is_never_rewritten_by_normalization(monkeypatch, tmp_p
     assert before == after
     # El registro leído sigue con el stem LEGACY crudo — nunca se reescribió.
     assert json.loads(before.strip())["module"] == "01_Arquitectura_y_Conectividad"
+
+
+# ── módulo analítico virtual «Catálogos» (remap read-time de area=catalog) ─────
+
+def _norm_catalog(event, *, area="catalog", module="", section="", **attrs):
+    rec = {"v": 2, "event": event, "scope": "copilot", "area": area, "kind": "navigation",
+           "ts_utc": "2026-11-22T10:00:00", "user": "a@d.com", "attrs": attrs}
+    if module:
+        rec["module"] = module
+    if section:
+        rec["section"] = section
+    return ax.normalize_record(rec)
+
+
+def test_catalog_area_maps_to_virtual_module_preserving_raw_module():
+    # Un section_view de Catálogo abierto desde el módulo metodológico 04 (módulo ambiente).
+    rec = _norm_catalog("section_view", module="04_modelado_y_desarrollo", section="catalog_client", view_id="x")
+    assert rec["module"] == ax.CATALOG_VIRTUAL_MODULE            # módulo analítico virtual «Catálogos»
+    assert rec["raw_module"] == "04_modelado_y_desarrollo"       # evidencia histórica intacta (sin reescritura)
+    assert rec["section"] == "catalog_client"                    # la sección no se inventa ni se borra
+    assert ax.module_label(ax.CATALOG_VIRTUAL_MODULE) == "Catálogos"
+
+
+def test_methodology_module_is_untouched_by_the_remap():
+    meth = ax.normalize_record({"v": 2, "event": "section_view", "scope": "copilot", "area": "methodology",
+                                "kind": "navigation", "ts_utc": "2026-11-22T10:00:00", "user": "a@d.com",
+                                "module": "04_modelado_y_desarrollo", "section": "12_que_es_una_api"})
+    assert meth["module"] != ax.CATALOG_VIRTUAL_MODULE and meth["section"] == "12_que_es_una_api"
+
+
+def test_catalog_events_without_section_gain_no_artificial_section():
+    # Generación global del Catálogo, Diagnóstico (assessment ad hoc) y actualización gobernada: area=catalog
+    # → módulo virtual, SIN inventar sección (no se fabrican relaciones).
+    for event in ("catalog_regenerate", "datasphere_assessment_run", "governed_update.requested"):
+        rec = _norm_catalog(event)
+        assert rec["module"] == ax.CATALOG_VIRTUAL_MODULE and rec["section"] == "", event

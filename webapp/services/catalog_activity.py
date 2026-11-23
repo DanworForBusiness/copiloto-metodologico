@@ -31,6 +31,8 @@ EVENTS: dict[str, tuple[str, str]] = {
     "governed_update.notified": (TOOL_GOVERNED, "notificacion"),
     "governed_update.reviewed": (TOOL_GOVERNED, "revision"),
     "governed_update.dry_run": (TOOL_GOVERNED, "dry_run"),
+    "catalog_regenerate": (TOOL_MAINTENANCE, "generacion_catalogo"),
+    "catalog_apis_sync": (TOOL_MAINTENANCE, "sync_apis"),
     "catalog_client_assessment_regenerate": (TOOL_MAINTENANCE, "regeneracion_cliente"),
     "assessment_regenerated": (TOOL_MAINTENANCE, "regeneracion_modelo"),
     "datasphere_publication_run": (TOOL_MAINTENANCE, "publicacion"),
@@ -41,6 +43,7 @@ OP_LABEL = {
     "assessment_inicio": "Assessment ad hoc — inicio", "assessment_resultado": "Assessment ad hoc — resultado",
     "oportunidad_mostrada": "Oportunidad mostrada", "solicitud": "Solicitud registrada", "notificacion": "Notificación emitida",
     "revision": "Revisión", "dry_run": "Dry-run gobernado",
+    "generacion_catalogo": "Generación/Regeneración del Catálogo", "sync_apis": "Actualización de APIs/CDS",
     "regeneracion_cliente": "Regeneración (cliente)", "regeneracion_modelo": "Regeneración (modelo)", "publicacion": "Publicación",
 }
 MAX_ROWS = 200
@@ -93,13 +96,18 @@ def _detail(event: str, a: dict) -> str:
         return " · ".join(bits)
     if event == "assessment_regenerated":
         return str(a.get("result") or "")
-    if event in ("catalog_client_assessment_regenerate", "catalog_assessment_generate", "datasphere_publication_run"):
+    if event == "catalog_apis_sync":                                           # sincronización APIs/CDS: paso (preflight/apply/rollback) + estado
+        return " · ".join(str(x) for x in (a.get("step"), a.get("state") or a.get("outcome")) if x)
+    if event in ("catalog_client_assessment_regenerate", "catalog_assessment_generate", "datasphere_publication_run", "catalog_regenerate"):
         return str(a.get("outcome") or a.get("state") or "")
     return ""
 
 
-def build(events: list[dict], params: Mapping[str, str], *, pack: str = "") -> dict:
-    """Vista del contenedor. ``events``: eventos normalizados del tablero (ya filtrados por período/usuario/visibilidad)."""
+def build(events: list[dict], params: Mapping[str, str], *, pack: str = "",
+          global_pairs: list[tuple[str, str]] | None = None) -> dict:
+    """Vista del contenedor. ``events``: eventos normalizados del tablero (ya filtrados por período/usuario/visibilidad).
+    ``global_pairs``: estado global YA normalizado por el tablero (``activity_dashboard.global_filter_pairs``) que los
+    filtros propios preservan sin tocar; sólo se manipulan los cuatro ``cat_*``."""
     sel = {k: str(params.get(k) or "").strip() for k in FILTER_KEYS}
     rows_all: list[dict] = []
     for ev in events:
@@ -126,6 +134,11 @@ def build(events: list[dict], params: Mapping[str, str], *, pack: str = "") -> d
     end_outcomes = Counter(r["outcome"] or "unknown" for r in ends)
     notified = [r for r in rows if r["event"] == "governed_update.notified"]
     not_sent = [r for r in notified if r["detail"] in ("disabled", "error", "")]           # intención sin envío: NO cuenta como emitida
+    # Mantenimiento del Catálogo: generación/regeneración COMPLETA (`catalog_regenerate`, operación multi-modelo, sin cliente único) + sincronización APIs/CDS (`catalog_apis_sync`).
+    catalog_gen = [r for r in rows if r["event"] in ("catalog_regenerate", "catalog_apis_sync")]
+    gen_outcomes = Counter(r["outcome"] or "unknown" for r in catalog_gen if r["event"] == "catalog_regenerate")  # APIs/CDS cuenta aparte, sin duplicar
+    # Regeneración de Assessments gobernados (por cliente o por modelo).
+    assess_regen = [r for r in rows if r["event"] in ("catalog_client_assessment_regenerate", "assessment_regenerated")]
     kpis = [
         {"key": "consultas", "label": "Consultas de modelos", "value": len(consult),
          "hint": " · ".join(f"{OP_LABEL[o]} {n}" for o, n in sorted(Counter(r['op'] for r in consult).items()) if o in OP_LABEL)},
@@ -138,6 +151,13 @@ def build(events: list[dict], params: Mapping[str, str], *, pack: str = "") -> d
         {"key": "notificaciones", "label": "Notificaciones emitidas", "value": len(notified) - len(not_sent),
          "hint": f"no emitidas (apagadas o con error) {len(not_sent)}" if not_sent else "entrega: ver el estado en la solicitud"},
         {"key": "revisiones", "label": "Revisiones", "value": by_event["governed_update.reviewed"], "hint": f"dry-runs {by_event['governed_update.dry_run']}"},
+        {"key": "catalogo", "label": "Generaciones del Catálogo", "value": len(catalog_gen),
+         "hint": " · ".join(filter(None, [f"exitosas {gen_outcomes.get('success', 0)}",
+                                          f"fallidas {gen_outcomes.get('failed', 0)}" if gen_outcomes.get('failed') else "",
+                                          f"rechazadas {gen_outcomes.get('rejected', 0)}" if gen_outcomes.get('rejected') else "",
+                                          f"APIs/CDS {by_event['catalog_apis_sync']}" if by_event['catalog_apis_sync'] else ""])) or "generación/regeneración completa"},
+        {"key": "regeneraciones_assessment", "label": "Regeneraciones de Assessment", "value": len(assess_regen),
+         "hint": f"por cliente {by_event['catalog_client_assessment_regenerate']} · por modelo {by_event['assessment_regenerated']}"},
     ]
     history = bool(sel["cat_client"] and sel["cat_model"])
     rows_sorted = sorted(rows, key=lambda r: r["ts"], reverse=not history)
@@ -147,4 +167,5 @@ def build(events: list[dict], params: Mapping[str, str], *, pack: str = "") -> d
     tools = [{"key": k, "label": v} for k, v in TOOL_LABEL.items() if any(r["tool"] == k for r in rows_all)]
     ops = [{"key": k, "label": OP_LABEL.get(k, k)} for k in sorted({r["op"] for r in rows_all if not sel["cat_tool"] or r["tool"] == sel["cat_tool"]})]
     return {"present": bool(rows_all), "selected": sel, "clients": clients, "models": models, "tools": tools, "ops": ops, "kpis": kpis,
-            "rows": shown, "total": len(rows), "truncated": len(rows) > len(shown), "history": history}
+            "rows": shown, "total": len(rows), "truncated": len(rows) > len(shown), "history": history,
+            "globals": list(global_pairs or [])}

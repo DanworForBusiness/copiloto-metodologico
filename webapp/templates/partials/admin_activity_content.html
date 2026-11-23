@@ -590,8 +590,9 @@
 </details>
 {% endif %}
 
-{#- Catálogos y Assessments: actividad sobre modelos (Decisión, Diagnóstico, actualización gobernada). Del Copiloto: con otra vertical no se muestra. -#}
-{% if catalog and catalog.present and dash.show_copilot_panels %}
+{#- Catálogos y Assessments: actividad sobre modelos (Decisión, Diagnóstico, actualización gobernada). Es funcionalidad del Copiloto: con otra vertical NO
+    aplica y se omite; dentro del ámbito del Copiloto se muestra siempre (con «Sin actividad» si está vacío) para distinguir «no aplicable» de «sin actividad». -#}
+{% if catalog and dash.show_copilot_panels %}
 <details class="dashboard-section" data-section-id="catalogos" open>
   <summary class="dashboard-section__head" draggable="true">
     <span class="dashboard-section__grip" aria-hidden="true">⋮⋮</span>

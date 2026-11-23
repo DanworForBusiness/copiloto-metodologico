@@ -31,11 +31,11 @@ el router les pasa el período/vertical/módulo/usuario resueltos acá
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
-from typing import Iterable
+from typing import Any, Iterable, Mapping
 from urllib.parse import urlencode
 
 from webapp.services import activity_aggregates, activity_catalog, content_service, module_registry
-from webapp.services.activity_context import module_label, scope_label
+from webapp.services.activity_context import CATALOG_VIRTUAL_MODULE, module_label, scope_label
 from webapp.services.pagination import paginate
 
 BASE_URL = "/admin/activity"
@@ -204,6 +204,19 @@ def _url(state: dict, **override) -> str:
     return f"{BASE_URL}?{qs}" if qs else BASE_URL
 
 
+# Estado global de URL que reconstruye la vista (round-trip de `_state`). Scope/Área no forman
+# parte del round-trip del tablero (breadcrumbs/drill tampoco los arrastran; la visibilidad se
+# re-impone server-side por permisos), así que no se exponen como filtros globales reutilizables.
+GLOBAL_FILTER_KEYS = ("period", "date_from", "date_to", "vertical", "module", "section", "kind", "user")
+
+
+def global_filter_pairs(dash: Mapping[str, Any]) -> list[tuple[str, str]]:
+    """Pares (clave, valor) del estado global YA normalizado por `build` (no re-valida nada).
+    Un contenedor específico los usa para preservar EXACTAMENTE el universo del tablero sin
+    reintroducir `request.query_params` crudos (que filtrarían valores inválidos). Excluye vacíos."""
+    return [(k, str(dash[k])) for k in GLOBAL_FILTER_KEYS if dash.get(k) not in (None, "")]
+
+
 # ── inventario ───────────────────────────────────────────────────────────────
 
 def _visible_vertical_inventory(visible: frozenset[str]) -> list[str]:
@@ -223,6 +236,12 @@ def _module_inventory(visible: frozenset[str], allowed_areas: frozenset[str] | N
         seen.add(entry.module_id)
         seen.update(entry.legacy_aliases)
     if activity_catalog.SCOPE_COPILOT in visible:
+        # Módulo analítico VIRTUAL «Catálogos» (no metodológico): aparece como opción aunque no haya datos,
+        # respetando la visibilidad de área (toda su actividad es `area == catalog`).
+        if allowed_areas is None or activity_catalog.AREA_CATALOG in allowed_areas:
+            out.append({"key": CATALOG_VIRTUAL_MODULE, "label": module_label(CATALOG_VIRTUAL_MODULE),
+                        "vertical": activity_catalog.SCOPE_COPILOT})
+            seen.add(CATALOG_VIRTUAL_MODULE)
         try:
             pack_modules = list(content_service.list_modules())
         except Exception:  # noqa: BLE001 — el inventario es complementario: sin pack, solo el registro
@@ -235,7 +254,11 @@ def _module_inventory(visible: frozenset[str], allowed_areas: frozenset[str] | N
 
 
 def _section_inventory(visible: frozenset[str]) -> list[dict]:
-    return [{"key": slug, "label": label, "vertical": vertical}
+    # `module`: las secciones del inventario Copiloto son TODAS del Catálogo (no hay secciones metodológicas
+    # en el inventario; las oficiales salen del content pack/datos) → pertenecen al módulo virtual «Catálogos».
+    # El resto (CCHH/Plataforma/Operaciones) no tiene módulo: su desglose es por sección dentro de su vertical.
+    return [{"key": slug, "label": label, "vertical": vertical,
+             "module": CATALOG_VIRTUAL_MODULE if vertical == activity_catalog.SCOPE_COPILOT else ""}
             for slug, (vertical, label) in _ALL_SECTIONS.items() if vertical in visible]
 
 
@@ -496,7 +519,8 @@ def _drill_rows(level, data, state, vertical_inv, module_inv, section_inv, verti
             key = slug or NONE_KEY
             rows.append(_row(key, section_label(slug), node, _url(keep, vertical=vertical, module=module, section=key)))
         for s in section_inv:
-            if s["key"] not in merged and (not vertical or s["vertical"] == vertical):
+            if s["key"] not in merged and (not vertical or s["vertical"] == vertical) \
+               and (not module or s["module"] == module):             # no listar secciones de Catálogo como «cero» bajo un módulo metodológico
                 rows.append(_row(s["key"], s["label"], None, _url(keep, vertical=vertical, module=module, section=s["key"])))
         title = "Secciones"
     else:
@@ -544,7 +568,8 @@ def _section_options(options_data, section_inv, vertical_filter, vertical, modul
                 if s["section"]:
                     out.setdefault(s["section"], section_label(s["section"]))
     for s in section_inv:
-        if (not vertical_filter or s["vertical"] in vertical_filter) and (not vertical or s["vertical"] == vertical):
+        if (not vertical_filter or s["vertical"] in vertical_filter) and (not vertical or s["vertical"] == vertical) \
+           and (not module or s["module"] == module):                 # sección↔módulo: catalog_* sólo bajo «Catálogos», nunca bajo un módulo metodológico
             out.setdefault(s["key"], s["label"])
     if selected == NONE_KEY:
         out[NONE_KEY] = section_label("")
