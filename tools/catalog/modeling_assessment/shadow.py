@@ -26,6 +26,7 @@ from pathlib import Path
 
 from . import legacy_bridge as bridge
 from . import paths
+from . import evidence_observability, platform_boundary
 from .assessability import compose_assessment
 from . import connection_catalog
 from .facts_am import am_facts
@@ -228,6 +229,15 @@ def assess(inbound: Path, client: str, am: str | None, domain: str | None = None
     doc = build_assessment(comp, facts, client=key[0], terminal_label=_business_label(entities, scope.root), evidence_scope=evidence_scope,
                            materialization_evidence=lambda ce: collect_materialization_evidence(group["jsons"], inbound, ce, signature))      # v4.A: referencias recuperables al pool (solo lectura)
     validate_assessment(doc)
+    # Equivalencia v2 (E1): evidencia POSITIVA de fronteras de plataforma. Viaja en `meta` (como el sidecar review-evidence), NUNCA en el perfil:
+    # el perfil y su firma quedan byte a byte iguales (las guardas de las migraciones firmadas exigen perfil idéntico). Su fallo nunca rompe el Assessment.
+    ext = platform_boundary.extensions(universe, scope.root, group["jsons"])
+    try:                                                                   # E2: cobertura de observación por categoría (sidecar; nunca rompe el Assessment)
+        ext["evidence_observability"] = evidence_observability.build_observability(evidence_scope, group["jsons"])
+    except Exception:                                                      # noqa: BLE001
+        pass
+    if ext:
+        meta["evidence_extensions"] = ext
     meta["terminal_analytic_models_in_pool"] = len(universe.terminal_ams)
     # Iteración II — sidecar `review-evidence/v1`: huella material de las revisiones desde los HECHOS COMPLETOS de ESTA misma
     # ejecución (con `direct_source`), ligado por `input_signature` + firma EXACTA del perfil. Extensión COMPATIBLE del retorno
