@@ -21,7 +21,14 @@ import json
 from pathlib import Path
 from typing import Any, Iterable
 
-FINGERPRINT_SCHEMA = "governed-evidence-fingerprint/v1"
+FINGERPRINT_SCHEMA_V1 = "governed-evidence-fingerprint/v1"         # CONGELADA: interpreta huellas históricas tal como se emitieron
+FINGERPRINT_SCHEMA_V2 = "governed-evidence-fingerprint/v2"         # equivalencia material (ver ``equivalence_v2``)
+FINGERPRINT_SCHEMA = FINGERPRINT_SCHEMA_V2                          # esquema VIGENTE para huellas nuevas
+SUPPORTED_SCHEMAS = (FINGERPRINT_SCHEMA_V1, FINGERPRINT_SCHEMA_V2)
+EQUIVALENCE_V2 = "equivalence/v2"
+_TIME_DIMENSION_SETTING = "TIME_DIMENSION_SETTING"                  # única base explícita de plataforma hoy acreditada (platform-boundary/v1)
+_LOCAL_UNDETERMINED_KINDS = frozenset({"LOCAL_PROVENANCE_NOT_ASSESSED"})
+_CORE_CATEGORIES = ("analytic-models", "views", "tables")
 PROVENANCE_SCHEMA = "governed-provenance/v1"
 ROUTE_MANIFEST, ROUTE_RECONSTRUCTED = "MANIFEST", "RECONSTRUCTED"
 ACCREDITED, NOT_ACCREDITED = "ACCREDITED", "NOT_ACCREDITED"
@@ -70,10 +77,94 @@ def equivalence(profile: Any) -> dict:
             "source_contracts": sorted((_leaf_view(lf) for lf in leaves if isinstance(lf, dict)), key=lambda x: str(x["leaf"]))}
 
 
-def fingerprint(profile: Any) -> dict:
-    """``{schema, identity, identity_digest, equivalence_digest}``: identidad y equivalencia con digests SEPARADOS."""
+def fingerprint_v1(profile: Any) -> dict:
+    """v1 CONGELADA: ``{schema, identity, identity_digest, equivalence_digest}`` con ``equivalence`` (estricta, sin normalización)."""
     ident, eq = identity(profile), equivalence(profile)
-    return {"schema": FINGERPRINT_SCHEMA, "identity": ident, "identity_digest": digest(ident), "equivalence_digest": digest(eq)}
+    return {"schema": FINGERPRINT_SCHEMA_V1, "identity": ident, "identity_digest": digest(ident), "equivalence_digest": digest(eq)}
+
+
+# ── equivalencia v2: material, con fronteras de plataforma acreditadas y abstención ante incertidumbre ───────────────────────────────────────
+def _platform_collapse(closure: set[str], pb: Any) -> tuple[set[str], set[str], set[str]]:
+    """(descendientes colapsables, fronteras acreditadas consumidas por el cliente, fronteras que absorbieron descendientes). SOLO con evidencia POSITIVA del sidecar ``platform_boundary``:
+    · base explícita ``TIME_DIMENSION_SETTING`` en frontera Y descendiente (``NAMESPACE_ONLY`` nunca alcanza);
+    · el descendiente no tiene NINGÚN consumidor directo fuera de objetos acreditados (el modelo analítico cuenta como cliente);
+    · existe un camino frontera → … → descendiente por aristas acreditadas, con TODOS los nodos acreditados;
+    · la frontera tiene al menos un consumidor directo del cliente. Sin sidecar (perfiles históricos): no se colapsa nada."""
+    if not isinstance(pb, dict) or not str(pb.get("version") or "").startswith("platform-boundary/"):
+        return set(), set(), set()
+    accredited = {o.get("name") for o in pb.get("objects") or [] if isinstance(o, dict) and o.get("basis") == _TIME_DIMENSION_SETTING}
+    consumers = {k: set(v or []) for k, v in (pb.get("direct_consumers") or {}).items()}
+    edges: dict[str, set[str]] = {}
+    for r in pb.get("references") or []:
+        if isinstance(r, dict) and r.get("from") in accredited and r.get("to") in accredited:
+            edges.setdefault(r["from"], set()).add(r["to"])
+    frontiers = {g for g in accredited if g in closure and (consumers.get(g, set()) - accredited)}
+    collapsed, used = set(), set()
+    for g in sorted(frontiers):
+        seen, stack = set(), [g]
+        while stack:
+            n = stack.pop()
+            for m in edges.get(n, ()):
+                if m not in seen and m != g:
+                    seen.add(m)
+                    stack.append(m)
+        for x in seen:
+            if x in closure and x not in frontiers and not (consumers.get(x, set()) - accredited):
+                collapsed.add(x)
+                used.add(g)
+    return collapsed, frontiers, used
+
+
+def equivalence_v2(profile: Any, extensions: Any = None) -> dict:
+    """Vista material (contrato ``equivalence/v2``). Estrictos: versiones (evidencia, cierre, identidad y sidecars), cierre del cliente, fronteras
+    de plataforma acreditadas (su identidad), hojas no colapsadas (clase, conexión, conector, entidades, sistemas) y miembros producidos por
+    flujos. NO entra el alcance DECLARADO. ``undetermined`` lista lo que impide acreditar equivalencia (abstención, nunca equivalencia)."""
+    p = _profile(profile)
+    ext = extensions if isinstance(extensions, dict) else {}
+    sc, ce, vs = p.get("scope") or {}, p.get("canonical_evidence") or {}, p.get("versions") or {}
+    closure = {str(a) for a in sc.get("closure_artifacts") or []}
+    pb, obs = ext.get("platform_boundary"), ext.get("evidence_observability")
+    collapsed, frontiers, absorbing = _platform_collapse(closure, pb)
+    leaves = [lf for lf in ((ce.get("source_contract_classes") or {}).get("leaves") or []) if isinstance(lf, dict)]
+    views = {str(lf.get("leaf")): _leaf_view(lf) for lf in leaves if str(lf.get("leaf")) not in collapsed}
+    for g in absorbing:                                                     # la frontera absorbe la profundidad: queda como hoja de plataforma
+        views.setdefault(g, {"leaf": g, "leaf_kind": "PLATFORM_OBJECT", "contract_class": "PLATFORM_PROVIDED", "remote_connection": None,
+                             "connection_type": None, "remote_entities": [], "source_systems": []})
+    pc = ((ce.get("closure") or {}).get("plane_context") or {})
+    rr = ((ce.get("closure") or {}).get("reference_resolution") or {})
+    undetermined = set()
+    counts = rr.get("counts") or {}
+    if not rr or counts.get("UNRESOLVED", 0) or counts.get("AMBIGUOUS", 0) or rr.get("members_with_open_references"):
+        undetermined.add("CLOSURE_INCOMPLETE")                              # sin cierre completo no se acredita qué produce qué
+    if any(lf.get("leaf_kind") in _LOCAL_UNDETERMINED_KINDS for lf in leaves):
+        undetermined.add("FLOW_MATERIALITY_UNDETERMINED")                   # tabla local sin procedencia evaluada: un flujo podría producirla
+    if isinstance(obs, dict) and obs.get("source") == "EXTRACTOR":
+        cats = obs.get("categories") or {}
+        if any((cats.get(c) or {}).get("state") != "OBSERVED" for c in _CORE_CATEGORIES):
+            undetermined.add("CORE_CATEGORY_NOT_OBSERVED")                  # el ad hoc excluyó evidencia núcleo
+    return {"contract": EQUIVALENCE_V2,
+            "versions": {"evidence": vs.get("canonical_evidence") or ce.get("version"), "closure_rules": vs.get("closure"), "identity_rules": vs.get("identity"),
+                         "platform_boundary": (pb or {}).get("version") if isinstance(pb, dict) else None},
+            "closure": sorted(closure - collapsed),
+            "platform_frontiers": sorted(frontiers),
+            "flow_produced_members": sorted(str((m or {}).get("artifact") if isinstance(m, dict) else m) for m in pc.get("flow_produced_members") or []),
+            "source_contracts": [views[k] for k in sorted(views)],
+            "undetermined": sorted(undetermined)}
+
+
+def fingerprint_v2(profile: Any, extensions: Any = None) -> dict:
+    ident, eq = identity(profile), equivalence_v2(profile, extensions)
+    return {"schema": FINGERPRINT_SCHEMA_V2, "contract": EQUIVALENCE_V2, "identity": ident, "identity_digest": digest(ident),
+            "equivalence_digest": digest(eq), "undetermined": eq["undetermined"], "contract_versions": eq["versions"]}
+
+
+def fingerprint(profile: Any, extensions: Any = None, *, schema: str = FINGERPRINT_SCHEMA) -> dict:
+    """Huella bajo ``schema`` (por defecto, la VIGENTE). Una huella se compara SIEMPRE con otra del MISMO esquema."""
+    if schema == FINGERPRINT_SCHEMA_V1:
+        return fingerprint_v1(profile)
+    if schema == FINGERPRINT_SCHEMA_V2:
+        return fingerprint_v2(profile, extensions)
+    raise ValueError(f"esquema de huella no soportado: {schema}")
 
 
 def equivalence_diff(a: Any, b: Any) -> list[str]:
@@ -150,7 +241,8 @@ def _other_space_claims(catalog_dir: Path, client_dir: str, declared: set[str]) 
 
 
 def verify_provenance(*, client_dir: str, am: str, declared_spaces: Iterable[str], governed_profile: Any, adhoc_fingerprint: dict | None,
-                      adhoc_space: str | None, connection_records: list[dict], catalog_dir: Path, pool_root: Path | None) -> dict:
+                      adhoc_space: str | None, connection_records: list[dict], catalog_dir: Path, pool_root: Path | None,
+                      governed_extensions: Any = None) -> dict:
     """¿El origen DECLARADO queda acreditado para esta reconstrucción? Solo lectura; nunca infiere ni completa. Ver docstring del módulo.
     Devuelve ``{schema, state, route, declared, checks, reasons, digest}``; ``state`` = ACCREDITED solo si TODO se cumple."""
     declared = sorted({str(s).strip() for s in declared_spaces if str(s).strip()})
@@ -183,11 +275,20 @@ def verify_provenance(*, client_dir: str, am: str, declared_spaces: Iterable[str
             reasons.append(f"CONNECTION_TYPE_MISMATCH:{c}")
     checks["connections"] = conn_checks
     # Equivalencia metodológica ad hoc (del Space declarado) ↔ reconstrucción gobernada restringida: exigida en ambas vías.
-    gov_fp = fingerprint(gp)
-    checks["governed_fingerprint"] = {k: gov_fp[k] for k in ("identity_digest", "equivalence_digest")}
-    if not adhoc_fingerprint or adhoc_fingerprint.get("schema") != FINGERPRINT_SCHEMA:
+    # Se interpreta SIEMPRE bajo el esquema de la huella del ad hoc (v1 histórica = v1 estricta; v2 = material). Nunca se comparan esquemas distintos.
+    schema = (adhoc_fingerprint or {}).get("schema")
+    if not adhoc_fingerprint or not schema:
         reasons.append("NO_ADHOC_FINGERPRINT")
+    elif schema not in SUPPORTED_SCHEMAS:
+        reasons.append("FINGERPRINT_SCHEMA_UNSUPPORTED")
     else:
+        gov_fp = fingerprint(gp, governed_extensions, schema=schema)
+        checks["fingerprint_schema"] = schema
+        checks["governed_fingerprint"] = {k: gov_fp[k] for k in ("identity_digest", "equivalence_digest")}
+        undetermined = sorted(set(adhoc_fingerprint.get("undetermined") or []) | set(gov_fp.get("undetermined") or []))
+        if undetermined:
+            checks["undetermined"] = undetermined
+            reasons.append("EVIDENCE_SCOPE_UNDETERMINED:" + ",".join(undetermined))      # incertidumbre: abstención, nunca equivalencia
         if adhoc_fingerprint.get("identity_digest") != gov_fp["identity_digest"]:
             reasons.append("MODEL_IDENTITY_DIFFERS")
         if adhoc_fingerprint.get("equivalence_digest") != gov_fp["equivalence_digest"]:

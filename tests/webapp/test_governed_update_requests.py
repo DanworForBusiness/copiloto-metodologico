@@ -66,7 +66,7 @@ def test_create_registers_a_summary_without_sensitive_payloads(world):
     fp = src.pop("fingerprint")
     assert src == {"result_id": RID, "space": "DEV", "judgment": {"status": "DETERMINED", "level": "BUENA"},
                    "source_contracts": {"GOVERNED_SAP_APPLICATION_API": 15}}
-    assert fp["schema"] == "governed-evidence-fingerprint/v1" and len(fp["equivalence_digest"]) == 64 and len(fp["identity_digest"]) == 64
+    assert fp["schema"] == "governed-evidence-fingerprint/v2" and len(fp["equivalence_digest"]) == 64 and len(fp["identity_digest"]) == 64
     on_disk = json.loads(next(config.governed_update_requests_dir().glob("*/*/*.json")).read_text(encoding="utf-8"))
     assert on_disk["request_id"] == rec["request_id"]
     blob = json.dumps(on_disk)
@@ -506,7 +506,7 @@ def test_a_request_without_evidence_fingerprint_explains_that_a_new_request_is_n
 
 
 # ── HOTFIX: renovación de solicitudes anteriores a la huella de evidencia ─────────────────────────────────────────────────────────────────────
-VALID_FP = {"schema": "x", "identity": {}, "identity_digest": "i" * 64, "equivalence_digest": "e" * 64}
+VALID_FP = {"schema": "governed-evidence-fingerprint/v2", "identity": {}, "identity_digest": "i" * 64, "equivalence_digest": "e" * 64}
 
 
 def _legacy(**kw):
@@ -521,7 +521,7 @@ def _legacy(**kw):
 @pytest.fixture
 def fp(monkeypatch):
     from webapp.services import governed_evidence
-    monkeypatch.setattr(governed_evidence, "fingerprint", lambda profile: dict(VALID_FP))
+    monkeypatch.setattr(governed_evidence, "fingerprint", lambda profile, ext=None, **k: dict(VALID_FP))
 
 
 def test_a_legacy_open_request_is_renewed_by_a_new_adhoc_with_fingerprint(world, fp):
@@ -548,7 +548,7 @@ def test_an_open_request_with_fingerprint_is_still_deduplicated(world, fp):
 def test_a_legacy_request_is_kept_when_the_new_adhoc_has_no_valid_fingerprint(world, monkeypatch):
     from webapp.services import governed_evidence
     old = _legacy()
-    monkeypatch.setattr(governed_evidence, "fingerprint", lambda profile: {"identity_digest": "", "equivalence_digest": ""})
+    monkeypatch.setattr(governed_evidence, "fingerprint", lambda profile, ext=None, **k: {"identity_digest": "", "equivalence_digest": ""})
     same, created = _create()
     assert not created and same["request_id"] == old["request_id"] and gur.load(old["request_id"])["status"] == gur.OPEN
 

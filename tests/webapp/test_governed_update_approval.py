@@ -62,7 +62,11 @@ def _profile(contract="GOVERNED_SAP_APPLICATION_API", closure=("AM_X", "1TR_A"),
     return {"scope": {"client": "Acme", "terminal_analytic_model": "AM_X", "root_object": "AM_X", "root_type": "analytic-model",
                       "closure_artifacts": list(reversed(closure)) if order else list(closure), "pool_signature": "p-" + definition,
                       "evidence_scope": {"effective_features": ["views", "tables"]}, **(extra_scope or {})},
-            "canonical_evidence": {"version": "canonical-evidence/v6", "source_contract_classes": {"leaves": leaves}}}
+            "versions": {"canonical_evidence": "canonical-evidence/v6", "closure": "closure-rules/v1", "identity": "identity-rules/v1"},
+            "canonical_evidence": {"version": "canonical-evidence/v6", "source_contract_classes": {"leaves": leaves},
+                                   "closure": {"reference_resolution": {"members_total": len(closure), "counts": {"RESOLVED": 2, "UNRESOLVED": 0, "EXCLUDED_BY_PLANE": 0, "AMBIGUOUS": 0},
+                                                                        "platform_provided_total": 0, "members_with_open_references": []},
+                                               "plane_context": {"flow_produced_members": []}}}}
 
 
 def test_fingerprint_separates_identity_from_equivalence_and_ignores_irrelevant_differences():
@@ -180,7 +184,7 @@ def test_register_requires_an_accredited_ready_preview_for_the_declared_spaces(w
     appr, created = gua.register(rec, OWNER, "APP_OWNER", ["DEV"], idempotency_key="k")
     assert created and appr["state"] == gua.REGISTERED and appr["schema"] == "hub-human-approval/v1"
     assert appr["expected"] == {"plan_digest": "p" * 64, "provenance_digest": "v1", "equivalence_digest": "e1", "envelope_sha256": "a" * 64,
-                                "dependency_signature": "dep1"}
+                                "dependency_signature": "dep1", "fingerprint_schema": None}
 
 
 def test_register_is_idempotent_and_allows_a_single_active_approval(world):
@@ -650,7 +654,7 @@ def test_the_dry_run_provenance_of_a_renewed_request_uses_its_fingerprint_not_th
     real_fp = ge.fingerprint(_profile())
     legacy = _legacy()
     assert "NO_ADHOC_FINGERPRINT" in _verify(tmp_path / "old", adhoc_fp=(legacy["source"].get("fingerprint") or {}))["reasons"]
-    monkeypatch.setattr(ge, "fingerprint", lambda profile: dict(real_fp))
+    monkeypatch.setattr(ge, "fingerprint", lambda profile, ext=None, **k: dict(real_fp))
     renewed, created = _create()
     assert created and renewed["supersedes"] == legacy["request_id"]
     out = _verify(tmp_path / "new", adhoc_fp=renewed["source"]["fingerprint"])

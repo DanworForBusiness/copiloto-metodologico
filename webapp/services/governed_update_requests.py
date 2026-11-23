@@ -224,7 +224,8 @@ def _judgment_brief(j: dict | None) -> dict:
 
 
 def create(*, client_dir: str, client_display: str, terminal_am: str, space: str | None, result_id: str, candidate_judgment: dict | None,
-           candidate_profile: dict | None, requested_by: str, requested_by_role: str | None = None) -> tuple[dict, bool]:
+           candidate_profile: dict | None, requested_by: str, requested_by_role: str | None = None,
+           candidate_extensions: dict | None = None) -> tuple[dict, bool]:
     """Registra la solicitud (o devuelve la abierta vigente). ``(registro, creada)``. ``NoOpportunity`` si no hay diferencia relevante.
     La oportunidad se RECALCULA en el servidor con el sobre de ahora (nunca se confía en lo que mandó el navegador)."""
     _ensure_restored()                                                     # nunca sobre un registro incompleto: sin restauración completa no se crea
@@ -239,7 +240,8 @@ def create(*, client_dir: str, client_display: str, terminal_am: str, space: str
         except ValueError:
             gov_prof = {}
     gov_scope_space = ((gov_prof or {}).get("scope") or {}).get("space")
-    fingerprint = governed_evidence.fingerprint(candidate_profile) if isinstance(candidate_profile, dict) else None
+    # huella VIGENTE (v2) del ad hoc, con su sidecar del MISMO ciclo (fronteras de plataforma + observabilidad); nunca se recalcula después
+    fingerprint = governed_evidence.fingerprint(candidate_profile, candidate_extensions) if isinstance(candidate_profile, dict) else None
     with _lock:
         existing = find_open(client_dir, terminal_am)
         if existing is not None and not (is_renewable(existing) and has_valid_fingerprint(fingerprint)):
@@ -378,6 +380,7 @@ def compute_preview(rec: dict, spaces: Any = None) -> dict:
     def _capture(cand: Any) -> Any:
         if cand is not None and getattr(cand, "profile", None) is not None:
             captured["profile"] = cand.profile
+            captured["extensions"] = getattr(cand, "extensions", None)
         return cand
 
     status = svc.status_for_entry(entries[0])
@@ -411,11 +414,15 @@ def compute_preview(rec: dict, spaces: Any = None) -> dict:
     if declared is not None:
         pool = svc.pool_root()
         profile = captured.get("profile")
-        out["fingerprint"] = governed_evidence.fingerprint(profile) if profile else None
+        adhoc_fp = (rec.get("source") or {}).get("fingerprint")
+        schema = (adhoc_fp or {}).get("schema") if (adhoc_fp or {}).get("schema") in governed_evidence.SUPPORTED_SCHEMAS else governed_evidence.FINGERPRINT_SCHEMA_V1
+        out["fingerprint_schema"] = schema                                 # el dry-run se interpreta bajo el esquema de la huella de ESTA solicitud
+        out["fingerprint"] = governed_evidence.fingerprint(profile, captured.get("extensions"), schema=schema) if profile else None
         out["provenance"] = governed_evidence.verify_provenance(
             client_dir=client_dir, am=am, declared_spaces=declared, governed_profile=profile or {},
-            adhoc_fingerprint=(rec.get("source") or {}).get("fingerprint"), adhoc_space=(rec.get("source") or {}).get("space"),
-            connection_records=svc.connection_records_of(client_dir), catalog_dir=svc.catalog_dir(), pool_root=pool)
+            adhoc_fingerprint=adhoc_fp, adhoc_space=(rec.get("source") or {}).get("space"),
+            connection_records=svc.connection_records_of(client_dir), catalog_dir=svc.catalog_dir(), pool_root=pool,
+            governed_extensions=captured.get("extensions"))
         try:                                                               # integridad operativa: firma de dependencias del modelo en el pool actual
             out["dependency_signature"] = svc.closure_signature(svc.resolve_entry(entries[0]))
         except Exception:                                                  # noqa: BLE001
