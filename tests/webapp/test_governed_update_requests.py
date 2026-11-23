@@ -44,6 +44,9 @@ def world(monkeypatch):
     monkeypatch.setattr(svc, "published_space", lambda c, a: state["published"])
     monkeypatch.setattr(access, "APP_OWNER", "owner@danwor.com")
     monkeypatch.setattr(auth_service, "CONTENT_OWNER", "content@danwor.com", raising=False)
+    from webapp.services import governed_update_approval as gua
+    monkeypatch.setattr(gua, "_readiness", {"state": gua.READINESS_READY, "reason": None})   # C5: proceso ya recuperado (los tests de compuerta la cierran)
+    monkeypatch.setattr(gur, "_review_seen", {})                                             # C6: deduplicación de revisiones aislada por test
     return state
 
 
@@ -59,8 +62,11 @@ def test_create_registers_a_summary_without_sensitive_payloads(world):
     rec, created = _create()
     assert created and rec["status"] == gur.OPEN and rec["schema"] == gur.SCHEMA
     assert rec["governed"]["sha256"] == "a" * 64 and rec["governed"]["judgment"]["level"] is None
-    assert rec["source"] == {"result_id": RID, "space": "DEV", "judgment": {"status": "DETERMINED", "level": "BUENA"},
-                             "source_contracts": {"GOVERNED_SAP_APPLICATION_API": 15}}
+    src = dict(rec["source"])
+    fp = src.pop("fingerprint")
+    assert src == {"result_id": RID, "space": "DEV", "judgment": {"status": "DETERMINED", "level": "BUENA"},
+                   "source_contracts": {"GOVERNED_SAP_APPLICATION_API": 15}}
+    assert fp["schema"] == "governed-evidence-fingerprint/v1" and len(fp["equivalence_digest"]) == 64 and len(fp["identity_digest"]) == 64
     on_disk = json.loads(next(config.governed_update_requests_dir().glob("*/*/*.json")).read_text(encoding="utf-8"))
     assert on_disk["request_id"] == rec["request_id"]
     blob = json.dumps(on_disk)
@@ -118,13 +124,48 @@ def test_approver_role_is_app_owner_or_content_owner_only(world):
     assert gur.can_view({"sub": "consultor@danwor.com"}, rec) and not gur.can_view({"sub": "otro@danwor.com"}, rec)
 
 
-def test_review_is_deduplicated_per_person(world):
+def test_review_is_deduplicated_per_person_without_writing_the_request(world):
     rec, _ = _create()
-    owner = {"sub": "owner@danwor.com", "email": "owner@danwor.com"}
-    assert gur.record_review(rec, owner, "APP_OWNER", now=1000.0)
-    assert not gur.record_review(rec, owner, "APP_OWNER", now=1000.0 + 60)        # recarga: no es otra revisión
-    assert gur.record_review(rec, owner, "APP_OWNER", now=1000.0 + gur.REVIEW_DEDUP_S + 1)
-    assert len(gur.load(rec["request_id"])["reviews"]) == 2
+    path = gur._path("Contreras", "AM_Workforce", rec["request_id"])
+    before = path.read_bytes()
+    owner, content = {"sub": "owner@danwor.com", "email": "owner@danwor.com"}, {"sub": "content@danwor.com", "email": "content@danwor.com"}
+    assert gur.should_log_review(rec["request_id"], owner, now=1000.0)
+    assert not gur.should_log_review(rec["request_id"], owner, now=1000.0 + 60)                    # recarga: no es otra revisión (misma métrica que antes)
+    assert gur.should_log_review(rec["request_id"], content, now=1000.0 + 60)                       # otro revisor sí cuenta
+    assert gur.should_log_review(rec["request_id"], owner, now=1000.0 + gur.REVIEW_DEDUP_S + 1)
+    assert path.read_bytes() == before                                                              # C6: el registro transaccional no se toca
+
+
+def test_the_review_get_never_writes_the_request_and_audits_once_with_reviewer_and_role(routes):
+    rec, _ = _create()
+    path = gur._path("Contreras", "AM_Workforce", rec["request_id"])
+    before = path.read_bytes()
+    url = f"/copilot/governed-updates/{rec['request_id']}"
+    owner = _client("owner@danwor.com")
+    for _ in range(3):
+        assert owner.get(url).status_code == 200
+    assert path.read_bytes() == before                                                              # ni la primera visita escribe el registro
+    reviewed = [kw for e, kw in routes if e == "governed_update.reviewed"]
+    assert len(reviewed) == 1 and reviewed[0]["role"] == "APP_OWNER" and reviewed[0]["request_id"] == rec["request_id"]   # auditoría funcional
+    assert (reviewed[0]["user"] or {}).get("sub") == "owner@danwor.com"                             # identidad del revisor (sesión)
+
+
+def test_a_concurrent_review_cannot_overwrite_an_approval_state(routes, monkeypatch):
+    from webapp.services import governed_update_approval as gua
+    rec, _ = _create()
+    with gur._lock:
+        fresh = gur.load(rec["request_id"])
+        fresh["approval"] = {"approval_id": "a" * 32, "state": gua.STARTED, "history": [{"state": gua.STARTED}]}
+        gur._write(fresh)
+    real = gur.should_log_review
+
+    def meanwhile(request_id, user, **kw):                                                          # mientras el GET está en curso, la ejecución termina
+        gua._transition(request_id, "a" * 32, gua.APPLIED, outcome="APPLIED")
+        return real(request_id, user, **kw)
+    monkeypatch.setattr(gur, "should_log_review", meanwhile)
+    assert _client("owner@danwor.com").get(f"/copilot/governed-updates/{rec['request_id']}").status_code == 200
+    stored = gur.load(rec["request_id"])
+    assert stored["approval"]["state"] == gua.APPLIED and stored["status"] == "APPLIED"            # el GET no reescribió una copia vieja
 
 
 # ── dry-run (solo lectura) ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -233,10 +274,12 @@ def test_review_is_visible_to_requester_and_approvers_only_and_offers_no_approva
     assert mine.status_code == 200 and "data-gu-preview-submit" not in mine.text                   # quien solicita no calcula el dry-run
     html = _client("owner@danwor.com").get(url).text
     assert "data-gu-preview-submit" in html and "Calcular dry-run" in html
-    for forbidden in ("Aprobar", "Confirmar actualización", "/approve", "/apply", "/execute"):
-        assert forbidden not in html                                                                # PR-1: sin aprobación ni ejecución
+    assert "data-gu-approve" not in html and "/apply" not in html and "/execute" not in html            # sin origen acreditado no hay «Aprobar»
     assert [e for e, _ in routes] == ["governed_update.reviewed"]                                   # solo la del aprobador cuenta como revisión
-    assert _client("owner@danwor.com").post(f"{url}/approve", headers=ORIGIN).status_code in (404, 405)
+    owner = _client("owner@danwor.com")
+    assert owner.post(f"{url}/approve", headers=ORIGIN, follow_redirects=False).status_code == 400        # sin confirmación explícita
+    r = owner.post(f"{url}/approve", data={"confirm": "1", "idempotency_key": "k1", "spaces": ["DEV"]}, headers=ORIGIN, follow_redirects=False)
+    assert r.status_code == 409 and "No se puede aprobar todavía" in r.text                         # nada aprobable todavía
 
 
 def test_preview_route_is_for_approvers_only(routes, monkeypatch):
@@ -244,7 +287,7 @@ def test_preview_route_is_for_approvers_only(routes, monkeypatch):
     url = f"/copilot/governed-updates/{rec['request_id']}/preview"
     assert _client("consultor@danwor.com").post(url, headers=ORIGIN, follow_redirects=False).status_code == 403
     started = []
-    monkeypatch.setattr(gur, "start_preview", lambda r, u, role, on_done=None: started.append(role) or "STARTED")
+    monkeypatch.setattr(gur, "start_preview", lambda r, u, role, on_done=None, spaces=None: started.append(role) or "STARTED")
     assert _client("owner@danwor.com").post(url, headers=ORIGIN, follow_redirects=False).status_code == 303 and started == ["APP_OWNER"]
 
 
@@ -327,7 +370,7 @@ def test_review_separates_authorization_from_provenance_dry_run_and_application(
     assert 'data-gu-role="APP_OWNER"' in html and "Autorizado · APP_OWNER" in html
     for key in ("authorization", "historical_provenance", "authorized_origin", "dry_run", "application", "notification"):
         assert f'data-gu-stage="{key}"' in html
-    assert "Pendiente de declaración" in html and "No disponible en esta versión" in html and "Desconocida" in html
+    assert "Pendiente de declaración" in html and "Todavía no" in html and "Desconocida" in html
     assert "Próximo paso:" in html and "Calcular el dry-run gobernado" in html
     assert "No elegible" not in html and "Aprobar" not in html
     assert 'data-gu-vigente' in html and 'data-gu-candidato' in html and "Evaluación ad hoc" in html   # comparación siempre visible

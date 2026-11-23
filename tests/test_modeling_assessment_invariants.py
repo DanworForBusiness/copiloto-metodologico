@@ -108,7 +108,8 @@ def test_ri2_only_the_sanctioned_web_integration_imports_the_package_outside_it(
 # ── R-I2b: la integración web usa SOLO la superficie pública del paquete ─────
 # Superficie soportada para consumidores externos: módulos públicos y, dentro de ellos, nombres sin guion bajo. El vocabulario
 # y el formato humano compartidos con el Markdown se consumen por `presentation` (API pública), jamás por privados de `render_md`.
-SUPPORTED_INTEGRATION_MODULES = {"presentation", "profile", "shadow", "scope", "paths", "render_md", "dependency_signature", "review_evidence"}   # dependency_signature: vigencia por dependencias (P1); review_evidence: identidad/huella de revisiones (Iteración II), sin tocar reglas
+SUPPORTED_INTEGRATION_MODULES = {"presentation", "profile", "shadow", "scope", "paths", "render_md", "dependency_signature", "review_evidence",
+                                 "connection_catalog"}   # dependency_signature: vigencia por dependencias (P1); review_evidence: identidad/huella de revisiones (Iteración II), sin tocar reglas; connection_catalog: lectura PURA de Spaces/fichas de conexión (actualización gobernada PR-2), solo vía assessment_service
 
 
 def _private_package_accesses(tree: ast.AST) -> list[str]:

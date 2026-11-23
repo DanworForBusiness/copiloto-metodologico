@@ -13,6 +13,7 @@ aprobar ni ejecutar: nada de esta superficie escribe Assessments gobernados ni S
 from __future__ import annotations
 
 import logging
+import uuid
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Form, HTTPException, Query, Request
@@ -78,6 +79,14 @@ def _level_badge(j: dict | None) -> dict:
     return {"label": label, "tone": status_tone(label)}
 
 
+def _known_spaces(rec: dict) -> list[str]:
+    from webapp.services import assessment_service as asvc
+    try:
+        return asvc.connection_spaces_of(rec["client_dir"])
+    except Exception:                                                          # noqa: BLE001 — sin pool legible no hay Spaces para declarar
+        return []
+
+
 def _contracts_text(rec: dict) -> list[str]:
     gov, cand = (rec.get("governed") or {}).get("source_contracts") or {}, (rec.get("source") or {}).get("source_contracts") or {}
     return [CONTRACT_CLASS_TEXT.get(k, k) for k in sorted(k for k in cand if cand.get(k, 0) != gov.get(k, 0))]
@@ -98,16 +107,24 @@ def request_update(request: Request, result_id: str = Form(""), stem: str = Form
     try:
         rec, created = gur.create(client_dir=str(record.get("client_dir") or status.client), client_display=str(record.get("client_display") or status.client),
                                   terminal_am=str(status.terminal_am), space=record.get("space"), result_id=result_id,
-                                  candidate_judgment=status.judgment, candidate_profile=profile, requested_by=dsa.owner_email(request))
+                                  candidate_judgment=status.judgment, candidate_profile=profile, requested_by=dsa.owner_email(request),
+                                  requested_by_role=gur.approver_role(user))
     except gur.NoOpportunity:
         raise HTTPException(409, "Ya no hay una diferencia relevante con el Assessment gobernado: no se registró ninguna solicitud.")
     _activity("governed_update.requested", user, request_id=rec["request_id"], client=rec["client_dir"], model=rec["terminal_am"],
               result_id=result_id, space=(rec.get("source") or {}).get("space"), created=created,
               vigente_level=((rec.get("governed") or {}).get("judgment") or {}).get("level") or "ND",
               candidato_level=((rec.get("source") or {}).get("judgment") or {}).get("level") or "ND",
-              provenance=(rec.get("provenance") or {}).get("status"))
+              provenance=(rec.get("provenance") or {}).get("status"), requester_role=gur.approver_role(user) or "REQUESTER")
     if created:
-        _notify(rec, request, user)
+        if gur.approver_role(user):
+            # Quien solicita YA puede aprobar (APP_OWNER / CONTENT_OWNER): va directo a la revisión; no se envía a sí mismo un correo de solicitud. La decisión
+            # queda auditada igual (registro + evento `notified` con dispatch=not_required); las validaciones técnicas y de permisos no cambian.
+            gur.record_notification(rec, NOT_REQUIRED)
+            _activity("governed_update.notified", user, request_id=rec["request_id"], client=rec["client_dir"], model=rec["terminal_am"],
+                      dispatch=NOT_REQUIRED)
+        else:
+            _notify(rec, request, user)
     return RedirectResponse(f"{BASE}/{rec['request_id']}?" + urlencode({"pack": resolve_pack(pack)}), status_code=303)
 
 
@@ -143,6 +160,7 @@ NOTIFICATION_STATES = {
     "uncertain": ("Incierta", "parcial", True, "No se sabe si salió; no se reenvía automáticamente para no duplicar."),
     "failed": ("Fallida", "parcial", True, "No se pudo enviar. La solicitud sigue registrada."),
     "disabled": ("Notificaciones apagadas", "neutra", True, "En este entorno no se envían correos. La solicitud sigue registrada."),
+    "not_required": ("No requerida", "neutra", True, "Quien solicitó puede aprobar: no se envió correo de solicitud a Arquitectura."),
     "error": ("No se pudo emitir", "parcial", True, "La solicitud sigue registrada."),
     "unknown": ("Sin dato", "neutra", True, ""),
 }
@@ -152,6 +170,7 @@ PREVIEW_STAGE = {
 }
 
 
+NOT_REQUIRED = "not_required"            # quien solicitó puede aprobar: no se envía correo de solicitud (decisión auditada)
 NOTIFICATION_POLL_MAX_S = 600            # el refresco del estado del correo se detiene en un estado terminal o a los 10 min de la solicitud
 
 
@@ -167,7 +186,7 @@ def _notification_view(rec: dict, delivery: dict | None) -> dict:
     n = rec.get("notification") or {}
     if not n:
         state = "pending"
-    elif n.get("dispatch") in ("disabled", "error"):
+    elif n.get("dispatch") in ("disabled", "error", "not_required"):
         state = n["dispatch"]
     else:
         state = (delivery or {}).get("state") or "pending"
@@ -181,7 +200,7 @@ def _stages(rec: dict, role: str | None, state: str, prev: dict | None, preview_
     prov = rec.get("provenance") or {}
     stages = [{"key": "authorization", "label": "Autorización",
                "badge": (f"Autorizado · {role}" if role else "Solo lectura"), "tone": "plena" if role else "neutra",
-               "detail": ("Podés calcular el dry-run gobernado. La aprobación llega en una próxima versión." if role
+               "detail": ("Podés declarar el origen, calcular el dry-run restringido y aprobar la actualización." if role
                           else "Revisa y aprueba Arquitectura (APP_OWNER o CONTENT_OWNER).")}]
     if prov.get("verified"):
         stages.append({"key": "historical_provenance", "label": "Procedencia del Assessment vigente", "badge": f"Space «{prov.get('governed_space')}»",
@@ -190,23 +209,73 @@ def _stages(rec: dict, role: str | None, state: str, prev: dict | None, preview_
         stages.append({"key": "historical_provenance", "label": "Procedencia del Assessment vigente", "badge": "Desconocida", "tone": "neutra",
                        "detail": "El Assessment gobernado no registra el Space del que proviene; no se infiere."
                                  + (f" El registro de publicación indica «{prov['published_space']}» (evidencia auxiliar)." if prov.get("published_space") else "")})
-    stages.append({"key": "authorized_origin", "label": "Origen autorizado para la reconstrucción", "badge": "Pendiente de declaración", "tone": "buena",
-                   "detail": "Se declara al aprobar (próxima versión)."
-                             + (f" La evaluación ad hoc se hizo en el Space «{prov['candidate_space']}»." if prov.get("candidate_space") else "")})
+    pspaces = (prev or {}).get("spaces") or []
+    pprov = (prev or {}).get("provenance") or {}
+    if pspaces and pprov.get("state") == "ACCREDITED":
+        route = {"MANIFEST": "manifiesto de publicación", "RECONSTRUCTED": "evidencia reconstruida desde el Space"}.get(pprov.get("route"), pprov.get("route"))
+        stages.append({"key": "authorized_origin", "label": "Origen autorizado para la reconstrucción", "badge": "Acreditado · " + ", ".join(pspaces),
+                       "tone": "plena", "detail": f"Acreditado por {route}."})
+    elif pspaces:
+        stages.append({"key": "authorized_origin", "label": "Origen autorizado para la reconstrucción", "badge": "No acreditado · " + ", ".join(pspaces),
+                       "tone": "parcial", "detail": "Causas: " + ", ".join(pprov.get("reasons") or ["sin dato"]) + "."})
+    else:
+        stages.append({"key": "authorized_origin", "label": "Origen autorizado para la reconstrucción", "badge": "Pendiente de declaración", "tone": "buena",
+                       "detail": "Elegí el Space del que se reconstruye y calculá el dry-run restringido a sus conexiones."
+                                 + (f" La evaluación ad hoc se hizo en el Space «{prov['candidate_space']}»." if prov.get("candidate_space") else "")})
     if preview_running:
         dry = {"badge": "Calculando…", "tone": "neutra", "detail": "Solo lectura: no modifica el Assessment gobernado."}
     elif prev:
         badge, tone = PREVIEW_STAGE.get(prev.get("state"), ("Sin dato", "neutra"))
-        dry = {"badge": badge, "tone": tone, "detail": ""}
+        dry = {"badge": badge + (f" · {', '.join(pspaces)}" if pspaces else " · sin restricción"), "tone": tone, "detail": ""}
     else:
         dry = {"badge": "Pendiente", "tone": "neutra", "detail": "Todavía no se calculó." if can_preview else "Lo calcula Arquitectura."}
     stages.append({"key": "dry_run", "label": "Dry-run gobernado", **dry})
-    stages.append({"key": "application", "label": "Aplicación", "badge": "No disponible en esta versión", "tone": "neutra",
-                   "detail": "La actualización real seguirá el procedimiento gobernado supervisado (aprobación explícita y aplicación asegurada con respaldo)."})
+    stages.append({"key": "application", "label": "Aplicación", **_application_stage(rec)})
     return stages
 
 
-def _next_step(state: str, role: str | None, prev: dict | None, preview_running: bool) -> str:
+APPROVAL_STAGE = {
+    "REGISTERED": ("Aprobación registrada", "buena", "Verificando que nada cambió antes de aplicar."),
+    "VERIFYING": ("Verificando", "buena", "Se recalculan plan, procedencia, evidencia y vigencia; nada se escribió todavía."),
+    "STARTED": ("Aplicando", "buena", "La vía asegurada hace el respaldo durable y aplica la reconstrucción."),
+    "APPLIED": ("Aplicada", "plena", "El Assessment gobernado vigente es la reconstrucción aprobada; el anterior quedó en el respaldo durable."),
+    "DENIED": ("Denegada antes de empezar", "parcial", "No se escribió nada; la aprobación no se consumió."),
+    "ABSTAINED": ("Abstenida", "parcial", "La vía asegurada no aplicó; el Assessment gobernado quedó intacto."),
+    "FAILED": ("Fallida", "parcial", "La operación empezó y falló; el respaldo durable permite verificar y restaurar."),
+    "INTERRUPTED": ("Interrumpida", "parcial", "El proceso se reinició durante la aplicación: requiere verificación antes de reintentar."),
+    "RECONCILIATION_REQUIRED": ("Requiere reconciliación", "parcial", "No se pudo acreditar el resultado de la aplicación: no se admite otra aprobación hasta reconciliar."),
+    "NOT_APPLIED": ("No aplicada (verificada)", "neutra", "Se verificó que no se escribió nada; se puede volver a aprobar."),
+}
+APPROVAL_GAP = {"REQUEST_OBSOLETE": "la solicitud está obsoleta",
+                "REQUEST_WITHOUT_FINGERPRINT": "la solicitud no tiene huella de evidencia (es anterior: generá una nueva)",
+                "NO_SPACE_DECLARED": "declarar el origen autorizado",
+                "PREVIEW_NOT_FOR_DECLARED_SPACES": "calcular el dry-run restringido al origen declarado",
+                "PREVIEW_NOT_READY": "un dry-run con plan aplicable", "PROVENANCE_NOT_ACCREDITED": "acreditar la procedencia",
+                "PREVIEW_OUTDATED": "recalcular el dry-run (el Assessment cambió)", "APPROVAL_IN_PROGRESS": "esperar la aprobación en curso",
+                "RECONCILIATION_REQUIRED": "reconciliar la aplicación anterior (mantenimiento)",
+                "RECOVERY_PENDING": "que el servicio termine su recuperación de arranque",
+                "RECOVERY_FAILED": "que la recuperación de arranque se complete (requiere reinicio)"}
+
+
+def _approval_reasons(rec: dict) -> list[str]:
+    from webapp.services import governed_update_approval as gua
+    return gua.approvable(rec, (rec.get("preview") or {}).get("spaces") or [])
+
+
+def _application_stage(rec: dict) -> dict:
+    appr = rec.get("approval") or {}
+    if appr.get("state") in APPROVAL_STAGE:
+        badge, tone, detail = APPROVAL_STAGE[appr["state"]]
+        why = appr.get("reason") or appr.get("outcome")
+        tail = f" Causa: {why}." if why and appr["state"] in ("DENIED", "ABSTAINED", "FAILED", "INTERRUPTED", "RECONCILIATION_REQUIRED") else ""
+        return {"badge": badge, "tone": tone, "detail": detail + tail}
+    reasons = _approval_reasons(rec)
+    if not reasons:
+        return {"badge": "Lista para aprobar", "tone": "buena", "detail": "Procedencia acreditada y plan gobernado vigente."}
+    return {"badge": "Todavía no", "tone": "neutra", "detail": "Falta: " + ", ".join(APPROVAL_GAP.get(r, r) for r in reasons) + "."}
+
+
+def _next_step(state: str, role: str | None, prev: dict | None, preview_running: bool, rec_approval: dict | None = None) -> str:
     if state == gur.OBSOLETE:
         return "El Assessment gobernado cambió: si la mejora sigue vigente, generá una evaluación ad hoc nueva y volvé a solicitarla."
     if not role:
@@ -215,9 +284,16 @@ def _next_step(state: str, role: str | None, prev: dict | None, preview_running:
         return "Esperá el resultado del dry-run gobernado."
     if not prev:
         return "Calcular el dry-run gobernado (solo lectura)."
-    if prev.get("state") == gur.PREVIEW_READY:
-        return "Declarar el origen autorizado y aprobar la actualización: disponible en una próxima versión."
-    return "Revisar la causa del dry-run antes de continuar."
+    appr = (rec_approval or {}).get("state")
+    if appr in ("REGISTERED", "VERIFYING", "STARTED"):
+        return "Esperá el resultado de la aplicación asegurada."
+    if appr == "APPLIED":
+        return "Nada más: la actualización quedó aplicada."
+    if not prev.get("spaces"):
+        return "Declarar el origen autorizado y calcular el dry-run restringido a ese Space."
+    if prev.get("state") == gur.PREVIEW_READY and (prev.get("provenance") or {}).get("state") == "ACCREDITED":
+        return "Revisar el plan y «Aprobar y actualizar»."
+    return "Revisar la causa (procedencia o dry-run) antes de continuar."
 
 
 # ── revisar ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -236,8 +312,10 @@ def _view(rec: dict, user: dict, pack: str) -> dict:
     notification = _notification_view(rec, delivery)
     return {
         "notification": notification, "stages": _stages(rec, role, state, prev, running, can_preview),
-        "next_step": _next_step(state, role, prev, running), "role_label": role or "Solo lectura",
-        "poll": running or (not notification["terminal"] and _age_s(rec.get("requested_at")) < NOTIFICATION_POLL_MAX_S),
+        "next_step": _next_step(state, role, prev, running, rec.get("approval")), "role_label": role or "Solo lectura",
+        "known_spaces": _known_spaces(rec) if can_preview else [], "approval": rec.get("approval"),
+        "can_approve": bool(role) and not _approval_reasons(rec), "idempotency_key": uuid.uuid4().hex,
+        "poll": running or ((rec.get("approval") or {}).get("state") in ("REGISTERED", "VERIFYING", "STARTED")) or (not notification["terminal"] and _age_s(rec.get("requested_at")) < NOTIFICATION_POLL_MAX_S),
         "rec": rec, "state": state, "obsolete": state == gur.OBSOLETE, "role": role, "can_preview": can_preview,
         "is_requester": gur.user_email(user) == rec.get("requested_by"),
         "vigente": _level_badge((rec.get("governed") or {}).get("judgment")), "candidato": _level_badge((rec.get("source") or {}).get("judgment")),
@@ -258,10 +336,12 @@ def _shell(request: Request, user: dict, pack: str) -> dict:
 
 @router.get(f"{BASE}/{{request_id}}", response_class=HTMLResponse, include_in_schema=False)
 def review(request: Request, request_id: str, pack: str = Query(DEFAULT_PACK)):
-    user, rec = _visible(request, request_id)
+    from webapp.services import governed_update_approval as gua
+    user, rec = _visible(request, request_id)                                       # C2: un GET nunca cambia estados (la recuperación es de arranque)
     selected = resolve_pack(pack)
     role = gur.approver_role(user)
-    if role and gur.record_review(rec, user, role):                                # revisión = la abre alguien que puede aprobar (la recarga no cuenta)
+    if role and gur.should_log_review(request_id, user):                           # revisión = la abre alguien que puede aprobar (la recarga no cuenta);
+        # C6: la auditoría es el EVENTO (revisor, rol, estado); el GET nunca reescribe el registro transaccional de la solicitud
         _activity("governed_update.reviewed", user, request_id=request_id, client=rec["client_dir"], model=rec["terminal_am"], role=role,
                   status=gur.current_status(rec), provenance=(rec.get("provenance") or {}).get("status"))
     return templates.TemplateResponse(request=request, name="governed_update_request.html",
@@ -269,23 +349,75 @@ def review(request: Request, request_id: str, pack: str = Query(DEFAULT_PACK)):
 
 
 @router.post(f"{BASE}/{{request_id}}/preview", include_in_schema=False)
-def preview(request: Request, request_id: str, pack: str = Form(DEFAULT_PACK)):
+def preview(request: Request, request_id: str, pack: str = Form(DEFAULT_PACK), spaces: list[str] = Form([])):
     user, rec = _visible(request, request_id)
     _write_guard(request)
     role = gur.approver_role(user)
     if not role:
         raise HTTPException(403, "Solo APP_OWNER o CONTENT_OWNER pueden calcular el dry-run.")
+    declared = sorted({str(x).strip() for x in spaces if str(x).strip()})
+    known = _known_spaces(rec)
+    if any(x not in known for x in declared):
+        raise HTTPException(400, "Space desconocido para este cliente.")
 
     def done(fresh: dict, result: dict) -> None:
         _activity("governed_update.dry_run", user, request_id=request_id, client=fresh["client_dir"], model=fresh["terminal_am"], role=role,
                   state=result.get("state"), path=result.get("path"), plan_digest=(result.get("plan_digest") or "")[:12] or None,
                   projected_level=((result.get("judgment") or {}).get("to") or "ND") if result.get("judgment") else None,
-                  abstentions=len(result.get("abstentions") or []), zero_writes=result.get("zero_writes"), duration_s=result.get("duration_s"))
+                  abstentions=len(result.get("abstentions") or []), zero_writes=result.get("zero_writes"), duration_s=result.get("duration_s"),
+                  spaces=",".join(result.get("spaces") or []) or None, provenance=(result.get("provenance") or {}).get("state"))
 
-    outcome = gur.start_preview(rec, user, role, on_done=done)
+    if declared:
+        _activity("governed_update.provenance_declared", user, request_id=request_id, client=rec["client_dir"], model=rec["terminal_am"], role=role,
+                  spaces=",".join(declared))
+    outcome = gur.start_preview(rec, user, role, on_done=done, spaces=declared or None)
     if outcome == "OBSOLETE":
         _activity("governed_update.dry_run", user, request_id=request_id, client=rec["client_dir"], model=rec["terminal_am"], role=role,
                   state=gur.PREVIEW_OBSOLETE)
+    return RedirectResponse(f"{BASE}/{request_id}?" + urlencode({"pack": resolve_pack(pack)}), status_code=303)
+
+
+@router.post(f"{BASE}/{{request_id}}/approve", include_in_schema=False)
+def approve(request: Request, request_id: str, pack: str = Form(DEFAULT_PACK), spaces: list[str] = Form([]), idempotency_key: str = Form(""),
+            confirm: str = Form("")):
+    """«Aprobar y actualizar». Mismo origen + rol verificado en el servidor + confirmación explícita. Solo REGISTRA la aprobación (fase 1) y arranca, en un
+    hilo, la verificación previa y la ejecución asegurada (fases 2 y 3 de ``governed_update_approval``). Un reintento con la misma ``idempotency_key``
+    devuelve la misma aprobación; nunca ejecuta dos veces."""
+    from webapp.services import governed_update_approval as gua
+    user, rec = _visible(request, request_id)
+    _write_guard(request)
+    role = gur.approver_role(user)
+    if not role:
+        raise HTTPException(403, "Solo APP_OWNER o CONTENT_OWNER pueden aprobar.")
+    if confirm != "1" or not idempotency_key.strip():
+        raise HTTPException(400, "Falta la confirmación explícita.")
+    if gua.readiness()["state"] != gua.READINESS_READY:                             # C5: fuera de READY no se aprueba (falla cerrado; el registro no se toca)
+        state = gua.readiness()["state"]
+        _activity("governed_update.rejected", user, request_id=request_id, client=rec["client_dir"], model=rec["terminal_am"], role=role,
+                  stage="authorization", reason=f"RECOVERY_{state}")
+        raise HTTPException(503, "La aprobación todavía no está disponible: el servicio está terminando su recuperación de arranque."
+                            if state == gua.READINESS_PENDING else "La aprobación no está disponible: la recuperación de arranque no terminó bien.",
+                            headers={"Retry-After": str(gur.RETRY_AFTER_S)} if state == gua.READINESS_PENDING else None)
+    try:
+        appr, created = gua.register(rec, user, role, spaces, idempotency_key=idempotency_key.strip()[:64])
+    except gua.ApprovalRefused as exc:
+        _activity("governed_update.rejected", user, request_id=request_id, client=rec["client_dir"], model=rec["terminal_am"], role=role,
+                  stage="authorization", reason=exc.code)
+        raise HTTPException(409, f"No se puede aprobar todavía: {exc.code}.")
+    if created:
+        _activity("governed_update.approved", user, request_id=request_id, client=rec["client_dir"], model=rec["terminal_am"], role=role,
+                  approval_id=appr["approval_id"], spaces=",".join(appr["declared_spaces"]),
+                  plan_digest=(appr["expected"].get("plan_digest") or "")[:12] or None)
+
+        def on_event(kind: str, approval_id: str, **kw) -> None:
+            fresh = gur.load(request_id) or rec
+            if kind == "rejected":
+                _activity("governed_update.rejected", user, request_id=request_id, client=fresh["client_dir"], model=fresh["terminal_am"], role=role,
+                          approval_id=approval_id, stage="precheck", reason=kw.get("reason"))
+            elif kind == "executed":
+                _activity("governed_update.executed", user, request_id=request_id, client=fresh["client_dir"], model=fresh["terminal_am"], role=role,
+                          approval_id=approval_id, state=kw.get("state"), outcome=kw.get("outcome"))
+        gua.start(rec, appr, on_event=on_event)
     return RedirectResponse(f"{BASE}/{request_id}?" + urlencode({"pack": resolve_pack(pack)}), status_code=303)
 
 

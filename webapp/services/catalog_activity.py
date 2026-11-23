@@ -31,6 +31,10 @@ EVENTS: dict[str, tuple[str, str]] = {
     "governed_update.notified": (TOOL_GOVERNED, "notificacion"),
     "governed_update.reviewed": (TOOL_GOVERNED, "revision"),
     "governed_update.dry_run": (TOOL_GOVERNED, "dry_run"),
+    "governed_update.provenance_declared": (TOOL_GOVERNED, "origen_declarado"),
+    "governed_update.approved": (TOOL_GOVERNED, "aprobacion"),
+    "governed_update.rejected": (TOOL_GOVERNED, "rechazo"),
+    "governed_update.executed": (TOOL_GOVERNED, "ejecucion"),
     "catalog_regenerate": (TOOL_MAINTENANCE, "generacion_catalogo"),
     "catalog_apis_sync": (TOOL_MAINTENANCE, "sync_apis"),
     "catalog_client_assessment_regenerate": (TOOL_MAINTENANCE, "regeneracion_cliente"),
@@ -42,7 +46,8 @@ OP_LABEL = {
     "consulta": "Consulta", "informe_assessment": "Informe de Assessment (Catálogo)",
     "assessment_inicio": "Assessment ad hoc — inicio", "assessment_resultado": "Assessment ad hoc — resultado",
     "oportunidad_mostrada": "Oportunidad mostrada", "solicitud": "Solicitud registrada", "notificacion": "Notificación emitida",
-    "revision": "Revisión", "dry_run": "Dry-run gobernado",
+    "revision": "Revisión", "dry_run": "Dry-run gobernado", "origen_declarado": "Origen declarado", "aprobacion": "Aprobación",
+    "rechazo": "Rechazada antes de ejecutar", "ejecucion": "Ejecución asegurada",
     "generacion_catalogo": "Generación/Regeneración del Catálogo", "sync_apis": "Actualización de APIs/CDS",
     "regeneracion_cliente": "Regeneración (cliente)", "regeneracion_modelo": "Regeneración (modelo)", "publicacion": "Publicación",
 }
@@ -94,6 +99,14 @@ def _detail(event: str, a: dict) -> str:
         if a.get("plan_digest"):
             bits.append(f"digest {a['plan_digest']}")
         return " · ".join(bits)
+    if event == "governed_update.provenance_declared":
+        return str(a.get("spaces") or "")
+    if event == "governed_update.approved":
+        return " · ".join(str(x) for x in (a.get("role"), a.get("spaces"), (f"plan {a['plan_digest']}" if a.get("plan_digest") else None)) if x)
+    if event == "governed_update.rejected":
+        return " · ".join(str(x) for x in (a.get("stage"), a.get("reason")) if x)
+    if event == "governed_update.executed":
+        return " · ".join(str(x) for x in (a.get("state"), a.get("outcome")) if x)
     if event == "assessment_regenerated":
         return str(a.get("result") or "")
     if event == "catalog_apis_sync":                                           # sincronización APIs/CDS: paso (preflight/apply/rollback) + estado
@@ -133,7 +146,7 @@ def build(events: list[dict], params: Mapping[str, str], *, pack: str = "",
     ended = {r["run_id"] for r in ends if r["run_id"]}
     end_outcomes = Counter(r["outcome"] or "unknown" for r in ends)
     notified = [r for r in rows if r["event"] == "governed_update.notified"]
-    not_sent = [r for r in notified if r["detail"] in ("disabled", "error", "")]           # intención sin envío: NO cuenta como emitida
+    not_sent = [r for r in notified if r["detail"] in ("disabled", "error", "not_required", "")]           # intención sin envío: NO cuenta como emitida
     # Mantenimiento del Catálogo: generación/regeneración COMPLETA (`catalog_regenerate`, operación multi-modelo, sin cliente único) + sincronización APIs/CDS (`catalog_apis_sync`).
     catalog_gen = [r for r in rows if r["event"] in ("catalog_regenerate", "catalog_apis_sync")]
     gen_outcomes = Counter(r["outcome"] or "unknown" for r in catalog_gen if r["event"] == "catalog_regenerate")  # APIs/CDS cuenta aparte, sin duplicar
@@ -149,8 +162,12 @@ def build(events: list[dict], params: Mapping[str, str], *, pack: str = "",
         {"key": "solicitudes", "label": "Solicitudes registradas", "value": sum(1 for r in rows if r["event"] == "governed_update.requested" and r["detail"].startswith("nueva")),
          "hint": f"reintentos sobre una existente {sum(1 for r in rows if r['event'] == 'governed_update.requested' and not r['detail'].startswith('nueva'))}"},
         {"key": "notificaciones", "label": "Notificaciones emitidas", "value": len(notified) - len(not_sent),
-         "hint": f"no emitidas (apagadas o con error) {len(not_sent)}" if not_sent else "entrega: ver el estado en la solicitud"},
+         "hint": f"no emitidas (no requeridas, apagadas o con error) {len(not_sent)}" if not_sent else "entrega: ver el estado en la solicitud"},
         {"key": "revisiones", "label": "Revisiones", "value": by_event["governed_update.reviewed"], "hint": f"dry-runs {by_event['governed_update.dry_run']}"},
+        {"key": "aprobaciones", "label": "Aprobaciones", "value": by_event["governed_update.approved"],
+         "hint": f"rechazadas antes de ejecutar {by_event['governed_update.rejected']}"},
+        {"key": "aplicadas", "label": "Actualizaciones aplicadas", "value": sum(1 for r in rows if r["event"] == "governed_update.executed" and r["detail"].startswith("APPLIED")),
+         "hint": " · ".join(f"{k.lower()} {sum(1 for r in rows if r['event'] == 'governed_update.executed' and r['detail'].startswith(k))}" for k in ("ABSTAINED", "FAILED"))},
         {"key": "catalogo", "label": "Generaciones del Catálogo", "value": len(catalog_gen),
          "hint": " · ".join(filter(None, [f"exitosas {gen_outcomes.get('success', 0)}",
                                           f"fallidas {gen_outcomes.get('failed', 0)}" if gen_outcomes.get('failed') else "",

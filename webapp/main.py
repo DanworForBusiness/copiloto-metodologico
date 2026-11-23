@@ -228,6 +228,16 @@ async def lifespan(app: FastAPI):
             log.warning("restore en background falló: %s", exc)
         await _publication_boot_recovery()
         await _notifications_boot()
+        await _governed_updates_boot()
+
+    async def _governed_updates_boot():
+        """Actualizaciones gobernadas (PR #320, C2/C3/C5): cierra por EVIDENCIA lo que un proceso anterior dejó activo (tras el restore y la recuperación
+        de publicaciones; nunca desde un GET) y SOLO si todo terminó bien abre la compuerta de aprobaciones (READY); si no, queda FAILED."""
+        try:
+            from webapp.services import governed_update_approval
+            await asyncio.to_thread(governed_update_approval.boot_recovery)
+        except Exception as exc:
+            log.warning("recuperación de actualizaciones gobernadas al arranque falló: %s", type(exc).__name__)
 
     async def _publication_boot_recovery():
         """P1: una publicación que la caída del proceso dejó a medias se completa o se deshace VERIFICANDO Spaces, recién con el restore terminado (nunca antes)."""
@@ -250,6 +260,11 @@ async def lifespan(app: FastAPI):
         _notifications.startup_check()                                    # error de configuración CLARO (solo nombres de variables); nunca impide arrancar
     except Exception as exc:
         log.warning("chequeo de notificaciones al arranque falló: %s", type(exc).__name__)
+    try:                                                                  # C5: compuerta de aprobaciones CERRADA antes de servir (la abre solo la recuperación)
+        from webapp.services import governed_update_approval as _gua
+        _gua.mark_pending()
+    except Exception as exc:
+        log.warning("no se pudo cerrar la compuerta de aprobaciones gobernadas: %s", type(exc).__name__)
     log.info("persistencia: %s", remote_store.describe_mode())
     warning = remote_store.mode_warning()
     if warning:
@@ -265,6 +280,7 @@ async def lifespan(app: FastAPI):
         tasks.append(asyncio.create_task(remote_store.sync_loop()))
     else:
         await _publication_boot_recovery()
+        await _governed_updates_boot()
         tasks.append(asyncio.create_task(_notifications_boot()))
     try:
         yield

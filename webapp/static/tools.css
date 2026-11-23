@@ -3317,6 +3317,11 @@ details:not([open]) > summary > .panel-close[data-asr-close] { display: none; }
 .gu-next { margin: 12px 0 0; padding-top: 10px; border-top: 1px solid var(--content-line); font-size: .86rem; color: var(--content-ink); }
 .gu-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 12px; }
 .gu-details { margin: 0 0 14px; }
+.gu-origin { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 4px 0 2px; }
+.gu-origin__spaces { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin: 0; padding: 0; border: 0; }
+.gu-origin__space { display: inline-flex; align-items: center; gap: 6px; font: 600 .78rem var(--mono); color: var(--content-ink); }
+.gu-approve { grid-column: 1 / -1; justify-self: start; margin-top: 4px; }
+.gu-approve-dialog .gu-facts { margin-top: 12px; }
 .gu-facts { margin: 0; font-size: .82rem; line-height: 1.55; }
 .gu-facts dt { margin-top: 8px; font-weight: 650; color: var(--content-ink); }
 .gu-facts dt:first-child { margin-top: 0; }

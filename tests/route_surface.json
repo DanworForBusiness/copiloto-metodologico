@@ -248,6 +248,7 @@
   "POST /comercial/presentaciones/{presentation_id}/qr",
   "POST /connectivity-registry/{action}",
   "POST /copilot/governed-updates/request",
+  "POST /copilot/governed-updates/{request_id}/approve",
   "POST /copilot/governed-updates/{request_id}/preview",
   "POST /governed-decisions/ratify",
   "POST /governed-decisions/revoke",

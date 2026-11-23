@@ -14,6 +14,19 @@
         {% elif s.key == "dry_run" and p and p.state == "ABSTAINED" %}<span class="gu-stage__detail">{{ p.abstentions | join(", ") }}.</span>
         {% elif s.key == "dry_run" and p and p.state == "FAILED" %}<span class="gu-stage__detail">{{ (p.failures or []) | join(", ") }}</span>
         {% elif s.detail %}<span class="gu-stage__detail">{{ s.detail }}</span>{% endif %}
+        {% if s.key == "authorized_origin" and g.can_preview and g.known_spaces and not g.preview_running and not (g.approval and g.approval.state in ("REGISTERED", "VERIFYING", "STARTED", "APPLIED")) %}
+        {# Declaración EXPLÍCITA del origen: ningún Space viene marcado; el dry-run se recalcula restringido a las fichas de conexión de lo elegido. #}
+        <form method="post" action="{{ g.base }}/preview" class="gu-origin" data-gu-origin-form>
+          <input type="hidden" name="pack" value="{{ g.pack }}">
+          <fieldset class="gu-origin__spaces"><legend class="gu-stage__detail">Space autorizado</legend>
+            {% for sp in g.known_spaces %}<label class="gu-origin__space"><input type="checkbox" name="spaces" value="{{ sp }}"> {{ sp }}</label>{% endfor %}
+          </fieldset>
+          <button type="submit" class="btn-secondary" data-gu-origin-submit>Verificar origen y calcular dry-run</button>
+        </form>
+        {% endif %}
+        {% if s.key == "application" and g.can_approve %}
+        <button type="button" class="btn-primary gu-approve" data-dialog-open="gu-approve-dialog" data-gu-approve>Aprobar y actualizar</button>
+        {% endif %}
       </li>
       {% endfor %}
       <li class="gu-stage" data-gu-stage="notification" data-gu-notification="{{ g.notification.state }}">
@@ -23,7 +36,7 @@
       </li>
     </ol>
     <p class="gu-next" data-gu-next><strong>Próximo paso:</strong> {{ g.next_step }}</p>
-    {% if g.can_preview and not g.preview_running %}
+    {% if g.can_preview and not g.preview_running and not (p and p.spaces) %}
     <form method="post" action="{{ g.base }}/preview" class="gu-actions">
       <input type="hidden" name="pack" value="{{ g.pack }}">
       <button type="submit" class="btn-secondary" data-gu-preview-submit>{% if p %}Recalcular dry-run{% else %}Calcular dry-run{% endif %}</button>
@@ -31,6 +44,29 @@
     </form>
     {% endif %}
   </section>
+
+  {% if g.can_approve %}
+  {# Confirmación EXPLÍCITA: resume lo que se aprueba; un reintento con la misma clave devuelve la misma aprobación (nunca ejecuta dos veces). #}
+  <dialog class="dw-confirm gu-approve-dialog" id="gu-approve-dialog" aria-labelledby="gu-approve-title">
+    <form method="post" action="{{ g.base }}/approve">
+      <div class="dw-confirm__body">
+        <h2 class="dw-confirm__title" id="gu-approve-title">Aprobar y actualizar</h2>
+        <p class="dw-confirm__msg">Se reconstruye el Assessment gobernado de {{ g.rec.client }} · {{ g.rec.terminal_am }} desde {{ (p.spaces or []) | join(", ") }}, con respaldo durable previo. Antes de escribir se vuelve a verificar que el plan, la procedencia, la evidencia y el Assessment vigente no cambiaron; si algo cambió, no se aplica.</p>
+        <dl class="gu-facts">
+          <dt>Nivel proyectado</dt><dd>{% if g.preview_to %}<span class="catalog-card__verdict catalog-card__verdict--{{ g.preview_to.tone }}">{{ g.preview_to.label }}</span>{% else %}—{% endif %}</dd>
+          <dt>Digest del plan</dt><dd><code>{{ p.plan_digest }}</code></dd>
+          <dt>Autorización</dt><dd>{{ g.role }} · sesión autenticada del Hub (hub-human-approval/v1)</dd>
+        </dl>
+        <input type="hidden" name="pack" value="{{ g.pack }}"><input type="hidden" name="idempotency_key" value="{{ g.idempotency_key }}"><input type="hidden" name="confirm" value="1">
+        {% for sp in p.spaces or [] %}<input type="hidden" name="spaces" value="{{ sp }}">{% endfor %}
+      </div>
+      <div class="dw-confirm__actions">
+        <button type="submit" formmethod="dialog" value="cancel" class="btn-secondary">Cancelar</button>
+        <button type="submit" class="btn-primary" data-gu-approve-confirm>Aprobar y actualizar</button>
+      </div>
+    </form>
+  </dialog>
+  {% endif %}
 
   <details class="dashboard-section gu-details" data-gu-details>
     <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Detalle técnico</span></summary>
@@ -43,6 +79,9 @@
         <dt>Escrituras del dry-run</dt><dd>{% if p.zero_writes %}Ninguna: el Assessment gobernado quedó intacto (verificado por bytes).{% elif p.zero_writes is none %}Sin verificación.{% else %}El Assessment gobernado cambió durante el cálculo.{% endif %}</dd>
         <dt>Calculado</dt><dd>{{ (p.computed_at or "").replace("T", " ").replace("+00:00", " UTC") }}{% if p.by %} · {{ p.by }}{% endif %}{% if p.duration_s is not none %} · {{ p.duration_s }} s{% endif %}</dd>
         {% endif %}
+        {% if p and p.provenance %}<dt>Procedencia declarada</dt><dd data-gu-provenance-check="{{ p.provenance.state }}">{{ p.provenance.state }}{% if p.provenance.route %} · {{ p.provenance.route }}{% endif %}{% if p.provenance.reasons %} · {{ p.provenance.reasons | join(", ") }}{% endif %} · <code>{{ (p.provenance.digest or "")[:16] }}</code></dd>{% endif %}
+        {% if p and p.fingerprint %}<dt>Equivalencia de evidencia</dt><dd><code>{{ (p.fingerprint.equivalence_digest or "")[:16] }}</code> (gobernada) · <code>{{ ((g.rec.source or {}).fingerprint or {}).equivalence_digest[:16] if (g.rec.source or {}).fingerprint else "sin huella" }}</code> (ad hoc)</dd>{% endif %}
+        {% if g.approval %}<dt>Aprobación</dt><dd>{{ g.approval.state }} · {{ g.approval.approver }} ({{ g.approval.role }}) · {{ (g.approval.declared_spaces or []) | join(", ") }} · <code>{{ g.approval.approval_id[:12] }}</code>{% if g.approval.outcome %} · {{ g.approval.outcome }}{% endif %}</dd>{% endif %}
         {% if g.rec.notification %}<dt>Correo</dt><dd>Evento {{ g.rec.notification.event }} · estado {{ g.notification.state }}</dd>{% endif %}
         {% if g.rec.reviews %}<dt>Revisiones</dt><dd>{% for r in g.rec.reviews %}{{ (r.at or "").replace("T", " ").replace("+00:00", " UTC") }} · {{ r.by }} ({{ r.role }}){% if not loop.last %}<br>{% endif %}{% endfor %}</dd>{% endif %}
         <dt>Solicitud</dt><dd><code>{{ g.rec.request_id }}</code></dd>

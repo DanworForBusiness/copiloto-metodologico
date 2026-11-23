@@ -38,6 +38,8 @@ Con varios procesos/instancias cada uno tendría su propia caché y su propio lo
 """
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import copy
 import hashlib
 import json
@@ -53,6 +55,7 @@ from typing import Any, Iterable
 
 import config
 from core import publication_gate, remote_store
+from tools.catalog.modeling_assessment import connection_catalog as ma_connections
 from tools.catalog.modeling_assessment import dependency_signature as ma_dependencies
 from tools.catalog.modeling_assessment import paths as ma_paths
 from tools.catalog.modeling_assessment import profile as ma_profile
@@ -1005,6 +1008,33 @@ def status_for_entry(entry: Any) -> AssessmentStatus:
 
 
 # ═══════════════════════════ generación (POST) ═══════════════════════════
+# Contexto de ORIGEN AUTORIZADO de una reconstrucción gobernada (actualización desde el Hub, PR-2): los Spaces cuyas fichas de conexión puede leer el
+# motor. Lo fija SOLO quien ejecuta la reconstrucción (``with connection_spaces([...])``) en su propio hilo; sin contexto (None) el motor lee todas las
+# fichas del cliente, como siempre: no hay restricción global.
+_CONNECTION_SPACES: contextvars.ContextVar = contextvars.ContextVar("governed_connection_spaces", default=None)
+
+
+def connection_spaces_of(client_dir: str) -> list[str]:
+    """Spaces del Catálogo de Conexiones del cliente en el pool del Catálogo (lectura pura; vacío sin pool)."""
+    pool = pool_root()
+    return ma_connections.spaces_of(pool, client_dir) if pool else []
+
+
+def connection_records_of(client_dir: str) -> list[dict]:
+    """Fichas de conexión del cliente con su Space ``[{space, name, typeId, file}]`` (lectura pura; vacío sin pool)."""
+    pool = pool_root()
+    return ma_connections.connection_records(pool, client_dir) if pool else []
+
+
+@contextlib.contextmanager
+def connection_spaces(spaces):
+    token = _CONNECTION_SPACES.set(tuple(sorted({str(s) for s in spaces})) if spaces is not None else None)
+    try:
+        yield
+    finally:
+        _CONNECTION_SPACES.reset(token)
+
+
 def _engine_assess(root: Path, client_dir: str, am: str, domain_dir: str, evidence_scope: dict | None = None,
                    generic_root: bool = False, root_type: str | None = None) -> tuple[dict, dict]:
     """Único punto de contacto con el motor (API Python existente; sin shell-out). Seam de tests. Sin argumentos opcionales es la llamada de
@@ -1019,6 +1049,9 @@ def _engine_assess(root: Path, client_dir: str, am: str, domain_dir: str, eviden
     governed = _governed_for(root, client_dir)
     if governed:
         kw["governed_names"] = governed                 # reemplazo de Space confirmado: misma autoridad que el Catálogo
+    spaces = _CONNECTION_SPACES.get()
+    if spaces is not None:
+        kw["connection_spaces"] = spaces                # reconstrucción gobernada: solo las fichas del origen autorizado
     return ma_shadow.assess(root, client_dir, am, domain_dir, **kw)
 
 
@@ -1782,13 +1815,16 @@ def regenerate_stale_evidence(entry: Any, migration: str) -> RegeneratedAssessme
                                            else _harmonization_envelope_hook if migration in JUDGMENT_REDERIVING_MIGRATIONS else None))
 
 
-def regenerate_current_evidence(entry: Any, snapshot: Any = None) -> RegeneratedAssessment:
+def regenerate_current_evidence(entry: Any, snapshot: Any = None, *, _derive: Any = None) -> RegeneratedAssessment:
     """REGENERACION SELECTIVA de un assessment gobernado CURRENT cuya EVIDENCIA quedo atras de una correccion del motor que NO cambia ``assessment_versions`` (p. ej. el parser de B5.6).
     Mismo nucleo seguro que el resto de las regeneraciones controladas (en MEMORIA, sin Datasphere/OAuth/``restore()``, sin escribir). Exige: registro previo legible y CURRENT (misma firma de pool y
     mismo bloque de versiones), Juicio previo en el contrato vigente y MISMO cierre semantico (AM terminal, raiz y conjunto de artefactos; si cambia => ``CLOSURE_DRIFT``). El Juicio se RE-DERIVA con
-    el motor vigente y la instantanea de decisiones ``snapshot`` (``None`` = sin decisiones); la clasificacion de dominio y de negocio (derivados hermanos) se conservan tal cual."""
+    el motor vigente y la instantanea de decisiones ``snapshot`` (``None`` = sin decisiones); la clasificacion de dominio y de negocio (derivados hermanos) se conservan tal cual.
+    ``_derive`` (interno): ``(doc, previous) -> (Juicio, claves hermanas)``; por defecto la instantánea (semántica del CLI firmado, sin cambios). Ver ``regenerate_current_evidence_replay``."""
     from webapp.services import judgment_decisions as jd
     snap = snapshot if snapshot is not None else jd.empty_snapshot()
+    derive = _derive or (lambda doc, prev: (jd.derive(doc, str((prev or {}).get("client") or ""), snap)[0], {}))
+    carried_out: dict = {}
 
     def precondition(previous: dict | None, res: Resolution, versions: dict) -> None:
         if (not _readable_previous(previous) or previous.get("input_pool_signature") != res.pool_signature or previous.get("assessment_versions") != versions):
@@ -1803,13 +1839,43 @@ def regenerate_current_evidence(entry: Any, snapshot: Any = None) -> Regenerated
 
     def hook(doc: dict, previous: dict | None) -> tuple[dict, dict]:
         prev = previous or {}
-        fresh, _report = jd.derive(doc, str(prev.get("client") or ""), snap)
+        fresh, carried = derive(doc, prev)
+        carried_out.update(carried)
         return ({"judgment": fresh, "domain_classification": prev.get("domain_classification"), "business_classification": prev.get("business_classification")},
                 {"previous_judgment_level": (prev.get("judgment") or {}).get("level"), "previous_judgment_rule": (prev.get("judgment") or {}).get("level_rule"),
                  "new_judgment_level": (fresh or {}).get("level"), "new_judgment_rule": (fresh or {}).get("level_rule"),
                  "judgment_action": "judgment_current" if (prev.get("judgment") or {}).get("output_signature") == (fresh or {}).get("output_signature") else "judgment_rederived"})
 
-    return _regenerate_core(entry, precondition=precondition, log_label="regeneración selectiva", postcheck=postcheck, envelope_hook=hook)
+    cand = _regenerate_core(entry, precondition=precondition, log_label="regeneración selectiva", postcheck=postcheck, envelope_hook=hook)
+    cand.envelope.update(carried_out)
+    return cand
+
+
+# ─── Variantes para la ACTUALIZACIÓN GOBERNADA desde el Hub (PR #320): mismo núcleo, Juicio por replay VERIFICADO (contrato P0.1, ``judgment_for_replacement``) ───
+# El CLI firmado conserva su semántica (``--decisions registry|none`` → instantánea explícita). El Hub NO tiene instantánea: reaplica SOLO las decisiones que el Juicio
+# vigente consumió, reverificadas contra la evidencia nueva y el registro (revocación / reemplazo), o se ABSTIENE (``EnrichmentError`` → ABSTAINED, sin escribir).
+# Ambas se llaman en el dry-run Y otra vez en la ejecución asegurada justo antes de escribir (el plan se recalcula): la revalidación no confía en el preview.
+def _replay_judgment(doc: dict, previous: dict | None) -> tuple[dict | None, dict]:
+    try:
+        return judgment_for_replacement(doc, previous)
+    except ReplacementAbstained as exc:
+        raise EnrichmentError(exc.code) from None
+
+
+def regenerate_current_evidence_replay(entry: Any, _snapshot: Any = None) -> RegeneratedAssessment:
+    """``regenerate_current_evidence`` con el Juicio por replay verificado (ignora la instantánea: el Hub no descubre decisiones)."""
+    return regenerate_current_evidence(entry, _derive=_replay_judgment)
+
+
+def regenerate_stale_evidence_replay(entry: Any, migration: str) -> RegeneratedAssessment:
+    """``regenerate_stale_evidence`` SIN cambiar sus ganchos (semántica de la migración firmada) + verificación P0.1 del candidato: las decisiones consumidas
+    siguen vigentes y con la misma evidencia, y el Juicio del gancho coincide EXACTAMENTE con el replay verificado (si no, ``REPLAY_INCOHERENT``)."""
+    cand = regenerate_stale_evidence(entry, migration)
+    judgment, carried = _replay_judgment(cand.profile, _load_envelope(cand.client, cand.terminal_am))
+    if (judgment or {}).get("output_signature") != (cand.envelope.get("judgment") or {}).get("output_signature"):
+        raise EnrichmentError("REPLAY_INCOHERENT")
+    cand.envelope.update(carried)
+    return cand
 
 
 def commit_stale_migration(candidate: RegeneratedAssessment) -> str:
