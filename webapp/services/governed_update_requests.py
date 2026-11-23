@@ -346,11 +346,11 @@ def compute_preview(rec: dict, spaces: Any = None) -> dict:
     with svc.connection_spaces(declared):                                  # None = sin restricción (PR-1); lista = SOLO esas fichas de conexión
         if migration:                                                      # preview + guardas: si algo intentara persistir, FALLA (nunca escribe)
             report = ab.migrate_stale_evidence(entries[:1], migration, apply=False, commit=_write_forbidden, retry_remote=_write_forbidden,
-                                               regenerate=lambda e, m: _capture(svc.regenerate_stale_evidence(e, m)))
+                                               regenerate=lambda e, m: _capture(svc.regenerate_stale_evidence_replay(e, m)))   # P0.1: replay verificado (mismo que la ejecución)
             path = f"MIGRATION:{migration}"
         else:
             report = ab.plan_selective_regeneration(entries[:1], [am], client=client_dir,
-                                                    regenerate=lambda e, snap=None: _capture(svc.regenerate_current_evidence(e, snap)))
+                                                    regenerate=lambda e, snap=None: _capture(svc.regenerate_current_evidence_replay(e, snap)))
             path = f"SELECTIVE:{ab.SELECTIVE_MIGRATION}"
     plan = report.get("plan") or {}
     items = [i for i in plan.get("items") or [] if i.get("client") == client_dir or str(i.get("root")) == am]

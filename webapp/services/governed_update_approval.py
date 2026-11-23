@@ -188,10 +188,12 @@ def _execute(rec: dict, appr: dict, path: str) -> dict:
     with svc.connection_spaces(appr["declared_spaces"]):
         if path.startswith("MIGRATION:"):
             return ab.secured_migrate(entries[:1], path.split(":", 1)[1], authorizer=authorizer, backup_dir=_backup_dir(appr["approval_id"]),
-                                      allow_local_only=local_only, waves=[[rec["client_dir"]]], run_id=appr["approval_id"])
+                                      allow_local_only=local_only, waves=[[rec["client_dir"]]], run_id=appr["approval_id"],
+                                      regenerate=svc.regenerate_stale_evidence_replay)          # P0.1: replay verificado, recalculado antes de escribir
         # el Juicio proyectado ya viaja en ``judgment_action`` DENTRO del digest del plan aprobado: un Juicio distinto cambia el digest y el autorizador niega
         return ab.secured_regenerate_selected(entries[:1], [rec["terminal_am"]], authorizer=authorizer, backup_dir=_backup_dir(appr["approval_id"]),
-                                              client=rec["client_dir"], allow_local_only=local_only, run_id=appr["approval_id"])
+                                              client=rec["client_dir"], allow_local_only=local_only, run_id=appr["approval_id"],
+                                              regenerate=svc.regenerate_current_evidence_replay)
 
 
 def _outcome_state(report: dict) -> tuple[str, str]:
