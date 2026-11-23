@@ -31,7 +31,7 @@ el router les pasa el período/vertical/módulo/usuario resueltos acá
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
-from typing import Iterable
+from typing import Any, Iterable, Mapping
 from urllib.parse import urlencode
 
 from webapp.services import activity_aggregates, activity_catalog, content_service, module_registry
@@ -202,6 +202,19 @@ def _qs(state: dict, **override) -> str:
 def _url(state: dict, **override) -> str:
     qs = _qs(state, **override)
     return f"{BASE_URL}?{qs}" if qs else BASE_URL
+
+
+# Estado global de URL que reconstruye la vista (round-trip de `_state`). Scope/Área no forman
+# parte del round-trip del tablero (breadcrumbs/drill tampoco los arrastran; la visibilidad se
+# re-impone server-side por permisos), así que no se exponen como filtros globales reutilizables.
+GLOBAL_FILTER_KEYS = ("period", "date_from", "date_to", "vertical", "module", "section", "kind", "user")
+
+
+def global_filter_pairs(dash: Mapping[str, Any]) -> list[tuple[str, str]]:
+    """Pares (clave, valor) del estado global YA normalizado por `build` (no re-valida nada).
+    Un contenedor específico los usa para preservar EXACTAMENTE el universo del tablero sin
+    reintroducir `request.query_params` crudos (que filtrarían valores inválidos). Excluye vacíos."""
+    return [(k, str(dash[k])) for k in GLOBAL_FILTER_KEYS if dash.get(k) not in (None, "")]
 
 
 # ── inventario ───────────────────────────────────────────────────────────────

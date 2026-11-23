@@ -159,6 +159,52 @@ def test_kpis_over_full_history_union_users_and_midnight_session(logdir, monkeyp
     assert "67% de éxito" in t                                            # 2 éxitos (sync de APIs + acción de CCHH) / 3
 
 
+def _has_catalog_section(html):
+    return 'data-section-id="catalogos"' in html
+
+
+# ── Regla transversal de ámbito: «Catálogos y Assessments» aplicable / no aplicable / sin actividad ──────────────────────────────────────────
+def test_catalog_container_applicable_within_copilot_scope(logdir, monkeypatch):
+    t = _hx(_client(monkeypatch), "/admin/activity")                       # ámbito por defecto (todas) → el Copiloto aplica
+    assert _has_catalog_section(t)
+    assert _kpi(t, "Generaciones del Catálogo") == "2"                     # 2 catalog_apis_sync (dos@d.com)
+    assert _has_catalog_section(_hx(_client(monkeypatch), "/admin/activity?vertical=copilot"))
+
+
+def test_catalog_container_omitted_where_not_applicable(logdir, monkeypatch):
+    # Otra vertical: la funcionalidad no le corresponde → se OMITE server-side (no por CSS), no se muestra vacía ni con reacciones ajenas.
+    assert not _has_catalog_section(_hx(_client(monkeypatch), "/admin/activity?vertical=operations"))
+    assert not _has_catalog_section(_hx(_client(monkeypatch), "/admin/activity?vertical=commercial"))
+    assert not _has_catalog_section(_hx(_client(monkeypatch), "/admin/activity?vertical=human_capital"))
+
+
+def test_catalog_container_distinguishes_no_activity_from_not_applicable(logdir, monkeypatch):
+    # Copiloto aplica pero el usuario no tiene actividad de catálogo → se MUESTRA con «Sin actividad» del ámbito (≠ omitido por no aplicable).
+    t = _hx(_client(monkeypatch), "/admin/activity?user=uno%40d.com")
+    assert _has_catalog_section(t)
+    assert "No hay actividad de Catálogos y Assessments en el ámbito seleccionado" in t
+    assert _kpi(t, "Generaciones del Catálogo") == "0"
+
+
+def test_catalog_particular_filter_restricts_kpis_coherently(logdir, monkeypatch):
+    # El filtro particular sólo restringe el universo; KPIs/empty-state coherentes.
+    t = _hx(_client(monkeypatch), "/admin/activity?cat_op=sync_apis")
+    assert _has_catalog_section(t) and _kpi(t, "Generaciones del Catálogo") == "2"
+    none = _hx(_client(monkeypatch), "/admin/activity?cat_op=generacion_catalogo")           # operación sin eventos en el universo
+    assert _has_catalog_section(none) and _kpi(none, "Generaciones del Catálogo") == "0"
+    assert "para los filtros elegidos" in none                                                # ≠ «sin actividad del ámbito»
+
+
+def test_catalog_subform_preserves_only_normalized_globals_not_raw_params(logdir, monkeypatch):
+    # El sub-form del contenedor preserva el estado global YA normalizado (period/user/…), nunca params crudos:
+    # un `scope` inválido NO se refleja como hidden del contenedor (cae a «todo» server-side).
+    t = _hx(_client(monkeypatch), "/admin/activity?scope=zzz-inexistente&user=dos%40d.com")
+    assert _has_catalog_section(t)
+    assert "zzz-inexistente" not in t
+    assert '<input type="hidden" name="user" value="dos@d.com">' in t                          # global válido preservado
+    assert 'type="hidden" name="cat_' not in t                                                 # los cat_* no se duplican como hidden
+
+
 def test_session_crossing_midnight_counts_once_in_two_day_range(logdir, monkeypatch):
     c = _client(monkeypatch)
     t = _hx(c, "/admin/activity?date_from=2026-10-20&date_to=2026-10-21&user=uno%40d.com")

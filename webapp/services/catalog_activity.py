@@ -103,8 +103,11 @@ def _detail(event: str, a: dict) -> str:
     return ""
 
 
-def build(events: list[dict], params: Mapping[str, str], *, pack: str = "") -> dict:
-    """Vista del contenedor. ``events``: eventos normalizados del tablero (ya filtrados por período/usuario/visibilidad)."""
+def build(events: list[dict], params: Mapping[str, str], *, pack: str = "",
+          global_pairs: list[tuple[str, str]] | None = None) -> dict:
+    """Vista del contenedor. ``events``: eventos normalizados del tablero (ya filtrados por período/usuario/visibilidad).
+    ``global_pairs``: estado global YA normalizado por el tablero (``activity_dashboard.global_filter_pairs``) que los
+    filtros propios preservan sin tocar; sólo se manipulan los cuatro ``cat_*``."""
     sel = {k: str(params.get(k) or "").strip() for k in FILTER_KEYS}
     rows_all: list[dict] = []
     for ev in events:
@@ -164,4 +167,5 @@ def build(events: list[dict], params: Mapping[str, str], *, pack: str = "") -> d
     tools = [{"key": k, "label": v} for k, v in TOOL_LABEL.items() if any(r["tool"] == k for r in rows_all)]
     ops = [{"key": k, "label": OP_LABEL.get(k, k)} for k in sorted({r["op"] for r in rows_all if not sel["cat_tool"] or r["tool"] == sel["cat_tool"]})]
     return {"present": bool(rows_all), "selected": sel, "clients": clients, "models": models, "tools": tools, "ops": ops, "kpis": kpis,
-            "rows": shown, "total": len(rows), "truncated": len(rows) > len(shown), "history": history}
+            "rows": shown, "total": len(rows), "truncated": len(rows) > len(shown), "history": history,
+            "globals": list(global_pairs or [])}

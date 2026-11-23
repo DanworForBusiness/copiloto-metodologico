@@ -500,7 +500,8 @@ def _activity_dashboard_context(
         params, summary=summary, visible_verticals=allowed_scopes, allowed_areas=allowed_areas,
         log_dir=activity_analytics.ACTIVITY_LOG_DIR, today=today,
     )
-    catalog = catalog_activity.build(summary.get("catalog_events") or [], qp, pack=DEFAULT_PACK)       # «Catálogos y Assessments»
+    catalog = catalog_activity.build(summary.get("catalog_events") or [], qp, pack=DEFAULT_PACK,       # «Catálogos y Assessments»
+                                     global_pairs=activity_dashboard.global_filter_pairs(dash))         # preserva el universo global YA normalizado
     return {"summary": summary, "dash": dash, "catalog": catalog, "date_from": legacy["date_from"], "date_to": legacy["date_to"]}
 
 
