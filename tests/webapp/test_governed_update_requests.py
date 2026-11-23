@@ -46,6 +46,7 @@ def world(monkeypatch):
     monkeypatch.setattr(auth_service, "CONTENT_OWNER", "content@danwor.com", raising=False)
     from webapp.services import governed_update_approval as gua
     monkeypatch.setattr(gua, "_readiness", {"state": gua.READINESS_READY, "reason": None})   # C5: proceso ya recuperado (los tests de compuerta la cierran)
+    monkeypatch.setattr(gur, "_review_seen", {})                                             # C6: deduplicación de revisiones aislada por test
     return state
 
 
@@ -123,13 +124,48 @@ def test_approver_role_is_app_owner_or_content_owner_only(world):
     assert gur.can_view({"sub": "consultor@danwor.com"}, rec) and not gur.can_view({"sub": "otro@danwor.com"}, rec)
 
 
-def test_review_is_deduplicated_per_person(world):
+def test_review_is_deduplicated_per_person_without_writing_the_request(world):
     rec, _ = _create()
-    owner = {"sub": "owner@danwor.com", "email": "owner@danwor.com"}
-    assert gur.record_review(rec, owner, "APP_OWNER", now=1000.0)
-    assert not gur.record_review(rec, owner, "APP_OWNER", now=1000.0 + 60)        # recarga: no es otra revisión
-    assert gur.record_review(rec, owner, "APP_OWNER", now=1000.0 + gur.REVIEW_DEDUP_S + 1)
-    assert len(gur.load(rec["request_id"])["reviews"]) == 2
+    path = gur._path("Contreras", "AM_Workforce", rec["request_id"])
+    before = path.read_bytes()
+    owner, content = {"sub": "owner@danwor.com", "email": "owner@danwor.com"}, {"sub": "content@danwor.com", "email": "content@danwor.com"}
+    assert gur.should_log_review(rec["request_id"], owner, now=1000.0)
+    assert not gur.should_log_review(rec["request_id"], owner, now=1000.0 + 60)                    # recarga: no es otra revisión (misma métrica que antes)
+    assert gur.should_log_review(rec["request_id"], content, now=1000.0 + 60)                       # otro revisor sí cuenta
+    assert gur.should_log_review(rec["request_id"], owner, now=1000.0 + gur.REVIEW_DEDUP_S + 1)
+    assert path.read_bytes() == before                                                              # C6: el registro transaccional no se toca
+
+
+def test_the_review_get_never_writes_the_request_and_audits_once_with_reviewer_and_role(routes):
+    rec, _ = _create()
+    path = gur._path("Contreras", "AM_Workforce", rec["request_id"])
+    before = path.read_bytes()
+    url = f"/copilot/governed-updates/{rec['request_id']}"
+    owner = _client("owner@danwor.com")
+    for _ in range(3):
+        assert owner.get(url).status_code == 200
+    assert path.read_bytes() == before                                                              # ni la primera visita escribe el registro
+    reviewed = [kw for e, kw in routes if e == "governed_update.reviewed"]
+    assert len(reviewed) == 1 and reviewed[0]["role"] == "APP_OWNER" and reviewed[0]["request_id"] == rec["request_id"]   # auditoría funcional
+    assert (reviewed[0]["user"] or {}).get("sub") == "owner@danwor.com"                             # identidad del revisor (sesión)
+
+
+def test_a_concurrent_review_cannot_overwrite_an_approval_state(routes, monkeypatch):
+    from webapp.services import governed_update_approval as gua
+    rec, _ = _create()
+    with gur._lock:
+        fresh = gur.load(rec["request_id"])
+        fresh["approval"] = {"approval_id": "a" * 32, "state": gua.STARTED, "history": [{"state": gua.STARTED}]}
+        gur._write(fresh)
+    real = gur.should_log_review
+
+    def meanwhile(request_id, user, **kw):                                                          # mientras el GET está en curso, la ejecución termina
+        gua._transition(request_id, "a" * 32, gua.APPLIED, outcome="APPLIED")
+        return real(request_id, user, **kw)
+    monkeypatch.setattr(gur, "should_log_review", meanwhile)
+    assert _client("owner@danwor.com").get(f"/copilot/governed-updates/{rec['request_id']}").status_code == 200
+    stored = gur.load(rec["request_id"])
+    assert stored["approval"]["state"] == gua.APPLIED and stored["status"] == "APPLIED"            # el GET no reescribió una copia vieja
 
 
 # ── dry-run (solo lectura) ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────

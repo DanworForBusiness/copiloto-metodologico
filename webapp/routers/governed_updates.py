@@ -340,7 +340,8 @@ def review(request: Request, request_id: str, pack: str = Query(DEFAULT_PACK)):
     user, rec = _visible(request, request_id)                                       # C2: un GET nunca cambia estados (la recuperación es de arranque)
     selected = resolve_pack(pack)
     role = gur.approver_role(user)
-    if role and gur.record_review(rec, user, role):                                # revisión = la abre alguien que puede aprobar (la recarga no cuenta)
+    if role and gur.should_log_review(request_id, user):                           # revisión = la abre alguien que puede aprobar (la recarga no cuenta);
+        # C6: la auditoría es el EVENTO (revisor, rol, estado); el GET nunca reescribe el registro transaccional de la solicitud
         _activity("governed_update.reviewed", user, request_id=request_id, client=rec["client_dir"], model=rec["terminal_am"], role=role,
                   status=gur.current_status(rec), provenance=(rec.get("provenance") or {}).get("status"))
     return templates.TemplateResponse(request=request, name="governed_update_request.html",

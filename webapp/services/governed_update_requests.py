@@ -256,17 +256,23 @@ def record_notification(rec: dict, dispatch: str | None) -> None:
         rec.update(fresh)
 
 
-def record_review(rec: dict, user: dict, role: str, *, now: float | None = None) -> bool:
-    """Registra que ``user`` (con rol de revisión) revisó la solicitud. False si ya la revisó en los últimos ``REVIEW_DEDUP_S`` (recarga)."""
-    email, now = user_email(user), (time.time() if now is None else now)
+_review_seen: dict[tuple[str, str], float] = {}
+
+
+def should_log_review(request_id: str, user: dict | None, *, now: float | None = None) -> bool:
+    """C6 — ¿esta apertura de la revisión es una revisión NUEVA (y no una recarga)? Deduplicación por (solicitud, revisor) cada ``REVIEW_DEDUP_S``, en
+    MEMORIA del proceso (mismo criterio que ``catalog_model_activity``). NO escribe el registro de la solicitud: la auditoría durable de la revisión es el
+    evento ``governed_update.reviewed`` (``hub-activity/v2``, persistido en ``activity_log``) con revisor, rol y estado. Tras un reinicio, la primera
+    apertura vuelve a contar (igual que las consultas de modelo)."""
+    key, now = (str(request_id), user_email(user)), (time.time() if now is None else now)
     with _lock:
-        fresh = load(rec["request_id"]) or rec
-        for r in fresh.get("reviews") or []:
-            if r.get("by") == email and now - float(r.get("ts") or 0) < REVIEW_DEDUP_S:
-                return False
-        fresh.setdefault("reviews", []).append({"by": email, "role": role, "at": _now(), "ts": now, "status": current_status(fresh)})
-        _write(fresh)
-        rec.update(fresh)
+        last = _review_seen.get(key)
+        if last is not None and now - last < REVIEW_DEDUP_S:
+            return False
+        _review_seen[key] = now
+        if len(_review_seen) > 5000:                                       # acotado: se descartan las vencidas
+            for k in [k for k, t in _review_seen.items() if now - t >= REVIEW_DEDUP_S]:
+                _review_seen.pop(k, None)
     return True
 
 

@@ -384,9 +384,8 @@ def test_repeated_gets_never_recover_or_change_states(routes, world):
     _started(world, rec)                                                                            # huérfana: sin hilo vivo en este proceso
     url = f"/copilot/governed-updates/{rec['request_id']}"
     client = _client("owner@danwor.com")
-    client.get(url)                                                                                 # primera visita: registra la revisión (auditoría deduplicada)
-    before = gur._path("Contreras", "AM_Workforce", rec["request_id"]).read_bytes()
-    for _ in range(3):
+    before = gur._path("Contreras", "AM_Workforce", rec["request_id"]).read_bytes()               # C6: tampoco la primera visita escribe
+    for _ in range(4):
         assert client.get(url).status_code == 200
     assert gur._path("Contreras", "AM_Workforce", rec["request_id"]).read_bytes() == before and _state(rec) == gua.STARTED
 
