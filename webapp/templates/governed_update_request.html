@@ -20,16 +20,21 @@
     <div class="catalog-actionbar">
       <a class="catalog-back" href="/modules/04_Modelado_y_Desarrollo?pack={{ pack | urlencode }}&amp;tool=assessment">← Volver</a>
     </div>
-    <section class="gu-head">
-      <p class="eyebrow">Solicitud de actualización · Assessment gobernado</p>
-      <h1 class="gu-title">{{ g.rec.client }} · <span class="gu-title__model">{{ g.rec.terminal_am }}</span></h1>
-      <p class="catalog-verdict-line gu-meta">
-        {% if g.obsolete %}<span class="catalog-card__verdict catalog-card__verdict--parcial" data-gu-state="OBSOLETE">Obsoleta</span>
-        {% elif g.superseded %}<span class="catalog-card__verdict catalog-card__verdict--neutra" data-gu-state="SUPERSEDED">Reemplazada</span>
-        {% else %}<span class="catalog-card__verdict catalog-card__verdict--plena" data-gu-state="{{ g.state }}">Abierta</span>{% endif %}
-        <span class="catalog-card__verdict catalog-card__verdict--{{ 'plena' if g.role else 'neutra' }}" data-gu-role="{{ g.role or '' }}">Tu rol · {{ g.role_label }}</span>
-        <span>Solicitada {{ (g.rec.requested_at or "").replace("T", " ").replace("+00:00", " UTC") }} por {{ g.rec.requested_by }}</span>
-      </p>
+    {# Encabezado con la MISMA estructura que el de los informes de Assessment (`module-hero asr-hero`): eyebrow, nombre funcional del Catálogo (h1),
+       identificador técnico debajo (mono, secundario) y línea de metadatos. Estado de la SOLICITUD y de la APLICACIÓN rotulados por separado. #}
+    <section class="module-hero asr-hero gu-head">
+      <p class="eyebrow">Solicitud de actualización · {{ g.rec.client }}</p>
+      <h1 class="asr-title" data-gu-model-title>{{ g.model_title }}</h1>
+      {% if g.model_title != g.rec.terminal_am %}<p class="asr-subid"><code data-gu-model-id>{{ g.rec.terminal_am }}</code></p>{% endif %}
+      <div class="hero-meta">
+        <span class="catalog-verdict-line">
+          <span class="catalog-meta-dot catalog-meta-dot--{{ g.badges.request.tone }}" aria-hidden="true"></span>
+          <span class="catalog-card__verdict catalog-card__verdict--{{ g.badges.request.tone }}" data-gu-state="{{ g.state }}">{{ g.badges.request.label }}</span>
+          {% if g.badges.application %}<span class="catalog-card__verdict catalog-card__verdict--{{ g.badges.application.tone }}" data-gu-application-state="{{ g.badges.application.state }}">{{ g.badges.application.label }}</span>{% endif %}
+          <span class="catalog-card__verdict catalog-card__verdict--{{ 'plena' if g.role else 'neutra' }}" data-gu-role="{{ g.role or '' }}">Tu rol · {{ g.role_label }}</span>
+          <span>Solicitada {{ (g.rec.requested_at or "").replace("T", " ").replace("+00:00", " UTC") }} por {{ g.rec.requested_by }}</span>
+        </span>
+      </div>
     </section>
 
     {% if g.obsolete %}

@@ -301,6 +301,36 @@ def _next_step(state: str, role: str | None, prev: dict | None, preview_running:
     return "Revisar la causa (procedencia o dry-run) antes de continuar."
 
 
+# ── encabezado (solo presentación) ──
+# Estado de la SOLICITUD (su ciclo de vida) ≠ estado de la APLICACIÓN (la aprobación y su ejecución): se rotulan por separado para que «abierta» y
+# «aplicada» nunca se lean como contradictorios. No cambia estados ni transiciones.
+REQUEST_STATE_BADGE = {gur.OPEN: ("Solicitud abierta", "plena"), "APPLIED": ("Solicitud cerrada", "neutra"),
+                       gur.OBSOLETE: ("Solicitud obsoleta", "parcial"), gur.SUPERSEDED: ("Solicitud reemplazada", "neutra")}
+
+
+def _model_title(rec: dict) -> str:
+    """Nombre FUNCIONAL del modelo tal como lo nombra el Catálogo (el MISMO resolver del informe de Assessment: ``report_title``). Sin nombre de
+    negocio resoluble, el identificador técnico (nunca un nombre inventado ni una lectura de la extracción)."""
+    am = str(rec.get("terminal_am") or "")
+    try:
+        from webapp.services import assessment_presenter
+        entries = gur._entries_for(rec["client_dir"], am)
+        desc, name = assessment_presenter.report_title(entries[0], am) if len(entries) == 1 else (None, am)
+    except Exception:                                                          # noqa: BLE001 — el título nunca rompe la revisión
+        desc, name = None, am
+    return desc if desc and desc != (name or am) else am
+
+
+def _header_badges(state: str, approval: dict | None) -> dict:
+    label, tone = REQUEST_STATE_BADGE.get(state, (f"Solicitud · {state}", "neutra"))
+    appr_state = (approval or {}).get("state")
+    app = None
+    if appr_state in APPROVAL_STAGE:
+        a_label, a_tone, _detail = APPROVAL_STAGE[appr_state]
+        app = {"label": f"Aplicación · {a_label}", "tone": a_tone, "state": appr_state}
+    return {"request": {"label": label, "tone": tone}, "application": app}
+
+
 # ── revisar ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 def _view(rec: dict, user: dict, pack: str) -> dict:
     role = gur.approver_role(user)
@@ -323,6 +353,7 @@ def _view(rec: dict, user: dict, pack: str) -> dict:
         "can_approve": bool(role) and not _approval_reasons(rec), "idempotency_key": uuid.uuid4().hex,
         "poll": running or ((rec.get("approval") or {}).get("state") in ("REGISTERED", "VERIFYING", "STARTED")) or (not notification["terminal"] and _age_s(rec.get("requested_at")) < NOTIFICATION_POLL_MAX_S),
         "rec": rec, "state": state, "obsolete": state == gur.OBSOLETE, "role": role, "can_preview": can_preview,
+        "model_title": _model_title(rec), "badges": _header_badges(state, rec.get("approval")),
         "legacy": state == gur.OPEN and not gur.has_valid_fingerprint((rec.get("source") or {}).get("fingerprint")),
         "superseded": state == gur.SUPERSEDED, "superseded_by": (rec.get("superseded") or {}).get("by"), "supersedes": rec.get("supersedes"),   # solo presentación: anterior a la huella (no cambia elegibilidad)
         "is_requester": gur.user_email(user) == rec.get("requested_by"),

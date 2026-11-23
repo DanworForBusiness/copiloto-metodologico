@@ -631,3 +631,43 @@ def test_the_renewed_request_keeps_the_result_origin_and_fingerprint_that_genera
     assert new["source"]["fingerprint"] == VALID_FP and new["supersedes"] == old["request_id"]
     stored = gur.load(old["request_id"])
     assert stored["source"]["result_id"] == RID and "fingerprint" not in stored["source"]
+
+
+# ── encabezado (misma estructura que el informe de Assessment; solo presentación) ────────────────────────────────────────────────────────────
+def _title(monkeypatch, desc):
+    from webapp.services import assessment_presenter
+    monkeypatch.setattr(gur, "_entries_for", lambda c, am: [SimpleNamespace(entry_id="e1", cliente=c)])
+    monkeypatch.setattr(assessment_presenter, "report_title", lambda entry, am: (desc, am))
+
+
+def test_header_uses_the_catalog_functional_name_with_the_technical_id_below(routes, monkeypatch):
+    _title(monkeypatch, "HCM: Workforce")
+    rec, _ = _create()
+    html = _client("owner@danwor.com").get(f"/copilot/governed-updates/{rec['request_id']}").text
+    assert '<section class="module-hero asr-hero gu-head">' in html and "Solicitud de actualización · Contreras</p>" in html
+    assert 'data-gu-model-title>HCM: Workforce</h1>' in html and "<code data-gu-model-id>AM_Workforce</code>" in html
+    assert 'data-gu-state="OPEN">Solicitud abierta<' in html and "data-gu-application-state" not in html       # sin aprobación: sin badge de aplicación
+    assert 'data-gu-role="APP_OWNER">Tu rol · APP_OWNER<' in html and "por consultor@danwor.com" in html
+
+
+def test_header_falls_back_to_the_technical_name_without_a_catalog_name(routes, monkeypatch):
+    _title(monkeypatch, None)
+    rec, _ = _create()
+    html = _client("owner@danwor.com").get(f"/copilot/governed-updates/{rec['request_id']}").text
+    assert 'data-gu-model-title>AM_Workforce</h1>' in html and "data-gu-model-id" not in html                  # nunca un nombre inventado
+    monkeypatch.setattr(gur, "_entries_for", lambda c, am: (_ for _ in ()).throw(RuntimeError("catálogo")))
+    assert 'data-gu-model-title>AM_Workforce</h1>' in _client("owner@danwor.com").get(f"/copilot/governed-updates/{rec['request_id']}").text
+
+
+def test_header_separates_request_state_from_application_state(routes, monkeypatch):
+    from webapp.services import governed_update_approval as gua
+    _title(monkeypatch, "HCM: Workforce")
+    rec, _ = _create()
+    with gur._lock:
+        fresh = gur.load(rec["request_id"])
+        fresh["status"] = "APPLIED"
+        fresh["approval"] = {"approval_id": "a" * 32, "state": gua.APPLIED, "history": [{"state": gua.APPLIED}]}
+        gur._write(fresh)
+    html = _client("owner@danwor.com").get(f"/copilot/governed-updates/{rec['request_id']}").text
+    assert 'data-gu-state="APPLIED">Solicitud cerrada<' in html and 'data-gu-application-state="APPLIED">Aplicación · Aplicada<' in html
+    assert "Solicitud abierta" not in html                                                                     # nunca «abierta» junto a «aplicada»
