@@ -549,3 +549,96 @@ def test_not_required_notification_is_not_counted_as_emitted():
     view = catalog_activity.build([ev("not_required"), ev("queued")], {})
     k = {x["key"]: x for x in view["kpis"]}
     assert k["notificaciones"]["value"] == 1 and "no requeridas" in k["notificaciones"]["hint"]
+
+
+# ── C5: disponibilidad gobernada durante el arranque (falla cerrado) ─────────────────────────
+@pytest.fixture
+def pending(world, monkeypatch):
+    monkeypatch.setattr(gua, "_readiness", {"state": gua.READINESS_PENDING, "reason": "BOOT_RECOVERY_PENDING"})
+    return world
+
+
+def _bytes(rec):
+    return gur._path("Contreras", "AM_Workforce", rec["request_id"]).read_bytes()
+
+
+def test_the_module_starts_closed_and_only_boot_recovery_opens_it(world, monkeypatch):
+    import importlib
+    fresh = importlib.reload(gua)                                                                   # estado inicial del módulo, sin lifespan
+    try:
+        assert fresh.readiness()["state"] == fresh.READINESS_PENDING
+    finally:
+        importlib.reload(gua)
+
+
+@pytest.mark.parametrize("state,code", [(gua.READINESS_PENDING, "RECOVERY_PENDING"), (gua.READINESS_FAILED, "RECOVERY_FAILED")])
+def test_outside_ready_nothing_is_registered_started_or_authorized_and_the_registry_is_untouched(world, monkeypatch, state, code):
+    rec = _ready_request(world)
+    appr, _ = gua.register(rec, OWNER, "APP_OWNER", ["DEV"], idempotency_key="k")                   # registrada con el proceso READY
+    gua._transition(rec["request_id"], appr["approval_id"], gua.VERIFYING)
+    gua._transition(rec["request_id"], appr["approval_id"], gua.STARTED)
+    gua._running.add(appr["approval_id"])
+    other = gur.create(client_dir="Contreras", client_display="Contreras", terminal_am="AM_EducationPro", space="DEV", result_id=RID,
+                       candidate_judgment={"status": "DETERMINED", "level": "BUENA"}, candidate_profile=CAND_PROFILE, requested_by="c@danwor.com")[0]
+    before = gur._path("Contreras", "AM_EducationPro", other["request_id"]).read_bytes()
+    monkeypatch.setattr(gua, "_readiness", {"state": state, "reason": "x"})
+    try:
+        with pytest.raises(gua.ApprovalRefused, match=code):
+            gua.register(other, OWNER, "APP_OWNER", ["DEV"], idempotency_key="k2")
+        assert gur._path("Contreras", "AM_EducationPro", other["request_id"]).read_bytes() == before      # el registro no se alteró
+        assert gua.start(rec, appr, compute=lambda r, spaces=None: pytest.fail("no arranca"), execute=lambda *a: pytest.fail("no ejecuta")) == "NOT_READY"
+        assert gua.hub_authorizer(rec["request_id"], appr["approval_id"], "p" * 64)("m", {"digest": "p" * 64}).reason == "PROCESS_NOT_READY"
+        assert code in gua.approvable(gur.load(other["request_id"]), ["DEV"])                       # la vista no ofrece aprobar
+    finally:
+        gua._running.discard(appr["approval_id"])
+
+
+def test_the_approve_route_answers_503_while_pending_without_touching_the_registry(routes, pending):
+    rec = _ready_request(pending)
+    before = _bytes(rec)
+    r = _client("owner@danwor.com").post(f"/copilot/governed-updates/{rec['request_id']}/approve",
+                                         data={"confirm": "1", "idempotency_key": "k1", "spaces": ["DEV"]}, headers=ORIGIN, follow_redirects=False)
+    assert r.status_code == 503 and r.headers.get("retry-after") and _bytes(rec) == before
+    assert ("governed_update.rejected", ) == tuple(e for e, kw in routes if kw.get("reason") == "RECOVERY_PENDING")
+
+
+def test_successful_boot_recovery_opens_ready(world, monkeypatch):
+    monkeypatch.setattr(gua, "_readiness", {"state": gua.READINESS_PENDING, "reason": None})
+    rec = _ready_request(world)
+    gua.boot_recovery()
+    assert gua.readiness()["state"] == gua.READINESS_READY
+    assert gua.register(rec, OWNER, "APP_OWNER", ["DEV"], idempotency_key="k")[1] is True
+
+
+@pytest.mark.parametrize("break_it,reason", [
+    (lambda mp: (mp.setattr(gua.svc.remote_store, "enabled", lambda: True), mp.setattr(gua.svc.remote_store, "sync_blocked_reason", lambda: "el restore falló")),
+     "RESTORE_NOT_COMPLETE"),
+    (lambda mp: mp.setattr(gua, "recover_on_boot", lambda: (_ for _ in ()).throw(RuntimeError("x"))), "RECOVERY_ERROR"),
+    (lambda mp: mp.setattr(gua, "recover_on_boot", lambda: [{"request_id": "r", "approval_id": "a", "from": "STARTED", "to": None}]), "RECOVERY_INCOMPLETE"),
+])
+def test_a_failed_restore_or_recovery_leaves_the_gate_failed_and_closed(world, monkeypatch, break_it, reason):
+    monkeypatch.setattr(gua, "_readiness", {"state": gua.READINESS_PENDING, "reason": None})
+    rec = _ready_request(world)
+    break_it(monkeypatch)
+    gua.boot_recovery()
+    assert gua.readiness()["state"] == gua.READINESS_FAILED and gua.readiness()["reason"].startswith(reason)
+    with pytest.raises(gua.ApprovalRefused, match="RECOVERY_FAILED"):                         # la compuerta rechaza ANTES de tocar el registro
+        gua.register(rec, OWNER, "APP_OWNER", ["DEV"], idempotency_key="k")
+
+
+def test_the_isolated_boot_race_no_longer_reproduces(world, monkeypatch):
+    """Escenario de `scratchpad/race_demo.py`: con la recuperación pendiente, otra solicitud no se aprueba ni ejecuta, y no hay DENIED espurio."""
+    monkeypatch.setattr(gua, "_readiness", {"state": gua.READINESS_PENDING, "reason": None})
+    rec = _ready_request(world)
+    with pytest.raises(gua.ApprovalRefused, match="RECOVERY_PENDING"):                              # 1) antes: se registraba y ejecutaba (APPLIED)
+        gua.register(rec, OWNER, "APP_OWNER", ["DEV"], idempotency_key="kb")
+    assert gua.boot_recovery() == [] and gua.readiness()["state"] == gua.READINESS_READY            # 3) nada que denegar en falso
+    appr, created = gua.register(rec, OWNER, "APP_OWNER", ["DEV"], idempotency_key="kb")
+    assert created and gua.start(rec, appr, compute=lambda r, spaces=None: dict(READY_EV), execute=lambda *a: {"outcome": "APPLIED"}) == "STARTED_THREAD"
+    assert _wait(rec["request_id"], {gua.APPLIED}) == gua.APPLIED
+
+
+def test_gets_and_the_dry_run_stay_available_while_pending_but_do_not_offer_to_approve(routes, pending):
+    rec = _ready_request(pending)
+    r = _client("owner@danwor.com").get(f"/copilot/governed-updates/{rec['request_id']}")
+    assert r.status_code == 200 and "data-gu-approve" not in r.text and "recuperación de arranque" in r.text

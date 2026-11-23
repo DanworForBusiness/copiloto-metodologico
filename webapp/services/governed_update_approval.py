@@ -22,6 +22,10 @@ RECUPERACIÓN (fase B): ningún GET cambia estados. Al ARRANCAR (``recover_on_bo
     exacto; ``NOT_APPLIED`` (re-aprobable) solo si el sobre local y el remoto siguen siendo el previo y el diario de la vía asegurada acredita que no
     hubo ``COMMITTED``; si falta evidencia, sigue bloqueada (resolver con los procedimientos de respaldo/restauración existentes).
 
+DISPONIBILIDAD (C5): el proceso arranca en ``PENDING`` y solo pasa a ``READY`` cuando el restore terminó completo y ``recover_on_boot`` cerró todo lo que
+encontró; si cualquiera falla, queda ``FAILED`` (cerrado hasta el próximo arranque). Fuera de ``READY`` no se registra, no se arranca y no se autoriza
+ninguna escritura gobernada; los GET y el dry-run (sin escrituras) siguen disponibles, pero la vista no ofrece aprobar. Sin esperas temporales.
+
 LÍMITES (no sobre-afirmar): los locks (``gur._lock``) y ``_running`` son de ESTE proceso; las transiciones verifican el estado de origen sobre el registro
 LOCAL y el PUT remoto es last-writer-wins. Nada de esto es un compare-and-swap distribuido: con más de una instancia o con solape de deploy no hay
 exclusión garantizada (requisito operativo: una réplica y deploy sin solape mientras haya aprobaciones activas).
@@ -62,6 +66,28 @@ EXPECTED_KEYS = ("plan_digest", "provenance_digest", "equivalence_digest", "enve
 
 _running: set[str] = set()                     # aprobaciones con hilo vivo EN ESTE PROCESO (lo que sobrevive a un reinicio es solo el estado persistido)
 
+# C5 — disponibilidad de ESTE proceso para escrituras gobernadas. Arranca CERRADA: solo ``boot_recovery`` la abre.
+READINESS_PENDING, READINESS_READY, READINESS_FAILED = "PENDING", "READY", "FAILED"
+_readiness: dict = {"state": READINESS_PENDING, "reason": "BOOT_RECOVERY_NOT_RUN"}
+
+
+def readiness() -> dict:
+    return dict(_readiness)
+
+
+def _set_readiness(state: str, reason: str | None = None) -> None:
+    _readiness.update(state=state, reason=reason)
+
+
+def mark_pending(reason: str = "BOOT_RECOVERY_PENDING") -> None:
+    """Antes de servir (lifespan): cierra la compuerta hasta que la recuperación de arranque termine bien."""
+    _set_readiness(READINESS_PENDING, reason)
+
+
+def _not_ready_code() -> str | None:
+    state = _readiness["state"]
+    return None if state == READINESS_READY else ("RECOVERY_FAILED" if state == READINESS_FAILED else "RECOVERY_PENDING")
+
 
 class ApprovalRefused(Exception):
     def __init__(self, code: str):
@@ -84,6 +110,9 @@ def expected_from_preview(rec: dict, preview: dict | None) -> dict:
 def approvable(rec: dict, spaces: list[str]) -> list[str]:
     """Por qué NO se puede aprobar ahora (vacío = se puede). Solo lectura sobre la solicitud y su último dry-run."""
     reasons = []
+    not_ready = _not_ready_code()
+    if not_ready:
+        reasons.append(not_ready)                                          # la vista no ofrece aprobar mientras el proceso no esté READY
     if gur.current_status(rec) != gur.OPEN:
         reasons.append("REQUEST_OBSOLETE")
     if not ((rec.get("source") or {}).get("fingerprint")):
@@ -110,6 +139,9 @@ def approvable(rec: dict, spaces: list[str]) -> list[str]:
 def register(rec: dict, user: dict, role: str, spaces: list[str], *, idempotency_key: str) -> tuple[dict, bool]:
     """Fase 1. ``(aprobación, creada)``. Idempotente por ``idempotency_key`` y con UNA aprobación activa por solicitud."""
     spaces = sorted({str(s).strip() for s in spaces if str(s).strip()})
+    not_ready = _not_ready_code()
+    if not_ready:
+        raise ApprovalRefused(not_ready)                                   # C5: antes de leer o escribir el registro
     with gur._lock:
         fresh = gur.load(rec["request_id"]) or rec
         current = fresh.get("approval") or {}
@@ -184,6 +216,29 @@ def _settle_after_start(rec: dict, aid: str, *, outcome: str, if_unchanged: str 
     return state
 
 
+def boot_recovery() -> list[dict]:
+    """C5 — ÚNICA vía a ``READY``: exige el restore COMPLETO (con persistencia remota) y una ``recover_on_boot`` sin errores ni transiciones perdidas;
+    cualquier otra cosa deja ``FAILED`` (la compuerta queda cerrada hasta el próximo arranque)."""
+    if svc.remote_store.enabled():
+        reason = svc.remote_store.sync_blocked_reason()
+        if reason is not None:
+            _set_readiness(READINESS_FAILED, f"RESTORE_NOT_COMPLETE:{reason}")
+            log.warning("governed_update: compuerta FAILED — restore no completo (%s)", reason)
+            return []
+    try:
+        done = recover_on_boot()
+    except Exception as exc:                                               # noqa: BLE001 — recuperación incompleta: cerrado
+        _set_readiness(READINESS_FAILED, f"RECOVERY_ERROR:{type(exc).__name__}")
+        log.exception("governed_update: compuerta FAILED — la recuperación de arranque falló")
+        return []
+    if any(d.get("to") is None for d in done):
+        _set_readiness(READINESS_FAILED, "RECOVERY_INCOMPLETE")
+        log.warning("governed_update: compuerta FAILED — transiciones de recuperación no aplicadas %s", done)
+        return done
+    _set_readiness(READINESS_READY)
+    return done
+
+
 def recover_on_boot() -> list[dict]:
     """C2/C3 — mecanismo EXPLÍCITO de arranque (después del restore), nunca desde un GET. Ver docstring del módulo. Devuelve lo que hizo (auditable)."""
     done: list[dict] = []
@@ -254,6 +309,8 @@ def hub_authorizer(request_id: str, approval_id: str, expected_plan_digest: str)
         # registro LOCAL y el hilo de ESTE proceso: NO equivale a un compare-and-swap distribuido.
         rec = gur.load(request_id) or {}
         appr = rec.get("approval") or {}
+        if _not_ready_code():
+            return ma.DENIED("PROCESS_NOT_READY")
         if appr.get("approval_id") != approval_id or appr.get("state") != STARTED:
             return ma.DENIED("HUB_APPROVAL_NOT_ACTIVE")
         if approval_id not in _running:
@@ -326,6 +383,8 @@ def _outcome_state(report: dict) -> tuple[str, str]:
 def start(rec: dict, appr: dict, *, compute: Callable | None = None, execute: Callable | None = None, on_event: Callable | None = None) -> str:
     """Corre las fases 2 y 3 en un hilo (no depende del request HTTP). ``STARTED_THREAD`` | ``ALREADY_RUNNING``."""
     aid = appr["approval_id"]
+    if _not_ready_code():
+        return "NOT_READY"                                                 # C5: nada arranca fuera de READY
     with gur._lock:
         if aid in _running:
             return "ALREADY_RUNNING"

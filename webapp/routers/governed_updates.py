@@ -252,7 +252,9 @@ APPROVAL_GAP = {"REQUEST_OBSOLETE": "la solicitud está obsoleta",
                 "PREVIEW_NOT_FOR_DECLARED_SPACES": "calcular el dry-run restringido al origen declarado",
                 "PREVIEW_NOT_READY": "un dry-run con plan aplicable", "PROVENANCE_NOT_ACCREDITED": "acreditar la procedencia",
                 "PREVIEW_OUTDATED": "recalcular el dry-run (el Assessment cambió)", "APPROVAL_IN_PROGRESS": "esperar la aprobación en curso",
-                "RECONCILIATION_REQUIRED": "reconciliar la aplicación anterior (mantenimiento)"}
+                "RECONCILIATION_REQUIRED": "reconciliar la aplicación anterior (mantenimiento)",
+                "RECOVERY_PENDING": "que el servicio termine su recuperación de arranque",
+                "RECOVERY_FAILED": "que la recuperación de arranque se complete (requiere reinicio)"}
 
 
 def _approval_reasons(rec: dict) -> list[str]:
@@ -388,6 +390,13 @@ def approve(request: Request, request_id: str, pack: str = Form(DEFAULT_PACK), s
         raise HTTPException(403, "Solo APP_OWNER o CONTENT_OWNER pueden aprobar.")
     if confirm != "1" or not idempotency_key.strip():
         raise HTTPException(400, "Falta la confirmación explícita.")
+    if gua.readiness()["state"] != gua.READINESS_READY:                             # C5: fuera de READY no se aprueba (falla cerrado; el registro no se toca)
+        state = gua.readiness()["state"]
+        _activity("governed_update.rejected", user, request_id=request_id, client=rec["client_dir"], model=rec["terminal_am"], role=role,
+                  stage="authorization", reason=f"RECOVERY_{state}")
+        raise HTTPException(503, "La aprobación todavía no está disponible: el servicio está terminando su recuperación de arranque."
+                            if state == gua.READINESS_PENDING else "La aprobación no está disponible: la recuperación de arranque no terminó bien.",
+                            headers={"Retry-After": str(gur.RETRY_AFTER_S)} if state == gua.READINESS_PENDING else None)
     try:
         appr, created = gua.register(rec, user, role, spaces, idempotency_key=idempotency_key.strip()[:64])
     except gua.ApprovalRefused as exc:

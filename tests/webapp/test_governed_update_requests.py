@@ -44,6 +44,8 @@ def world(monkeypatch):
     monkeypatch.setattr(svc, "published_space", lambda c, a: state["published"])
     monkeypatch.setattr(access, "APP_OWNER", "owner@danwor.com")
     monkeypatch.setattr(auth_service, "CONTENT_OWNER", "content@danwor.com", raising=False)
+    from webapp.services import governed_update_approval as gua
+    monkeypatch.setattr(gua, "_readiness", {"state": gua.READINESS_READY, "reason": None})   # C5: proceso ya recuperado (los tests de compuerta la cierran)
     return state
 
 

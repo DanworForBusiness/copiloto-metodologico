@@ -231,10 +231,11 @@ async def lifespan(app: FastAPI):
         await _governed_updates_boot()
 
     async def _governed_updates_boot():
-        """Actualizaciones gobernadas (PR #320, C2/C3): cierra por EVIDENCIA lo que un proceso anterior dejó activo (tras el restore; nunca desde un GET)."""
+        """Actualizaciones gobernadas (PR #320, C2/C3/C5): cierra por EVIDENCIA lo que un proceso anterior dejó activo (tras el restore y la recuperación
+        de publicaciones; nunca desde un GET) y SOLO si todo terminó bien abre la compuerta de aprobaciones (READY); si no, queda FAILED."""
         try:
             from webapp.services import governed_update_approval
-            await asyncio.to_thread(governed_update_approval.recover_on_boot)
+            await asyncio.to_thread(governed_update_approval.boot_recovery)
         except Exception as exc:
             log.warning("recuperación de actualizaciones gobernadas al arranque falló: %s", type(exc).__name__)
 
@@ -259,6 +260,11 @@ async def lifespan(app: FastAPI):
         _notifications.startup_check()                                    # error de configuración CLARO (solo nombres de variables); nunca impide arrancar
     except Exception as exc:
         log.warning("chequeo de notificaciones al arranque falló: %s", type(exc).__name__)
+    try:                                                                  # C5: compuerta de aprobaciones CERRADA antes de servir (la abre solo la recuperación)
+        from webapp.services import governed_update_approval as _gua
+        _gua.mark_pending()
+    except Exception as exc:
+        log.warning("no se pudo cerrar la compuerta de aprobaciones gobernadas: %s", type(exc).__name__)
     log.info("persistencia: %s", remote_store.describe_mode())
     warning = remote_store.mode_warning()
     if warning:
