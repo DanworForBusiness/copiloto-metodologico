@@ -84,6 +84,7 @@ REVIEW_MAX_MONTHS = 24
 
 # Dimensiones del estado derivado (precisión 2): coexisten, no se colapsan.
 DECISION_NONE, DECISION_RATIFIED, DECISION_REVOKED = "NONE", "RATIFIED", "REVOKED"
+DECISION_RATIFIED_SCOPED = "RATIFIED_SCOPED"   # SOLO presentación (``summary_status``): fuente sin ratificación histórica y con ≥1 aceptación acotada vigente
 EVIDENCE_MATCH, EVIDENCE_STALE, EVIDENCE_UNKNOWN, EVIDENCE_NA = "MATCH", "STALE", "UNKNOWN", "NA"
 REVIEW_CURRENT, REVIEW_DUE, REVIEW_NA = "CURRENT", "DUE", "NA"
 # `principal`: etiqueta única SOLO para presentación, derivada sin perder las dimensiones.
@@ -565,6 +566,39 @@ def event_lanes(e: dict, by_id: dict) -> frozenset:
 def scoped_lanes(events: list[dict]) -> list[str]:
     """Modelos con carril propio (aparecen en algún `applies_to`)."""
     return sorted({m for e in events if e.get("event") == EVENT_RATIFIED for m in (e.get("applies_to") or ())})
+
+
+_LANE_KEYS = ("decision", "evidence", "review", "principal", "effective_review_by", "ratified_event_id")
+
+
+def summary_status(events: list[dict], current_contract_digest: str | None, now: datetime) -> dict:
+    """Estado de PRESENTACIÓN de una fuente (inventario / ficha). NO es el estado de vigencia que consume el scoring (ese es ``derive_status`` por carril).
+    · Sin ratificaciones acotadas: EXACTAMENTE ``derive_status`` (histórico), sin claves nuevas.
+    · Con carriles acotados: el estado histórico + ``scoped`` {modelo: estado del carril} + ``lanes`` (HISTORICAL_AND_SCOPED | SCOPED_ONLY).
+      Si NO hay decisión histórica, la fuente no se presenta como NONE: ``RATIFIED_SCOPED`` si algún carril está vigente (evidencia/revisión = la PEOR de
+      los carriles vigentes; principal = STALE > UNKNOWN > REVIEW_DUE > RATIFIED_SCOPED) o ``REVOKED`` si todos fueron revocados."""
+    hist = derive_status(events, current_contract_digest, now)
+    lanes = scoped_lanes(events)
+    if not lanes:
+        return hist
+    scoped = {m: derive_status(events, current_contract_digest, now, lane=m) for m in lanes}
+    out = dict(hist)
+    out["scoped"] = {m: {k: s.get(k) for k in _LANE_KEYS} for m, s in scoped.items()}
+    out["lanes"] = "SCOPED_ONLY" if hist["decision"] == DECISION_NONE else "HISTORICAL_AND_SCOPED"
+    if hist["decision"] != DECISION_NONE:
+        return out
+    live = [s for s in scoped.values() if s["decision"] == DECISION_RATIFIED]
+    if not live:
+        out.update(decision=DECISION_REVOKED, principal=PRINCIPAL_REVOKED, evidence=EVIDENCE_NA, review=REVIEW_NA)
+        return out
+    ev = {s["evidence"] for s in live}
+    evidence = EVIDENCE_STALE if EVIDENCE_STALE in ev else (EVIDENCE_UNKNOWN if EVIDENCE_UNKNOWN in ev else EVIDENCE_MATCH)
+    review = REVIEW_DUE if any(s["review"] == REVIEW_DUE for s in live) else REVIEW_CURRENT
+    principal = (PRINCIPAL_EVIDENCE_STALE if evidence == EVIDENCE_STALE else PRINCIPAL_EVIDENCE_UNKNOWN if evidence == EVIDENCE_UNKNOWN
+                 else PRINCIPAL_REVIEW_DUE if review == REVIEW_DUE else DECISION_RATIFIED_SCOPED)
+    out.update(decision=DECISION_RATIFIED_SCOPED, evidence=evidence, review=review, principal=principal,
+               effective_review_by=min(parse_utc(s["effective_review_by"]) for s in live).isoformat())
+    return out
 
 
 def derive_status(events: list[dict], current_contract_digest: str | None, now: datetime, lane: str | None = UNSCOPED_LANE) -> dict:

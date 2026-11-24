@@ -17,6 +17,7 @@ from webapp.services.status_tone import ACCEPTABLE, ATTENTION, NEUTRAL, POSITIVE
 _DECISION = {
     gd.DECISION_RATIFIED: ("Ratificada", POSITIVE),
     gd.DECISION_REVOKED: ("Revocada", ATTENTION),
+    gd.DECISION_RATIFIED_SCOPED: ("Ratificada con alcance", POSITIVE),     # v7: solo aceptaciones acotadas (ver `scoped` por consumidor)
     gd.DECISION_NONE: ("Sin decisión", NEUTRAL),
 }
 # evidencia: MATCH (positivo) · STALE (atención) · UNKNOWN/NA (neutro). STALE ≠ caducidad; UNKNOWN = no verificable ahora.

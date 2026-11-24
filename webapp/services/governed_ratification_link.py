@@ -90,5 +90,10 @@ def link_ratifications(profile: Mapping[str, Any], client: str, *, now: datetime
             if scope is not None:
                 item["applies_to"] = list(scope)
             linked.append(item)
-            report.append(_report(name, OUT_LINKED, None, technical_id=tid, event_id=event["event_id"], review=st["review"]))
+            trace = {}
+            if gd.scoped_lanes(events):                                # v7: qué carril se usó y qué decisión histórica quedó precedida PARA ESTE consumidor
+                trace = {"lane": "SCOPED" if scope is not None else "HISTORICAL"}
+                if scope is not None and hist_ok:
+                    trace["precedes_historical_event_id"] = st_hist["ratified_event_id"]
+            report.append(_report(name, OUT_LINKED, None, technical_id=tid, event_id=event["event_id"], review=st["review"], **trace))
     return {"ratified_contracts": linked, "report": report}

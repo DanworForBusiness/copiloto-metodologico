@@ -199,3 +199,49 @@ def test_replay_verifies_each_consumed_decision_in_its_own_lane(monkeypatch, his
         with pytest.raises(svc.ReplacementAbstained) as exc:
             call()
         assert exc.value.code == "RATIFICATION_NOT_ACTIVE"
+
+
+# ───────────── presentación (inventario / ficha) y trazabilidad del evento usado ─────────────
+def test_summary_status_is_identical_without_scoped_ratifications():
+    for evs in ([], [R("h1", 0)], [R("h1", 0), X("v1", 1, "h1")]):
+        assert gd.summary_status(evs, DIG, NOW) == gd.derive_status(evs, DIG, NOW)
+
+
+def test_a_source_with_only_scoped_acceptances_is_not_presented_as_none():
+    s = gd.summary_status([R("s1", 0, [HOJ])], DIG, NOW)
+    assert s["decision"] == gd.DECISION_RATIFIED_SCOPED and s["lanes"] == "SCOPED_ONLY" and s["scoped"][HOJ]["ratified_event_id"] == "s1"
+    assert s["evidence"] == gd.EVIDENCE_MATCH and s["principal"] == gd.DECISION_RATIFIED_SCOPED
+    from webapp.services import governed_decisions_presenter as pr
+    assert pr.dimension_chips(s)["decision"]["label"] == "Ratificada con alcance"
+    r = gd.summary_status([R("s1", 0, [HOJ]), X("v1", 1, "s1")], DIG, NOW)
+    assert r["decision"] == gd.DECISION_REVOKED and r["scoped"][HOJ]["decision"] == gd.DECISION_REVOKED
+    st = gd.summary_status([R("s1", 0, [HOJ])], "f" * 64, NOW)
+    assert st["evidence"] == gd.EVIDENCE_STALE and st["principal"] == gd.PRINCIPAL_EVIDENCE_STALE
+
+
+def test_with_historical_and_scoped_the_historical_state_is_kept_and_lanes_are_added():
+    s = gd.summary_status([R("h1", 0), R("s1", 1, [HOJ])], DIG, NOW)
+    assert s["decision"] == gd.DECISION_RATIFIED and s["ratified_event_id"] == "h1" and s["lanes"] == "HISTORICAL_AND_SCOPED"
+
+
+def test_inventory_rows_for_scoped_only_sources(env, monkeypatch):                                 # noqa: F811
+    from webapp.services import governed_decisions_inventory as inv
+    _world(env)
+    monkeypatch.setattr(inv, "_load_all_client_events", lambda c: {SUBJ["technical_id"]: [R("s1", 0, [HOJ])]})
+    row = next(r for r in inv.list_client_contracts("Kensing", NOW) if r["technical_id"] == SUBJ["technical_id"])
+    assert row["decision"] == gd.DECISION_RATIFIED_SCOPED and row["lanes"] == "SCOPED_ONLY" and list(row["scoped"]) == [HOJ]
+    monkeypatch.setattr(inv, "_load_all_client_events", lambda c: {SUBJ["technical_id"]: [R("h1", 0)]})
+    row = next(r for r in inv.list_client_contracts("Kensing", NOW) if r["technical_id"] == SUBJ["technical_id"])
+    assert row["decision"] == gd.DECISION_RATIFIED and "scoped" not in row and "lanes" not in row      # fila histórica: misma forma
+
+
+def _report(am, evs):
+    return link.link_ratifications(_profile(am), "Kensing", now=NOW, load_events=lambda c, t: copy.deepcopy(evs))["report"][0]
+
+
+def test_precedence_of_the_scoped_acceptance_is_traceable_for_the_declared_consumer_only():
+    evs = [R("h1", 0), R("s1", 1, [HOJ])]
+    rh, rn = _report(HOJ, evs), _report(NC, evs)
+    assert (rh["event_id"], rh["lane"], rh["precedes_historical_event_id"]) == ("s1", "SCOPED", "h1")
+    assert (rn["event_id"], rn["lane"]) == ("h1", "HISTORICAL") and "precedes_historical_event_id" not in rn
+    assert set(_report(HOJ, [R("h1", 0)])) == {"leaf", "outcome", "reason", "technical_id", "event_id", "review"}   # sin carriles: informe histórico idéntico

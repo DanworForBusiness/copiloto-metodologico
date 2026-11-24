@@ -310,5 +310,6 @@ def status(client: str, identity: dict, now: datetime) -> dict:
         digest = None                                             # evidencia ausente/ambigua/ilegible → UNKNOWN (la consulta no se rompe)
     recon = store.reconstruct(subject["client"], subject["technical_id"], digest, now)
     recon["consumers"] = consumers                               # trazabilidad (no amplía alcance); `scoped_status` = carriles por consumidor declarado
+    recon["summary_status"] = gd.summary_status(recon["events"], digest, now)   # presentación (ficha): sin acotadas == `status`
     recon["evidence_digest"] = digest
     return recon

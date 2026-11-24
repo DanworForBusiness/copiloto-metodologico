@@ -95,7 +95,7 @@ def list_client_contracts(client: str, now: datetime) -> list[dict]:
     rows: list[dict] = []
     for tid in (set(evidence) | set(events)):
         evs = store._dedupe_and_check(events.get(tid, []))         # fail-closed ante contradicción del historial
-        st = gd.derive_status(evs, digests.get(tid), now)
+        st = gd.summary_status(evs, digests.get(tid), now)           # v7: con solo aceptaciones acotadas no se presenta como NONE (historial: idéntico)
         identity = evidence[tid]["identity"] if tid in evidence else json.loads(tid)
         rows.append({
             "technical_id": tid,
@@ -106,6 +106,7 @@ def list_client_contracts(client: str, now: datetime) -> list[dict]:
             "evidence_ambiguous": tid in ambiguous,
             "consumers": sorted(evidence[tid]["consumers"]) if tid in evidence else [],
             "events_count": len(evs),
+            **({"scoped": st["scoped"], "lanes": st["lanes"]} if st.get("scoped") else {}),
         })
     rows.sort(key=lambda r: ((r["identity"].get("remote_connection") or ""), r["identity"].get("remote_entity") or ""))
     return rows
