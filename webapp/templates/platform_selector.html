@@ -13,7 +13,7 @@
      DOM: el router ya sabe cuántos workspaces ve este usuario. La geometría
      del tile depende de ese número y de nada más — nunca de qué vertical
      esté oculta. #}
-  <div class="workspace-tiles" data-visible-count="{{ cards|length }}">
+  <div class="workspace-tiles" data-visible-count="{{ cards|length }}" data-hub-transition-links>
     {% for card in cards %}
     <a class="glass workspace-tile" href="{{ card.workspace.home_url }}">
       <div class="access-brand">
@@ -32,4 +32,8 @@
     {% endfor %}
   </div>
 </section>
+{# Preload al entrar a una vertical desde una tarjeta: el MISMO mecanismo único del switcher del encabezado (hub_transition.js).
+   El visual (.auth-overlay/.auth-spinner) ya llega a esta pantalla por el @import de hub_overlay.css en brand-hero.css: no se
+   agrega CSS ni componente. #}
+<script src="/static/hub_transition.js" defer></script>
 {% endblock %}
