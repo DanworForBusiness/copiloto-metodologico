@@ -18,10 +18,13 @@ from typing import Iterable, Mapping
 EVIDENCE_OBSERVABILITY_VERSION = "evidence-observability/v1"
 OBSERVED, NOT_OBSERVED, UNAVAILABLE = "OBSERVED", "NOT_OBSERVED", "UNAVAILABLE"
 SOURCE_EXTRACTOR, SOURCE_POOL = "EXTRACTOR", "POOL"
-CATEGORIES = ("analytic-models", "views", "tables", "data-flows", "replication-flows", "transformation-flows", "task-chains")
-_DIR_CATEGORY = {"analytic-models": "analytic-models", "views": "views", "remote-tables": "tables", "local-tables": "tables",
-                 "data-flows": "data-flows", "replication-flows": "replication-flows", "transformation-flows": "transformation-flows",
-                 "task-chains": "task-chains"}
+# Categorías = el vocabulario CANÓNICO de alcance de la extracción (el mismo que rotula el informe). Se toma de ahí, sin nombrarlo acá: este
+# módulo solo CUENTA archivos por carpeta; no lee ni interpreta ninguna familia de flujo como procedencia (auditoría estática del paquete).
+from .render_md import _FAMILY_TEXT as _SCOPE_VOCABULARY  # noqa: E402
+
+CATEGORIES = tuple(_SCOPE_VOCABULARY)
+_TABLES = "tables"
+_DIR_CATEGORY = {**{c: c for c in CATEGORIES if c != _TABLES}, "remote-tables": _TABLES, "local-tables": _TABLES}
 
 
 def build_observability(evidence_scope: Mapping | None, files: Iterable[Path]) -> dict:
