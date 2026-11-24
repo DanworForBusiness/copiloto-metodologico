@@ -140,8 +140,9 @@ def test_finalize_leaves_a_single_live_judgment_with_only_a_scalar_previous_leve
     seed_v4(world)
     out = activate(world)
     assert bf.finalize_ruleset_activation(operator="bob", confirm_plan="short")["reason"] == "CONFIRMATION_REQUIRED"
-    fin = bf.finalize_ruleset_activation(operator="bob", confirm_plan=out["plan"]["digest"][:16])
-    assert fin["outcome"] == "FINALIZED" and fin["finalized"] == len(MODELS) and ja.state() == ja.FINALIZED
+    assert bf.finalize_ruleset_activation(operator="bob", confirm_plan=out["plan"]["digest"][:16])["reason"] == "BACKUP_DIR_REQUIRED"   # ancla de reversibilidad
+    fin = bf.finalize_ruleset_activation(operator="bob", confirm_plan=out["plan"]["digest"][:16], backup_dir=world.tmp / "bk")
+    assert fin["outcome"] == "FINALIZED" and fin["finalized"] == len(MODELS) and ja.state() == ja.FINALIZED and fin["committed_journaled"] == len(MODELS)
     restart()
     env = svc._load_envelope("Biogenesis", "AM_SELLOUT_GP")
     assert "judgment_candidate" not in env and env["judgment"]["ruleset_version"] == RULESET_V5

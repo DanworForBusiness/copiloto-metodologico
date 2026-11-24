@@ -446,8 +446,11 @@ def test_backfill_uses_only_the_local_pool_no_datasphere_no_credentials(world, m
     from tools.catalog import DSP_CLI_Export_Lineage as dsp
     from webapp.services import datasphere_assessment_service as asd
     src = inspect.getsource(bf)
-    for forbidden in ("run_export", "ExportRequest", "client_secret", "datasphere_publication", "datasphere_assessment_service", "requests", "httpx"):
+    for forbidden in ("run_export", "ExportRequest", "client_secret", "datasphere_publication", "datasphere_assessment_service"):
         assert forbidden not in src, forbidden
+    # `requests`/`httpx` como LIBRERÍA HTTP (import o uso real), con límite de palabra: el módulo LOCAL del pool
+    # `governed_update_requests` (sin red, usado por la exclusión de la activación) NO debe disparar el guard.
+    assert not re.search(r"\b(?:requests|httpx)\b", src), "requests/httpx"
     monkeypatch.setattr(dsp, "run_export", lambda *a, **k: pytest.fail("el backfill no extrae de Datasphere"))
     monkeypatch.setattr(asd, "run", lambda *a, **k: pytest.fail("no ejecuta el assessment ad-hoc"))
     monkeypatch.setattr(svc, "generate", lambda e: _status(e, svc.CURRENT, _profile()))
