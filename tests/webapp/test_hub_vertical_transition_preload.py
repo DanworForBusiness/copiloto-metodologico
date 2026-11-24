@@ -73,3 +73,57 @@ def test_login_landing_is_not_affected():
     assert "body.auth-completing .auth-overlay{display:flex}" in OVERLAY_CSS
     # el macro NO reintroduce auth-completing (su disparador es hub-transitioning)
     assert "auth-completing" not in TOPBAR.split("{% macro platform_topbar")[1]
+
+
+# 5. Landing «Danwor Hub» (platform_selector.html): las TARJETAS de vertical usan el MISMO controlador que el switcher
+import json  # noqa: E402
+import shutil  # noqa: E402
+import subprocess  # noqa: E402
+from types import SimpleNamespace  # noqa: E402
+
+import pytest  # noqa: E402
+
+SELECTOR = (ROOT / "webapp/templates/platform_selector.html").read_text(encoding="utf-8")
+_NODE_HARNESS = Path(__file__).resolve().parent / "hub_transition.node.js"
+
+
+def _render_selector():
+    cards = [{"workspace": workspaces.COPILOT, "meta": {"title": "Copiloto"}}, {"workspace": workspaces.COMMERCIAL, "meta": {}}]
+    fake_request = SimpleNamespace(url_for=lambda name, **kw: f"/static/{kw.get('path', '')}")   # solo para `url_for` del shell
+    return templates.env.get_template("platform_selector.html").render(cards=cards, request=fake_request)
+
+
+def test_landing_loads_the_same_single_mechanism_without_new_css_or_components():
+    html = _render_selector()
+    assert html.count('src="/static/hub_transition.js"') == 1 and "defer" in html
+    # el visual ya llega por brand-hero.css (@import hub_overlay.css): NO se agrega otra hoja ni markup de overlay/spinner
+    assert "/static/hub_overlay.css" not in html and "auth-overlay" not in html and "auth-spinner" not in html
+    # cada tarjeta declara su etiqueta corta (el texto de la tarjeta incluye descripción y lista); href y contenido sin cambios
+    for ws in (workspaces.COPILOT, workspaces.COMMERCIAL):
+        assert f'href="{ws.home_url}" data-hub-transition-label="{ws.label}"' in html
+
+
+def test_js_covers_landing_tiles_with_the_same_controller():
+    assert "a.workspace-tile[href]" in JS
+    assert JS.count('document.addEventListener("click"') == 1                    # UN solo controlador para las dos vías
+    assert "isCurrentPage" in JS and "data-hub-transition-label" in JS
+    assert "hub-transitioning\")) {" in JS and "ev.preventDefault()" in JS          # navegación en curso → segundo click ignorado
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node no disponible en este entorno")
+def test_controller_behaviour_for_switcher_and_landing_tiles():
+    r = subprocess.run(["node", str(_NODE_HARNESS)], capture_output=True, timeout=30)
+    assert r.returncode == 0, r.stderr.decode("utf-8", "replace")
+    o = json.loads(r.stdout.decode("utf-8"))
+    # (A) switcher del encabezado: comportamiento conservado
+    assert o["switcher_other"]["shown"] and o["switcher_other"]["text"] == "Abriendo Comercial…" and not o["switcher_other"]["prevented"]
+    assert o["switcher_platform"]["shown"]
+    assert not o["switcher_active"]["shown"] and not o["switcher_modified"]["shown"]
+    # (B) tarjetas del landing: mismo overlay, etiqueta corta, también con teclado (Enter → click)
+    for k in ("tile_click", "tile_enter"):
+        assert o[k]["shown"] and o[k]["text"] == "Abriendo Comercial…" and o[k]["overlays"] == 1 and not o[k]["prevented"]
+    first, second = o["tile_double"]
+    assert first["shown"] and not first["prevented"] and second["prevented"] and second["overlays"] == 1   # sin navegación duplicada
+    for k in ("tile_same_page", "tile_new_tab", "tile_middle", "tile_target_blank", "not_a_vertical_link"):
+        assert not o[k]["shown"] and not o[k]["prevented"], k
+    assert o["bfcache_cleared"]

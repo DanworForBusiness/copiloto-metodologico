@@ -15,7 +15,7 @@
      esté oculta. #}
   <div class="workspace-tiles" data-visible-count="{{ cards|length }}">
     {% for card in cards %}
-    <a class="glass workspace-tile" href="{{ card.workspace.home_url }}">
+    <a class="glass workspace-tile" href="{{ card.workspace.home_url }}" data-hub-transition-label="{{ card.workspace.label }}">
       <div class="access-brand">
         {% if card.meta.eyebrow %}<p class="kicker">{{ card.meta.eyebrow }}</p>{% endif %}
         <h2>{{ card.meta.title or card.workspace.label }}{% if card.meta.accent %}<span>{{ card.meta.accent }}</span>{% endif %}</h2>
@@ -32,4 +32,8 @@
     {% endfor %}
   </div>
 </section>
+{# Preload al entrar a una vertical desde una tarjeta: el MISMO mecanismo único del switcher del encabezado (hub_transition.js).
+   El visual (.auth-overlay/.auth-spinner) ya llega a esta pantalla por el @import de hub_overlay.css en brand-hero.css: no se
+   agrega CSS ni componente. #}
+<script src="/static/hub_transition.js" defer></script>
 {% endblock %}

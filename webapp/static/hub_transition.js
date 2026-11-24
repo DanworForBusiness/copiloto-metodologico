@@ -5,8 +5,12 @@
    por vertical: el macro del topbar lo carga en todas las pantallas autenticadas.
 
    Comportamiento:
-     - Aparece al iniciar un cambio de vertical (click en un link del switcher de workspace a OTRA vertical).
-     - NO aparece al navegar dentro de la misma vertical, ni en el link activo, ni en clicks modificados / nueva pestaña.
+     - Aparece al iniciar un cambio de vertical: click (o Enter) en un link del switcher de workspace a OTRA vertical, o en una
+       TARJETA de vertical del landing «Danwor Hub» (`a.workspace-tile`, platform_selector.html) — el MISMO controlador para ambas vías.
+     - NO aparece al navegar dentro de la misma vertical, ni en el link activo, ni si el destino es la página actual, ni en clicks
+       modificados / nueva pestaña.
+     - Mientras la navegación está en curso, un segundo click/Enter sobre cualquier link de cambio de vertical se ignora (evita
+       navegaciones duplicadas por doble click o Enter repetido).
      - Desaparece cuando la vertical destino carga (navegación de página completa: el DOM se reemplaza y el overlay deja de existir).
      - Al volver con el navegador (bfcache), se limpia en `pageshow(persisted)`.
      - Sin temporizador para OCULTAR en el caso normal; el fin responde al estado real de navegación (reemplazo de página).
@@ -16,7 +20,8 @@
   "use strict";
 
   var OVERLAY_ID = "hub-transition-overlay";
-  var SWITCH_SELECTOR = ".workspace-switch-menu a[href], a.workspace-switch-platform[href]";
+  // Switcher del encabezado + tarjetas de vertical del landing del Hub (misma semántica: navegar a OTRA vertical).
+  var SWITCH_SELECTOR = ".workspace-switch-menu a[href], a.workspace-switch-platform[href], a.workspace-tile[href]";
   // Watchdog de SEGURIDAD (no es el mecanismo de cierre normal): si la navegación no ocurrió en este lapso, limpiamos el overlay
   // para no dejarlo pegado tras una navegación cancelada/bloqueada. Un cambio de vertical real reemplaza la página mucho antes.
   var SAFETY_MS = 10000;
@@ -61,6 +66,16 @@
     if (el) el.setAttribute("aria-hidden", "true");
   }
 
+  function isCurrentPage(a) {
+    // `a.href` es la URL ABSOLUTA resuelta por el navegador; se compara sin el fragmento.
+    try {
+      var u = new URL(a.href, window.location.href);
+      return u.origin === window.location.origin && u.pathname === window.location.pathname && u.search === window.location.search;
+    } catch (e) {
+      return false;
+    }
+  }
+
   document.addEventListener("click", function (ev) {
     if (ev.defaultPrevented) return;
     if (ev.button !== 0 || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;  // nueva pestaña / click modificado
@@ -71,7 +86,13 @@
     if (tgt && tgt !== "_self") return;                            // abre en otro contexto
     var href = a.getAttribute("href") || "";
     if (!href || href.charAt(0) === "#") return;                   // ancla en la misma página
-    var label = (a.textContent || "").trim();
+    if (isCurrentPage(a)) return;                                  // el destino es la página actual → no navega de vertical
+    if (document.body.classList.contains("hub-transitioning")) {   // navegación ya en curso → ignorar el segundo click/Enter
+      ev.preventDefault();
+      return;
+    }
+    // Etiqueta corta explícita (tarjetas del landing: su texto incluye descripción y lista) o, si no, el texto del link.
+    var label = (a.getAttribute("data-hub-transition-label") || a.textContent || "").trim();
     show(label ? ("Abriendo " + label + "…") : "Abriendo espacio…");
     // La navegación de página completa continúa; el overlay persiste hasta que la vertical destino reemplaza la página.
   }, true);
