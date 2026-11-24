@@ -545,8 +545,36 @@ def _sorted_events(events: list[dict]) -> list[dict]:
     return sorted(events, key=lambda e: (parse_utc(e.get("decided_at")), str(e.get("event_id") or "")))
 
 
-def derive_status(events: list[dict], current_contract_digest: str | None, now: datetime) -> dict:
+UNSCOPED_LANE = None        # carril histórico: ratificaciones SIN `applies_to` (semántica v4.B exacta)
+
+
+def _target(e: dict, by_id: dict) -> dict | None:
+    t = by_id.get(e.get("revokes_event_id"))
+    return t if t is not None and t.get("event") == EVENT_RATIFIED else None
+
+
+def event_lanes(e: dict, by_id: dict) -> frozenset:
+    """Carriles de vigencia a los que pertenece un evento. RATIFIED sin alcance → carril histórico (``UNSCOPED_LANE``); con alcance → un carril por
+    modelo declarado. REVOKED → los carriles de la ratificación que revoca (si el objetivo no existe o no es un RATIFIED: carril histórico, como siempre)."""
+    if e.get("event") == EVENT_RATIFIED:
+        return frozenset(e["applies_to"]) if e.get("applies_to") else frozenset({UNSCOPED_LANE})
+    t = _target(e, by_id)
+    return event_lanes(t, by_id) if t is not None else frozenset({UNSCOPED_LANE})
+
+
+def scoped_lanes(events: list[dict]) -> list[str]:
+    """Modelos con carril propio (aparecen en algún `applies_to`)."""
+    return sorted({m for e in events if e.get("event") == EVENT_RATIFIED for m in (e.get("applies_to") or ())})
+
+
+def derive_status(events: list[dict], current_contract_digest: str | None, now: datetime, lane: str | None = UNSCOPED_LANE) -> dict:
     """Estado derivado de UN subject (eventos ya filtrados por subject), calculado en lectura — NUNCA se almacena (D7).
+
+    CARRILES (v7, `applies_to`): la vigencia se deriva POR CARRIL, nunca por subject completo. ``lane=None`` (por defecto) = carril HISTÓRICO: solo
+    ratificaciones SIN alcance y las revocaciones que las apuntan — con SOLO eventos históricos el resultado es idéntico al de siempre. ``lane="<AM>"`` =
+    carril del consumidor declarado: ratificaciones cuyo `applies_to` lo incluye y las revocaciones de ESAS ratificaciones; en un carril acotado una
+    revocación solo surte efecto si apunta a la ratificación VIGENTE del carril (revocar una ya reemplazada no apaga la renovación). Una ratificación
+    acotada NUNCA altera el carril histórico ni el de otro consumidor, y viceversa.
 
     Devuelve tres dimensiones que COEXISTEN + un `principal` solo para presentación:
       decision: NONE | RATIFIED | REVOKED
@@ -559,13 +587,16 @@ def derive_status(events: list[dict], current_contract_digest: str | None, now: 
     if now.tzinfo is None:
         raise ValidationError("now debe ser datetime aware (UTC)")
 
-    ordered = _sorted_events(events)
+    by_id = {e.get("event_id"): e for e in events}
+    ordered = [e for e in _sorted_events(events) if lane in event_lanes(e, by_id)]
     decision = DECISION_NONE
     active: dict | None = None            # última ratificación vigente (None si revocada o inexistente)
     for e in ordered:
         if e["event"] == EVENT_RATIFIED:
             decision, active = DECISION_RATIFIED, e
         elif e["event"] == EVENT_REVOKED:
+            if lane is not UNSCOPED_LANE and (active is None or e.get("revokes_event_id") != active.get("event_id")):
+                continue                  # carril acotado: revocar una ratificación ya reemplazada (o ya revocada) no cambia el carril
             decision, active = DECISION_REVOKED, None
 
     evidence = EVIDENCE_NA

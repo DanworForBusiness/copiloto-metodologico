@@ -616,14 +616,16 @@ def _verify_consumed_decision(client: str, item: dict, leaves: dict, now: Any, a
         status = recon["status"]
     except (RemoteReadError, gd.GovernedDecisionError, store.GovernedDecisionStoreError, OSError, ValueError):
         raise ReplacementAbstained("DECISION_STATUS_UNVERIFIABLE", str(item.get("leaf"))) from None
-    if (status.get("decision") != gd.DECISION_RATIFIED or status.get("ratified_event_id") != item.get("event_id")
-            or status.get("evidence") != gd.EVIDENCE_MATCH):
-        raise ReplacementAbstained("RATIFICATION_NOT_ACTIVE", str(item.get("leaf")))
     # v7 — alcance de consumo: el ítem consumido debe declarar EXACTAMENTE el `applies_to` del evento (nunca uno ampliado/inventado) y ESTE modelo debe estar en él
     event = next((e for e in recon.get("events") or () if e.get("event_id") == item.get("event_id")), None)
     scope = (event or {}).get("applies_to")
     if (list(scope) if scope else None) != (list(item["applies_to"]) if item.get("applies_to") else None) or (scope and am is not None and am not in scope):
         raise ReplacementAbstained("RATIFICATION_SCOPE_MISMATCH", str(item.get("leaf")))
+    if item.get("applies_to"):                          # v7: decisión acotada ⇒ vigencia en el carril de ESTE consumidor (nunca en el histórico ni en otro)
+        status = (recon.get("scoped_status") or {}).get(am or "") or {}
+    if (status.get("decision") != gd.DECISION_RATIFIED or status.get("ratified_event_id") != item.get("event_id")
+            or status.get("evidence") != gd.EVIDENCE_MATCH):
+        raise ReplacementAbstained("RATIFICATION_NOT_ACTIVE", str(item.get("leaf")))
 
 
 def judgment_for_replacement(profile: dict, previous: dict | None, *, now: Any = None, structural: dict | None = None) -> tuple[dict | None, dict]:

@@ -10,8 +10,9 @@ Una hoja se enlaza ÚNICAMENTE si cumple TODO:
   · existe una ratificación vigente del MISMO (client, remote_connection, remote_entity) — no revocada;
   · el digest per-CDS actual de la evidencia MATCH-ea el de la ratificación (STALE / UNKNOWN / evidencia contradictoria entre consumidores NO enlazan);
   · `REVIEW_DUE` enlaza (D7: revisión vencida no es caducidad) pero se informa;
-  · v7 — si la ratificación vigente declara `applies_to`, el modelo terminal de ESTE perfil debe estar en él (si no: NOT_LINKED `OUT_OF_SCOPE`, la
-    decisión NO se propaga a otros consumidores) y el alcance viaja en el ítem. Sin `applies_to` (todas las históricas): enlace idéntico al de siempre.
+  · v7 — CARRILES: se evalúa primero el carril de ESTE modelo (ratificaciones cuyo `applies_to` lo incluye) y, si no tiene una ratificación vigente con
+    evidencia MATCH, el carril HISTÓRICO (sin alcance). El carril de OTRO consumidor nunca se enlaza (OUT_OF_SCOPE si es lo único que hay) y una
+    ratificación acotada jamás desplaza la histórica de los demás consumidores. Sin eventos acotados: enlace idéntico al de siempre.
 El motor vuelve a validar cada ratificación contra el perfil (elegibilidad de la clase, identidad, exposición decision-crítica).
 """
 from __future__ import annotations
@@ -66,8 +67,14 @@ def link_ratifications(profile: Mapping[str, Any], client: str, *, now: datetime
         if foreign:
             report.append(_report(name, OUT_NOT_LINKED, "FOREIGN_SUBJECT_EVENTS", technical_id=tid))
             continue
-        st = gd.derive_status(events, current, now)
-        if st["decision"] == gd.DECISION_NONE:
+        st_hist = gd.derive_status(events, current, now)
+        st_own = gd.derive_status(events, current, now, lane=am) if am else None
+        own_ok = st_own is not None and st_own["decision"] == gd.DECISION_RATIFIED and st_own["evidence"] == gd.EVIDENCE_MATCH
+        hist_ok = st_hist["decision"] == gd.DECISION_RATIFIED and st_hist["evidence"] == gd.EVIDENCE_MATCH
+        st = st_own if own_ok or (not hist_ok and st_own is not None and st_own["decision"] != gd.DECISION_NONE) else st_hist
+        if st["decision"] == gd.DECISION_NONE and gd.scoped_lanes(events):
+            report.append(_report(name, OUT_NOT_LINKED, "OUT_OF_SCOPE", technical_id=tid, applies_to=gd.scoped_lanes(events)))
+        elif st["decision"] == gd.DECISION_NONE:
             report.append(_report(name, OUT_NOT_LINKED, "NO_RATIFICATION", technical_id=tid))
         elif st["decision"] == gd.DECISION_REVOKED:
             report.append(_report(name, OUT_NOT_LINKED, "REVOKED", technical_id=tid))
@@ -78,9 +85,6 @@ def link_ratifications(profile: Mapping[str, Any], client: str, *, now: datetime
         else:
             event = next(e for e in events if e["event_id"] == st["ratified_event_id"])
             scope = event.get("applies_to")
-            if scope is not None and am not in scope:
-                report.append(_report(name, OUT_NOT_LINKED, "OUT_OF_SCOPE", technical_id=tid, event_id=event["event_id"], applies_to=list(scope)))
-                continue
             item = {"leaf": name, "identity": identity, "technical_id": tid, "event_id": event["event_id"], "digest": event["evidence_ref"]["digest"],
                     "evidence_ref": dict(event["evidence_ref"]), "decided_at": event["decided_at"]}
             if scope is not None:

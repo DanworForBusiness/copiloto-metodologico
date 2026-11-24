@@ -134,7 +134,7 @@ def test_replay_reverifies_the_scope_of_each_consumed_decision(monkeypatch, even
     ident = gd.cds_identity(lf)
     item = {"leaf": "SRC", "identity": ident, "technical_id": gd.cds_technical_id(ident), "event_id": ev["event_id"], "digest": gd.cds_contract_digest(lf),
             "evidence_ref": gd.cds_evidence_ref(lf), **({"applies_to": item_scope} if item_scope else {})}
-    monkeypatch.setattr(store, "reconstruct", lambda c, t, d, n: {"events": [ev], "status": gd.derive_status([ev], d, n)})
+    monkeypatch.setattr(store, "load_events", lambda c, t: [copy.deepcopy(ev)])                 # reconstrucción REAL (carriles incluidos)
     call = lambda: svc._verify_consumed_decision("Kensing", item, {"SRC": lf}, NOW, am)          # noqa: E731
     if ok:
         call()

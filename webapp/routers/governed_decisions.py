@@ -105,14 +105,15 @@ def ratify(request: Request, client: str = Form(...), remote_connection: str = F
 
 @router.post("/governed-decisions/revoke", include_in_schema=False)
 def revoke(request: Request, client: str = Form(...), remote_connection: str = Form(""), remote_entity: str = Form(...),
-           rationale: str = Form(...), request_id: str = Form(...)):
+           rationale: str = Form(...), request_id: str = Form(...), applies_to: str = Form("")):
     user = _authorize_write(request)
     actor = str(user.get("sub") or "").strip().lower()
+    scope = [a.strip() for a in applies_to.replace("\n", ",").split(",") if a.strip()] or None     # v7: vacío = ratificación histórica; si no, alcance EXACTO
     out = _run(lambda: ops.revoke(client=client.strip(), identity=_identity(remote_connection, remote_entity),
                                   rationale=rationale, actor=actor, now=datetime.now(timezone.utc),
-                                  event_id="gd-" + uuid.uuid4().hex, request_id=request_id.strip()))
+                                  event_id="gd-" + uuid.uuid4().hex, request_id=request_id.strip(), applies_to=scope))
     return {"outcome": out["outcome"], "event_id": out["event"]["event_id"], "subject": out["event"]["subject"],
-            "revoked_event_id": out.get("revoked_event_id")}
+            "revoked_event_id": out.get("revoked_event_id"), "applies_to": out.get("applies_to")}
 
 
 @router.get("/governed-decisions/status", include_in_schema=False)
@@ -124,6 +125,8 @@ def status(request: Request, client: str, remote_entity: str, remote_connection:
     return {"subject": recon["subject"], "decision": st["decision"], "evidence": st["evidence"], "review": st["review"],
             "principal": st["principal"], "effective_review_by": st.get("effective_review_by"),
             "evidence_digest": recon.get("evidence_digest"), "consumers": recon.get("consumers", []),
+            **({"scoped_status": {m: {k: s.get(k) for k in ("decision", "evidence", "review", "principal", "ratified_event_id")}
+                                  for m, s in recon["scoped_status"].items()}} if recon.get("scoped_status") else {}),
             "events": [{"event": e["event"], "event_id": e["event_id"], "decided_at": e["decided_at"],
                         "actor": e["actor"], "rationale": e["rationale"], **({"applies_to": e["applies_to"]} if e.get("applies_to") else {})}
                        for e in recon["events"]]}

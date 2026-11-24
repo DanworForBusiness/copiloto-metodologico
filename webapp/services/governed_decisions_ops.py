@@ -210,7 +210,13 @@ def _idempotency(hist: list[dict], request_id: str, intended_fp: tuple) -> dict 
     return None
 
 
-def _idempotency_revocation(hist: list[dict], request_id: str, subject: dict, rationale: str) -> dict | None:
+def _revoked_scope(e: dict, hist: list[dict]) -> tuple | None:
+    """Alcance de la ratificación que revoca un REVOKED (``None`` = histórica sin alcance)."""
+    t = next((x for x in hist if x.get("event_id") == e.get("revokes_event_id") and x.get("event") == gd.EVENT_RATIFIED), None)
+    return tuple(t["applies_to"]) if t and t.get("applies_to") else None
+
+
+def _idempotency_revocation(hist: list[dict], request_id: str, subject: dict, rationale: str, scope: tuple | None = None) -> dict | None:
     """Idempotencia A para REVOKED: el `revokes_event_id` lo fija el backend en la 1ª aplicación, así que un reintento se
     identifica por `request_id` + (es REVOKED, mismo subject, misma rationale) y HEREDA el target del evento existente. Mismo
     `request_id` reusado para otro contenido (otra rationale) o para un RATIFIED → IdempotencyConflict (fail-closed)."""
@@ -218,7 +224,7 @@ def _idempotency_revocation(hist: list[dict], request_id: str, subject: dict, ra
     for e in hist:
         if e.get("request_id") == request_id:
             if (e.get("event") == gd.EVENT_REVOKED and gd.canonical_json(e.get("subject")) == subj
-                    and e.get("rationale") == rationale):
+                    and e.get("rationale") == rationale and _revoked_scope(e, hist) == scope):
                 return e
             raise IdempotencyConflict(f"request_id {request_id!r} ya usado con contenido distinto")
     return None
@@ -248,7 +254,15 @@ def ratify(*, client: str, identity: dict, rationale: str, actor: str, now: date
     return {"outcome": "RATIFIED", "event": event, "stored": out, "consumers": resolved["consumers"]}
 
 
-def revoke(*, client: str, identity: dict, rationale: str, actor: str, now: datetime, event_id: str, request_id: str) -> dict:
+def _scoped_target(hist: list[dict], scope: tuple, now: datetime) -> str | None:
+    """Ratificación con alcance EXACTAMENTE ``scope`` que sigue vigente en al menos uno de sus carriles (la más reciente)."""
+    live = {gd.derive_status(hist, None, now, lane=m).get("ratified_event_id") for m in scope}
+    cands = [e for e in hist if e.get("event") == gd.EVENT_RATIFIED and tuple(e.get("applies_to") or ()) == scope and e.get("event_id") in live]
+    return max(cands, key=lambda e: (gd.parse_utc(e["decided_at"]), str(e["event_id"])))["event_id"] if cands else None
+
+
+def revoke(*, client: str, identity: dict, rationale: str, actor: str, now: datetime, event_id: str, request_id: str,
+           applies_to: Any = None) -> dict:
     """Revoca la ratificación VIGENTE de una CDS/API. Rechaza huérfana/repetida/no-vigente. Construye REVOKED (apunta a la
     vigente) sin alterar el original; persiste+confirma vía B2. NO requiere resolver la evidencia actual (opera sobre el historial)."""
     gd._require_exact_text(rationale, "rationale")                  # motivo obligatorio (D5)
@@ -261,17 +275,25 @@ def revoke(*, client: str, identity: dict, rationale: str, actor: str, now: date
     # así que derivar vigencia primero rechazaría el reintento legítimo). El `revokes_event_id` lo fija el backend en la 1ª
     # aplicación; el reintento lo HEREDA del evento existente (no se re-deriva). Distinto contenido (otra razón, o reuso del
     # id para un RATIFIED) → IdempotencyConflict.
-    existing = _idempotency_revocation(hist, request_id, subject, rationale)
+    # v7: la revocación es DIRIGIDA a un carril. Sin `applies_to` ⇒ SOLO la ratificación histórica (sin alcance) vigente; con `applies_to` ⇒ la
+    # ratificación vigente cuyo alcance es EXACTAMENTE ese (nunca se infiere ni se amplía: revocar un carril no toca el histórico ni otros consumidores).
+    scope = tuple(sorted({str(a).strip() for a in applies_to if str(a).strip()})) if applies_to else None
+    existing = _idempotency_revocation(hist, request_id, subject, rationale, scope)
     if existing is not None:
         return {"outcome": "IDEMPOTENT", "event": existing, "revoked_event_id": existing.get("revokes_event_id")}
-    status = gd.derive_status(hist, None, now)                     # el digest no hace falta para la DECISIÓN
-    if status["decision"] != gd.DECISION_RATIFIED or not status.get("ratified_event_id"):
-        raise RevocationNotAllowed("no hay ratificación vigente que revocar (huérfana/repetida/no-vigente)")
-    target = status["ratified_event_id"]
+    if scope is None:
+        status = gd.derive_status(hist, None, now)                 # carril histórico; el digest no hace falta para la DECISIÓN
+        if status["decision"] != gd.DECISION_RATIFIED or not status.get("ratified_event_id"):
+            raise RevocationNotAllowed("no hay ratificación vigente que revocar (huérfana/repetida/no-vigente)")
+        target = status["ratified_event_id"]
+    else:
+        target = _scoped_target(hist, scope, now)
+        if target is None:
+            raise RevocationNotAllowed(f"no hay ratificación vigente con alcance exacto {list(scope)} que revocar")
     event = gd.build_revocation(event_id=event_id, subject=subject, revokes_event_id=target, rationale=rationale,
                                 actor=actor, decided_at=decided_at, request_id=request_id)
     out = store.append_event(event)
-    return {"outcome": "REVOKED", "event": event, "stored": out, "revoked_event_id": target}
+    return {"outcome": "REVOKED", "event": event, "stored": out, "revoked_event_id": target, "applies_to": list(scope) if scope else None}
 
 
 def status(client: str, identity: dict, now: datetime) -> dict:
@@ -287,6 +309,6 @@ def status(client: str, identity: dict, now: datetime) -> dict:
     except (ContractEvidenceInsufficient, ContractEvidenceAmbiguous, ContractEvidenceUnverifiable):
         digest = None                                             # evidencia ausente/ambigua/ilegible → UNKNOWN (la consulta no se rompe)
     recon = store.reconstruct(subject["client"], subject["technical_id"], digest, now)
-    recon["consumers"] = consumers                               # trazabilidad (no amplía alcance)
+    recon["consumers"] = consumers                               # trazabilidad (no amplía alcance); `scoped_status` = carriles por consumidor declarado
     recon["evidence_digest"] = digest
     return recon
