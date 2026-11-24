@@ -949,7 +949,7 @@ def propagation_normal_composition(ev: ProfileEvidence, policy: str) -> list[str
 
 
 def dimension_resolution_v4(ev: ProfileEvidence, policy: str, strengths_: list[dict], reasons: list[dict], missing: list[dict], pub_lineage_complete: bool, materialized: bool = True,
-                            accepted: frozenset = frozenset()) -> list[dict]:
+                            accepted: frozenset = frozenset(), e3_enrichment: bool = False) -> list[dict]:
     """Estado por dimension de judgment-rules/v4. Solo lee lo ya calculado (fortalezas, razones, causas de ausencia) y evidencia canonica; no inventa evidencia ni agrega razones/fortalezas."""
     have = {s["rule_id"] for s in strengths_}
     by_dim = {m["dimension"]: m for m in missing}
@@ -970,6 +970,9 @@ def dimension_resolution_v4(ev: ProfileEvidence, policy: str, strengths_: list[d
                 item["state"], item["basis"] = C.DS_MET, ["HAR.one_to_one_over_governed_contract", "HAR.business_vocabulary_preserved_by_provider_labels", "HAR.consumed_by_downstream_artifact"]
             elif har_projection_over_physical_raw(ev, policy):
                 item["state"], item["basis"] = C.DS_DEFICIENCY, ["HAR.reusable_boundary_projects_verified_physical_raw_sources"]
+            elif m.get("cause") == "NO_HARMONIZATION_BOUNDARY_OBSERVED" and e3_enrichment:
+                # v7 E3: la unica integracion es enriquecimiento N:1 DEMOSTRADO por dimensiones gobernadas: no hay responsabilidad de armonizar
+                item["state"], item["basis"] = C.DS_NOT_APPLICABLE, ["E3.integration_limited_to_demonstrated_n1_enrichment_by_governed_dimensions"]
             elif m.get("cause") == "NO_HARMONIZATION_BOUNDARY_OBSERVED":
                 na = _no_integration_scope(ev)
                 if na:
@@ -978,6 +981,8 @@ def dimension_resolution_v4(ev: ProfileEvidence, policy: str, strengths_: list[d
             item["cause"] = m.get("cause")
             met = _propagation_met_materialized(ev, policy)[0] if materialized else _propagation_met_by_replicated_ingestion(ev, policy)
             met = met or propagation_normal_composition(ev, policy)
+            if not met and e3_enrichment:
+                met = ["E3.product_composes_a_governed_fact_with_demonstrated_n1_governed_enrichment"]        # v7: composicion normal acreditada
             if met:
                 item["state"], item["basis"] = C.DS_MET, met
         elif dim == "PUBLISHED_CONTRACT":

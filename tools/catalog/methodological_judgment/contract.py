@@ -41,8 +41,15 @@ CURRENT_RULESET_VERSION = RULESET_V4
 #   · su vocabulario expuesto sin cambios sigue BLOQUEANDO PUB-STR-01, pero si es el UNICO bloqueo el contrato publicado queda RESPONSABILIDAD CUMPLIDA («reuso aceptado»);
 #   · nunca neutraliza una deficiencia independiente (razones locales/relevantes, tabla fisica cruda) ni cambia el orden de decision.
 #   Coherente con el contrato de ratificacion: aceptacion arquitectonica del consumo, sin certificar el tipo fisico ni reconocer fortalezas adicionales.
+#   ALCANCE: la aceptacion SOLO aplica al consumo DECLARADO en la ratificacion (`applies_to` contiene el modelo terminal del perfil). Una ratificacion
+#   sin alcance declarado (todas las historicas) conserva EXACTAMENTE la semantica de v3-v6 (solo resuelve la exposicion decision-critica de LVL-05).
+# + (E3) ENRIQUECIMIENTO LEGITIMO y (E5) SUFICIENCIA DE LA CLAVE PUBLICADA sobre la evidencia ESTRUCTURAL `join-key-profile/v1` (entrada EXPLICITA del
+#   Juicio, ligada al perfil por el llamador; su digest entra en la firma de salida). Sin esa evidencia ambas son NOT_EVALUABLE (ningun efecto).
+#   E3 demostrado: Armonizacion NO APLICABLE (si no habia frontera) y Propagacion CUMPLIDA (si estaban sin resolver). E5 DEFICIENT: razon LOCAL
+#   PUB-LOC-02 + sin PUB-STR-01 (la identidad de la fila precede a la nomenclatura). Ver ``structural.py``.
 #   Disponible e INACTIVO; v2-v6 quedan byte a byte identicos.
 RATIFICATION_EFFECT_ACCEPTED = "ACCEPTED_EXTERNAL_CONTRACT"
+STRUCTURAL_EVIDENCE_VERSION = "join-key-profile/v1"
 NAMING_GATE_MAX_NONRECOVERABLE_RATIO = 0.25          # θ de la compuerta de naming (configurable POR RULESET: cambiarlo es otra version de ruleset, nunca un parametro de runtime)
 LEVEL_RULE_ADECUADA_BY_NAMING_GATE = "LVL-09"
 NAMING_GATE_PASS, NAMING_GATE_BLOCK, NAMING_GATE_NOT_ACCREDITED = "PASS", "BLOCK", "NOT_ACCREDITED"

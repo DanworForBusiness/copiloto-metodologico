@@ -41,10 +41,10 @@ def _model(*, exposure="verbatim", second_external=False, raw_leaf=False):
     return p
 
 
-def _ratify(leaf, entity=None):
+def _ratify(leaf, entity=None, applies_to=("AM",)):
     ent = entity or f'"dbo"."{leaf}"'
     d = hashlib.sha256(leaf.encode()).hexdigest()
-    return {"leaf": leaf, "identity": {"remote_connection": CONN, "remote_entity": ent}, "technical_id": json.dumps({"remote_connection": CONN, "remote_entity": ent}),
+    return {"applies_to": list(applies_to), "leaf": leaf, "identity": {"remote_connection": CONN, "remote_entity": ent}, "technical_id": json.dumps({"remote_connection": CONN, "remote_entity": ent}),
             "event_id": f"gd-test-{leaf}", "digest": d, "evidence_ref": {"algo": "sha256", "digest": d, "fields": ["source_contract_classes.leaves[cds]"]}}
 
 
@@ -117,3 +117,24 @@ def test_v7_is_available_but_not_current_and_has_no_activation_migration_yet():
     from webapp.services import assessment_backfill as bf
     assert C.RULESET_V7 in C.RULESETS and C.CURRENT_RULESET_VERSION != C.RULESET_V7
     assert C.RULESET_V7 not in bf._ACTIVATION_MIGRATIONS                                         # activarlo exige una migracion firmada aparte (no autorizada)
+
+
+# ───────────── R-ACC: ALCANCE de consumo declarado ─────────────
+def test_v7_a_ratification_without_declared_consumption_keeps_the_v6_semantics():
+    p = _model()
+    rc = [_ratify("EXT", applies_to=())]                                              # como TODAS las ratificaciones historicas
+    j6, j7 = evaluate_judgment(copy.deepcopy(p), ratified_contracts=rc, **V6), evaluate_judgment(copy.deepcopy(p), ratified_contracts=rc, **V7)
+    assert _dims(j7) == _dims(j6) and "effect" not in _ratif(j7, "EXT")
+
+
+def test_v7_acceptance_declared_for_another_consumer_never_applies_here():
+    p = _model(exposure="authored")
+    j7 = evaluate_judgment(p, ratified_contracts=[_ratify("EXT", applies_to=("OTRO_AM",))], **V7)
+    assert _ratif(j7, "EXT")["status"] == "NO_EFFECT"
+
+
+def test_decision_inputs_of_historical_ratifications_are_byte_identical():
+    from tools.catalog.methodological_judgment.engine import decision_inputs
+    hist = _ratify("EXT", applies_to=())
+    hist.pop("applies_to")
+    assert "applies_to" not in decision_inputs([hist])["ratified_contracts"][0]

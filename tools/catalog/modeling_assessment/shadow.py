@@ -236,6 +236,11 @@ def assess(inbound: Path, client: str, am: str | None, domain: str | None = None
         ext["evidence_observability"] = evidence_observability.build_observability(evidence_scope, group["jsons"])
     except Exception:                                                      # noqa: BLE001
         pass
+    try:                                                                   # v7 (E3/E5): evidencia ESTRUCTURAL del cierre desde el CSN (hechos; sin inferir cardinalidad)
+        from . import join_key_profile as _jkp
+        ext["join_key_profile"] = _jkp.build(_jkp.definitions_from_files(group["jsons"]), (doc.get("scope") or {}).get("closure_artifacts") or ())
+    except Exception:                                                      # noqa: BLE001 — complementaria: sin bloque = no evaluable
+        pass
     if ext:
         ext["profile_binding"] = platform_boundary.profile_binding(doc)   # I1: liga el sidecar al perfil EXACTO de esta evaluación (ya validado)
         meta["evidence_extensions"] = ext
