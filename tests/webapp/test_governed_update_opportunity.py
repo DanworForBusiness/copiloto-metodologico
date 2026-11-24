@@ -105,7 +105,7 @@ def test_cta_requests_the_update_and_never_approves_or_executes(monkeypatch):
     import re
     up = _opp_view(monkeypatch)
     html = _render_callout(up, adhoc_result_id="a" * 32, adhoc_stem="04_Modelado_y_Desarrollo")
-    assert re.search(r'<button type="button" class="btn-primary asr-update-banner__cta" data-dialog-open="asr-update-dialog">Solicitar actualización</button>', html)
+    assert re.search(r'<button type="button" class="btn-primary asr-update-banner__cta" data-dialog-open="asr-update-dialog" data-asr-opp-cta>Solicitar actualización</button>', html)
     assert 'class="whatsnew-banner asr-update-banner"' in html                          # MISMO lenguaje que los avisos del Hub
     assert "@click=\"$el.closest('[data-asr-update-opportunity]').remove()\"" in html and "x-show" not in html.split("<dialog", 1)[0]   # ✕ síncrona, sin request
     assert 'id="asr-update-dialog"' in html and 'method="dialog"' in html
