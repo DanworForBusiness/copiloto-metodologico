@@ -1056,11 +1056,13 @@ def _engine_assess(root: Path, client_dir: str, am: str, domain_dir: str, eviden
 
 
 def assess_evidence_root(root: Path, client_dir: str, am: str, domain: str = "General", *,
-                        evidence_scope: dict | None = None, root_type: str | None = None) -> tuple[dict | None, str | None]:
+                        evidence_scope: dict | None = None, root_type: str | None = None, extensions_out: dict | None = None) -> tuple[dict | None, str | None]:
     """Evalúa EXACTAMENTE el objeto raíz ``am`` (modelo analítico, vista o tabla; ``root_type`` es el que informó el extractor) sobre una raíz
     de evidencia ARBITRARIA (p. ej. el workspace de un assessment ad-hoc) con el MISMO motor. Devuelve (perfil canónico validado, None) o (None, código de falla estable). No lee ni escribe la caché del Catálogo."""
     try:
         doc, meta = _engine_assess(root, client_dir, am, domain, evidence_scope=evidence_scope, generic_root=True, root_type=root_type)
+        if extensions_out is not None:                  # equivalencia v2: sidecar del MISMO ciclo, fuera del perfil
+            extensions_out.update((meta or {}).get("evidence_extensions") or {})
         state = doc.get("assessment_state")
         if state == "ASSESSED":
             ma_profile.validate_assessment(doc)
@@ -1375,6 +1377,7 @@ class RegeneratedAssessment:
     envelope: dict
     previous_signature: str | None = None
     notes: dict = field(default_factory=dict, compare=False)       # decisiones del gancho de sobre (p. ej. accion de revalidacion del Juicio), solo para el informe
+    extensions: dict | None = field(default=None, compare=False)   # sidecar `evidence_extensions` del MISMO ciclo (equivalencia v2); NO se persiste en el sobre
 
 
 def facts_present(profile: dict | None) -> set[str]:
@@ -1440,7 +1443,8 @@ def _regenerate_core(entry: Any, *, precondition: Any, postcheck: Any, log_label
                         **{"review_evidence": (meta or {}).get("review_evidence"), **overrides})   # el gancho puede sobrescribir; por defecto, sidecar del mismo ciclo
     if not _envelope_resolves_current(env, res, versions):
         raise EnrichmentError("WOULD_NOT_BE_CURRENT")
-    return RegeneratedAssessment(client, am, doc, env, (previous or {}).get("assessment_artifact_signature"), notes)
+    return RegeneratedAssessment(client, am, doc, env, (previous or {}).get("assessment_artifact_signature"), notes,
+                                 extensions=(meta or {}).get("evidence_extensions"))
 
 
 def _readable_previous(previous: dict | None) -> bool:

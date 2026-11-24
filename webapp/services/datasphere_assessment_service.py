@@ -498,7 +498,7 @@ def purge_expired_results(*, now: float | None = None) -> int:
 
 
 def save_result(profile: dict, *, client_display: str, client_dir: str, terminal_am: str, owner: str = "",
-                execution_log: list[str] | None = None, space: str = "") -> str:
+                execution_log: list[str] | None = None, space: str = "", evidence_extensions: dict | None = None) -> str:
     """Guarda el perfil canónico y el contexto mínimo de presentación (sin credenciales) bajo un ``result_id`` opaco.
     ``owner`` (email, minúsculas) acota quién puede ver/listar el resultado. ``execution_log`` es el log YA saneado de la corrida: metadato
     auxiliar efímero (vive y vence con el resultado) que NUNCA entra al JSON/Markdown canónico. ``space`` = el Space VALIDADO de la
@@ -508,7 +508,8 @@ def save_result(profile: dict, *, client_display: str, client_dir: str, terminal
     result_id = uuid.uuid4().hex
     record = {"result_id": result_id, "created_at": time.time(), "client_display": client_display, "client_dir": client_dir,
               "terminal_am": terminal_am, "owner": (owner or "").strip().lower(), "execution_log": list(execution_log or []),
-              "space": str(space or "").strip() or None, "profile": profile}
+              "space": str(space or "").strip() or None, "profile": profile,
+              "evidence_extensions": evidence_extensions}      # equivalencia v2: sidecar del MISMO ciclo; no entra al perfil, a su firma ni al Juicio
     fd, tmp = tempfile.mkstemp(dir=str(results), prefix=".tmp-", suffix=".json")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
@@ -800,8 +801,9 @@ def run(values: FormValues, client_secret: str, *, user_email: str = "", on_line
             _code = getattr(exc, "code", type(exc).__name__)
             _msg = getattr(exc, "message", "")
             log.warning("datasphere_assessment op=%s materializacion de conexiones OMITIDA (SOURCE sin acreditar) space=%s code=%s msg=%s", op_id, values.space, _code, _msg)
+        extensions: dict = {}
         profile, code = asvc.assess_evidence_root(workspace / "pool", client_dir, values.root_object, "General", evidence_scope=scope,
-                                                  root_type=result.root_type)
+                                                  root_type=result.root_type, extensions_out=extensions)
         if code is not None or profile is None:
             code = code or "GENERATION_ERROR"
             log.warning("datasphere_assessment op=%s user=%s client=%s space=%s model=%s status=FAILED stage=assessment code=%s",
@@ -809,7 +811,7 @@ def run(values: FormValues, client_secret: str, *, user_email: str = "", on_line
             return Outcome("FAILED", code, ERROR_MESSAGES.get(code, ERROR_MESSAGES["ASSESSMENT_FAILED"]), trace=trace, operation_id=op_id,
                            duration_s=result.duration_s, stage="assessment", title=TITLE_ASSESSMENT)
         result_id = save_result(profile, client_display=values.client, client_dir=client_dir, terminal_am=values.root_object,
-                                owner=user_email, execution_log=trace, space=values.space)
+                                owner=user_email, execution_log=trace, space=values.space, evidence_extensions=extensions or None)
         if on_phase is not None:
             on_phase(PHASE_DONE)
         log.info("datasphere_assessment op=%s user=%s client=%s space=%s model=%s status=SUCCESS duration=%.1fs files=%s",

@@ -43,6 +43,7 @@ SCHEMA = "governed-update-request/v1"
 OPEN, OBSOLETE = "OPEN", "OBSOLETE"
 SUPERSEDED = "SUPERSEDED"                # reemplazada por una solicitud nueva con huella de evidencia (renovación de una anterior a la huella)
 SUPERSEDE_REASON = "NO_EVIDENCE_FINGERPRINT"
+SUPERSEDE_REASON_SCHEMA = "FINGERPRINT_SCHEMA_SUPERSEDED"        # E4: huella de un esquema anterior al vigente (p. ej. v1 → v2)
 _APPROVAL_IN_FLIGHT = frozenset({"REGISTERED", "VERIFYING", "STARTED", "RECONCILIATION_REQUIRED", "INTERRUPTED"})
 NOTIFY_EVENT = "copilot.governed_update.requested"
 BASE_PATH = "/copilot/governed-updates"
@@ -173,11 +174,23 @@ def has_valid_fingerprint(fp: Any) -> bool:
     return isinstance(fp, dict) and bool(fp.get("identity_digest")) and bool(fp.get("equivalence_digest"))
 
 
+def _renewal_reason(rec: dict | None) -> str | None:
+    """Por qué una solicitud ABIERTA puede ser reemplazada por un ad hoc nuevo con la huella VIGENTE (None = no renovable): sin huella válida, o con
+    huella de un esquema ANTERIOR (E4). Nunca con una aprobación en curso, pendiente de reconciliar o con resultado incierto."""
+    if not rec or ((rec.get("approval") or {}).get("state") in _APPROVAL_IN_FLIGHT):
+        return None
+    fp = (rec.get("source") or {}).get("fingerprint")
+    if not has_valid_fingerprint(fp):
+        return SUPERSEDE_REASON
+    if fp.get("schema") != governed_evidence.FINGERPRINT_SCHEMA:
+        return SUPERSEDE_REASON_SCHEMA
+    return None
+
+
 def is_renewable(rec: dict | None) -> bool:
-    """Solicitud ABIERTA anterior a la huella de evidencia, sin aprobación en curso ni pendiente de reconciliar: un ad hoc nuevo CON huella puede
-    reemplazarla (no puede aprobarse nunca). No cambia su elegibilidad: solo permite registrar la nueva."""
-    return (bool(rec) and not has_valid_fingerprint((rec.get("source") or {}).get("fingerprint"))
-            and ((rec.get("approval") or {}).get("state") not in _APPROVAL_IN_FLIGHT))
+    """Solicitud ABIERTA que un ad hoc nuevo con la huella VIGENTE puede reemplazar (ver ``_renewal_reason``). No cambia su elegibilidad: solo permite
+    registrar la nueva; la histórica conserva su huella original (nunca se recalcula)."""
+    return _renewal_reason(rec) is not None
 
 
 def assess_provenance(candidate_space: str | None, governed_space: str | None, published: str | None) -> dict:
@@ -224,7 +237,8 @@ def _judgment_brief(j: dict | None) -> dict:
 
 
 def create(*, client_dir: str, client_display: str, terminal_am: str, space: str | None, result_id: str, candidate_judgment: dict | None,
-           candidate_profile: dict | None, requested_by: str, requested_by_role: str | None = None) -> tuple[dict, bool]:
+           candidate_profile: dict | None, requested_by: str, requested_by_role: str | None = None,
+           candidate_extensions: dict | None = None) -> tuple[dict, bool]:
     """Registra la solicitud (o devuelve la abierta vigente). ``(registro, creada)``. ``NoOpportunity`` si no hay diferencia relevante.
     La oportunidad se RECALCULA en el servidor con el sobre de ahora (nunca se confía en lo que mandó el navegador)."""
     _ensure_restored()                                                     # nunca sobre un registro incompleto: sin restauración completa no se crea
@@ -239,10 +253,13 @@ def create(*, client_dir: str, client_display: str, terminal_am: str, space: str
         except ValueError:
             gov_prof = {}
     gov_scope_space = ((gov_prof or {}).get("scope") or {}).get("space")
-    fingerprint = governed_evidence.fingerprint(candidate_profile) if isinstance(candidate_profile, dict) else None
+    # huella VIGENTE (v2) del ad hoc, con su sidecar del MISMO ciclo (fronteras de plataforma + observabilidad); nunca se recalcula después
+    fingerprint = governed_evidence.fingerprint(candidate_profile, candidate_extensions) if isinstance(candidate_profile, dict) else None
     with _lock:
         existing = find_open(client_dir, terminal_am)
-        if existing is not None and not (is_renewable(existing) and has_valid_fingerprint(fingerprint)):
+        renewable = (is_renewable(existing) and has_valid_fingerprint(fingerprint)
+                     and fingerprint.get("schema") == governed_evidence.FINGERPRINT_SCHEMA) if existing is not None else False
+        if existing is not None and not renewable:
             return existing, False                                         # deduplicación: una sola solicitud activa por cliente + modelo
         rid = uuid.uuid4().hex
         rec = {
@@ -268,7 +285,7 @@ def create(*, client_dir: str, client_display: str, terminal_am: str, space: str
         # activas. Todo bajo ``_lock`` (una sola renovación por proceso). La notificación la emite el llamador solo tras ``created=True``.
         rec["supersedes"] = existing["request_id"]
         retired = dict(existing, status=SUPERSEDED,
-                       superseded={"by": rid, "at": _now(), "reason": SUPERSEDE_REASON, "by_user": rec["requested_by"]})
+                       superseded={"by": rid, "at": _now(), "reason": _renewal_reason(existing), "by_user": rec["requested_by"]})
         _write(retired)
         try:
             rec["durability"] = _write(rec)
@@ -378,6 +395,7 @@ def compute_preview(rec: dict, spaces: Any = None) -> dict:
     def _capture(cand: Any) -> Any:
         if cand is not None and getattr(cand, "profile", None) is not None:
             captured["profile"] = cand.profile
+            captured["extensions"] = getattr(cand, "extensions", None)
         return cand
 
     status = svc.status_for_entry(entries[0])
@@ -411,11 +429,15 @@ def compute_preview(rec: dict, spaces: Any = None) -> dict:
     if declared is not None:
         pool = svc.pool_root()
         profile = captured.get("profile")
-        out["fingerprint"] = governed_evidence.fingerprint(profile) if profile else None
+        adhoc_fp = (rec.get("source") or {}).get("fingerprint")
+        schema = (adhoc_fp or {}).get("schema") if (adhoc_fp or {}).get("schema") in governed_evidence.SUPPORTED_SCHEMAS else governed_evidence.FINGERPRINT_SCHEMA_V1
+        out["fingerprint_schema"] = schema                                 # el dry-run se interpreta bajo el esquema de la huella de ESTA solicitud
+        out["fingerprint"] = governed_evidence.fingerprint(profile, captured.get("extensions"), schema=schema) if profile else None
         out["provenance"] = governed_evidence.verify_provenance(
             client_dir=client_dir, am=am, declared_spaces=declared, governed_profile=profile or {},
-            adhoc_fingerprint=(rec.get("source") or {}).get("fingerprint"), adhoc_space=(rec.get("source") or {}).get("space"),
-            connection_records=svc.connection_records_of(client_dir), catalog_dir=svc.catalog_dir(), pool_root=pool)
+            adhoc_fingerprint=adhoc_fp, adhoc_space=(rec.get("source") or {}).get("space"),
+            connection_records=svc.connection_records_of(client_dir), catalog_dir=svc.catalog_dir(), pool_root=pool,
+            governed_extensions=captured.get("extensions"))
         try:                                                               # integridad operativa: firma de dependencias del modelo en el pool actual
             out["dependency_signature"] = svc.closure_signature(svc.resolve_entry(entries[0]))
         except Exception:                                                  # noqa: BLE001

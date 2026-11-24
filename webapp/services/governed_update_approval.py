@@ -62,7 +62,8 @@ ALLOWED_FROM = {VERIFYING: frozenset({REGISTERED}), STARTED: frozenset({VERIFYIN
                 APPLIED: frozenset({STARTED, RECONCILIATION_REQUIRED, INTERRUPTED}), ABSTAINED: frozenset({STARTED}), FAILED: frozenset({STARTED}),
                 RECONCILIATION_REQUIRED: frozenset({STARTED}), NOT_APPLIED: frozenset({RECONCILIATION_REQUIRED, INTERRUPTED})}
 EV_EXACT, EV_UNCHANGED, EV_DIVERGENT, EV_UNVERIFIABLE = "EXACT_RESULT", "UNCHANGED", "DIVERGENT", "UNVERIFIABLE"
-EXPECTED_KEYS = ("plan_digest", "provenance_digest", "equivalence_digest", "envelope_sha256", "dependency_signature")
+EXPECTED_KEYS = ("plan_digest", "provenance_digest", "equivalence_digest", "envelope_sha256", "dependency_signature", "fingerprint_schema")
+_EXPECTED_SINCE_V2 = frozenset({"fingerprint_schema"})          # ausente en aprobaciones previas: se interpretan bajo su versión original (no se exige)
 
 _running: set[str] = set()                     # aprobaciones con hilo vivo EN ESTE PROCESO (lo que sobrevive a un reinicio es solo el estado persistido)
 
@@ -104,7 +105,7 @@ def expected_from_preview(rec: dict, preview: dict | None) -> dict:
     p = preview or {}
     return {"plan_digest": p.get("plan_digest"), "provenance_digest": (p.get("provenance") or {}).get("digest"),
             "equivalence_digest": (p.get("fingerprint") or {}).get("equivalence_digest"), "envelope_sha256": p.get("governed_sha256"),
-            "dependency_signature": p.get("dependency_signature")}
+            "dependency_signature": p.get("dependency_signature"), "fingerprint_schema": p.get("fingerprint_schema")}
 
 
 def approvable(rec: dict, spaces: list[str]) -> list[str]:
@@ -340,9 +341,12 @@ def _precheck(rec: dict, appr: dict, compute: Callable) -> tuple[list[str], dict
     if (fresh.get("provenance") or {}).get("state") != "ACCREDITED":
         reasons.append("PROVENANCE_NOT_ACCREDITED")
     labels = {"plan_digest": "PLAN_CHANGED", "provenance_digest": "PROVENANCE_CHANGED", "equivalence_digest": "EVIDENCE_CHANGED",
-              "envelope_sha256": "OBSOLETE", "dependency_signature": "DEPENDENCIES_CHANGED"}
+              "envelope_sha256": "OBSOLETE", "dependency_signature": "DEPENDENCIES_CHANGED", "fingerprint_schema": "FINGERPRINT_SCHEMA_CHANGED"}
+    approved = appr.get("expected") or {}
     for k in EXPECTED_KEYS:
-        if (appr.get("expected") or {}).get(k) != now.get(k):
+        if k in _EXPECTED_SINCE_V2 and k not in approved:
+            continue                                                       # aprobación anterior a v2: se verifica bajo su contrato original
+        if approved.get(k) != now.get(k):
             reasons.append(labels[k])
     return reasons, fresh
 

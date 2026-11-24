@@ -108,7 +108,7 @@ def request_update(request: Request, result_id: str = Form(""), stem: str = Form
         rec, created = gur.create(client_dir=str(record.get("client_dir") or status.client), client_display=str(record.get("client_display") or status.client),
                                   terminal_am=str(status.terminal_am), space=record.get("space"), result_id=result_id,
                                   candidate_judgment=status.judgment, candidate_profile=profile, requested_by=dsa.owner_email(request),
-                                  requested_by_role=gur.approver_role(user))
+                                  requested_by_role=gur.approver_role(user), candidate_extensions=record.get("evidence_extensions"))
     except gur.NoOpportunity:
         raise HTTPException(409, "Ya no hay una diferencia relevante con el Assessment gobernado: no se registró ninguna solicitud.")
     _activity("governed_update.requested", user, request_id=rec["request_id"], client=rec["client_dir"], model=rec["terminal_am"],
