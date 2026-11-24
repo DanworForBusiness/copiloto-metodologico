@@ -51,6 +51,7 @@ from webapp import nav
 from webapp import workspaces
 from webapp.copilot_runtime import assistant_store, store
 from webapp.presentation import invite
+from webapp.services import admin_tools
 from webapp.services import auth_service
 from webapp.services import catalog_reads
 from webapp.services import domain_classification_service as dcs
@@ -225,6 +226,9 @@ def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK), ta
             "ia_enabled": ia_enabled,
             "is_appendix": is_appendix,
             "diagnostic": diagnostic,
+            # Usuarios del runtime para el dropdown del Borrado selectivo (solo en modo diagnóstico, que es donde
+            # se renderiza el panel de Gestión): evita escanear feedback_log/activity_log en cada render de módulo.
+            "runtime_users": admin_tools.runtime_users() if diagnostic else [],
             "is_owner": access.is_owner(request),
             "immersive": immersive,
             "iframe_src": iframe_src,

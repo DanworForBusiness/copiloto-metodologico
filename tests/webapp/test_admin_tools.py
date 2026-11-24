@@ -288,3 +288,103 @@ def test_sharepoint_seed_happy_path_and_download(monkeypatch):
     assert download.status_code == 200
     assert download.headers["content-type"].startswith("application/json")
     assert "00123" in download.text
+
+
+# ── Borrado selectivo: filtro opcional por usuario ──────────────────────────
+def _seed_user_runtime(monkeypatch, tmp_path):
+    """feedback_log (1 YAML/usuario por archivo), activity_log (JSONL por día, user por línea), case_library (sin user)."""
+    from webapp.services import admin_tools as at
+    fb = tmp_path / "fb"; fb.mkdir()
+    (fb / "feedback_20260110_120000_a1.yaml").write_text("user: ana@danwor.com\nrating: 5\n", encoding="utf-8")
+    (fb / "feedback_20260110_130000_b1.yaml").write_text("user: beto@danwor.com\nrating: 4\n", encoding="utf-8")
+    al = tmp_path / "al"; al.mkdir()
+    (al / "activity_20260110.jsonl").write_text(
+        '{"ts_utc":"2026-01-10T10:00:00","event":"page_view","user":"ana@danwor.com"}\n'
+        '{"ts_utc":"2026-01-10T10:05:00","event":"page_view","user":"beto@danwor.com"}\n'
+        '{"ts_utc":"2026-01-10T10:06:00","event":"login","user":"ana@danwor.com"}\n', encoding="utf-8")
+    cl = tmp_path / "cl"; cl.mkdir()
+    (cl / "case_20260110_000000_cc.yaml").write_text("case_id: case_20260110_000000_cc\n", encoding="utf-8")
+    monkeypatch.setattr(at, "_RUNTIME_EXPORT_DIRS", (("feedback_log", fb), ("activity_log", al), ("case_library", cl)))
+    monkeypatch.setattr(at, "FEEDBACK_LOG_DIR", fb)
+    monkeypatch.setattr(at, "ACTIVITY_LOG_DIR", al)
+    monkeypatch.setattr(at, "CASE_LIBRARY_DIR", cl)
+    return fb, al, cl
+
+
+def test_runtime_users_lists_distinct_emails(monkeypatch, tmp_path):
+    from webapp.services import admin_tools as at
+    _seed_user_runtime(monkeypatch, tmp_path)
+    assert at.runtime_users() == ["ana@danwor.com", "beto@danwor.com"]
+
+
+def test_runtime_purge_user_filter_feedback_file_activity_line_case_zero(monkeypatch, tmp_path):
+    fb, al, cl = _seed_user_runtime(monkeypatch, tmp_path)
+    data = {"folders": ["feedback_log", "activity_log", "case_library"], "date_from": "2026-01-01",
+            "date_to": "2026-01-31", "user": "ana@danwor.com"}
+    # Preview: refleja el filtro; feedback 1 archivo de ana, activity 2 eventos de ana, case 0; nada borrado.
+    preview = diag_client.post("/admin/runtime/purge", data={**data, "mode": "preview"}).text
+    assert "usuario: ana@danwor.com" in preview and "Nada fue borrado" in preview
+    assert "feedback_log: 1 archivo(s) de ana@danwor.com" in preview
+    assert "activity_log: 2 evento(s) de ana@danwor.com" in preview
+    assert "case_library: 0 (sin usuario asociado" in preview
+    assert (fb / "feedback_20260110_120000_a1.yaml").exists()                      # preview no borra
+    # Delete: borra solo lo de ana; beto intacto en feedback y en activity.
+    out = diag_client.post("/admin/runtime/purge", data={**data, "mode": "delete"}).text
+    assert "BORRADO EJECUTADO" in out
+    assert not (fb / "feedback_20260110_120000_a1.yaml").exists()                  # feedback de ana borrado
+    assert (fb / "feedback_20260110_130000_b1.yaml").exists()                      # feedback de beto intacto
+    remaining = (al / "activity_20260110.jsonl").read_text(encoding="utf-8")
+    assert "ana@danwor.com" not in remaining and "beto@danwor.com" in remaining    # solo las líneas de ana se fueron
+    assert (cl / "case_20260110_000000_cc.yaml").exists()                          # case_library intacto (sin usuario)
+
+
+def test_runtime_purge_user_filter_no_results_is_zero(monkeypatch, tmp_path):
+    fb, al, cl = _seed_user_runtime(monkeypatch, tmp_path)
+    data = {"folders": ["feedback_log", "activity_log"], "date_from": "2026-01-01", "date_to": "2026-01-31",
+            "user": "nadie@danwor.com", "mode": "delete"}
+    out = diag_client.post("/admin/runtime/purge", data=data).text
+    assert "feedback_log: 0 archivo(s) de nadie@danwor.com" in out
+    assert "activity_log: 0 evento(s) de nadie@danwor.com" in out
+    assert (al / "activity_20260110.jsonl").read_text(encoding="utf-8").count("\n") == 3   # nada se tocó
+
+
+def test_runtime_purge_all_users_unchanged_behaviour(monkeypatch, tmp_path):
+    fb, al, cl = _seed_user_runtime(monkeypatch, tmp_path)
+    # Sin usuario («Todos»): conducta histórica por archivo (incluye el día completo de activity_log).
+    out = diag_client.post("/admin/runtime/purge", data={"folders": ["activity_log"], "date_from": "2026-01-01",
+                                                         "date_to": "2026-01-31", "mode": "preview"}).text
+    assert "activity_log: 1 archivo(s) ·" in out and "usuario:" not in out
+
+
+def test_runtime_purge_activity_keeps_other_users_and_unidentified_lines(monkeypatch, tmp_path):
+    from webapp.services import admin_tools as at
+    al = tmp_path / "al"; al.mkdir()
+    day = al / "activity_20260110.jsonl"
+    day.write_text(
+        '{"event":"page_view","user":"ana@danwor.com"}\n'
+        '{"event":"page_view","user":"beto@danwor.com"}\n'
+        '{"event":"login","user":"ana@danwor.com"}\n'
+        '{"event":"system_tick"}\n'                       # sin identidad reconocible: se conserva
+        'esto-no-es-json\n', encoding="utf-8")            # línea corrupta: se conserva (nunca se asume del usuario)
+    monkeypatch.setattr(at, "_RUNTIME_EXPORT_DIRS", (("feedback_log", tmp_path / "fb"), ("activity_log", al), ("case_library", tmp_path / "cl")))
+    out = diag_client.post("/admin/runtime/purge", data={"folders": ["activity_log"], "date_from": "2026-01-01",
+          "date_to": "2026-01-31", "user": "ana@danwor.com", "mode": "delete"}).text
+    assert "activity_log: 2 evento(s) de ana@danwor.com" in out
+    remaining = day.read_text(encoding="utf-8")
+    assert "ana@danwor.com" not in remaining                 # los 2 eventos de ana se fueron
+    assert '"user":"beto@danwor.com"' in remaining           # otro usuario intacto
+    assert '"event":"system_tick"' in remaining               # línea sin usuario conservada
+    assert "esto-no-es-json" in remaining                     # línea corrupta conservada
+    assert not day.read_text(encoding="utf-8").strip() == ""  # el archivo no quedó vacío (no se borró)
+
+
+def test_runtime_purge_case_library_user_abstains_without_global_fallback(monkeypatch, tmp_path):
+    from webapp.services import admin_tools as at
+    cl = tmp_path / "cl"; cl.mkdir()
+    case = cl / "case_20260110_000000_x.yaml"; case.write_text("case_id: x\n", encoding="utf-8")
+    monkeypatch.setattr(at, "_RUNTIME_EXPORT_DIRS", (("feedback_log", tmp_path / "fb"), ("activity_log", tmp_path / "al"), ("case_library", cl)))
+    # Con usuario + SOLO case_library + Eliminar: se abstiene (0), NO vuelve al borrado global.
+    out = diag_client.post("/admin/runtime/purge", data={"folders": ["case_library"], "date_from": "2026-01-01",
+          "date_to": "2026-01-31", "user": "ana@danwor.com", "mode": "delete"}).text
+    assert "case_library: 0 (sin usuario asociado" in out
+    assert case.exists()                                     # el caso NO se borró (abstención, sin fallback global)

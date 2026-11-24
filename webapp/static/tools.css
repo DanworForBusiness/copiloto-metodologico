@@ -555,6 +555,11 @@
 .admin-help[data-dsa-bg] { margin-top: 12px; }   /* Diagnóstico ad hoc: separa el aviso «continúa en segundo plano» del preload de arriba (solo esta vista), mismo ritmo que .section-analysis-loading */
 .admin-help code, .admin-result code, .admin-table code { font: .72rem var(--mono); color: var(--gold); }
 .admin-label { display: block; color: var(--soft); font-size: .72rem; margin-bottom: 4px; }
+/* Texto explicativo compacto (Borrado selectivo): mismo nivel tipográfico que los labels «Desde/Hasta», sin
+   tocar `.admin-help` del resto de las herramientas. */
+.admin-help--compact { font-size: .72rem; line-height: 1.4; margin-bottom: 8px; }
+/* Select del panel (dropdown Usuario): look alineado con los demás controles, mismos tokens. */
+.admin-select { font-size: .72rem; color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; max-width: 220px; }
 .admin-check { display: flex; align-items: center; gap: 7px; color: var(--soft); font-size: .76rem; margin-bottom: 10px; cursor: pointer; }
 .admin-check input { accent-color: var(--gold); }
 .admin-warn { color: var(--gold); font: 600 .68rem var(--mono); }

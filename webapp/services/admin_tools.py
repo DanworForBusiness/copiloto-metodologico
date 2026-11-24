@@ -126,6 +126,9 @@ def runtime_export_filename() -> str:
 
 _PURGE_DATE_RE = re.compile(r"(\d{8})")
 _PURGE_LIST_LIMIT = 25
+# feedback_log son 1 YAML por evento con `user: <email>` al tope: lo leemos con un regex liviano (sin parsear
+# todo el YAML). activity_log es JSONL por día (`user` por línea). case_library NO tiene usuario (artefacto).
+_FEEDBACK_USER_RE = re.compile(r"^\s*user:\s*(\S+)\s*$", re.M)
 
 
 def _file_date(path: Path) -> str:
@@ -135,11 +138,88 @@ def _file_date(path: Path) -> str:
     return datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y%m%d")
 
 
-def runtime_purge(folders: list[str], date_from: str, date_to: str, dry_run: bool = True) -> str:
-    """Elimina (o previsualiza) archivos runtime cuyo timestamp cae en el rango.
+def _feedback_user(path: Path) -> str:
+    """Email del autor de un archivo de feedback_log (campo `user:`), o "" si no se puede leer."""
+    try:
+        match = _FEEDBACK_USER_RE.search(path.read_text(encoding="utf-8", errors="ignore"))
+    except OSError:
+        return ""
+    return (match.group(1).strip().strip("'\"") if match else "")
 
-    `date_from`/`date_to` en formato YYYY-MM-DD (inputs date), inclusivos;
-    vacíos = sin límite en ese extremo. Devuelve un reporte en texto plano."""
+
+def runtime_users() -> list[str]:
+    """Emails distintos presentes en el runtime (feedback_log + activity_log), ordenados. Es la FUENTE del
+    dropdown de usuario del Borrado selectivo: el identificador estable es el email (igual que en Métricas)."""
+    users: set[str] = set()
+    for path in _iter_runtime_files(FEEDBACK_LOG_DIR):
+        user = _feedback_user(path)
+        if user:
+            users.add(user)
+    for path in _iter_runtime_files(ACTIVITY_LOG_DIR):
+        if path.suffix != ".jsonl":
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                user = str(json.loads(line).get("user") or "").strip()
+            except (json.JSONDecodeError, ValueError):
+                continue
+            if user:
+                users.add(user)
+    return sorted(users, key=str.lower)
+
+
+def _purge_activity_by_user(path: Path, user: str, dry_run: bool) -> tuple[int, bool]:
+    """Quita del archivo de día SOLO los eventos de `user` (reescritura por línea). Devuelve (eventos quitados,
+    archivo vaciado). Las líneas no parseables se CONSERVAN. Con `dry_run` no escribe nada."""
+    try:
+        text = path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return 0, False
+    kept: list[str] = []
+    removed = 0
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        try:
+            is_user = str(json.loads(stripped).get("user") or "").strip() == user
+        except (json.JSONDecodeError, ValueError):
+            is_user = False                                  # línea corrupta: se conserva, nunca se asume del usuario
+        if is_user:
+            removed += 1
+        else:
+            kept.append(line)
+    if removed and not dry_run:
+        if kept:
+            new_text = "\n".join(kept) + "\n"
+            path.write_text(new_text, encoding="utf-8")
+            try:
+                remote_store.write_through(path, new_text)   # re-sincroniza el archivo recortado (si no, restore lo repondría)
+            except Exception:                                # noqa: BLE001 — el recorte local es válido; el push es best-effort
+                pass
+        else:
+            try:
+                path.unlink()
+                remote_store.delete_path(path)
+            except OSError:
+                pass
+    return removed, (removed > 0 and not kept)
+
+
+def runtime_purge(folders: list[str], date_from: str, date_to: str, dry_run: bool = True, user: str = "") -> str:
+    """Elimina (o previsualiza) runtime en el rango, opcionalmente acotado a un `user` (email).
+
+    `date_from`/`date_to` en YYYY-MM-DD (inclusivos; vacíos = sin límite). `user` vacío = «Todos» (conducta
+    histórica, por archivo). Con `user`: feedback_log por archivo (su `user`), activity_log por LÍNEA (solo los
+    eventos de ese usuario, conservando a los demás), case_library no aplica (0). Preview y Delete usan los
+    MISMOS filtros. Devuelve un reporte en texto plano."""
     valid = {label for label, _ in _RUNTIME_EXPORT_DIRS}
     chosen = [folder for folder in folders if folder in valid]
     if not chosen:
@@ -151,17 +231,47 @@ def runtime_purge(folders: list[str], date_from: str, date_to: str, dry_run: boo
         return "Fechas inválidas: usá el formato YYYY-MM-DD."
     if low > high:
         return "El rango está invertido: 'Desde' es posterior a 'Hasta'."
+    user = (user or "").strip()
 
     lines: list[str] = []
     total_files = 0
     total_size = 0
+    total_events = 0
     remote_deleted = 0
     for label, root in _RUNTIME_EXPORT_DIRS:
         if label not in chosen:
             continue
-        hits = [p for p in _iter_runtime_files(root) if low <= _file_date(p) <= high]
+        in_range = [p for p in _iter_runtime_files(root) if low <= _file_date(p) <= high]
+
+        if user and label == "case_library":                # los casos no tienen usuario: el filtro no aplica
+            lines.append(f"\n{label}: 0 (sin usuario asociado — el filtro por usuario no aplica a los casos)")
+            continue
+
+        if user and label == "activity_log":                # reescritura por LÍNEA: solo los eventos del usuario
+            events = touched = emptied = 0
+            for path in in_range:
+                if path.suffix != ".jsonl":
+                    continue
+                removed, was_emptied = _purge_activity_by_user(path, user, dry_run)
+                if removed:
+                    events += removed
+                    touched += 1
+                    if was_emptied:
+                        emptied += 1
+                        remote_deleted += 1
+            total_events += events
+            detail = f" ({emptied} archivo(s) vaciado(s))" if emptied else ""
+            lines.append(f"\n{label}: {events} evento(s) de {user} en {touched} archivo(s) de día{detail}")
+            continue
+
+        if user and label == "feedback_log":                # por ARCHIVO: solo los de ese usuario
+            hits = [p for p in in_range if _feedback_user(p) == user]
+        else:                                               # «Todos»: conducta histórica (por archivo)
+            hits = in_range
+
         size = sum(p.stat().st_size for p in hits)
-        lines.append(f"\n{label}: {len(hits)} archivo(s) · {_format_bytes(size)}")
+        suffix = f" de {user}" if user else ""
+        lines.append(f"\n{label}: {len(hits)} archivo(s){suffix} · {_format_bytes(size)}")
         for path in hits[:_PURGE_LIST_LIMIT]:
             lines.append(f"  - {path.name}")
         if len(hits) > _PURGE_LIST_LIMIT:
@@ -181,15 +291,17 @@ def runtime_purge(folders: list[str], date_from: str, date_to: str, dry_run: boo
         total_size += size
 
     span = f"{date_from or 'inicio'} → {date_to or 'hoy'}"
+    scope = f" · usuario: {user}" if user else ""
+    events_note = f" y {total_events} evento(s) de activity_log" if total_events else ""
     if dry_run:
-        header = (f"PREVISUALIZACIÓN — {span}\n"
-                  f"Se eliminarían {total_files} archivo(s) ({_format_bytes(total_size)}). "
+        header = (f"PREVISUALIZACIÓN — {span}{scope}\n"
+                  f"Se eliminarían {total_files} archivo(s){events_note} ({_format_bytes(total_size)}). "
                   "Nada fue borrado todavía.")
         footer = "\n\nSi está OK, ejecutá 'Eliminar' (conviene bajar el Export ZIP antes)."
     else:
         remote_note = f" · {remote_deleted} en el bucket" if remote_store.enabled() else ""
-        header = (f"BORRADO EJECUTADO — {span}\n"
-                  f"Eliminados {total_files} archivo(s) ({_format_bytes(total_size)}){remote_note}.")
+        header = (f"BORRADO EJECUTADO — {span}{scope}\n"
+                  f"Eliminados {total_files} archivo(s){events_note} ({_format_bytes(total_size)}){remote_note}.")
         footer = ""
     return header + "".join(f"\n{line}" if not line.startswith("\n") else line for line in lines) + footer
 

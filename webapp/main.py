@@ -719,10 +719,11 @@ def admin_runtime_purge(
     folders: list[str] = Form([]),
     date_from: str = Form(""),
     date_to: str = Form(""),
+    user: str = Form(""),
     mode: str = Form("preview"),
 ):
     _require_diagnostic(request)
-    output = admin_tools.runtime_purge(folders, date_from, date_to, dry_run=(mode != "delete"))
+    output = admin_tools.runtime_purge(folders, date_from, date_to, dry_run=(mode != "delete"), user=user)
     return _admin_result(request, "Borrado selectivo de runtime", output)
 
 
