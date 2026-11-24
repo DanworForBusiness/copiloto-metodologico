@@ -10,6 +10,13 @@ E5 — SUFICIENCIA DE LA CLAVE PUBLICADA (conservadora): con clave DECLARADA en 
      DEFICIENT solo con evidencia POSITIVA (un componente de la granularidad no está en la clave publicada); sin clave declarada ⇒ NOT_APPLICABLE;
      UNION, join no demostrado, conductora no CDS gobernada o sin clave ⇒ NOT_EVALUABLE.
 Puro: sin E/S; nunca infiere cardinalidad desde nombres técnicos.
+
+BASE DE LA CARDINALIDAD (contrato ≠ dato físico): E3/E5 razonan SOLO sobre el CONTRATO ESTRUCTURAL de claves declaradas, nunca sobre unicidad
+física. Toda conclusión se registra con ``cardinality_basis = DECLARED_KEY_CONTRACT`` y ``physical_uniqueness = NOT_VERIFIED``: una clave declarada
+no se presenta como verificación de datos. Solo se confía en la clave declarada de una clase cuyo contrato de claves es fiable: entidad ABAP CDS
+gobernada por SAP (``GOVERNED_SAP_CDS_CONTRACT``: la clave del CSN es la de la definición CDS publicada, que refleja la clave primaria de su
+tabla base) y con procedencia ``CSN_ELEMENTS_KEY``. Otras clases (tablas remotas no SAP, vistas locales, archivos) declaran claves que nadie
+garantiza (Datasphere no impone unicidad en tablas remotas) ⇒ NOT_EVALUABLE.
 """
 from __future__ import annotations
 
@@ -21,6 +28,8 @@ JKP_VERSION = "join-key-profile/v1"
 DEMONSTRATED, SUFFICIENT, DEFICIENT, NOT_EVALUABLE, NOT_APPLICABLE = "DEMONSTRATED", "SUFFICIENT", "DEFICIENT", "NOT_EVALUABLE", "NOT_APPLICABLE"
 _GOVERNED_CDS = "GOVERNED_SAP_CDS_CONTRACT"
 _IDENTITY = frozenset({"IDENTITY_ONLY", "IDENTITY_OR_RENAME"})
+KEY_SOURCE_CSN = "CSN_ELEMENTS_KEY"
+CARDINALITY_BASIS = {"cardinality_basis": "DECLARED_KEY_CONTRACT", "physical_uniqueness": "NOT_VERIFIED"}
 
 
 def valid_block(block: Any) -> Mapping[str, Any] | None:
@@ -29,6 +38,14 @@ def valid_block(block: Any) -> Mapping[str, Any] | None:
 
 def _keys(jkp: Mapping[str, Any], name: str) -> list[str]:
     return list(((jkp.get("keys") or {}).get(name) or {}).get("declared") or [])
+
+
+def reliable_key_contract(ev: ProfileEvidence, name: str | None, jkp: Mapping[str, Any]) -> bool:
+    """La clave DECLARADA de ``name`` es un contrato fiable: entidad ABAP CDS gobernada por SAP + clave tomada de los elementos ``key`` del CSN."""
+    if not name:
+        return False
+    cls = (ev.leaf_class_records.get(name) or {}).get("contract_class")
+    return cls == _GOVERNED_CDS and ((jkp.get("keys") or {}).get(name) or {}).get("source") == KEY_SOURCE_CSN
 
 
 def join_n1(join: Mapping[str, Any], jkp: Mapping[str, Any]) -> tuple[bool, str]:
@@ -74,13 +91,16 @@ def e3_enrichment(ev: ProfileEvidence, jkp: Mapping[str, Any] | None, policy: st
                     contrib = [(name, fl) for name, rec in ev.lineage_fields.items() for fl in rec.get("frontier_leaves") or () if fl.get("leaf") == sec]
                     attrs_only = bool(contrib) and all(ev.lineage_fields[name].get("role") == "ATTRIBUTE"
                                                        and all(pp.get("character") in _IDENTITY for pp in fl.get("path_profiles") or ()) for name, fl in contrib)
-                    js.append({"secondary": sec, "type": j.get("type"), "n1": n1, "reason": r, "attributes_only": attrs_only})
-                    if j.get("type") != "left" or not n1 or not sec or ev.classify_source(sec, policy) != GOVERNED_SAP_CONTRACT or not attrs_only:
+                    reliable = reliable_key_contract(ev, sec, jkp)
+                    js.append({"secondary": sec, "type": j.get("type"), "n1": n1, "reason": r if reliable or not n1 else "SECONDARY_KEY_CONTRACT_NOT_RELIABLE_FOR_CLASS",
+                               "attributes_only": attrs_only, **CARDINALITY_BASIS})
+                    if (j.get("type") != "left" or not n1 or not reliable or not sec or ev.classify_source(sec, policy) != GOVERNED_SAP_CONTRACT
+                            or not attrs_only):
                         ok = False
                 st, why = (DEMONSTRATED, "N1_ENRICHMENT_BY_GOVERNED_DIMENSIONS") if ok else (NOT_EVALUABLE, "JOIN_NOT_DEMONSTRATED_AS_ENRICHMENT")
         nodes.append({"node": n, "state": st, "reason": why, "joins": js})
     glob = DEMONSTRATED if nodes and all(x["state"] == DEMONSTRATED for x in nodes) else NOT_EVALUABLE
-    return {"state": glob, "nodes": nodes}
+    return {"state": glob, **CARDINALITY_BASIS, "nodes": nodes}
 
 
 def e5_key_sufficiency(ev: ProfileEvidence, jkp: Mapping[str, Any] | None, policy: str) -> dict:
@@ -100,7 +120,7 @@ def e5_key_sufficiency(ev: ProfileEvidence, jkp: Mapping[str, Any] | None, polic
         else:
             br, key = vp["branches"][0], set(vp["declared_keys"])
             rec["declared_key"] = sorted(key)
-            bad = [j for j in br.get("joins") or () if not join_n1(j, jkp)[0]]
+            bad = [j for j in br.get("joins") or () if not (join_n1(j, jkp)[0] and reliable_key_contract(ev, j.get("secondary"), jkp))]
             proj = br.get("projected_refs") or ()
             if bad:
                 rec["reason"] = "JOIN_CARDINALITY_NOT_DEMONSTRATED"
@@ -119,7 +139,7 @@ def e5_key_sufficiency(ev: ProfileEvidence, jkp: Mapping[str, Any] | None, polic
                 drv = (br.get("driver") or {}).get("artifact")
                 rec_cls = (ev.leaf_class_records.get(drv) or {}).get("contract_class") if drv else None
                 dkeys = _keys(jkp, drv) if drv else []
-                if rec_cls != _GOVERNED_CDS or not dkeys:
+                if rec_cls != _GOVERNED_CDS or not dkeys or not reliable_key_contract(ev, drv, jkp):
                     rec["reason"] = "DRIVER_NOT_GOVERNED_CDS_WITH_DECLARED_KEY"
                 else:
                     fixed = {w["column"] for w in br.get("where_constants") or () if w.get("artifact") == drv}
@@ -134,4 +154,4 @@ def e5_key_sufficiency(ev: ProfileEvidence, jkp: Mapping[str, Any] | None, polic
         nodes.append(rec)
     states = {x["state"] for x in nodes}
     glob = DEFICIENT if DEFICIENT in states else (SUFFICIENT if states == {SUFFICIENT} else (NOT_APPLICABLE if states == {NOT_APPLICABLE} else NOT_EVALUABLE))
-    return {"state": glob, "nodes": nodes}
+    return {"state": glob, **CARDINALITY_BASIS, "nodes": nodes}

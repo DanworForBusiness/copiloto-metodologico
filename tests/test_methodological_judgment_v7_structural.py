@@ -146,3 +146,29 @@ def test_the_structural_input_enters_the_output_signature():
     a = evaluate_judgment(copy.deepcopy(p), structural_evidence=_jkp(vf_keys=("K",)), **V7)
     b = evaluate_judgment(copy.deepcopy(p), structural_evidence=_jkp(vf_keys=("K", "ITEM"), project_item=True), **V7)
     assert a["structural_evidence"]["digest"] != b["structural_evidence"]["digest"] and a["output_signature"] != b["output_signature"]
+
+
+# ───────────── base de la cardinalidad: contrato estructural ≠ unicidad física ─────────────
+def test_e3_e5_record_a_contract_basis_and_never_claim_physical_uniqueness():
+    e3, e5 = _e(_profile(), _jkp(vf_keys=("K",)))
+    for r in (e3, e5):
+        assert r["cardinality_basis"] == "DECLARED_KEY_CONTRACT" and r["physical_uniqueness"] == "NOT_VERIFIED"
+    assert all(j["cardinality_basis"] == "DECLARED_KEY_CONTRACT" and j["physical_uniqueness"] == "NOT_VERIFIED" for n in e3["nodes"] for j in n["joins"])
+
+
+@pytest.mark.parametrize("who", ["DIM", "FACT"])
+def test_a_key_not_taken_from_the_csn_key_elements_is_not_a_reliable_contract(who):
+    s = _jkp(vf_keys=("K",))
+    s["join_key_profile"]["keys"][who]["source"] = "INFERRED_FROM_NAMES"
+    e3, e5 = _e(_profile(), s)
+    assert e5["state"] == ST.NOT_EVALUABLE
+    if who == "DIM":
+        assert e3["state"] == ST.NOT_EVALUABLE and e3["nodes"][0]["joins"][0]["reason"] == "SECONDARY_KEY_CONTRACT_NOT_RELIABLE_FOR_CLASS"
+
+
+def test_a_secondary_outside_the_governed_cds_class_has_no_reliable_key_contract():
+    p = _profile()
+    ev = ProfileEvidence(p, None)
+    ev.leaf_class_records["DIM"] = {**(ev.leaf_class_records.get("DIM") or {}), "contract_class": "GOVERNED_SAP_APPLICATION_API"}
+    jkp = ST.valid_block(_jkp(vf_keys=("K",))["join_key_profile"])
+    assert ST.e3_enrichment(ev, jkp, "UNDETERMINED")["state"] == ST.NOT_EVALUABLE and ST.e5_key_sufficiency(ev, jkp, "UNDETERMINED")["state"] == ST.NOT_EVALUABLE
