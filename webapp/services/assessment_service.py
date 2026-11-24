@@ -439,12 +439,53 @@ def judgment_is_current_version(judgment: dict | None, ruleset: str | None = Non
     return bool(judgment) and judgment_versions_of(judgment) == judgment_contract_versions(ruleset)
 
 
-def _derive_judgment(profile: dict | None, ratified: Any = None, ruleset: str | None = None) -> dict | None:
+def _derive_judgment(profile: dict | None, ratified: Any = None, ruleset: str | None = None, structural: dict | None = None) -> dict | None:
     """Juicio metodológico DETERMINISTA del perfil, derivado con el ÚNICO motor canónico (``evaluate_judgment``, ruleset vigente v3). Es
     estado DERIVADO del perfil persistido: se calcula aquí al escribir el sobre (generate/reassess/backfill) y NUNCA se
     recalcula ni se edita en la UI. ``ratified``: ratificaciones de gobierno INYECTADAS (las enlaza el operador explícito con una instantánea del registro;
     sin ellas v3 == v2 en niveles: el registro jamás se lee de fondo). ``None`` solo si no hay perfil (estado sin assessment)."""
-    return evaluate_judgment(profile, ruleset=ruleset or active_ruleset(), ratified_contracts=list(ratified or ())) if profile is not None else None
+    if profile is None:
+        return None
+    rs = ruleset or active_ruleset()
+    # `structural`: entrada `structural_evidence` YA VERIFICADA (``structural_evidence.verify``/``for_engine``) del sidecar ligado a ESTE perfil. Solo v7 la consume;
+    # para v2–v6 la llamada es exactamente la histórica (firmas reproducibles).
+    extra = {"structural_evidence": structural} if structural is not None and rs == SE_RULESET else {}
+    return evaluate_judgment(profile, ruleset=rs, ratified_contracts=list(ratified or ()), **extra)
+
+
+SE_RULESET = "judgment-rules/v7"                      # único ruleset que consume `structural-evidence/v1` (contract.RULESET_V7)
+
+
+def _structural_for(meta: Any, doc: dict | None, am: str, pool_signature: str | None) -> tuple[dict | None, dict | None]:
+    """(sidecar `structural-evidence/v1` a persistir, entrada VERIFICADA para el motor) del MISMO ciclo de evaluación. Fail-soft: sin bloque o sin vínculo ⇒ (None, None)."""
+    from webapp.services import structural_evidence as SE
+    try:
+        sc = SE.build_sidecar(meta, doc, am, pool_signature)
+        block, _why = SE.verify(sc, doc, am)
+    except Exception:  # noqa: BLE001 — la evidencia estructural es opcional: su falla nunca impide generar (el Juicio v7 se abstiene en E3/E5)
+        log.warning("assessment: sidecar estructural no construible para %s", am, exc_info=True)
+        return None, None
+    return sc, ({"join_key_profile": block} if block is not None else None)
+
+
+def _se_applies(se_in: dict | None, ruleset: str | None = None) -> bool:
+    """La entrada estructural viaja SOLO con evidencia verificada Y ruleset efectivo v7. En cualquier otro caso la llamada es exactamente la histórica
+    (v2–v6 nunca la reciben; ganchos/derivadores inyectados de la firma anterior siguen valiendo)."""
+    return se_in is not None and (ruleset or active_ruleset()) == SE_RULESET
+
+
+def _se_kw(se_in: dict | None, ruleset: str | None = None) -> dict:
+    return {"structural": se_in} if _se_applies(se_in, ruleset) else {}
+
+
+def _se_ev(se_in: dict | None, ruleset: str | None = None) -> dict:
+    return {"structural_evidence": se_in} if _se_applies(se_in, ruleset) else {}
+
+
+def structural_input(env: dict | None) -> dict | None:
+    """Entrada `structural_evidence` VERIFICADA de un sobre gobernado (o ``None``: ausente/alterada/obsoleta/de otro modelo ⇒ abstención en E3/E5)."""
+    from webapp.services import structural_evidence as SE
+    return SE.for_engine(env)
 
 
 def provisional_judgment(profile: dict | None) -> dict | None:
@@ -485,7 +526,7 @@ def _envelope(client: str, am: str, *, status: str, profile: dict | None, pool_s
               versions: dict | None, error_code: str | None = None, generated_at: str | None = None,
               judgment: dict | None = _UNSET, domain_classification: dict | None = None,
               business_classification: dict | None = None, closure_signature: str | None = None,
-              review_evidence: dict | None = None) -> dict:
+              review_evidence: dict | None = None, structural_evidence: dict | None = None) -> dict:
     env = {
         "envelope_version": ENVELOPE_VERSION,
         "client": client,
@@ -497,7 +538,7 @@ def _envelope(client: str, am: str, *, status: str, profile: dict | None, pool_s
         "assessment_artifact_signature": _artifact_signature(profile) if profile is not None else None,
         "status": status,
         "profile_json": profile,
-        "judgment": _derive_judgment(profile) if judgment is _UNSET else judgment,
+        "judgment": None,
         # Clasificación de dominio: derivado HERMANO del Juicio (contrato/versión propios). No entra en las firmas del perfil ni del artefacto.
         "domain_classification": domain_classification,
         # Clasificación de negocio v2: derivado HERMANO (contrato/versión propios); la v1 de dominio se conserva sin cambios y no se confunde con ésta.
@@ -507,6 +548,14 @@ def _envelope(client: str, am: str, *, status: str, profile: dict | None, pool_s
         "review_evidence": review_evidence,
         "error_code": error_code,
     }
+    if structural_evidence is not None:
+        # v7 — sidecar `structural-evidence/v1`: `join-key-profile/v1` del MISMO ciclo, HERMANO del perfil y ligado a su firma de artefacto. FUERA del perfil
+        # y de sus firmas; no es una segunda fuente de verdad: solo vale mientras el perfil sea exactamente ese (lo verifica `structural_evidence.verify`).
+        env["structural_evidence"] = structural_evidence
+    if judgment is _UNSET:
+        from webapp.services import structural_evidence as SE
+        judgment = _derive_judgment(profile, **_se_kw(SE.for_engine(env))) if profile is not None else None
+    env["judgment"] = judgment
     if closure_signature:                               # vigencia por dependencias (aditivo): sin ella el sobre se juzga solo por la firma del pool completo, como siempre
         env["input_closure_signature"] = closure_signature
         env["dependency_rule_version"] = ma_dependencies.DEPENDENCY_RULE_VERSION
@@ -570,14 +619,14 @@ def _verify_consumed_decision(client: str, item: dict, leaves: dict, now: Any) -
         raise ReplacementAbstained("RATIFICATION_NOT_ACTIVE", str(item.get("leaf")))
 
 
-def judgment_for_replacement(profile: dict, previous: dict | None, *, now: Any = None) -> tuple[dict | None, dict]:
+def judgment_for_replacement(profile: dict, previous: dict | None, *, now: Any = None, structural: dict | None = None) -> tuple[dict | None, dict]:
     """(Juicio a persistir, claves hermanas a conservar) para REEMPLAZAR el sobre ``previous`` con ``profile``. Sin sobre previo (creación): Juicio sin
     decisiones, como siempre. Lanza ``ReplacementAbstained`` si no puede reaplicar TODAS las decisiones consumidas o si el sobre está en una transición
     (reevaluación pendiente / activación de ruleset): en ese caso el llamador NO escribe."""
     from datetime import datetime, timezone
     from webapp.services import judgment_decisions as jd
     if not previous:
-        return _derive_judgment(profile), {}
+        return _derive_judgment(profile, **_se_kw(structural)), {}
     if previous.get("judgment_candidate"):
         raise ReplacementAbstained("RULESET_ACTIVATION_IN_PROGRESS")
     if previous.get("judgment_review"):
@@ -586,7 +635,7 @@ def judgment_for_replacement(profile: dict, previous: dict | None, *, now: Any =
     prev_judgment = previous.get("judgment")
     consumed = jd.consumed(prev_judgment)
     if not consumed:
-        return _derive_judgment(profile), carried
+        return _derive_judgment(profile, **_se_kw(structural)), carried
     if not judgment_is_current_version(prev_judgment):
         raise ReplacementAbstained("PREVIOUS_JUDGMENT_NOT_CURRENT")
     ce = (profile or {}).get("canonical_evidence") or {}
@@ -595,7 +644,7 @@ def judgment_for_replacement(profile: dict, previous: dict | None, *, now: Any =
     client = str(previous.get("client") or "")
     for item in consumed:
         _verify_consumed_decision(client, item, leaves, when)
-    fresh = _derive_judgment(profile, consumed)
+    fresh = _derive_judgment(profile, consumed, **_se_kw(structural))
     if fresh is None or jd.lost_decisions(prev_judgment, fresh):
         raise ReplacementAbstained("RATIFICATION_NOT_REAPPLIED")
     return fresh, carried
@@ -759,7 +808,7 @@ def classify_judgment_decisions(env: dict, snapshot: Any = None, ruleset: str | 
     if prof is None:
         return {"action": JDG_NO_PROFILE, "fresh": None, "lost": [], "link_report": None}
     snap = snapshot if snapshot is not None else jd.empty_snapshot()
-    fresh, report = jd.derive(prof, str(env.get("client") or ""), snap, ruleset=ruleset)
+    fresh, report = jd.derive(prof, str(env.get("client") or ""), snap, ruleset=ruleset, **_se_ev(structural_input(env), ruleset))
     persisted = env.get("judgment")
     out = {"fresh": fresh, "lost": [], "link_report": report}
     if persisted is None:
@@ -1144,8 +1193,9 @@ def _generate_locked(entry: Any, res: Resolution, versions: dict, *, force: bool
         if state == "ASSESSED":
             ma_profile.validate_assessment(doc)
             sig = (doc.get("scope") or {}).get("pool_signature") or meta.get("pool_signature")
+            se_sidecar, se_in = _structural_for(meta, doc, am, sig)
             try:                                        # P0.1: el reemplazo reaplica (verificadas) las decisiones del Juicio vigente o se abstiene SIN escribir
-                judgment, carried = judgment_for_replacement(doc, previous)
+                judgment, carried = judgment_for_replacement(doc, previous, **_se_kw(se_in))
             except ReplacementAbstained as exc:
                 log.warning("assessment: reemplazo abstenido para %s/%s: %s %s", client, am, exc.code, exc.detail)
                 return replace(current, error_code=exc.code, reason=REPLACEMENT_ABSTENTIONS.get(exc.code))
@@ -1153,6 +1203,7 @@ def _generate_locked(entry: Any, res: Resolution, versions: dict, *, force: bool
                             domain_classification=_derive_domain_classification(entry, am),
                             business_classification=_derive_business_classification(entry, am),
                             review_evidence=meta.get("review_evidence"),   # Iteración II: sidecar del MISMO ciclo de evaluación
+                            structural_evidence=se_sidecar,                # v7: sidecar estructural del MISMO ciclo, ligado a este perfil
                             closure_signature=closure_signature(res) if sig == res.pool_signature else None)
             durable = _store_envelope({**env, **carried})
             return replace(_status_from(entry, res, versions), durable=durable)
@@ -1180,7 +1231,8 @@ def _generate_locked(entry: Any, res: Resolution, versions: dict, *, force: bool
         # P0.1: el Juicio del perfil retenido es el PERSISTIDO (con sus decisiones consumidas), no una re-derivación sin decisiones
         judgment=retained.get("judgment") if retained else None,
         domain_classification=(retained or {}).get("domain_classification"), business_classification=(retained or {}).get("business_classification"),
-        review_evidence=(retained or {}).get("review_evidence"))      # conserva el sidecar del perfil retenido (no se descarta en FAILED)
+        review_evidence=(retained or {}).get("review_evidence"),      # conserva el sidecar del perfil retenido (no se descarta en FAILED)
+        structural_evidence=(retained or {}).get("structural_evidence"))  # ídem el estructural (sigue ligado al perfil retenido)
     for key in (*_SIBLINGS_CARRIED, "judgment_review", "judgment_candidate"):   # la falla no borra marcas ni trazas del Juicio retenido
         if retained and retained.get(key) is not None:
             failed[key] = retained[key]
@@ -1311,14 +1363,16 @@ def prepare_regeneration(entry: Any, res: Resolution | None = None) -> PreparedA
     sig = (doc.get("scope") or {}).get("pool_signature") or (meta or {}).get("pool_signature")
     if sig != res.pool_signature:
         raise PrepareError("POOL_SIGNATURE_MISMATCH", am)
+    se_sidecar, se_in = _structural_for(meta, doc, am, sig)
     try:                                                # P0.1: validado ANTES de escribir nada (la etapa corre antes del commit local y de la confirmación remota)
-        judgment, carried = judgment_for_replacement(doc, _load_envelope(client, am))
+        judgment, carried = judgment_for_replacement(doc, _load_envelope(client, am), **_se_kw(se_in))
     except ReplacementAbstained as exc:
         log.warning("assessment: reemplazo abstenido (publicación) para %s/%s: %s %s", client, am, exc.code, exc.detail)
         raise PrepareError(exc.code, am) from None
     env = _envelope(client, am, status="OK", profile=doc, pool_signature=sig, versions=dict(doc["versions"]), judgment=judgment,
                     domain_classification=_derive_domain_classification(entry, am), business_classification=_derive_business_classification(entry, am),
                     review_evidence=(meta or {}).get("review_evidence"),      # sidecar del MISMO ciclo de evaluación (no se descarta al regenerar)
+                    structural_evidence=se_sidecar,
                     closure_signature=closure_signature(res))
     env.update(carried)
     if not (env.get("assessment_versions") == current_assessment_versions() and _valid_profile(env)):
@@ -1377,7 +1431,7 @@ class RegeneratedAssessment:
     envelope: dict
     previous_signature: str | None = None
     notes: dict = field(default_factory=dict, compare=False)       # decisiones del gancho de sobre (p. ej. accion de revalidacion del Juicio), solo para el informe
-    extensions: dict | None = field(default=None, compare=False)   # sidecar `evidence_extensions` del MISMO ciclo (equivalencia v2); NO se persiste en el sobre
+    extensions: dict | None = field(default=None, compare=False)   # sidecar `evidence_extensions` del MISMO ciclo (equivalencia v2); NO se persiste en el sobre (v7: solo `join_key_profile`, como `structural_evidence`)
 
 
 def facts_present(profile: dict | None) -> set[str]:
@@ -1428,19 +1482,21 @@ def _regenerate_core(entry: Any, *, precondition: Any, postcheck: Any, log_label
         raise EnrichmentError("POOL_SIGNATURE_MISMATCH")
     postcheck(doc, previous, res, versions)
     notes: dict = {}
+    se_sidecar, se_in = _structural_for(meta, doc, am, sig)
     if envelope_hook is None:
         try:                                            # P0.1: mismo contrato de reemplazo (replay verificado) que generate / publicación
-            judgment, carried = judgment_for_replacement(doc, previous)
+            judgment, carried = judgment_for_replacement(doc, previous, **_se_kw(se_in))
         except ReplacementAbstained as exc:
             raise EnrichmentError(exc.code) from None
         env = _envelope(client, am, status="OK", profile=doc, pool_signature=sig, versions=dict(doc["versions"]), judgment=judgment,
                         domain_classification=_derive_domain_classification(entry, am), business_classification=_derive_business_classification(entry, am),
-                        review_evidence=(meta or {}).get("review_evidence"))      # sidecar del MISMO ciclo (no se descarta al enriquecer/regenerar)
+                        review_evidence=(meta or {}).get("review_evidence"),      # sidecar del MISMO ciclo (no se descarta al enriquecer/regenerar)
+                        structural_evidence=se_sidecar)
         env.update(carried)
     else:                                                 # migracion estricta: el gancho decide el Juicio y los derivados hermanos (sin recalificar ni re-derivar a escondidas)
-        overrides, notes = envelope_hook(doc, previous)
+        overrides, notes = envelope_hook(doc, previous, **_se_kw(se_in))
         env = _envelope(client, am, status="OK", profile=doc, pool_signature=sig, versions=dict(doc["versions"]),
-                        **{"review_evidence": (meta or {}).get("review_evidence"), **overrides})   # el gancho puede sobrescribir; por defecto, sidecar del mismo ciclo
+                        **{"review_evidence": (meta or {}).get("review_evidence"), "structural_evidence": se_sidecar, **overrides})   # el gancho puede sobrescribir; por defecto, sidecar del mismo ciclo
     if not _envelope_resolves_current(env, res, versions):
         raise EnrichmentError("WOULD_NOT_BE_CURRENT")
     return RegeneratedAssessment(client, am, doc, env, (previous or {}).get("assessment_artifact_signature"), notes,
@@ -1739,7 +1795,7 @@ def judgment_methodology_diff(previous: dict | None, fresh: dict | None) -> list
     return sorted(k for k in set(a) | set(b) if _judgment_signature(a.get(k)) != _judgment_signature(b.get(k)))
 
 
-def revalidate_judgment(previous: dict | None, profile: dict | None) -> tuple[str, dict | None]:
+def revalidate_judgment(previous: dict | None, profile: dict | None, structural: dict | None = None) -> tuple[str, dict | None]:
     """(accion, Juicio a persistir). NO recalifica: ``judgment_current`` (identico), ``judgment_signature_rebound`` (misma metodologia, nueva firma de perfil: se persiste el Juicio fresco),
     ``judgment_methodology_diverged`` (la metodologia difiere: NO se reescribe), ``judgment_missing`` (no hay Juicio: no se crea aqui; es ``--backfill-judgment``),
     ``judgment_version_stale`` (contrato de Juicio anterior: se conserva tal cual; es ``--backfill-judgment``) y ``no_profile``."""
@@ -1750,7 +1806,7 @@ def revalidate_judgment(previous: dict | None, profile: dict | None) -> tuple[st
     if not judgment_is_current_version(previous):
         return JDG_VERSION_STALE, previous
     from webapp.services import judgment_decisions as jd
-    fresh = _derive_judgment(profile, jd.consumed(previous))                   # REPLAY de las MISMAS decisiones que consumio el Juicio previo (revalidar no recalifica ni relee el registro)
+    fresh = _derive_judgment(profile, jd.consumed(previous), **_se_kw(structural))                   # REPLAY de las MISMAS decisiones que consumio el Juicio previo (revalidar no recalifica ni relee el registro)
     if judgment_methodology_diff(previous, fresh):
         return JDG_METHODOLOGY_DIVERGED, None
     return (JDG_CURRENT if _judgment_signature(previous) == _judgment_signature(fresh) else JDG_SIGNATURE_REBOUND), fresh
@@ -1758,25 +1814,25 @@ def revalidate_judgment(previous: dict | None, profile: dict | None) -> tuple[st
 
 def classify_judgment_revalidation(env: dict) -> tuple[str, dict | None]:
     """Clasificacion de un sobre gobernado para el operador ``--revalidate-judgment`` (ver ``revalidate_judgment``)."""
-    return revalidate_judgment(env.get("judgment"), env.get("profile_json"))
+    return revalidate_judgment(env.get("judgment"), env.get("profile_json"), **_se_kw(structural_input(env)))
 
 
 JUDGMENT_REVALIDATING_MIGRATIONS = frozenset({MATERIALIZATION_MIGRATION, LAYER_BOUNDARY_MIGRATION})      # migraciones que NO recalifican: revalidan el Juicio (misma metodologia, nueva firma de perfil)
 JUDGMENT_REDERIVING_MIGRATIONS = frozenset({HARMONIZATION_MIGRATION, SOURCE_APPLICATION_API_MIGRATION})  # migraciones de canonical_evidence que RE-DERIVAN el Juicio (pueden cambiar nivel) con replay de ratificaciones; mismo hook
 
 
-def _materialization_envelope_hook(doc: dict, previous: dict | None) -> tuple[dict, dict]:
+def _materialization_envelope_hook(doc: dict, previous: dict | None, structural: dict | None = None) -> tuple[dict, dict]:
     """Sobre candidato de una migracion que REVALIDA el Juicio (``evidence_leaf_materialization_v4``, ``signals_layer_boundary_v4``): el Juicio se REVALIDA (misma metodologia, nueva firma) o la migracion se abstiene; los derivados HERMANOS (clasificacion de
     dominio y de negocio) se conservan tal cual (no son parte de esta migracion y no dependen del perfil)."""
     prev = previous or {}
-    action, judgment = revalidate_judgment(prev.get("judgment"), doc)
+    action, judgment = revalidate_judgment(prev.get("judgment"), doc, **_se_kw(structural))
     if action == JDG_METHODOLOGY_DIVERGED:
         raise EnrichmentError("JUDGMENT_METHODOLOGY_DIVERGED")
     return ({"judgment": judgment, "domain_classification": prev.get("domain_classification"), "business_classification": prev.get("business_classification")},
             {"judgment_action": action, "previous_judgment_level": (prev.get("judgment") or {}).get("level"), "new_judgment_level": (judgment or {}).get("level")})
 
 
-def _harmonization_envelope_hook(doc: dict, previous: dict | None) -> tuple[dict, dict]:
+def _harmonization_envelope_hook(doc: dict, previous: dict | None, structural: dict | None = None) -> tuple[dict, dict]:
     """Sobre candidato de ``evidence_harmonization_nested_projection_v5``: la EVIDENCIA de Armonizacion cambia, asi que el Juicio se RE-DERIVA con el motor vigente y las MISMAS
     ratificaciones que consumio el Juicio anterior (replay: no se relee el registro ni se agregan decisiones). Si alguna deja de aplicarse, la migracion se ABSTIENE (las ratificaciones
     siguen sus propias reglas de vigencia por el flujo gobernado). Los derivados hermanos (dominio, negocio) se conservan tal cual. El cambio de nivel se informa en las notas y el
@@ -1785,7 +1841,7 @@ def _harmonization_envelope_hook(doc: dict, previous: dict | None) -> tuple[dict
     from webapp.services import judgment_decisions as jd
     prev = previous or {}
     replay = jd.consumed(prev.get("judgment"))
-    fresh = _derive_judgment(doc, replay)
+    fresh = _derive_judgment(doc, replay, **_se_kw(structural))
     if fresh is None or jd.lost_decisions(prev.get("judgment"), fresh):
         raise EnrichmentError("RATIFICATION_NOT_REAPPLIED")
     old = prev.get("judgment") or {}
@@ -1827,7 +1883,7 @@ def regenerate_current_evidence(entry: Any, snapshot: Any = None, *, _derive: An
     ``_derive`` (interno): ``(doc, previous) -> (Juicio, claves hermanas)``; por defecto la instantánea (semántica del CLI firmado, sin cambios). Ver ``regenerate_current_evidence_replay``."""
     from webapp.services import judgment_decisions as jd
     snap = snapshot if snapshot is not None else jd.empty_snapshot()
-    derive = _derive or (lambda doc, prev: (jd.derive(doc, str((prev or {}).get("client") or ""), snap)[0], {}))
+    derive = _derive or (lambda doc, prev, structural=None: (jd.derive(doc, str((prev or {}).get("client") or ""), snap, **_se_ev(structural))[0], {}))
     carried_out: dict = {}
 
     def precondition(previous: dict | None, res: Resolution, versions: dict) -> None:
@@ -1841,9 +1897,9 @@ def regenerate_current_evidence(entry: Any, snapshot: Any = None, *, _derive: An
         if old_id is None or new_id != old_id:
             raise EnrichmentError("CLOSURE_DRIFT")
 
-    def hook(doc: dict, previous: dict | None) -> tuple[dict, dict]:
+    def hook(doc: dict, previous: dict | None, structural: dict | None = None) -> tuple[dict, dict]:
         prev = previous or {}
-        fresh, carried = derive(doc, prev)
+        fresh, carried = derive(doc, prev, **_se_kw(structural))
         carried_out.update(carried)
         return ({"judgment": fresh, "domain_classification": prev.get("domain_classification"), "business_classification": prev.get("business_classification")},
                 {"previous_judgment_level": (prev.get("judgment") or {}).get("level"), "previous_judgment_rule": (prev.get("judgment") or {}).get("level_rule"),
@@ -1859,9 +1915,9 @@ def regenerate_current_evidence(entry: Any, snapshot: Any = None, *, _derive: An
 # El CLI firmado conserva su semántica (``--decisions registry|none`` → instantánea explícita). El Hub NO tiene instantánea: reaplica SOLO las decisiones que el Juicio
 # vigente consumió, reverificadas contra la evidencia nueva y el registro (revocación / reemplazo), o se ABSTIENE (``EnrichmentError`` → ABSTAINED, sin escribir).
 # Ambas se llaman en el dry-run Y otra vez en la ejecución asegurada justo antes de escribir (el plan se recalcula): la revalidación no confía en el preview.
-def _replay_judgment(doc: dict, previous: dict | None) -> tuple[dict | None, dict]:
+def _replay_judgment(doc: dict, previous: dict | None, structural: dict | None = None) -> tuple[dict | None, dict]:
     try:
-        return judgment_for_replacement(doc, previous)
+        return judgment_for_replacement(doc, previous, **_se_kw(structural))
     except ReplacementAbstained as exc:
         raise EnrichmentError(exc.code) from None
 
@@ -1875,7 +1931,7 @@ def regenerate_stale_evidence_replay(entry: Any, migration: str) -> RegeneratedA
     """``regenerate_stale_evidence`` SIN cambiar sus ganchos (semántica de la migración firmada) + verificación P0.1 del candidato: las decisiones consumidas
     siguen vigentes y con la misma evidencia, y el Juicio del gancho coincide EXACTAMENTE con el replay verificado (si no, ``REPLAY_INCOHERENT``)."""
     cand = regenerate_stale_evidence(entry, migration)
-    judgment, carried = _replay_judgment(cand.profile, _load_envelope(cand.client, cand.terminal_am))
+    judgment, carried = _replay_judgment(cand.profile, _load_envelope(cand.client, cand.terminal_am), **_se_kw(structural_input(cand.envelope)))
     if (judgment or {}).get("output_signature") != (cand.envelope.get("judgment") or {}).get("output_signature"):
         raise EnrichmentError("REPLAY_INCOHERENT")
     cand.envelope.update(carried)
