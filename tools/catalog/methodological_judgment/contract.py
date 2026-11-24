@@ -14,7 +14,8 @@ RULESET_V2 = "judgment-rules/v2"
 RULESET_V3 = "judgment-rules/v3"
 RULESET_V4 = "judgment-rules/v4"
 RULESET_V5 = "judgment-rules/v5"
-RULESETS = (RULESET_V2, RULESET_V3, RULESET_V4, RULESET_V5)
+RULESET_V6 = "judgment-rules/v6"
+RULESETS = (RULESET_V2, RULESET_V3, RULESET_V4, RULESET_V5, RULESET_V6)
 RULESET_VERSION = RULESET_V2                           # ruleset POR DEFECTO del motor: judgment-rules/v2 sigue siendo reproducible e inalterado para toda llamada que no pida v3 explicitamente
 # judgment-rules/v3 = judgment-rules/v2 + UNA sola politica adicional: una ratificacion de gobierno vigente (governed-decision/v1, inyectada como ENTRADA explicita; el motor jamas la lee) resuelve
 # unicamente la indeterminacion contractual decision-critica de LVL-05 (variante GOVERNED_CONTRACT_RATIFIED, alcance conservador). Sin ratificaciones inyectadas v3 produce los mismos niveles que v2.
@@ -27,6 +28,10 @@ CURRENT_RULESET_VERSION = RULESET_V4
 # normalizar) cuya consecuencia PRODUCE medidas/claves publicadas (M1-M5, detector conservador; fail-closed por cobertura) + (R4) exactitud de las limitaciones/revisiones de fuente externa.
 # ``CURRENT_RULESET_VERSION`` sigue siendo el ruleset vigente CUANDO NO HAY ACTIVACION GOBERNADA: v5 se despliega disponible e inactivo y lo activa SOLO la adopcion asegurada
 # (marcador ``ruleset-activation/v1`` del almacen gobernado; ver ``webapp/services/judgment_activation.py``).
+# judgment-rules/v6 = v5 + correcciones de RECONOCIMIENTO (no de scoring; v5 queda byte a byte identico y sus Juicios persistidos siguen reproducibles):
+#   (E2) una hoja MIXED_BOUNDARY_CLASSES cuyos componentes estan TODOS clasificados explicitamente (gobernados o tabla fisica ABAP) con >=1 fisico ya no deja la Ingesta
+#        «sin evidencia»: su clase es conocida (no todo es gobernado). Solo afecta el ESTADO de la dimension SOURCE; las razones emitidas y ``classify_source`` no cambian.
+# Se despliega DISPONIBLE e INACTIVO (como v5): lo vuelve visible solo una activacion gobernada (``ruleset-activation/v1``); ``CURRENT_RULESET_VERSION`` no cambia.
 NAMING_GATE_MAX_NONRECOVERABLE_RATIO = 0.25          # θ de la compuerta de naming (configurable POR RULESET: cambiarlo es otra version de ruleset, nunca un parametro de runtime)
 LEVEL_RULE_ADECUADA_BY_NAMING_GATE = "LVL-09"
 NAMING_GATE_PASS, NAMING_GATE_BLOCK, NAMING_GATE_NOT_ACCREDITED = "PASS", "BLOCK", "NOT_ACCREDITED"
