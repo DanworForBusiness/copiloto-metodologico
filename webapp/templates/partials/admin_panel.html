@@ -33,12 +33,21 @@
 <details class="admin-tool">
   <summary class="admin-tool__summary">🗑️ Borrado selectivo</summary>
   <div class="admin-tool__body">
-    <p class="admin-help">Elimina archivos de runtime por rango de fechas (según el timestamp del nombre; ambos extremos inclusivos, vacíos = sin límite). <strong>Previsualizá siempre primero</strong> — el borrado es definitivo; conviene bajar el Export ZIP antes.</p>
+    <p class="admin-help admin-help--compact">Elimina archivos de runtime por rango de fechas (según el timestamp del nombre; ambos extremos inclusivos, vacíos = sin límite). <strong>Previsualizá siempre primero</strong> — el borrado es definitivo; conviene bajar el Export ZIP antes.</p>
     <form hx-post="/admin/runtime/purge" hx-target="#res-purge" hx-swap="innerHTML"
           hx-indicator="#ind-purge" hx-disabled-elt="button[type='submit']">
       <label class="admin-check"><input type="checkbox" name="folders" value="feedback_log"> feedback_log</label>
       <label class="admin-check"><input type="checkbox" name="folders" value="activity_log"> activity_log</label>
       <label class="admin-check"><input type="checkbox" name="folders" value="case_library"> case_library</label>
+      {# Filtro opcional por usuario (email = id estable). «Todos» = conducta actual. En activity_log acota por
+         evento; en feedback_log por archivo; case_library no tiene usuario. Preview y Eliminar usan el mismo filtro. #}
+      <div class="admin-actions">
+        <label class="admin-label" for="purge-user">Usuario</label>
+        <select id="purge-user" name="user" class="admin-select">
+          <option value="">Todos</option>
+          {% for u in runtime_users %}<option value="{{ u }}">{{ u }}</option>{% endfor %}
+        </select>
+      </div>
       <div class="admin-actions">
         <label class="admin-label" for="purge-from">Desde</label>
         <input type="date" id="purge-from" name="date_from">
