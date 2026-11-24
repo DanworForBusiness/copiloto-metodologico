@@ -149,6 +149,21 @@ def _requests_for(client_dir: str, am: str) -> list[dict]:
 
 
 # ── estado derivado ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+def approvals_in_flight() -> list[dict]:
+    """Aprobaciones gobernadas EN VUELO en todo el almacen (registradas, verificando, iniciadas o pendientes de reconciliar): las que pueden escribir un sobre. Lectura del almacen
+    compartido (no solo de este proceso). La usa la activacion global del ruleset para NEGARSE mientras exista alguna."""
+    _ensure_restored()
+    root = _dir()
+    out = []
+    if root.is_dir():
+        for path in sorted(root.glob("*/*/*.json")):
+            rec = _read(path)
+            st = ((rec or {}).get("approval") or {}).get("state")
+            if rec and st in _APPROVAL_IN_FLIGHT:
+                out.append({"request_id": rec.get("request_id"), "client_dir": rec.get("client_dir"), "terminal_am": rec.get("terminal_am"), "approval_state": st})
+    return out
+
+
 def envelope_sha(client_dir: str, am: str) -> str | None:
     path = svc.governed_path(client_dir, am)
     return hashlib.sha256(path.read_bytes()).hexdigest() if path is not None and path.is_file() else None

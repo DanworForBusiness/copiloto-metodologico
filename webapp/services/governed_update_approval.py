@@ -90,6 +90,16 @@ def _not_ready_code() -> str | None:
     return None if state == READINESS_READY else ("RECOVERY_FAILED" if state == READINESS_FAILED else "RECOVERY_PENDING")
 
 
+RULESET_ACTIVATION_IN_PROGRESS = "RULESET_ACTIVATION_IN_PROGRESS"
+
+
+def _activation_in_transition() -> bool:
+    """Activacion GLOBAL del ruleset en curso (marcador ACTIVATING/ACTIVE del almacen gobernado). Lee el archivo compartido en cada llamada: ve la escritura de OTRO proceso (la CLI de la
+    activacion). No es un lock distribuido; la red final es la validacion de la activacion (Juicio visible intacto) y su re-validacion posterior al commit."""
+    from webapp.services import judgment_activation as ja
+    return ja.in_transition()
+
+
 class ApprovalRefused(Exception):
     def __init__(self, code: str):
         super().__init__(code)
@@ -149,6 +159,8 @@ def register(rec: dict, user: dict, role: str, spaces: list[str], *, idempotency
     not_ready = _not_ready_code()
     if not_ready:
         raise ApprovalRefused(not_ready)                                   # C5: antes de leer o escribir el registro
+    if _activation_in_transition():
+        raise ApprovalRefused(RULESET_ACTIVATION_IN_PROGRESS)              # activacion global del ruleset en curso: no se registra ninguna aprobacion individual
     with gur._lock:
         fresh = gur.load(rec["request_id"]) or rec
         current = fresh.get("approval") or {}
@@ -325,6 +337,8 @@ def hub_authorizer(request_id: str, approval_id: str, expected_plan_digest: str)
         appr = rec.get("approval") or {}
         if _not_ready_code():
             return ma.DENIED("PROCESS_NOT_READY")
+        if _activation_in_transition():
+            return ma.DENIED(RULESET_ACTIVATION_IN_PROGRESS)            # ultima comprobacion ANTES del respaldo y de las escrituras
         if appr.get("approval_id") != approval_id or appr.get("state") != STARTED:
             return ma.DENIED("HUB_APPROVAL_NOT_ACTIVE")
         if approval_id not in _running:
@@ -392,6 +406,7 @@ def _outcome_state(report: dict) -> tuple[str, str]:
     if outcome == ab.APPLIED and report.get("applied", True):
         return APPLIED, outcome
     if outcome in (ab.APPLIED_WITH_ABSTENTIONS, ab.STOPPED_AT_WAVE, ab.ABSTENTIONS_CHANGED, ab.DENIED, ab.REMOTE_REQUIRED, ab.BACKUP_NOT_GUARANTEED, "PLAN_CHANGED",
+                   ab.RULESET_ACTIVATION_IN_PROGRESS,
                    "RECOVERY_ONLY", "NOTHING_TO_DO"):                     # el plan recalculado ya no tiene qué aplicar (p. ej. decisión revocada tras el dry-run)
         return ABSTAINED, outcome
     return FAILED, outcome or "UNKNOWN_OUTCOME"
@@ -402,6 +417,8 @@ def start(rec: dict, appr: dict, *, compute: Callable | None = None, execute: Ca
     aid = appr["approval_id"]
     if _not_ready_code():
         return "NOT_READY"                                                 # C5: nada arranca fuera de READY
+    if _activation_in_transition():
+        return RULESET_ACTIVATION_IN_PROGRESS                              # la aprobacion queda REGISTERED (no se consume); se podra iniciar al terminar la activacion
     with gur._lock:
         if aid in _running:
             return "ALREADY_RUNNING"
