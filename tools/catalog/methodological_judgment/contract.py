@@ -15,7 +15,8 @@ RULESET_V3 = "judgment-rules/v3"
 RULESET_V4 = "judgment-rules/v4"
 RULESET_V5 = "judgment-rules/v5"
 RULESET_V6 = "judgment-rules/v6"
-RULESETS = (RULESET_V2, RULESET_V3, RULESET_V4, RULESET_V5, RULESET_V6)
+RULESET_V7 = "judgment-rules/v7"
+RULESETS = (RULESET_V2, RULESET_V3, RULESET_V4, RULESET_V5, RULESET_V6, RULESET_V7)
 RULESET_VERSION = RULESET_V2                           # ruleset POR DEFECTO del motor: judgment-rules/v2 sigue siendo reproducible e inalterado para toda llamada que no pida v3 explicitamente
 # judgment-rules/v3 = judgment-rules/v2 + UNA sola politica adicional: una ratificacion de gobierno vigente (governed-decision/v1, inyectada como ENTRADA explicita; el motor jamas la lee) resuelve
 # unicamente la indeterminacion contractual decision-critica de LVL-05 (variante GOVERNED_CONTRACT_RATIFIED, alcance conservador). Sin ratificaciones inyectadas v3 produce los mismos niveles que v2.
@@ -34,6 +35,14 @@ CURRENT_RULESET_VERSION = RULESET_V4
 #   (E4a) un campo publicado que conserva el nombre tecnico de la columna de una CDS GOBERNADA y lleva una etiqueta funcional acreditada (no vacia y distinta del nombre) no cuenta
 #        como «nombre de columna fuente» en la conformidad del contrato publicado. No aplica a campos derivados (medidas calculadas) ni a fuentes de otra clase.
 # Se despliega DISPONIBLE e INACTIVO (como v5): lo vuelve visible solo una activacion gobernada (``ruleset-activation/v1``); ``CURRENT_RULESET_VERSION`` no cambia.
+# judgment-rules/v7 = v6 + (R-ACC estricta) CONTRATO EXTERNO ACEPTADO: una hoja externa (EXTERNAL_CONTRACT_UNDETERMINED, REMOTE_IMPORTED) con ratificacion
+#   vigente ENLAZADA a ESTE perfil (identidad exacta + digest MATCH de su evidencia) es un contrato ACEPTADO para ese consumo, haya o no exposicion decision-critica:
+#   · la Ingesta deja de estar «sin evidencia» y queda RESPONSABILIDAD CUMPLIDA si todo contacto es gobernado o aceptado — NUNCA fortaleza (SRC-STR-01 sigue exigiendo gobernado);
+#   · su vocabulario expuesto sin cambios sigue BLOQUEANDO PUB-STR-01, pero si es el UNICO bloqueo el contrato publicado queda RESPONSABILIDAD CUMPLIDA («reuso aceptado»);
+#   · nunca neutraliza una deficiencia independiente (razones locales/relevantes, tabla fisica cruda) ni cambia el orden de decision.
+#   Coherente con el contrato de ratificacion: aceptacion arquitectonica del consumo, sin certificar el tipo fisico ni reconocer fortalezas adicionales.
+#   Disponible e INACTIVO; v2-v6 quedan byte a byte identicos.
+RATIFICATION_EFFECT_ACCEPTED = "ACCEPTED_EXTERNAL_CONTRACT"
 NAMING_GATE_MAX_NONRECOVERABLE_RATIO = 0.25          # θ de la compuerta de naming (configurable POR RULESET: cambiarlo es otra version de ruleset, nunca un parametro de runtime)
 LEVEL_RULE_ADECUADA_BY_NAMING_GATE = "LVL-09"
 NAMING_GATE_PASS, NAMING_GATE_BLOCK, NAMING_GATE_NOT_ACCREDITED = "PASS", "BLOCK", "NOT_ACCREDITED"

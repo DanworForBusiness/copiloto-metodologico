@@ -197,7 +197,7 @@ def decision_critical_undetermined_source(ev: ProfileEvidence, policy: str, excl
     return vocabulary_exposure(ev, und)
 
 
-def published_positive_families(ev: ProfileEvidence, policy: str) -> tuple[dict[str, set[str]], bool, bool]:
+def published_positive_families(ev: ProfileEvidence, policy: str, exclude_from_leak: frozenset = frozenset()) -> tuple[dict[str, set[str]], bool, bool]:
     """(familias AFIRMATIVAS, linaje_completo, hay_fuga) de la fortaleza del contrato publicado. Familias (ninguna es obligatoria en todo producto, ninguna es un puntaje):
     GOVERNED_HARMONIZATION_REUSE (campos publicados trazables a una hoja gobernada a traves de un contrato de armonizacion) · AUTHORED_SEMANTICS (campos cuya etiqueta es PROPIA:
     distinta de la de TODAS las hojas de las que provienen) · BUSINESS_ASSOCIATION (evidencia positiva LOCALIZADA: existe una asociacion a una dimension de negocio).
@@ -212,7 +212,8 @@ def published_positive_families(ev: ProfileEvidence, policy: str) -> tuple[dict[
             fam.setdefault("AUTHORED_SEMANTICS", set()).add(f"field:{name}")
         for lf in entries:
             cls = ev.classify_source(lf["leaf"], policy)
-            if cls is not None and cls != GOVERNED_SAP_CONTRACT and _verbatim_vocabulary(lf) and _paths(lf, characters=NEAR_IDENTITY_CHARACTERS, through=False):
+            if (cls is not None and cls != GOVERNED_SAP_CONTRACT and lf["leaf"] not in exclude_from_leak and _verbatim_vocabulary(lf)
+                    and _paths(lf, characters=NEAR_IDENTITY_CHARACTERS, through=False)):
                 leak = True
     if ev.business_association_targets:
         fam["BUSINESS_ASSOCIATION"] = {f"dim:{d}" for d in ev.business_association_targets}
@@ -947,7 +948,8 @@ def propagation_normal_composition(ev: ProfileEvidence, policy: str) -> list[str
     return [*sorted(set(bases)), "PRO.product_composes_only_resolved_inputs_governed_contracts_harmonized_views_or_accredited_replicas"]
 
 
-def dimension_resolution_v4(ev: ProfileEvidence, policy: str, strengths_: list[dict], reasons: list[dict], missing: list[dict], pub_lineage_complete: bool, materialized: bool = True) -> list[dict]:
+def dimension_resolution_v4(ev: ProfileEvidence, policy: str, strengths_: list[dict], reasons: list[dict], missing: list[dict], pub_lineage_complete: bool, materialized: bool = True,
+                            accepted: frozenset = frozenset()) -> list[dict]:
     """Estado por dimension de judgment-rules/v4. Solo lee lo ya calculado (fortalezas, razones, causas de ausencia) y evidencia canonica; no inventa evidencia ni agrega razones/fortalezas."""
     have = {s["rule_id"] for s in strengths_}
     by_dim = {m["dimension"]: m for m in missing}
@@ -983,8 +985,15 @@ def dimension_resolution_v4(ev: ProfileEvidence, policy: str, strengths_: list[d
             leak = published_vocabulary_leak_from_physical_raw(ev, policy) if pub_lineage_complete else []
             if leak:
                 item["state"], item["basis"] = C.DS_DEFICIENCY, ["PUB.vocabulary_of_a_verified_physical_raw_boundary_reaches_the_consumer_verbatim"]
+            elif accepted and pub_lineage_complete and m.get("cause") == "UNRESOLVED_VOCABULARY_REACHES_THE_CONSUMER":
+                # v7 (R-ACC): si la UNICA exposicion verbatim proviene de contratos externos ACEPTADOS, es reuso aceptado (responsabilidad cumplida), nunca fortaleza
+                if not published_positive_families(ev, policy, exclude_from_leak=accepted)[2]:
+                    item["state"], item["basis"] = C.DS_MET, ["PUB.verbatim_exposure_only_from_accepted_external_contracts"]
         elif dim == "SOURCE_INGESTION":
             item["cause"] = m.get("cause")
+            if accepted and m.get("cause") == "SOURCE_CONTACT_ACCEPTED_BY_RATIFICATION" and all(
+                    ev.classify_source(l, policy) == GOVERNED_SAP_CONTRACT or l in accepted for l in ev.source_contact_leaves):
+                item["state"], item["basis"] = C.DS_MET, ["SRC.every_contact_governed_or_accepted_by_ratification"]
         out.append(item)
     return out
 
