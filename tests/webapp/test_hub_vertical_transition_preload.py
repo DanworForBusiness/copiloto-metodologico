@@ -98,15 +98,17 @@ def test_landing_loads_the_same_single_mechanism_without_new_css_or_components()
     assert html.count('src="/static/hub_transition.js"') == 1 and "defer" in html
     # el visual ya llega por brand-hero.css (@import hub_overlay.css): NO se agrega otra hoja ni markup de overlay/spinner
     assert "/static/hub_overlay.css" not in html and "auth-overlay" not in html and "auth-spinner" not in html
-    # cada tarjeta declara su etiqueta corta (el texto de la tarjeta incluye descripción y lista); href y contenido sin cambios
+    # adhesión DECLARATIVA en el contenedor; el <a> de cada tarjeta conserva EXACTAMENTE su markup común (class + href)
+    assert html.count("data-hub-transition-links") == 1
     for ws in (workspaces.COPILOT, workspaces.COMMERCIAL):
-        assert f'href="{ws.home_url}" data-hub-transition-label="{ws.label}"' in html
+        assert f'<a class="glass workspace-tile" href="{ws.home_url}">' in html
 
 
 def test_js_covers_landing_tiles_with_the_same_controller():
-    assert "a.workspace-tile[href]" in JS
+    assert "[data-hub-transition-links] a[href]" in JS
+    assert "workspace-tile" not in JS                                           # el JS no conoce ni cuenta las tarjetas (invariante del selector)
     assert JS.count('document.addEventListener("click"') == 1                    # UN solo controlador para las dos vías
-    assert "isCurrentPage" in JS and "data-hub-transition-label" in JS
+    assert "isCurrentPage" in JS and "linkLabel" in JS
     assert "hub-transitioning\")) {" in JS and "ev.preventDefault()" in JS          # navegación en curso → segundo click ignorado
 
 

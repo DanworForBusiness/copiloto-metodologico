@@ -1,6 +1,6 @@
 // hub_transition.node.js — invocado por test_hub_vertical_transition_preload.py.
 // Ejecuta el controlador REAL de webapp/static/hub_transition.js con un DOM mínimo y ejercita sus DOS vías de entrada:
-// (A) el switcher de verticales del encabezado y (B) las tarjetas del landing «Danwor Hub» (a.workspace-tile).
+// (A) el switcher de verticales del encabezado y (B) las tarjetas del landing «Danwor Hub» (links dentro de [data-hub-transition-links]).
 // Imprime una línea JSON por caso; el test de Python afirma sobre ellas.
 "use strict";
 const fs = require("fs");
@@ -38,17 +38,20 @@ function makeEnv(currentPath) {
 }
 
 // Elemento <a> mínimo con `closest` que resuelve SOLO el selector que el controlador consulta.
-function link({ href, cls = [], parentMenu = false, text = "", attrs = {} }) {
+function link({ href, cls = [], parentMenu = false, inTiles = false, title = null, text = "", attrs = {} }) {
   const classes = new Set(cls);
+  // Título de tarjeta: texto PROPIO + subtítulo anidado (como el <h2>{{ title }}<span>{{ accent }}</span></h2> del landing).
+  const heading = title === null ? null : { childNodes: [{ nodeType: 3, nodeValue: title }, { nodeType: 1, nodeValue: null }] };
   const a = {
     href: new URL(href, ORIGIN).href, textContent: text,
     classList: { contains: (c) => classes.has(c) },
     getAttribute(k) { return k === "href" ? href : (k in attrs ? attrs[k] : null); },
+    querySelector(sel) { return sel === "h1, h2, h3" ? heading : null; },
   };
   a.closest = (sel) => {
     const parts = sel.split(",").map((s) => s.trim());
     const ok = parts.some((p) => (p === ".workspace-switch-menu a[href]" && parentMenu) || (p === "a.workspace-switch-platform[href]" && classes.has("workspace-switch-platform"))
-      || (p === "a.workspace-tile[href]" && classes.has("workspace-tile")));
+      || (p === "[data-hub-transition-links] a[href]" && inTiles));
     return ok ? a : null;
   };
   return a;
@@ -72,14 +75,14 @@ env = makeEnv("/copiloto"); out.switcher_active = click(env, link({ href: "/copi
 env = makeEnv("/copiloto"); out.switcher_platform = click(env, link({ href: "/onedanwor", cls: ["workspace-switch-platform"], text: "Todos los espacios" }));
 env = makeEnv("/copiloto"); out.switcher_modified = click(env, link({ href: "/comercial", parentMenu: true, text: "Comercial" }), { ctrlKey: true });
 // (B) tarjetas del landing
-const tile = (href, label) => link({ href, cls: ["workspace-tile"], text: "DESCRIPCION LARGA " + label + " lista de capacidades", attrs: { "data-hub-transition-label": label } });
+const tile = (href, label) => link({ href, inTiles: true, title: label, text: label + "SUBTITULO descripcion larga lista de capacidades" });
 env = makeEnv("/onedanwor"); out.tile_click = click(env, tile("/comercial", "Comercial"));
 env = makeEnv("/onedanwor"); out.tile_enter = click(env, tile("/comercial", "Comercial"), { detail: 0 });   // Enter sobre un <a> dispara click con button 0
 env = makeEnv("/onedanwor"); out.tile_double = [click(env, tile("/comercial", "Comercial")), click(env, tile("/comercial", "Comercial"))];
 env = makeEnv("/onedanwor"); out.tile_same_page = click(env, tile("/onedanwor", "Todos"));
 env = makeEnv("/onedanwor"); out.tile_new_tab = click(env, tile("/comercial", "Comercial"), { metaKey: true });
 env = makeEnv("/onedanwor"); out.tile_middle = click(env, tile("/comercial", "Comercial"), { button: 1 });
-env = makeEnv("/onedanwor"); out.tile_target_blank = click(env, link({ href: "/comercial", cls: ["workspace-tile"], attrs: { target: "_blank", "data-hub-transition-label": "Comercial" } }));
+env = makeEnv("/onedanwor"); out.tile_target_blank = click(env, link({ href: "/comercial", inTiles: true, title: "Comercial", attrs: { target: "_blank" } }));
 env = makeEnv("/onedanwor"); out.not_a_vertical_link = click(env, link({ href: "/comercial", text: "otro link" }));
 // bfcache: volver con el navegador limpia el overlay
 env = makeEnv("/onedanwor"); click(env, tile("/comercial", "Comercial")); for (const cb of env.listeners["w:pageshow"] || []) cb({ persisted: true });

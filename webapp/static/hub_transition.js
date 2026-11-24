@@ -6,7 +6,8 @@
 
    Comportamiento:
      - Aparece al iniciar un cambio de vertical: click (o Enter) en un link del switcher de workspace a OTRA vertical, o en una
-       TARJETA de vertical del landing «Danwor Hub» (`a.workspace-tile`, platform_selector.html) — el MISMO controlador para ambas vías.
+       TARJETA de vertical del landing «Danwor Hub» (contenedor con `data-hub-transition-links`, platform_selector.html) — el MISMO
+       controlador para ambas vías. La adhesión es DECLARATIVA en el contenedor: este archivo no conoce ni cuenta las tarjetas.
      - NO aparece al navegar dentro de la misma vertical, ni en el link activo, ni si el destino es la página actual, ni en clicks
        modificados / nueva pestaña.
      - Mientras la navegación está en curso, un segundo click/Enter sobre cualquier link de cambio de vertical se ignora (evita
@@ -21,7 +22,7 @@
 
   var OVERLAY_ID = "hub-transition-overlay";
   // Switcher del encabezado + tarjetas de vertical del landing del Hub (misma semántica: navegar a OTRA vertical).
-  var SWITCH_SELECTOR = ".workspace-switch-menu a[href], a.workspace-switch-platform[href], a.workspace-tile[href]";
+  var SWITCH_SELECTOR = ".workspace-switch-menu a[href], a.workspace-switch-platform[href], [data-hub-transition-links] a[href]";
   // Watchdog de SEGURIDAD (no es el mecanismo de cierre normal): si la navegación no ocurrió en este lapso, limpiamos el overlay
   // para no dejarlo pegado tras una navegación cancelada/bloqueada. Un cambio de vertical real reemplaza la página mucho antes.
   var SAFETY_MS = 10000;
@@ -66,6 +67,18 @@
     if (el) el.setAttribute("aria-hidden", "true");
   }
 
+  function linkLabel(a) {
+    // Un link con TÍTULO (tarjeta: título + descripción + lista) se nombra por el texto PROPIO de su título (sin el subtítulo
+    // anidado); un link simple (switcher), por su texto.
+    var h = a.querySelector ? a.querySelector("h1, h2, h3") : null;
+    if (h) {
+      var own = "";
+      for (var i = 0; i < h.childNodes.length; i++) if (h.childNodes[i].nodeType === 3) own += h.childNodes[i].nodeValue;
+      if (own.trim()) return own.trim();
+    }
+    return (a.textContent || "").trim();
+  }
+
   function isCurrentPage(a) {
     // `a.href` es la URL ABSOLUTA resuelta por el navegador; se compara sin el fragmento.
     try {
@@ -91,8 +104,7 @@
       ev.preventDefault();
       return;
     }
-    // Etiqueta corta explícita (tarjetas del landing: su texto incluye descripción y lista) o, si no, el texto del link.
-    var label = (a.getAttribute("data-hub-transition-label") || a.textContent || "").trim();
+    var label = linkLabel(a);
     show(label ? ("Abriendo " + label + "…") : "Abriendo espacio…");
     // La navegación de página completa continúa; el overlay persiste hasta que la vertical destino reemplaza la página.
   }, true);
