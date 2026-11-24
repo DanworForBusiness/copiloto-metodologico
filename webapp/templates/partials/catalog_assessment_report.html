@@ -153,27 +153,34 @@
    qué pasa) y desde ahí «Solicitar actualización» REGISTRA una solicitud y notifica a Arquitectura (POST mismo origen): no modifica sobres, no ejecuta backfill
    ni ninguna operación gobernada (PR-1). Con una solicitud abierta y vigente del modelo, el CTA es «Ver solicitud» (deduplicación visible). #}
 {% if v.update_opportunity %}{% set up = v.update_opportunity %}
-<div class="whatsnew-banner asr-update-banner" role="status" data-asr-update-opportunity>
+{#- Tipo de punch desde las señales del backend: LEVEL (cambia nivel/estado: vigente → candidato) o EVIDENCE (misma calificación, cambian los contratos de
+    fuente: «Actualización de evidencia disponible»). Sin diferencias relevantes no hay punch (lo decide `governed_update_opportunity`). -#}
+<div class="whatsnew-banner asr-update-banner" role="status" data-asr-update-opportunity data-asr-opp-kind="{{ up.kind }}">
   <span class="whatsnew-banner__msg asr-update-banner__msg">
     <span class="whatsnew-banner__mark" aria-hidden="true">↻</span>
-    <strong class="asr-update-banner__title">Oportunidad de actualización del Assessment gobernado</strong>
+    <strong class="asr-update-banner__title" data-asr-opp-title>{{ up.title }}</strong>
     <span class="asr-update-banner__sep" aria-hidden="true">·</span>
+    {% if up.kind == "LEVEL" %}
     <span class="asr-update-opp__levels"><span class="asr-update-opp__pair">Vigente <span class="catalog-card__verdict catalog-card__verdict--{{ up.vigente_tone }}" data-asr-opp-vigente>{{ up.vigente_label }}</span></span><span aria-hidden="true">→</span><span class="asr-update-opp__pair">Esta evaluación <span class="catalog-card__verdict catalog-card__verdict--{{ up.candidato_tone }}" data-asr-opp-candidato>{{ up.candidato_label }}</span></span></span>
+    {% else %}
+    <span class="asr-update-opp__levels" data-asr-opp-same-level><span class="asr-update-opp__pair">La calificación se mantiene <span class="catalog-card__verdict catalog-card__verdict--{{ up.vigente_tone }}" data-asr-opp-vigente>{{ up.vigente_label }}</span></span><span>· cambian los contratos de fuente</span></span>
+    {% endif %}
   </span>
   <span class="asr-update-banner__actions">
     {% if up.open_request_id %}<a class="btn-primary asr-update-banner__cta" href="/copilot/governed-updates/{{ up.open_request_id }}?pack={{ pack | urlencode }}" data-asr-open-request>Ver solicitud</a>
-    {% else %}<button type="button" class="btn-primary asr-update-banner__cta" data-dialog-open="asr-update-dialog">{{ "Revisar y aprobar" if adhoc_approver else "Solicitar actualización" }}</button>{% endif %}
+    {% else %}<button type="button" class="btn-primary asr-update-banner__cta" data-dialog-open="asr-update-dialog" data-asr-opp-cta>{{ up.approver_cta if adhoc_approver else "Solicitar actualización" }}</button>{% endif %}
     <button type="button" class="whatsnew-banner__close" title="Ocultar (solo en esta vista)" aria-label="Ocultar aviso de oportunidad de actualización" @click="$el.closest('[data-asr-update-opportunity]').remove()">✕</button>
   </span>
 </div>
 <dialog class="dw-confirm asr-update-dialog" id="asr-update-dialog" aria-labelledby="asr-update-dialog-title">
   <form method="dialog">
     <div class="dw-confirm__body">
-      <h2 class="dw-confirm__title" id="asr-update-dialog-title">{{ "Revisar y aprobar" if adhoc_approver else "Solicitar actualización" }}</h2>
+      <h2 class="dw-confirm__title" id="asr-update-dialog-title">{{ up.approver_cta if adhoc_approver else "Solicitar actualización" }}</h2>
       <p class="asr-update-opp__levels"><span class="asr-update-opp__pair">Vigente <span class="catalog-card__verdict catalog-card__verdict--{{ up.vigente_tone }}">{{ up.vigente_label }}</span></span><span aria-hidden="true">→</span><span class="asr-update-opp__pair">Esta evaluación <span class="catalog-card__verdict catalog-card__verdict--{{ up.candidato_tone }}">{{ up.candidato_label }}</span></span></p>
-      <p class="dw-confirm__msg">Esta evaluación ad hoc detecta una mejora respecto del Assessment gobernado vigente. No lo reemplaza ni ejecuta ninguna migración.{% if up.motive %} {{ up.motive }}{% endif %}</p>
+      {% if up.kind == "LEVEL" %}<p class="dw-confirm__msg">Esta evaluación ad hoc da una calificación distinta de la del Assessment gobernado vigente. No lo reemplaza ni ejecuta ninguna migración: si es aplicable lo determina el dry-run gobernado.</p>
+      {% else %}<p class="dw-confirm__msg" data-asr-opp-evidence-msg>La calificación se mantiene, pero esta evaluación encontró diferencias en los contratos de fuente que justifican una revisión gobernada. No reemplaza el Assessment vigente ni ejecuta ninguna migración: si corresponde actualizarlo lo determina el dry-run.</p>{% endif %}
       <dl class="asr-update-dialog__facts">
-        {% if up.source_classes_text %}<dt>Contrato de fuente que cambia</dt><dd>{{ up.source_classes_text | join(", ") }}</dd>{% endif %}
+        {% if up.contracts_diff %}<dt>Contratos de fuente que cambian (hojas por clase)</dt><dd data-asr-opp-contracts>{% for c in up.contracts_diff %}{{ c.text }}: {{ c.vigente }} → {{ c.candidato }}{% if not loop.last %}<br>{% endif %}{% endfor %}</dd>{% endif %}
         <dt>Procedencia</dt><dd>{% if up.provenance_validated %}Space «{{ up.candidate_space }}», el mismo del Assessment vigente.{% else %}Space «{{ up.candidate_space or "—" }}» de esta ejecución; requiere validación antes de actualizar.{% endif %}</dd>
         {% if adhoc_approver %}<dt>Qué pasa</dt><dd>Se registra la solicitud (auditable) y se abre la revisión: declarás el origen, calculás el dry-run gobernado y, si todo se acredita, aprobás. No se envía correo. Nada se modifica hasta aprobar.</dd>
         {% else %}<dt>Qué pasa al solicitar</dt><dd>Se registra la solicitud y se notifica a Arquitectura, que la revisa con un dry-run gobernado. No se modifica nada todavía: la actualización real sigue el procedimiento gobernado supervisado (aprobación explícita y aplicación asegurada con respaldo).</dd>{% endif %}

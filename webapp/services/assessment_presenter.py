@@ -1295,6 +1295,7 @@ def _update_opportunity_view(opp: dict | None) -> dict | None:
         return None
     gc, cc = opp["source_contracts"]["vigente"], opp["source_contracts"]["candidato"]
     gained = sorted(k for k in cc if cc.get(k, 0) != gc.get(k, 0))                    # clases de contrato de fuente que cambian a favor del candidato
+    changed = sorted(k for k in set(cc) | set(gc) if cc.get(k, 0) != gc.get(k, 0))    # TODAS las clases cuyo conteo cambia (aparecen, crecen, bajan o desaparecen)
     vig_lvl = (opp["vigente"].get("level") or "NO DETERMINABLE")
     cand_lvl = (opp["candidato"].get("level") or "NO DETERMINABLE")
 
@@ -1305,7 +1306,15 @@ def _update_opportunity_view(opp: dict | None) -> dict | None:
     (vig_label, vig_tone), (cand_label, cand_tone) = _badge(opp["vigente"].get("level")), _badge(opp["candidato"].get("level"))
     # UNA sola formulación (el nivel ya lo dicen los badges): el motivo solo se explicita cuando el nivel NO cambia.
     motive = "" if opp["level_changed"] else "Mismo nivel; cambió la evidencia de contrato de fuente respecto del Assessment vigente."
-    return {"vigente_level": vig_lvl, "candidato_level": cand_lvl, "vigente_label": vig_label, "vigente_tone": vig_tone,
+    # Tipo de punch: SOLO de las señales ya calculadas por el backend (``level_changed`` / ``contracts_changed``); no se duplican criterios.
+    kind = "LEVEL" if opp["level_changed"] else "EVIDENCE"
+    # Explicación VERIFICABLE del cambio: conteos de hojas por clase de contrato (vigente → esta evaluación). No se infieren diferencias por fuente.
+    contracts_diff = [{"class": k, "text": AQ.CONTRACT_CLASS_TEXT.get(k, k), "vigente": int(gc.get(k, 0)), "candidato": int(cc.get(k, 0))} for k in changed]
+    return {"kind": kind,
+            "title": "Oportunidad de actualización del Assessment gobernado" if kind == "LEVEL" else "Actualización de evidencia disponible",
+            "approver_cta": "Revisar y aprobar" if kind == "LEVEL" else "Revisar cambios",
+            "contracts_diff": contracts_diff,
+            "vigente_level": vig_lvl, "candidato_level": cand_lvl, "vigente_label": vig_label, "vigente_tone": vig_tone,
             "candidato_label": cand_label, "candidato_tone": cand_tone, "level_changed": opp["level_changed"], "contracts_changed": opp["contracts_changed"],
             "source_classes_changed": gained, "source_classes_text": [AQ.CONTRACT_CLASS_TEXT.get(k, k) for k in gained],
             "comparable": opp["comparable"], "provenance_validated": opp["provenance_validated"],

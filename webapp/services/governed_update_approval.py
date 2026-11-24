@@ -137,8 +137,14 @@ def approvable(rec: dict, spaces: list[str]) -> list[str]:
     return reasons
 
 
-def register(rec: dict, user: dict, role: str, spaces: list[str], *, idempotency_key: str) -> tuple[dict, bool]:
-    """Fase 1. ``(aprobación, creada)``. Idempotente por ``idempotency_key`` y con UNA aprobación activa por solicitud."""
+_NO_REVIEW_BINDING = object()     # llamada interna sin diálogo de revisión (pruebas/servicio); la ruta del Hub SIEMPRE envía el digest revisado
+
+
+def register(rec: dict, user: dict, role: str, spaces: list[str], *, idempotency_key: str,
+             reviewed_plan_digest: Any = _NO_REVIEW_BINDING) -> tuple[dict, bool]:
+    """Fase 1. ``(aprobación, creada)``. Idempotente por ``idempotency_key`` y con UNA aprobación activa por solicitud.
+    ``reviewed_plan_digest``: digest del plan que el aprobador VIO en el diálogo. Dentro de la sección crítica (después de la idempotencia, para que
+    un reintento legítimo devuelva la MISMA aprobación) se exige que coincida con el preview vigente y que no haya un dry-run en curso."""
     spaces = sorted({str(s).strip() for s in spaces if str(s).strip()})
     not_ready = _not_ready_code()
     if not_ready:
@@ -152,6 +158,13 @@ def register(rec: dict, user: dict, role: str, spaces: list[str], *, idempotency
             return current, False                                          # ya hay una en curso: no se crea otra
         if current.get("state") in BLOCKING:
             raise ApprovalRefused("RECONCILIATION_REQUIRED")               # un intento consumido sin resultado acreditado bloquea nuevas aprobaciones
+        if reviewed_plan_digest is not _NO_REVIEW_BINDING:
+            if gur.preview_running_locked(fresh["request_id"]):          # ya dentro de gur._lock (no reentrante)
+                raise ApprovalRefused("PREVIEW_RUNNING")                   # un recálculo en curso: el plan revisado puede dejar de ser el vigente
+            if not reviewed_plan_digest:
+                raise ApprovalRefused("REVIEWED_PLAN_MISSING")
+            if reviewed_plan_digest != (fresh.get("preview") or {}).get("plan_digest"):
+                raise ApprovalRefused("PLAN_CHANGED_SINCE_REVIEW")         # pestaña obsoleta / recálculo posterior: nunca se aprueba un plan no visto
         reasons = approvable(fresh, spaces)
         if reasons:
             raise ApprovalRefused(reasons[0])

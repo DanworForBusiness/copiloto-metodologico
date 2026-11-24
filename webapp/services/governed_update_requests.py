@@ -447,13 +447,15 @@ def compute_preview(rec: dict, spaces: Any = None) -> dict:
 
 
 def start_preview(rec: dict, user: dict, role: str, *, run: Any = None, on_done: Any = None, spaces: Any = None) -> str:
-    """Arranca el dry-run en un hilo (no depende del request HTTP). ``STARTED`` | ``ALREADY_RUNNING`` | ``OBSOLETE``."""
+    """Arranca el dry-run en un hilo (no depende del request HTTP). ``STARTED`` | ``ALREADY_RUNNING`` | ``APPROVAL_IN_PROGRESS`` | ``OBSOLETE``."""
     rid = rec["request_id"]
     if current_status(rec) != OPEN:
         return "OBSOLETE"
     with _lock:
         if rid in _previewing:
             return "ALREADY_RUNNING"
+        if ((load(rid) or rec).get("approval") or {}).get("state") in ("REGISTERED", "VERIFYING", "STARTED"):
+            return "APPROVAL_IN_PROGRESS"                                  # no se recalcula el plan mientras se verifica/aplica una aprobación
         _previewing.add(rid)
     runner = run or compute_preview
 
@@ -488,3 +490,8 @@ def start_preview(rec: dict, user: dict, role: str, *, run: Any = None, on_done:
 def preview_running(request_id: str) -> bool:
     with _lock:
         return request_id in _previewing
+
+
+def preview_running_locked(request_id: str) -> bool:
+    """Igual que ``preview_running`` para quien YA tiene ``_lock`` (no reentrante): p. ej. ``register`` en su sección crítica."""
+    return request_id in _previewing
