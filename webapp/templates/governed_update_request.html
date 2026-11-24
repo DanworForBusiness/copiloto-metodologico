@@ -28,9 +28,7 @@
       {% if g.model_title != g.rec.terminal_am %}<p class="asr-subid"><code data-gu-model-id>{{ g.rec.terminal_am }}</code></p>{% endif %}
       <div class="hero-meta">
         <span class="catalog-verdict-line">
-          <span class="catalog-meta-dot catalog-meta-dot--{{ g.badges.request.tone }}" aria-hidden="true"></span>
-          <span class="catalog-card__verdict catalog-card__verdict--{{ g.badges.request.tone }}" data-gu-state="{{ g.state }}">{{ g.badges.request.label }}</span>
-          {% if g.badges.application %}<span class="catalog-card__verdict catalog-card__verdict--{{ g.badges.application.tone }}" data-gu-application-state="{{ g.badges.application.state }}">{{ g.badges.application.label }}</span>{% endif %}
+          {% include "partials/governed_update_header_state.html" %}
           <span class="catalog-card__verdict catalog-card__verdict--{{ 'plena' if g.role else 'neutra' }}" data-gu-role="{{ g.role or '' }}">Tu rol · {{ g.role_label }}</span>
           <span>Solicitada {{ (g.rec.requested_at or "").replace("T", " ").replace("+00:00", " UTC") }} por {{ g.rec.requested_by }}</span>
         </span>

@@ -331,6 +331,31 @@ def _header_badges(state: str, approval: dict | None) -> dict:
     return {"request": {"label": label, "tone": tone}, "application": app}
 
 
+# ── fase del circuito (solo presentación, derivada del estado REAL del servidor; no cambia transiciones) ──
+PHASE_DECLARE, PHASE_COMPUTING, PHASE_READY, PHASE_APPLYING, PHASE_BLOCKED, PHASE_ENDED, PHASE_APPLIED, PHASE_CLOSED = (
+    "DECLARE", "COMPUTING", "READY", "APPLYING", "BLOCKED", "ENDED", "APPLIED", "CLOSED")
+_ENDED_WITH_CAUSE = ("DENIED", "ABSTAINED", "FAILED", "NOT_APPLIED")
+
+
+def _phase(rec: dict, state: str, running: bool, can_approve: bool) -> str:
+    appr = (rec.get("approval") or {}).get("state")
+    if state == "APPLIED" or appr == "APPLIED":
+        return PHASE_APPLIED
+    if state != gur.OPEN:
+        return PHASE_CLOSED                                                # obsoleta / reemplazada: solo lectura
+    if appr in ("REGISTERED", "VERIFYING", "STARTED"):
+        return PHASE_APPLYING
+    if appr in ("RECONCILIATION_REQUIRED", "INTERRUPTED"):
+        return PHASE_BLOCKED
+    if running:
+        return PHASE_COMPUTING
+    if can_approve:
+        return PHASE_READY
+    if appr in _ENDED_WITH_CAUSE:
+        return PHASE_ENDED
+    return PHASE_DECLARE
+
+
 # ── revisar ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 def _view(rec: dict, user: dict, pack: str) -> dict:
     role = gur.approver_role(user)
@@ -354,6 +379,7 @@ def _view(rec: dict, user: dict, pack: str) -> dict:
         "poll": running or ((rec.get("approval") or {}).get("state") in ("REGISTERED", "VERIFYING", "STARTED")) or (not notification["terminal"] and _age_s(rec.get("requested_at")) < NOTIFICATION_POLL_MAX_S),
         "rec": rec, "state": state, "obsolete": state == gur.OBSOLETE, "role": role, "can_preview": can_preview,
         "model_title": _model_title(rec), "badges": _header_badges(state, rec.get("approval")),
+        "phase": _phase(rec, state, running, bool(role) and not _approval_reasons(rec)),
         "legacy": state == gur.OPEN and not gur.has_valid_fingerprint((rec.get("source") or {}).get("fingerprint")),
         "superseded": state == gur.SUPERSEDED, "superseded_by": (rec.get("superseded") or {}).get("by"), "supersedes": rec.get("supersedes"),   # solo presentación: anterior a la huella (no cambia elegibilidad)
         "is_requester": gur.user_email(user) == rec.get("requested_by"),
@@ -410,6 +436,8 @@ def preview(request: Request, request_id: str, pack: str = Form(DEFAULT_PACK), s
         _activity("governed_update.provenance_declared", user, request_id=request_id, client=rec["client_dir"], model=rec["terminal_am"], role=role,
                   spaces=",".join(declared))
     outcome = gur.start_preview(rec, user, role, on_done=done, spaces=declared or None)
+    if outcome == "APPROVAL_IN_PROGRESS":
+        raise HTTPException(409, "Hay una aprobación en curso: el dry-run no se recalcula hasta que termine.")
     if outcome == "OBSOLETE":
         _activity("governed_update.dry_run", user, request_id=request_id, client=rec["client_dir"], model=rec["terminal_am"], role=role,
                   state=gur.PREVIEW_OBSOLETE)
@@ -418,7 +446,7 @@ def preview(request: Request, request_id: str, pack: str = Form(DEFAULT_PACK), s
 
 @router.post(f"{BASE}/{{request_id}}/approve", include_in_schema=False)
 def approve(request: Request, request_id: str, pack: str = Form(DEFAULT_PACK), spaces: list[str] = Form([]), idempotency_key: str = Form(""),
-            confirm: str = Form("")):
+            confirm: str = Form(""), plan_digest: str = Form("")):
     """«Aprobar y actualizar». Mismo origen + rol verificado en el servidor + confirmación explícita. Solo REGISTRA la aprobación (fase 1) y arranca, en un
     hilo, la verificación previa y la ejecución asegurada (fases 2 y 3 de ``governed_update_approval``). Un reintento con la misma ``idempotency_key``
     devuelve la misma aprobación; nunca ejecuta dos veces."""
@@ -438,7 +466,8 @@ def approve(request: Request, request_id: str, pack: str = Form(DEFAULT_PACK), s
                             if state == gua.READINESS_PENDING else "La aprobación no está disponible: la recuperación de arranque no terminó bien.",
                             headers={"Retry-After": str(gur.RETRY_AFTER_S)} if state == gua.READINESS_PENDING else None)
     try:
-        appr, created = gua.register(rec, user, role, spaces, idempotency_key=idempotency_key.strip()[:64])
+        appr, created = gua.register(rec, user, role, spaces, idempotency_key=idempotency_key.strip()[:64],
+                                     reviewed_plan_digest=plan_digest.strip())             # el plan que el aprobador VIO (se verifica en la sección crítica)
     except gua.ApprovalRefused as exc:
         _activity("governed_update.rejected", user, request_id=request_id, client=rec["client_dir"], model=rec["terminal_am"], role=role,
                   stage="authorization", reason=exc.code)
@@ -463,5 +492,7 @@ def approve(request: Request, request_id: str, pack: str = Form(DEFAULT_PACK), s
 @router.get(f"{BASE}/{{request_id}}/preview", response_class=HTMLResponse, include_in_schema=False)
 def preview_fragment(request: Request, request_id: str, pack: str = Query(DEFAULT_PACK)):
     user, rec = _visible(request, request_id)
+    g = _view(gur.load(request_id) or rec, user, resolve_pack(pack))
+    g["fragment"] = True                                                   # el refresco trae también el estado del encabezado (hx-select-oob)
     return templates.TemplateResponse(request=request, name="partials/governed_update_status.html",      # estado (dry-run + correo): solo lectura, sin reenvíos
-                                      context={"g": _view(gur.load(request_id) or rec, user, resolve_pack(pack))})
+                                      context={"g": g})

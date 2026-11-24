@@ -484,7 +484,7 @@ def test_tracking_section_is_a_collapsible_table_with_every_stage_and_a_gold_ori
     for key in ("authorization", "historical_provenance", "authorized_origin", "dry_run", "application", "notification"):
         assert f'<tr class="gu-tracking__row" data-gu-stage="{key}"' in html
     assert 'data-gu-tracking-state>Todavía no<' in html                                                     # estado de la aplicación visible plegado
-    assert 'class="btn-primary gu-btn-compact"' in html and "data-gu-origin-submit>Calcular dry-run<" in html   # botón dorado (btn-primary)
+    assert 'class="btn-primary gu-btn-compact"' in html and "data-gu-origin-submit data-gu-once>Calcular dry-run<" in html   # botón dorado (btn-primary)
     assert "Verificar origen y calcular dry-run</button>" not in html
     assert 'data-gu-vigente' in html and 'data-gu-candidato' in html                                         # la Propuesta se mantiene
     assert "data-gu-legacy" not in html

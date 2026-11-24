@@ -3322,6 +3322,11 @@ details:not([open]) > summary > .panel-close[data-asr-close] { display: none; }
 .gu-tracking .gu-stage__label { font-weight: 650; color: var(--content-ink); }
 .gu-stage__cell { display: grid; gap: 8px; justify-items: start; }
 .gu-tracking .gu-next { margin-top: 14px; }
+.gu-header-state { display: contents; }                       /* el estado del encabezado se refresca como unidad sin romper la línea de metadatos */
+.gu-busy { display: inline-flex; align-items: center; gap: 2px; }
+.gu-recalc > summary { list-style: none; display: inline-flex; cursor: pointer; }
+.gu-recalc > summary::-webkit-details-marker { display: none; }
+.gu-recalc[open] > summary { margin-bottom: 8px; }
 .gu-btn-compact { min-height: 0; padding: 6px 12px; font-size: .78rem; line-height: 1.3; white-space: nowrap; }
 .gu-origin { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 4px 0 2px; }
 .gu-origin__spaces { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin: 0; padding: 0; border: 0; }

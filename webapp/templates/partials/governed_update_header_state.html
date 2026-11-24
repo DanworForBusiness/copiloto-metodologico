@@ -1,0 +1,7 @@
+{#- Estado de la SOLICITUD y de la APLICACIÓN en el encabezado. Se dibuja con la página y lo vuelve a traer el MISMO refresco del Seguimiento
+    (``hx-select-oob="#gu-header-state"``): ambos reflejan siempre la misma lectura del servidor. `display: contents` conserva la línea de metadatos. -#}
+<span id="gu-header-state" class="gu-header-state">
+  <span class="catalog-meta-dot catalog-meta-dot--{{ g.badges.request.tone }}" aria-hidden="true"></span>
+  <span class="catalog-card__verdict catalog-card__verdict--{{ g.badges.request.tone }}" data-gu-state="{{ g.state }}">{{ g.badges.request.label }}</span>
+  {% if g.badges.application %}<span class="catalog-card__verdict catalog-card__verdict--{{ g.badges.application.tone }}" data-gu-application-state="{{ g.badges.application.state }}">{{ g.badges.application.label }}</span>{% endif %}
+</span>

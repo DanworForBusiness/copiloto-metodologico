@@ -475,7 +475,7 @@ def test_approve_route_registers_once_and_runs_in_background(routes, monkeypatch
     started = []
     monkeypatch.setattr(gua, "start", lambda r, a, on_event=None: started.append(a["approval_id"]) or "STARTED_THREAD")
     url = f"/copilot/governed-updates/{rec['request_id']}/approve"
-    data = {"confirm": "1", "idempotency_key": "k1", "spaces": ["DEV"]}
+    data = {"confirm": "1", "idempotency_key": "k1", "spaces": ["DEV"], "plan_digest": READY["plan_digest"]}        # el plan que se VIO en el diálogo
     owner = _client("owner@danwor.com")
     assert owner.post(url, data=data, headers=ORIGIN, follow_redirects=False).status_code == 303
     assert owner.post(url, data=data, headers=ORIGIN, follow_redirects=False).status_code == 303           # reintento: misma aprobación
