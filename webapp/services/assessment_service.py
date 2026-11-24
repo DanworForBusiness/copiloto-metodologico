@@ -578,6 +578,7 @@ REPLACEMENT_ABSTENTIONS = {
     "DECISION_STATUS_UNVERIFIABLE": "No se pudo verificar la vigencia de una decisión de gobierno: la regeneración no se aplicó.",
     "RATIFICATION_NOT_ACTIVE": "Una decisión de gobierno consumida ya no está vigente (revocada o reemplazada): la regeneración no se aplicó.",
     "RATIFICATION_NOT_REAPPLIED": "Una decisión de gobierno consumida no se pudo reaplicar al nuevo Assessment: la regeneración no se aplicó.",
+    "RATIFICATION_SCOPE_MISMATCH": "El alcance de consumo de una decisión de gobierno no coincide con el registrado o no incluye este modelo: la regeneración no se aplicó.",
 }
 _SIBLINGS_CARRIED = ("previous_judgment",)            # escalar de la última consolidación de ruleset (único escritor: finalize_judgment_candidate): se conserva tal cual
 
@@ -590,7 +591,7 @@ class ReplacementAbstained(Exception):
         self.code, self.detail = code, detail
 
 
-def _verify_consumed_decision(client: str, item: dict, leaves: dict, now: Any) -> None:
+def _verify_consumed_decision(client: str, item: dict, leaves: dict, now: Any, am: str | None = None) -> None:
     """Reverifica UNA decisión consumida contra la evidencia NUEVA y el registro (solo su contrato). Lanza ``ReplacementAbstained``."""
     from core.remote_store import RemoteReadError
     from webapp.services import governed_decisions as gd
@@ -611,12 +612,18 @@ def _verify_consumed_decision(client: str, item: dict, leaves: dict, now: Any) -
     if digest != item.get("digest"):
         raise ReplacementAbstained("RATIFIED_EVIDENCE_CHANGED", str(item.get("leaf")))
     try:                                                # vigencia: SOLO este contrato (list/get); nunca escribe ni descubre otras decisiones
-        status = store.reconstruct(client, technical_id, digest, now)["status"]
+        recon = store.reconstruct(client, technical_id, digest, now)
+        status = recon["status"]
     except (RemoteReadError, gd.GovernedDecisionError, store.GovernedDecisionStoreError, OSError, ValueError):
         raise ReplacementAbstained("DECISION_STATUS_UNVERIFIABLE", str(item.get("leaf"))) from None
     if (status.get("decision") != gd.DECISION_RATIFIED or status.get("ratified_event_id") != item.get("event_id")
             or status.get("evidence") != gd.EVIDENCE_MATCH):
         raise ReplacementAbstained("RATIFICATION_NOT_ACTIVE", str(item.get("leaf")))
+    # v7 — alcance de consumo: el ítem consumido debe declarar EXACTAMENTE el `applies_to` del evento (nunca uno ampliado/inventado) y ESTE modelo debe estar en él
+    event = next((e for e in recon.get("events") or () if e.get("event_id") == item.get("event_id")), None)
+    scope = (event or {}).get("applies_to")
+    if (list(scope) if scope else None) != (list(item["applies_to"]) if item.get("applies_to") else None) or (scope and am is not None and am not in scope):
+        raise ReplacementAbstained("RATIFICATION_SCOPE_MISMATCH", str(item.get("leaf")))
 
 
 def judgment_for_replacement(profile: dict, previous: dict | None, *, now: Any = None, structural: dict | None = None) -> tuple[dict | None, dict]:
@@ -643,7 +650,7 @@ def judgment_for_replacement(profile: dict, previous: dict | None, *, now: Any =
     when = now or datetime.now(timezone.utc)
     client = str(previous.get("client") or "")
     for item in consumed:
-        _verify_consumed_decision(client, item, leaves, when)
+        _verify_consumed_decision(client, item, leaves, when, str((profile.get("scope") or {}).get("terminal_analytic_model") or previous.get("terminal_am") or ""))
     fresh = _derive_judgment(profile, consumed, **_se_kw(structural))
     if fresh is None or jd.lost_decisions(prev_judgment, fresh):
         raise ReplacementAbstained("RATIFICATION_NOT_REAPPLIED")

@@ -292,6 +292,20 @@ def _validate_subject(subject: Any) -> None:
     _require_exact_text(subject.get("technical_id"), "subject.technical_id")
 
 
+def _validate_applies_to(value: Any) -> None:
+    """`applies_to` (opcional, solo CONTRACT_RATIFICATION/RATIFIED): ALCANCE DE CONSUMO explícito = lista NO vacía de modelos terminales del MISMO cliente,
+    exactos (sin comodines), sin duplicados y en orden canónico. Que cada modelo EXISTA y CONSUMA la identidad ratificada lo acredita el backend contra
+    los Assessments gobernados (`governed_decisions_ops.ratify`); aquí solo forma. Ausente ⇒ ratificación histórica, semántica sin cambios."""
+    if not isinstance(value, list) or not value:
+        raise ValidationError("applies_to debe ser una lista NO vacía de modelos terminales")
+    for v in value:
+        _require_exact_text(v, "applies_to[]")
+    if len(set(value)) != len(value):
+        raise ValidationError("applies_to no admite duplicados")
+    if value != sorted(value):
+        raise ValidationError("applies_to debe estar en orden canónico (ordenado)")
+
+
 def _validate_evidence_ref(ref: Any) -> None:
     if not isinstance(ref, dict):
         raise ValidationError("evidence_ref debe ser objeto")
@@ -364,10 +378,12 @@ def _validate_contract_specifics(event: dict, etype: str, decided_at: Any) -> No
             raise ValidationError("review_by anterior a decided_at")
         if rb > max_review_by(decided_at):
             raise ValidationError(f"review_by excede el máximo (+{REVIEW_MAX_MONTHS} meses)")
+        if "applies_to" in event:
+            _validate_applies_to(event.get("applies_to"))           # v7: alcance de consumo (aditivo; los eventos históricos no lo traen)
     elif etype == EVENT_REVOKED:
         _require_exact_text(event.get("revokes_event_id"), "revokes_event_id")
-        if "evidence_ref" in event or "review_by" in event:
-            raise ValidationError("un REVOKED no lleva evidence_ref ni review_by")
+        if "evidence_ref" in event or "review_by" in event or "applies_to" in event:
+            raise ValidationError("un REVOKED no lleva evidence_ref, review_by ni applies_to")
 
 
 def _validate_review_specifics(event: dict, etype: str, decided_at: Any) -> None:
@@ -417,7 +433,8 @@ def _validate_review_specifics(event: dict, etype: str, decided_at: Any) -> None
 
 def build_ratification(*, event_id: str, subject: dict, rationale: str, actor: str, decided_at: str,
                        canonical_evidence: dict | None = None, evidence_ref_override: dict | None = None,
-                       review_by: str | None = None, traceability: dict | None = None, request_id: str | None = None) -> dict:
+                       review_by: str | None = None, traceability: dict | None = None, request_id: str | None = None,
+                       applies_to: list[str] | None = None) -> dict:
     """Arma (y valida) un evento RATIFIED. `event_id`/`decided_at`/`actor` los IMPONE el backend. Evidencia: pasar
     `evidence_ref_override` ya armado (per-CDS, B3 → `cds_evidence_ref`) o `canonical_evidence` (nivel perfil, compat).
     `request_id` = token de idempotencia (A). `review_by` def +12m. `traceability` es contexto, NO amplía alcance (D4)."""
@@ -438,6 +455,8 @@ def build_ratification(*, event_id: str, subject: dict, rationale: str, actor: s
         event["traceability"] = traceability
     if request_id is not None:
         event["request_id"] = request_id
+    if applies_to is not None:
+        event["applies_to"] = sorted(applies_to) if isinstance(applies_to, (list, tuple, set, frozenset)) else applies_to   # forma canónica; validate_event rechaza lo demás
     validate_event(event)
     return event
 

@@ -67,6 +67,7 @@ _HTTP = (
     (ops.ContractEvidenceUnverifiable, 409, "Evidencia de contrato no verificable (Assessment ilegible/alterado): operación rechazada"),
     (ops.ContractEvidenceAmbiguous, 409, "Evidencia de contrato contradictoria entre Assessments"),
     (ops.IdempotencyConflict, 409, "request_id reutilizado con contenido distinto"),
+    (ops.ApplicabilityRejected, 422, "Alcance de consumo no acreditado (modelo inexistente o que no consume la identidad)"),
     (ops.RevocationNotAllowed, 409, "Revocación no permitida (huérfana/repetida/no vigente)"),
     (store.DecisionConflict, 409, "Conflicto de almacenamiento (create-only)"),
     (store.StorageUnconfirmed, 503, "No se pudo confirmar la escritura; no se informa éxito"),
@@ -91,14 +92,15 @@ def _run(fn):
 
 @router.post("/governed-decisions/ratify", include_in_schema=False)
 def ratify(request: Request, client: str = Form(...), remote_connection: str = Form(""), remote_entity: str = Form(...),
-           rationale: str = Form(...), request_id: str = Form(...)):
+           rationale: str = Form(...), request_id: str = Form(...), applies_to: str = Form("")):
     user = _authorize_write(request)
     actor = str(user.get("sub") or "").strip().lower()
+    scope = [a.strip() for a in applies_to.replace("\n", ",").split(",") if a.strip()] or None     # v7: modelos terminales separados por coma (vacío = sin alcance)
     out = _run(lambda: ops.ratify(client=client.strip(), identity=_identity(remote_connection, remote_entity),
                                   rationale=rationale, actor=actor, now=datetime.now(timezone.utc),
-                                  event_id="gd-" + uuid.uuid4().hex, request_id=request_id.strip()))
+                                  event_id="gd-" + uuid.uuid4().hex, request_id=request_id.strip(), applies_to=scope))
     return {"outcome": out["outcome"], "event_id": out["event"]["event_id"], "subject": out["event"]["subject"],
-            "digest": out["event"]["evidence_ref"]["digest"], "consumers": out.get("consumers", [])}
+            "digest": out["event"]["evidence_ref"]["digest"], "consumers": out.get("consumers", []), "applies_to": out["event"].get("applies_to")}
 
 
 @router.post("/governed-decisions/revoke", include_in_schema=False)
@@ -123,4 +125,5 @@ def status(request: Request, client: str, remote_entity: str, remote_connection:
             "principal": st["principal"], "effective_review_by": st.get("effective_review_by"),
             "evidence_digest": recon.get("evidence_digest"), "consumers": recon.get("consumers", []),
             "events": [{"event": e["event"], "event_id": e["event_id"], "decided_at": e["decided_at"],
-                        "actor": e["actor"], "rationale": e["rationale"]} for e in recon["events"]]}
+                        "actor": e["actor"], "rationale": e["rationale"], **({"applies_to": e["applies_to"]} if e.get("applies_to") else {})}
+                       for e in recon["events"]]}

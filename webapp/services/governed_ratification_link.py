@@ -9,7 +9,9 @@ Una hoja se enlaza ÚNICAMENTE si cumple TODO:
   · hoja `REMOTE_IMPORTED` con `contract_class == EXTERNAL_CONTRACT_UNDETERMINED` y exactamente una `remote_entity` (identidad inequívoca);
   · existe una ratificación vigente del MISMO (client, remote_connection, remote_entity) — no revocada;
   · el digest per-CDS actual de la evidencia MATCH-ea el de la ratificación (STALE / UNKNOWN / evidencia contradictoria entre consumidores NO enlazan);
-  · `REVIEW_DUE` enlaza (D7: revisión vencida no es caducidad) pero se informa.
+  · `REVIEW_DUE` enlaza (D7: revisión vencida no es caducidad) pero se informa;
+  · v7 — si la ratificación vigente declara `applies_to`, el modelo terminal de ESTE perfil debe estar en él (si no: NOT_LINKED `OUT_OF_SCOPE`, la
+    decisión NO se propaga a otros consumidores) y el alcance viaja en el ítem. Sin `applies_to` (todas las históricas): enlace idéntico al de siempre.
 El motor vuelve a validar cada ratificación contra el perfil (elegibilidad de la clase, identidad, exposición decision-crítica).
 """
 from __future__ import annotations
@@ -45,6 +47,7 @@ def link_ratifications(profile: Mapping[str, Any], client: str, *, now: datetime
     leaves = (ce.get("source_contract_classes") or {}).get("leaves") or []
     linked: list[dict] = []
     report: list[dict] = []
+    am = str(((profile or {}).get("scope") or {}).get("terminal_analytic_model") or "")
     for lf in sorted((l for l in leaves if isinstance(l, dict)), key=lambda l: str(l.get("leaf"))):
         name = str(lf.get("leaf"))
         if lf.get("leaf_kind") != gd.LEAF_KIND_REMOTE_IMPORTED or lf.get("contract_class") != UNDETERMINED_CLASS:
@@ -74,7 +77,14 @@ def link_ratifications(profile: Mapping[str, Any], client: str, *, now: datetime
             report.append(_report(name, OUT_NOT_LINKED, "EVIDENCE_UNKNOWN", technical_id=tid))
         else:
             event = next(e for e in events if e["event_id"] == st["ratified_event_id"])
-            linked.append({"leaf": name, "identity": identity, "technical_id": tid, "event_id": event["event_id"], "digest": event["evidence_ref"]["digest"],
-                           "evidence_ref": dict(event["evidence_ref"]), "decided_at": event["decided_at"]})
+            scope = event.get("applies_to")
+            if scope is not None and am not in scope:
+                report.append(_report(name, OUT_NOT_LINKED, "OUT_OF_SCOPE", technical_id=tid, event_id=event["event_id"], applies_to=list(scope)))
+                continue
+            item = {"leaf": name, "identity": identity, "technical_id": tid, "event_id": event["event_id"], "digest": event["evidence_ref"]["digest"],
+                    "evidence_ref": dict(event["evidence_ref"]), "decided_at": event["decided_at"]}
+            if scope is not None:
+                item["applies_to"] = list(scope)
+            linked.append(item)
             report.append(_report(name, OUT_LINKED, None, technical_id=tid, event_id=event["event_id"], review=st["review"]))
     return {"ratified_contracts": linked, "report": report}

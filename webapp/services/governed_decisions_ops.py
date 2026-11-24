@@ -44,6 +44,15 @@ class IdempotencyConflict(GovernedOpsError):
     """Mismo `request_id` con contenido lógico distinto (A): conflicto explícito."""
 
 
+class ApplicabilityRejected(GovernedOpsError):
+    """`applies_to` no acreditado: modelo inexistente en los Assessments gobernados del cliente (MODEL_NOT_FOUND) o modelo que NO consume la identidad
+    ratificada (CONSUMPTION_NOT_ACCREDITED). Fail-closed: no se escribe nada."""
+
+    def __init__(self, code: str, model: str):
+        super().__init__(f"{code}: {model}")
+        self.code, self.model = code, model
+
+
 class RevocationNotAllowed(GovernedOpsError):
     """Revocación huérfana, repetida o dirigida a una ratificación que ya no es vigente."""
 
@@ -124,7 +133,10 @@ def resolve_cds_contract(client: str, identity: dict) -> dict:
         raise ContractEvidenceInsufficient("remote_entity ausente")
     slices: list[dict] = []
     consumers: list[str] = []
+    models: set[str] = set()
     for env in _iter_client_envelopes_strict(client):
+        if env.get("terminal_am"):
+            models.add(str(env["terminal_am"]))
         ce = (env.get("profile_json") or {}).get("canonical_evidence") or {}
         leaves = ((ce.get("source_contract_classes") or {}).get("leaves") or [])
         for lf in leaves:
@@ -145,8 +157,28 @@ def resolve_cds_contract(client: str, identity: dict) -> dict:
         "slice": slice0,
         "digest": digest,
         "evidence_ref": {"algo": gd.DIGEST_ALGO, "fields": list(gd.CDS_DIGEST_FIELDS), "digest": digest},
-        "consumers": sorted({c for c in consumers if c}),           # trazabilidad, NO amplía alcance
+        "consumers": sorted({c for c in consumers if c}),           # trazabilidad, NO amplía alcance (el alcance explícito es `applies_to`)
+        "client_models": sorted(models),                            # modelos con Assessment gobernado legible del cliente (acreditación de `applies_to`)
     }
+
+
+def accredit_applies_to(resolved: dict, applies_to: Any) -> list[str] | None:
+    """Normaliza y ACREDITA `applies_to` contra la resolución estricta del contrato: cada modelo debe existir (Assessment gobernado del cliente) y CONSUMIR
+    la identidad ratificada (hoja REMOTE_IMPORTED con la misma identidad en su perfil). ``None``/vacío ⇒ sin alcance (semántica histórica)."""
+    if applies_to is None:
+        return None
+    vals = [str(a).strip() for a in applies_to if str(a).strip()] if isinstance(applies_to, (list, tuple, set, frozenset)) else None
+    if not vals:
+        raise gd.ValidationError("applies_to debe ser una lista NO vacía de modelos terminales")
+    for a in vals:
+        gd._require_exact_text(a, "applies_to[]")
+        if a not in resolved["client_models"]:
+            raise ApplicabilityRejected("MODEL_NOT_FOUND", a)
+        if a not in resolved["consumers"]:
+            raise ApplicabilityRejected("CONSUMPTION_NOT_ACCREDITED", a)
+    if len(set(vals)) != len(vals):
+        raise gd.ValidationError("applies_to no admite duplicados")
+    return sorted(vals)
 
 
 def _subject(client: str, identity: dict) -> dict:
@@ -163,7 +195,8 @@ def _decided_at(now: datetime) -> str:
 def _logical_fingerprint(event: dict) -> tuple:
     """Contenido LÓGICO de un evento (sin los campos impuestos por backend event_id/decided_at/actor): para idempotencia A."""
     if event.get("event") == gd.EVENT_RATIFIED:
-        return (event.get("event"), gd.canonical_json(event.get("subject")), (event.get("evidence_ref") or {}).get("digest"), event.get("rationale"))
+        fp = (event.get("event"), gd.canonical_json(event.get("subject")), (event.get("evidence_ref") or {}).get("digest"), event.get("rationale"))
+        return fp + (tuple(event["applies_to"]),) if event.get("applies_to") else fp    # el alcance es contenido lógico (huella histórica intacta sin él)
     return (event.get("event"), gd.canonical_json(event.get("subject")), event.get("revokes_event_id"), event.get("rationale"))
 
 
@@ -193,22 +226,24 @@ def _idempotency_revocation(hist: list[dict], request_id: str, subject: dict, ra
 
 # ─────────────────────────── operaciones ───────────────────────────
 
-def ratify(*, client: str, identity: dict, rationale: str, actor: str, now: datetime, event_id: str, request_id: str) -> dict:
+def ratify(*, client: str, identity: dict, rationale: str, actor: str, now: datetime, event_id: str, request_id: str,
+           applies_to: Any = None) -> dict:
     """Ratifica el contrato de una CDS/API. Resuelve evidencia (fail-closed), aplica idempotencia A, construye el evento B1
     (con digest per-CDS + actor/event_id/decided_at del backend) y lo persiste+confirma vía B2. Re-ratificar un contrato
     vigente se PERMITE (request_id nuevo); un reintento idéntico (mismo request_id) es idempotente."""
     gd._require_exact_text(rationale, "rationale")                  # motivo obligatorio
     gd._require_exact_text(request_id, "request_id")
     resolved = resolve_cds_contract(client, identity)              # insuficiente/contradictoria → lanza
+    scope = accredit_applies_to(resolved, applies_to)              # v7: alcance de consumo acreditado (modelo existente que consume la identidad) o rechazo
     subject = _subject(client, identity)
     decided_at = _decided_at(now)
-    intended_fp = (gd.EVENT_RATIFIED, gd.canonical_json(subject), resolved["digest"], rationale)
+    intended_fp = (gd.EVENT_RATIFIED, gd.canonical_json(subject), resolved["digest"], rationale) + ((tuple(scope),) if scope else ())
     hist = store.load_events(subject["client"], subject["technical_id"])
     existing = _idempotency(hist, request_id, intended_fp)
     if existing is not None:
         return {"outcome": "IDEMPOTENT", "event": existing, "consumers": resolved["consumers"]}
     event = gd.build_ratification(event_id=event_id, subject=subject, rationale=rationale, actor=actor,
-                                  decided_at=decided_at, evidence_ref_override=resolved["evidence_ref"], request_id=request_id)
+                                  decided_at=decided_at, evidence_ref_override=resolved["evidence_ref"], request_id=request_id, applies_to=scope)
     out = store.append_event(event)                                # create-only + confirmación por bytes (jamás éxito sin confirmar)
     return {"outcome": "RATIFIED", "event": event, "stored": out, "consumers": resolved["consumers"]}
 
