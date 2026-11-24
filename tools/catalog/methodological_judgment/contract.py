@@ -31,6 +31,8 @@ CURRENT_RULESET_VERSION = RULESET_V4
 # judgment-rules/v6 = v5 + correcciones de RECONOCIMIENTO (no de scoring; v5 queda byte a byte identico y sus Juicios persistidos siguen reproducibles):
 #   (E2) una hoja MIXED_BOUNDARY_CLASSES cuyos componentes estan TODOS clasificados explicitamente (gobernados o tabla fisica ABAP) con >=1 fisico ya no deja la Ingesta
 #        «sin evidencia»: su clase es conocida (no todo es gobernado). Solo afecta el ESTADO de la dimension SOURCE; las razones emitidas y ``classify_source`` no cambian.
+#   (E4a) un campo publicado que conserva el nombre tecnico de la columna de una CDS GOBERNADA y lleva una etiqueta funcional acreditada (no vacia y distinta del nombre) no cuenta
+#        como «nombre de columna fuente» en la conformidad del contrato publicado. No aplica a campos derivados (medidas calculadas) ni a fuentes de otra clase.
 # Se despliega DISPONIBLE e INACTIVO (como v5): lo vuelve visible solo una activacion gobernada (``ruleset-activation/v1``); ``CURRENT_RULESET_VERSION`` no cambia.
 NAMING_GATE_MAX_NONRECOVERABLE_RATIO = 0.25          # θ de la compuerta de naming (configurable POR RULESET: cambiarlo es otra version de ruleset, nunca un parametro de runtime)
 LEVEL_RULE_ADECUADA_BY_NAMING_GATE = "LVL-09"

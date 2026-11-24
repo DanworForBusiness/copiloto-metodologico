@@ -227,7 +227,20 @@ def _independent_pair_exists(fam: Mapping[str, set[str]]) -> bool:
     return any(fam[a] != fam[b] for i, a in enumerate(names) for b in names[i + 1:])
 
 
-def published_contract_conformance(ev: ProfileEvidence, policy: str) -> dict:
+_GOVERNED_CDS = "GOVERNED_SAP_CDS_CONTRACT"
+
+
+def governed_cds_name_with_functional_label(ev: ProfileEvidence, field: Mapping[str, Any]) -> bool:
+    """v6 (E4a): campo publicado que CONSERVA el nombre tecnico de la columna de una CDS GOBERNADA (nombre semantico del contrato de origen) y lleva una etiqueta funcional ACREDITADA
+    (no vacia, distinta del nombre tecnico, tampoco igual normalizada). Es una convencion valida de nomenclatura, no una falta de identidad semantica. NO aplica a campos derivados
+    (medidas calculadas), a fuentes de otra clase (tabla fisica, ODP, externa, desconocida, mixta) ni a campos sin fuente remota identificada."""
+    if field.get("derived") or field.get("business_name_equals_technical") or field.get("label_matches_technical_normalized") or not str(field.get("label") or "").strip():
+        return False
+    srcs = field.get("remote_source_artifacts") or ()
+    return bool(srcs) and all((ev.leaf_class_records.get(s) or {}).get("contract_class") == _GOVERNED_CDS for s in srcs)
+
+
+def published_contract_conformance(ev: ProfileEvidence, policy: str, v6: bool = False) -> dict:
     """Condiciones del reconocimiento de la fortaleza del contrato publicado (PUB-STR-01), UNA sola fuente para la fortaleza y para la explicación de LVL-06.
     Vía 1 (original): ≥2 familias afirmativas independientes. Vía 2 (conformidad con sustancia, sin asociaciones obligatorias): ≥1 familia afirmativa A NIVEL DE CAMPO (reuso gobernado trazable o semántica propia; una asociación sola no alcanza) + evidencia de SUSTANCIA del contrato
     publicado (≥1 medida publicada, identidad de negocio en TODAS las medidas, ningún campo publicado con el nombre de la columna fuente). Ambas exigen linaje completo y ausencia de fuga.
@@ -240,7 +253,8 @@ def published_contract_conformance(ev: ProfileEvidence, policy: str) -> dict:
         "field_level_affirmative_family": any(f != "BUSINESS_ASSOCIATION" for f in fam),   # una asociación SOLA nunca completa la fortaleza (decisión de owner 8D.1d)
         "measures_published": bool(measures),
         "measures_business_identity": not any(m.get("business_name_equals_technical") for m in measures),
-        "no_source_column_names": not any(f.get("name_equals_remote_source_column") for f in ev.published_fields),
+        # v6 (E4a): el nombre heredado de una CDS gobernada con etiqueta funcional acreditada NO cuenta como nombre de columna fuente (convencion valida)
+        "no_source_column_names": not any(f.get("name_equals_remote_source_column") and not (v6 and governed_cds_name_with_functional_label(ev, f)) for f in ev.published_fields),
     }
     base = lineage_complete and not leak
     via_pair = base and _independent_pair_exists(fam)
@@ -548,7 +562,7 @@ def har_str_01_reformulated(ev: ProfileEvidence, policy: str) -> list[str]:
     return sorted(qualified)
 
 
-def strengths(ev: ProfileEvidence, policy: str, has_pro_mat: bool, variants: frozenset = frozenset()) -> list[dict]:
+def strengths(ev: ProfileEvidence, policy: str, has_pro_mat: bool, variants: frozenset = frozenset(), v6: bool = False) -> list[dict]:
     out: list[dict] = []
     # SRC-STR-01 — adquisicion gobernada: TODO contacto con la fuente (hoja frontera, salvo plataforma) en clase gobernada, segun la clase explicita por hoja (v3); al menos uno
     contacts = ev.source_contact_leaves
@@ -604,7 +618,7 @@ def strengths(ev: ProfileEvidence, policy: str, has_pro_mat: bool, variants: fro
                                  refs=[f"ce:view_complexity/{n}" for n in ev.product_nodes], basis=["PRO.product_position_nodes_without_direct_boundary_leaf"]))
     # PUB-STR-01 — contrato publicado intencional/autonomo: evidencia AFIRMATIVA convergente (>=2 familias INDEPENDIENTES) con linaje COMPLETO y SIN fuga de vocabulario no gobernado.
     # La existencia de asociaciones es evidencia positiva LOCALIZADA: ni su numero ni una sola completan la fortaleza; ninguna familia es obligatoria en todo producto.
-    pub = published_contract_conformance(ev, policy)
+    pub = published_contract_conformance(ev, policy, v6)
     fam = pub["families"]
     if pub["via"] == "INDEPENDENT_FAMILIES":                                   # vía original, intacta
         out.append(_strength("PUB-STR-01", C.PUBLISHED_CONTRACT, "pub.semantically_intentional_consumer_contract", ev=ev, artifacts=[ev.am] if ev.am else [],
@@ -1149,7 +1163,8 @@ def rule_pro_mat_02(ev: ProfileEvidence, policy: str, covered_leaves: frozenset 
     return reasons, records
 
 
-def evaluate_rules(ev: ProfileEvidence, policy: str = "UNDETERMINED", variants: frozenset = frozenset(), ratified: frozenset = frozenset(), v5: bool = False) -> dict:
+def evaluate_rules(ev: ProfileEvidence, policy: str = "UNDETERMINED", variants: frozenset = frozenset(), ratified: frozenset = frozenset(), v5: bool = False,
+                   v6: bool = False) -> dict:
     pro = rule_pro_mat_01(ev, policy)
     lek = rule_lek_mat_02(ev, policy)
     src = rule_src_rel_loc(ev, policy, variants)
@@ -1160,7 +1175,7 @@ def evaluate_rules(ev: ProfileEvidence, policy: str = "UNDETERMINED", variants: 
         covered = frozenset(a for r in pro for a in r.get("affected_artifacts") or ())
         pro2, material_records = rule_pro_mat_02(ev, policy, covered)
     reasons = [*pro, *pro2, *lek, *src, *h1, *h2, *loc]
-    st = strengths(ev, policy, has_pro_mat=bool(pro), variants=variants)
+    st = strengths(ev, policy, has_pro_mat=bool(pro), variants=variants, v6=v6)
     cg = review_complex_graphical_chain(ev)
     reviews, limitations = reviews_and_limitations(ev, policy, ratified, v5=v5, source_strength=any(s["rule_id"] == "SRC-STR-01" for s in st))
     if v5 and any(r["state"] == C.MATERIAL_COMPENSATION_NOT_EVALUABLE for r in material_records):

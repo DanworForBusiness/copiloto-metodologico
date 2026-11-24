@@ -1,5 +1,5 @@
 """judgment-rules/v6 — correcciones de RECONOCIMIENTO sobre v5 (sin cambios de scoring ni de orden de decision):
-E2 (hoja MIXED con componentes todos explicitos y >=1 fisico => la Ingesta no queda «sin evidencia»).
+E2 (hoja MIXED con componentes todos explicitos y >=1 fisico => la Ingesta no queda «sin evidencia») y E4a (nombre heredado de CDS gobernada + etiqueta funcional = convencion).
 Incluye las pruebas NEGATIVAS (no generalizar a componentes desconocidos/externos, no crear razones nuevas) y el aislamiento de v5. Sin datos de clientes."""
 from __future__ import annotations
 
@@ -11,6 +11,8 @@ from tests._judgment_cases import FROZEN_LABELS, fresh
 from tests._judgment_profiles import PB
 from tools.catalog.methodological_judgment import contract as C
 from tools.catalog.methodological_judgment import evaluate_judgment
+from tools.catalog.methodological_judgment.profile_access import ProfileEvidence
+from tools.catalog.methodological_judgment.rules import published_contract_conformance
 
 V5 = dict(ruleset=C.RULESET_V5, ratified_contracts=[])
 V6 = dict(ruleset=C.RULESET_V6, ratified_contracts=[])
@@ -88,3 +90,61 @@ def test_v6_keeps_every_frozen_reference_case_identical_to_v5(alias):
 
 def test_v6_is_available_but_not_the_current_ruleset():
     assert C.RULESET_V6 in C.RULESETS and C.CURRENT_RULESET_VERSION != C.RULESET_V6
+
+
+# ───────────── E4a: nombres heredados de CDS gobernadas con etiqueta funcional ─────────────
+def _pub(*, src_class=CDS, label="Documento de facturacion", derived=False, normalized=False, technical=False, srcs=("SRC",)):
+    """Contrato publicado con una medida con identidad de negocio (semantica propia) + un atributo que conserva el nombre de la columna de ``SRC``."""
+    b = (PB().view("V1", ["SRC"]).remote("SRC").leaf_class("SRC", src_class).product("V1").measure("M")
+         .trace("M", "SRC", character="IDENTITY_OR_RENAME", label="DIFFERENT_FROM_LEAF", name_equals=False))
+    p = b.build()
+    p["canonical_evidence"]["published_contract"]["fields"]["fields"].append(
+        {"technical_name": "BILLINGDOCUMENT", "label": label, "role": "ATTRIBUTE", "business_name_equals_technical": technical, "label_matches_technical_normalized": normalized,
+         "name_equals_remote_source_column": True, "derived": derived, "remote_source_artifacts": list(srcs)})
+    p["canonical_evidence"]["published_field_lineage"]["fields"].append(
+        {"technical_name": "BILLINGDOCUMENT", "label": label, "role": "ATTRIBUTE", "completeness": "COMPLETE", "frontier_leaves": [
+            {"leaf": "SRC", "leaf_field": "BILLINGDOCUMENT", "source_contract_class": src_class, "paths": 1,
+             "path_profiles": [{"character": "IDENTITY_ONLY", "through_harmonization": False, "paths": 1}],
+             "vocabulary": {"name_equals_leaf_field": True, "label_relation": "EQUALS_LEAF_LABEL"}}]})
+    return p
+
+
+def _conds(j):
+    return {m["dimension"]: m.get("unmet_conditions") for m in (j.get("not_determinable_detail") or {}).get("missing_strength_dimensions", ())}
+
+
+def test_v6_a_governed_cds_name_with_a_functional_label_is_a_valid_convention():
+    p = _pub()
+    j5, j6 = evaluate_judgment(copy.deepcopy(p), **V5), evaluate_judgment(copy.deepcopy(p), **V6)
+    assert "PUB-STR-01" not in {s["rule_id"] for s in j5["strengths"]}
+    assert "PUB-STR-01" in {s["rule_id"] for s in j6["strengths"]}
+
+
+@pytest.mark.parametrize("variant", [
+    dict(src_class=PHYS),                              # tabla fisica ABAP: el nombre de columna cruda SIGUE contando
+    dict(src_class="GOVERNED_SAP_ODP_SAPI_CONTRACT"),  # fuera del alcance autorizado (solo CDS)
+    dict(src_class=EXT),                               # fuente no acreditada
+    dict(src_class="MIXED_BOUNDARY_CLASSES"),
+    dict(label=""),                                    # sin etiqueta funcional
+    dict(technical=True),                              # etiqueta = nombre tecnico
+    dict(normalized=True),                             # etiqueta = nombre tecnico normalizado
+    dict(derived=True),                                # campo/medida calculada
+    dict(srcs=()),                                     # fuente remota no identificada
+    dict(srcs=("SRC", "OTHER")),                       # una de las fuentes no es una CDS gobernada conocida
+])
+def test_v6_the_convention_never_extends_beyond_governed_cds_with_an_accredited_label(variant):
+    p = _pub(**variant)
+    j5, j6 = evaluate_judgment(copy.deepcopy(p), **V5), evaluate_judgment(copy.deepcopy(p), **V6)
+    assert "PUB-STR-01" not in {s["rule_id"] for s in j6["strengths"]}
+    assert _key(j5)[:4] == _key(j6)[:4]
+
+
+def test_v6_calculated_measures_without_business_identity_still_block_the_published_contract():
+    p = _pub()
+    p["canonical_evidence"]["published_contract"]["fields"]["fields"].append(
+        {"technical_name": "RM0", "label": "RM0", "role": "MEASURE", "business_name_equals_technical": True, "label_matches_technical_normalized": True,
+         "name_equals_remote_source_column": False, "derived": True, "remote_source_artifacts": []})
+    j6 = evaluate_judgment(copy.deepcopy(p), **V6)
+    assert "PUB-STR-01" not in {s["rule_id"] for s in j6["strengths"]}
+    conds = published_contract_conformance(ProfileEvidence(p, None), "UNDETERMINED", True)["conditions"]
+    assert conds["no_source_column_names"] is True and conds["measures_business_identity"] is False

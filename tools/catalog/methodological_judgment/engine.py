@@ -190,7 +190,7 @@ def _missing_strength_dimensions(ev: ProfileEvidence, strengths: list[dict], pol
         elif dim == C.PROPAGATION:
             cause = "NO_PRODUCT_NODE_OBSERVED" if not ev.product_nodes else "PRODUCT_DOES_NOT_COMPOSE_RESOLVED_CONTRACTS"
         elif dim == C.PUBLISHED_CONTRACT:
-            conds = published_contract_conformance(ev, policy)["conditions"]
+            conds = published_contract_conformance(ev, policy, v6)["conditions"]
             unmet = sorted(k for k, v in conds.items() if not v)
             if not conds["lineage_complete"]:
                 state, cause = INSUFFICIENT_EVIDENCE, "PUBLISHED_LINEAGE_INCOMPLETE"
@@ -337,7 +337,7 @@ def evaluate_judgment(profile: Mapping[str, Any], dispositions: Iterable[Mapping
         raise ValueError(f"variantes desconocidas: {sorted(variants - C.VARIANTS)}")
     if ruleset not in C.RULESETS:
         raise ValueError(f"ruleset desconocido: {ruleset!r} (permitidos: {list(C.RULESETS)})")
-    v6 = ruleset == C.RULESET_V6                                          # v6 = v5 + correcciones de reconocimiento (E2; ver contract)
+    v6 = ruleset == C.RULESET_V6                                          # v6 = v5 + correcciones de reconocimiento (E2, E4a; ver contract)
     v5 = ruleset in (C.RULESET_V5, C.RULESET_V6)                          # v5 = v4 + compuerta de naming (BUENA->ADECUADA) + PRO-MAT-02 + exactitud de fuente externa (ver contract)
     v4 = ruleset in (C.RULESET_V4, C.RULESET_V5, C.RULESET_V6)
     v3 = ruleset in (C.RULESET_V3, C.RULESET_V4, C.RULESET_V5, C.RULESET_V6)            # v4/v5 incluyen la politica de ratificacion de v3 (misma entrada ``ratified_contracts``/``decision_inputs``)
@@ -354,7 +354,7 @@ def evaluate_judgment(profile: Mapping[str, Any], dispositions: Iterable[Mapping
     if not ev.has_canonical_evidence_v3:
         return _unjudgeable(ev, "CANONICAL_EVIDENCE_V3_REQUIRED", ruleset)
     ratified_leaves, ratification_records = _resolve_ratifications(ev, ratified_contracts, external_policy) if ratifying else (frozenset(), [])
-    res = evaluate_rules(ev, external_policy, active, ratified_leaves, v5=v5)
+    res = evaluate_rules(ev, external_policy, active, ratified_leaves, v5=v5, v6=v6)
     reasons = copy.deepcopy(res["reasons"])
     reviews = copy.deepcopy(res["review_candidates"])
     strengths = res["strengths"]
@@ -377,7 +377,7 @@ def evaluate_judgment(profile: Mapping[str, Any], dispositions: Iterable[Mapping
             level_no_exc = level
     elif v4 and level_rule == "LVL-06":                                                # v4: resolucion por estado de dimension (politica adoptada, no experimental)
         pre_missing = _missing_strength_dimensions(ev, strengths, external_policy, True, v6)
-        dim_states = dimension_resolution_v4(ev, external_policy, strengths, reasons, pre_missing, published_contract_conformance(ev, external_policy)["conditions"]["lineage_complete"], True)
+        dim_states = dimension_resolution_v4(ev, external_policy, strengths, reasons, pre_missing, published_contract_conformance(ev, external_policy, v6)["conditions"]["lineage_complete"], True)
         resolved = resolve_level_v4(dim_states)
         if resolved is not None:
             status, (level, level_rule), nd_reason = C.DETERMINED, resolved, None
