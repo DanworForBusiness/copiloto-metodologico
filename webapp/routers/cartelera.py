@@ -95,21 +95,34 @@ def editions_page(request: Request):
     if redirect:
         return redirect
     editions = svc.list_editions()
-    existing = {e["id"] for e in editions}
-    current = svc.month_key()
-    candidates = [m for m in (svc.shift_month(current, d) for d in (-1, 0, 1, 2)) if m not in existing]
+    current = svc.current_edition()
+    current_id = current["id"] if current else None
+    preparing = [e for e in editions if svc.effective_state(e) in ("draft", "scheduled", "withdrawn")]
+    history = [e for e in editions if svc.effective_state(e) == "published" and e["id"] != current_id]
     return templates.TemplateResponse(request=request, name="human_capital/cartelera.html", headers=_NO_STORE, context=_shell(
-        request, user, "ediciones", editions=editions, candidates=candidates, default_month=svc.shift_month(current, 1) if svc.shift_month(current, 1) in candidates else (candidates[0] if candidates else "")))
+        request, user, "ediciones", current=current, preparing=preparing, history=history, candidates=svc.free_months()))
 
 
 @router.post(f"{BASE}/ediciones", include_in_schema=False)
-def edition_create(request: Request, month: str = Form(""), copy_previous: str = Form("")):
+def edition_create(request: Request, month: str = Form("")):
     user = _admin_write(request)
     try:
-        svc.create_edition(month, _actor(user), copy_previous=copy_previous == "1")
+        svc.create_edition(month, _actor(user), copy_previous=False)
     except _ERRORS as exc:
         return _back(BASE, error=str(exc) if isinstance(exc, svc.CarteleraValidationError) else _storage_message(exc))
-    return _back(f"{BASE}/ediciones/{month}", ok="Edición creada.")
+    return _back(f"{BASE}/ediciones/{month}", ok="Cartelera creada.")
+
+
+@router.post(f"{BASE}/ediciones/{{source}}/copiar", include_in_schema=False)
+def edition_copy(request: Request, source: str, month: str = Form("")):
+    user = _admin_write(request)
+    try:
+        svc.copy_edition(source, month, _actor(user))
+    except repo.CarteleraNotFoundError:
+        raise HTTPException(404, "La edición no existe") from None
+    except _ERRORS as exc:
+        return _back(BASE, error=str(exc) if isinstance(exc, svc.CarteleraValidationError) else _storage_message(exc))
+    return _back(f"{BASE}/ediciones/{month}", ok=f"Copia creada como borrador a partir de {svc.month_label(source)}.")
 
 
 def _edition_or_404(month: str) -> dict:

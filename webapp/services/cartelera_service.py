@@ -186,6 +186,32 @@ def create_edition(month: str, actor: str, *, copy_previous: bool) -> dict:
     return repo.save("editions", month, fields, expected_revision=None)
 
 
+def copy_edition(source_month: str, month: str, actor: str) -> dict:
+    """Copia una edición como BORRADOR nuevo del mes `month`: conserva portada y contenidos (ítems y proyectos con ids nuevos, orden y ancho),
+    nunca el estado de publicación, la programación, el aviso enviado ni el historial de la original."""
+    if not _MONTH.match(month or ""):
+        raise CarteleraValidationError("Elegí un mes válido.")
+    source = get_edition(source_month)
+    if source is None:
+        raise repo.CarteleraNotFoundError(source_month)
+    if repo.get("editions", month):
+        raise CarteleraValidationError(f"Ya existe la edición de {month_label(month)}.")
+    sections = [{"key": s["key"], "wide": bool(s.get("wide")),
+                 "items": [{**{k: v for k, v in it.items() if k != "id"}, "id": uuid.uuid4().hex[:12]} for it in s.get("items") or []]}
+                for s in source["sections"]]
+    fields = {"month": month, "title": source.get("title", ""), "subtitle": source.get("subtitle", ""), "state": "draft",
+              "publish_at": None, "published_at": None, "sections": sections, "copied_from": source_month,
+              "history": _history(None, actor, f"Creó la edición como copia de {month_label(source_month)}")}
+    return repo.save("editions", month, fields, expected_revision=None)
+
+
+def free_months(span: int = 6) -> list[str]:
+    """Meses sin edición, del mes en curso a los `span - 1` siguientes (para crear o copiar)."""
+    existing = {e["id"] for e in list_editions()}
+    current = month_key()
+    return [m for m in (shift_month(current, d) for d in range(span)) if m not in existing]
+
+
 def _items_from_form(kind: str, rows: list[dict]) -> list[dict]:
     items = []
     for row in rows:
