@@ -117,7 +117,10 @@ def test_edit_form_permissions(environment,actor,protected):
 def test_unrelated_user_gets_read_only_view(environment):
     environment[1]['actor']='unrelated@example.com'
     html=environment[0].post('/operaciones/solicitudes/1/detalle',data={'graph_token':'fake'}).text
-    assert 'data-solicitudes-display' in html and '/guardar' not in html
+    assert 'data-solicitudes-display' in html
+    # Solicitud tomada: el único aporte posible es una aclaración firmada de la Descripción (sin can_edit ni campos de Arquitectura).
+    assert 'data-solicitudes-description-correction' in html and 'name="new_clarification"' in html
+    assert 'name="'+service.DESCRIPTION+'"' not in html and 'new_observation' not in html and '/eliminar' not in html
 
 
 def test_bulk_cannot_bypass_persisted_permissions(environment):

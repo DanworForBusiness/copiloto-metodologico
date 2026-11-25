@@ -4,7 +4,7 @@
 {% else %}<div class="dashboard-empty" role="alert"><span class="dashboard-empty__label">No disponible</span><p>{{ error }}</p></div>{% endif %}
 {% else %}
 <div class="hc-profile-form" data-solicitudes-display>
-  <p class="field-hint">Visualización de la solicitud · Solo lectura</p>
+  <p class="field-hint">{% if can_correct_description %}Visualización de la solicitud · Solo lectura, excepto la Descripción de la demanda mientras no sea tomada por Arquitectura{% elif can_add_clarification %}Visualización de la solicitud · Solo lectura, excepto las aclaraciones a la demanda{% else %}Visualización de la solicitud · Solo lectura{% endif %}</p>
   <section class="hc-profile-section"><h2>Estado y asignación</h2>
     <div class="hc-profile-section__grid hc-profile-section__grid--fluid">
       {% for label, value in [('Status Arquitectura', values[fields.STATUS]), ('Prioridad', values.Prioridad), ('Proyecto', project_display)] %}
@@ -18,9 +18,40 @@
     <div class="feedback-field feedback-field--compact"><label>{{ label }}</label><input type="date" value="{{ values[key] }}" disabled></div>
     {% endfor %}
   </div></section>
+  {% if not (can_correct_description or can_add_clarification) %}
   <section class="hc-profile-section"><h2>Detalle</h2><div class="hc-profile-section__grid hc-profile-section__grid--fluid">
+    {% if description_mode == 'direct' %}
     <div class="feedback-field feedback-field--wide"><label for="sol-description">Descripción de la demanda</label><textarea id="sol-description" rows="8" readonly>{{ values[fields.DESCRIPTION] }}</textarea></div>
+    {% else %}{% include "partials/solicitudes_description_consolidated.html" %}{% endif %}
   </div></section>
+  {% endif %}
 </div>
+{% if can_correct_description or can_add_clarification %}
+{# Corrección colaborativa de la Descripción (solicitud no tomada): único campo enviado; el backend re-evalúa la regla sobre el registro vigente,
+   exige ETag y rechaza cualquier otro campo. El cambio queda en el Historial (versiones de SharePoint). #}
+<form class="hc-profile-form" data-solicitudes-write-token data-solicitudes-description-correction hx-sync="this:drop"
+      x-data="{dirty:false,saved:false,review:false}"
+      @input="dirty=true" @change="dirty=true"
+      @submit.capture="if (Array.from($el.querySelectorAll('[data-narrative]')).some(field => field.value !== field.defaultValue) && !window.confirm('Los textos modificados se guardarán sin el formato original. ¿Continuar?')) { $event.preventDefault(); $event.stopImmediatePropagation() }"
+      @beforeunload.window="if (dirty) { $event.preventDefault(); $event.returnValue = true }"
+      @htmx:after-swap.window="if ($event.detail.target.id === 'solicitudes-save-result') { if ($event.detail.target.querySelector('[data-solicitudes-saved]')) { dirty=false; saved=true } if ($event.detail.target.querySelector('[data-solicitudes-review]')) review=true }"
+      hx-post="/operaciones/solicitudes/{{ item_id }}/guardar"
+      hx-target="#solicitudes-save-result" hx-indicator="#solicitudes-saving" hx-disabled-elt="find button[type=submit]">
+  <input type="hidden" name="etag" value="{{ etag }}">
+  <section class="hc-profile-section"><h2>Detalle</h2><div class="hc-profile-section__grid hc-profile-section__grid--fluid">
+    {% if can_correct_description %}
+    <div class="feedback-field feedback-field--wide">
+      <label for="sol-description">Descripción de la demanda</label>
+      <textarea id="sol-description"{% if original_fields.get(fields.DESCRIPTION) %} data-narrative{% endif %} name="{{ fields.DESCRIPTION }}" rows="8">{{ values[fields.DESCRIPTION] }}</textarea>
+    </div>
+    {% else %}{% include "partials/solicitudes_description_consolidated.html" %}{% endif %}
+  </div></section>
+  <div class="hc-profile-form__actions">
+    <button type="submit" class="btn-primary" :disabled="saved || review"{% if not etag %} disabled{% endif %}>{{ 'Guardar descripción' if can_correct_description else 'Agregar aclaración' }}</button>
+    <span id="solicitudes-saving" class="htmx-indicator section-analysis-loading" role="status">Guardando…</span>
+  </div>
+</form>
+<div id="solicitudes-save-result" role="status"></div>
+{% endif %}
 {% include "partials/solicitudes_history.html" %}
 {% endif %}

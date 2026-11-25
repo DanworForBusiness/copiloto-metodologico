@@ -1,0 +1,16 @@
+{# Descripción de la demanda en modo consolidado (solicitud tomada o cerrada): texto consolidado en solo lectura + aclaraciones firmadas
+   en orden cronológico (mismo mecanismo que las observaciones de Arquitectura, `solicitudes_journal`). La nueva aclaración se escribe
+   en un campo VACÍO y se agrega al final; el backend rechaza cualquier intento de sobrescribir el texto consolidado. #}
+<div class="feedback-field feedback-field--wide solicitudes-description-block" data-description-consolidated>
+  <label for="sol-description">Descripción de la demanda</label>
+  <textarea id="sol-description" rows="6" readonly>{{ description_consolidated }}</textarea>
+</div>
+{% include "partials/solicitudes_description_clarifications.html" %}
+{% if can_add_clarification %}
+<div class="feedback-field feedback-field--wide solicitudes-description-block">
+  <input type="hidden" name="clarification_ticket" value="{{ clarification_ticket }}">
+  <label for="sol-clarification">Agregar aclaración a la demanda</label>
+  <textarea id="sol-clarification" name="new_clarification" data-new-observation rows="4" placeholder="Escribí una aclaración o información complementaria…"></textarea>
+  <p class="field-hint">La descripción consolidada no se modifica: la aclaración se agrega al final con tu nombre y la fecha.</p>
+</div>
+{% endif %}

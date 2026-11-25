@@ -231,16 +231,26 @@ def _edit_panel(request, item_id, *, item=None, options=None, error="", auth_rec
     values = service.form_values(item["fields"]) if item else {}
     user = _user(request) or {}
     can_edit, can_edit_architecture = permissions
-    template = "partials/solicitudes_display.html" if request.query_params.get("mode") == "display" or (item and not can_edit) else "partials/solicitudes_edit.html"
+    display_mode = request.query_params.get("mode") == "display"
+    template = "partials/solicitudes_display.html" if display_mode or (item and not can_edit) else "partials/solicitudes_edit.html"
+    # Descripción evolutiva: `direct` = no tomada (corrección por reemplazo, también para cualquier usuario de Operaciones);
+    # `append` = tomada y vigente (texto consolidado en solo lectura + aclaraciones firmadas); `closed` = solo lectura.
+    description_mode = journal.description_mode(item["fields"], item_id) if item else "direct"
+    consolidated, clarifications = journal.description_view(item["fields"].get(service.DESCRIPTION), item_id) if item else ("", [])
+    can_correct_description = bool(item) and not can_edit and not display_mode and description_mode == "direct"
+    can_add_clarification = bool(item) and not display_mode and description_mode == "append"
     return templates.TemplateResponse(request=request, name=template, context={
         "item_id": item_id, "values": values, "current": values,
-        "can_edit_architecture": can_edit_architecture,
+        "can_edit_architecture": can_edit_architecture, "can_correct_description": can_correct_description,
+        "description_mode": description_mode, "can_add_clarification": can_add_clarification,
+        "description_consolidated": consolidated, "description_clarifications": clarifications,
+        "clarification_ticket": journal.issue(item_id, user.get("sub")) if can_add_clarification else "",
         "options": options or {}, "error": error, "auth_recovery": auth_recovery,
         "project_display": service.project_label(item["fields"], (options or {}).get(service.PROJECT)) if item else "",
         "etag": _etag(item) if item else "", "funnel": item["fields"].get(service.FUNNEL) if item else "",
         "status_choices": (options or {}).get(service.STATUS, []),
         "observation_ticket": journal.issue(item_id, user.get("sub")) if item else "",
-        "history_rows": journal.history(item["fields"].get(service.COMMENTS), item_id) if item else [],
+        "history_rows": journal.history(item["fields"].get(service.COMMENTS), item_id, item["fields"].get(service.DESCRIPTION)) if item else [],
         "fields": service, "original_fields": item["fields"] if item else {}, **_detail_context(item),
     })
 
@@ -296,9 +306,10 @@ def solicitudes_history(request: Request, item_id: str, graph_token: str = Form(
         item = None
         try:
             item = repository.read_item(graph_token, item_id)
-            rows = journal.history(item['fields'].get(service.COMMENTS), item_id)          # las observaciones se conservan aunque fallen las versiones
+            rows = journal.history(item['fields'].get(service.COMMENTS), item_id, item['fields'].get(service.DESCRIPTION))   # las observaciones se conservan aunque fallen las versiones
             result = repository.read_item_versions(graph_token, item_id)
             rows, coverage = journal.version_history_coverage(item['fields'].get(service.COMMENTS), item_id, result['versions'],
+                                                              description=item['fields'].get(service.DESCRIPTION),
                                                               issues=result.get('issues') or (('version_read_error',) if result.get('partial') else ()),
                                                               current_modified=item.get('lastModifiedDateTime'))
         except HTTPError as exc:
@@ -333,7 +344,8 @@ async def solicitudes_save(request: Request, item_id: str, graph_token: str = Fo
     if not item_id.isascii() or not item_id.isdecimal():
         raise HTTPException(404)
     form = await request.form()
-    allowed = (set(service.EDITABLE) - {service.COMMENTS}) | {"graph_token", "token_diagnostic", "etag", "confirm_admission", "new_observation", "observation_ticket"}
+    allowed = (set(service.EDITABLE) - {service.COMMENTS}) | {"graph_token", "token_diagnostic", "etag", "confirm_admission", "new_observation", "observation_ticket",
+                                                              "new_clarification", "clarification_ticket"}
     if set(form) - allowed or any(len(form.getlist(key)) != 1 for key in form if key != service.ASSIGNEES):
         if request.headers.get("HX-Request") == "true":
             return _feedback(request, item_id, "invalid", "El formulario contiene campos inválidos. Revisá el borrador antes de volver a intentar.")
@@ -349,11 +361,19 @@ async def solicitudes_save(request: Request, item_id: str, graph_token: str = Fo
     correlation = uuid4().hex
     outcome = "read_error"
     payload = {}
-    observation_id = ""
+    observation_id = clarification_id = ""
     try:
         item = await run_in_threadpool(repository.read_item, graph_token, item_id)
         can_edit, can_architecture = await run_in_threadpool(repository.edit_permissions, graph_token, item, user)
-        if not can_edit or (not can_architecture and (
+        # Descripción evolutiva, re-evaluada sobre el registro VIGENTE. Cualquier usuario de Operaciones puede, SIN obtener can_edit:
+        # corregirla por reemplazo mientras no esté tomada, o agregar una aclaración firmada una vez tomada. Solo esos campos + ETag/token:
+        # sin admisión, observaciones ni ningún otro campo; cualquier extra es 403 antes de escribir.
+        description_mode = journal.description_mode(item.get("fields"), item_id)
+        transport = {"etag", "graph_token", "token_diagnostic"}
+        correcting = not can_edit and description_mode == "direct" and not set(form) - transport - {service.DESCRIPTION}
+        clarifying = not can_edit and description_mode == "append" and not set(form) - transport - {"new_clarification", "clarification_ticket"}
+        new_clarification = str(form.get("new_clarification", "")).strip()
+        if not (can_edit or correcting or clarifying) or (not can_architecture and (
                 any(key in form for key in (service.STATUS, service.ASSIGNEES, service.ACTUAL, service.COMMENTS))
                 or str(form.get("new_observation", "")).strip())):
             outcome = "forbidden"
@@ -362,6 +382,10 @@ async def solicitudes_save(request: Request, item_id: str, graph_token: str = Fo
         if not etag or etag == "*" or etag != form.get("etag"):
             outcome = "conflict"
             return _feedback(request, item_id, "conflict", "La versión cambió. Consultá los valores vigentes antes de volver a guardar.")
+        # Para TODOS (owner incluido): una descripción consolidada no se sobrescribe y solo se aclara en una solicitud tomada y vigente.
+        if (service.DESCRIPTION in form and description_mode != "direct") or (new_clarification and description_mode != "append"):
+            outcome = "forbidden"
+            raise HTTPException(403, "La descripción consolidada no puede sobrescribirse; solo se admiten aclaraciones en solicitudes tomadas y vigentes")
         options = await run_in_threadpool(repository.lookup_options, graph_token)
         current = service.form_values(item["fields"])
         try:
@@ -374,7 +398,15 @@ async def solicitudes_save(request: Request, item_id: str, graph_token: str = Fo
                     item["fields"].get(service.COMMENTS), new_observation,
                     str(form.get("observation_ticket", "")), item_id, user, columns,
                 )
-            if admission.proposes_approval(item["fields"], submitted, payload):
+            if new_clarification:
+                if columns is None:
+                    columns = await run_in_threadpool(repository.read_creation_columns, graph_token)
+                payload[service.DESCRIPTION], clarification_id = journal.append(
+                    item["fields"].get(service.DESCRIPTION), new_clarification,
+                    str(form.get("clarification_ticket", "")), item_id, user, columns,
+                    movement=journal.CLARIFICATION, column=service.DESCRIPTION,
+                )
+            if not (correcting or clarifying) and admission.proposes_approval(item["fields"], submitted, payload):   # corregir o aclarar nunca admite la demanda
                 if columns is None:
                     columns = await run_in_threadpool(repository.read_creation_columns, graph_token)
                 payload = admission.approval_patch(
@@ -415,6 +447,9 @@ async def solicitudes_save(request: Request, item_id: str, graph_token: str = Fo
             if observation_id:
                 matches = matches and journal.confirms_append(
                     payload[service.COMMENTS], updated["fields"].get(service.COMMENTS), item_id, observation_id)
+            if clarification_id:
+                matches = matches and journal.confirms_append(
+                    payload[service.DESCRIPTION], updated["fields"].get(service.DESCRIPTION), item_id, clarification_id, column=service.DESCRIPTION)
         except (HTTPError, URLError, TimeoutError, ValueError, KeyError):
             matches = False
         if not matches or not _etag(updated):
@@ -424,8 +459,11 @@ async def solicitudes_save(request: Request, item_id: str, graph_token: str = Fo
         if payload.get(service.FUNNEL) == admission.APPROVED:
             admission.audit_approval(user['sub'], item_id, correlation)
         return _feedback(request, item_id, "saved", "Guardado confirmado en SharePoint.",
-                         history_rows=journal.history(updated["fields"].get(service.COMMENTS), item_id),
-                         refresh_history=True, **_detail_context(updated))
+                         history_rows=journal.history(updated["fields"].get(service.COMMENTS), item_id, updated["fields"].get(service.DESCRIPTION)),
+                         refresh_history=True, **_detail_context(updated),
+                         **({"refresh_clarifications": True,
+                             "description_clarifications": journal.description_view(updated["fields"].get(service.DESCRIPTION), item_id)[1]}
+                            if clarification_id else {}))
     except (HTTPError, URLError, TimeoutError, ValueError, KeyError) as exc:
         return _feedback(request, item_id, "auth" if getattr(exc, "code", None) == 401 else "error", _edit_error(exc))
     finally:
@@ -526,7 +564,7 @@ async def solicitudes_reject(request: Request, item_id: str, graph_token: str = 
         }.get(notification_state, "Resultado de notificación no verificable. El rechazo permanece confirmado; no repitas el rechazo para reenviar el correo.")
         return feedback("saved", "Rechazo confirmado en SharePoint.",
                         notification_state=notification_state, notification_message=notification_message,
-                        history_rows=journal.history(updated["fields"].get(service.COMMENTS), item_id),
+                        history_rows=journal.history(updated["fields"].get(service.COMMENTS), item_id, updated["fields"].get(service.DESCRIPTION)),
                         refresh_history=True, **_detail_context(updated))
     except (HTTPError, URLError, TimeoutError, ValueError, KeyError) as exc:
         outcome = "invalid" if isinstance(exc, ValueError) else "read_error"

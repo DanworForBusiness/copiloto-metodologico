@@ -41,6 +41,12 @@ table.solicitudes-history-table td:last-child { white-space: normal; overflow-wr
 .solicitudes-history-detail { display: flex; align-items: baseline; gap: 6px; }
 .solicitudes-history-preview { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .solicitudes-history-preview.is-expanded { white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Descripción consolidada: aclaraciones firmadas en orden cronológico (autor · fecha, texto con sus saltos). */
+.solicitudes-clarifications { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.solicitudes-clarifications > li { padding-inline-start: 12px; border-inline-start: 2px solid var(--line); }
+.solicitudes-clarifications .field-hint { margin: 0 0 2px; }
+.solicitudes-clarifications__text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: .8rem/1.45 var(--sans); }
+.hc-profile-section__grid--fluid > .solicitudes-description-block { flex: 1 1 100%; }   /* consolidada, aclaraciones y nueva aclaración apiladas: se lee la cronología */
 .solicitudes-history-toggle { flex: none; align-self: baseline; padding: 0; white-space: nowrap; }
 .solicitudes-table .solicitudes-description {
   display: -webkit-box;
