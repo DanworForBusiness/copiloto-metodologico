@@ -88,10 +88,12 @@
 </section>
 {% endif %}
 <section class="hc-profile-section"><h2>Detalle</h2><div class="hc-profile-section__grid hc-profile-section__grid--fluid">
+  {% if is_new or description_mode == 'direct' %}
   <div class="feedback-field feedback-field--wide">
     <label for="sol-description">Descripción de la demanda</label>
     <textarea id="sol-description"{% if original_fields.get(fields.DESCRIPTION) %} data-narrative{% endif %} name="{{ fields.DESCRIPTION }}" rows="8">{{ values[fields.DESCRIPTION] }}</textarea>
   </div>
+  {% else %}{% include "partials/solicitudes_description_consolidated.html" %}{% endif %}
   {% if not is_new and can_edit_architecture %}
   <div class="feedback-field feedback-field--wide">
     <label for="sol-observation">Nueva observación de Arquitectura</label>

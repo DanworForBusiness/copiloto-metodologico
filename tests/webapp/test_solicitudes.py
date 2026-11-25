@@ -281,7 +281,8 @@ def test_save_narrative_confirms_plain_text_after_graph_reread(monkeypatch):
     from webapp.routers import solicitudes
 
     monkeypatch.setattr(solicitudes, "_user", lambda request: {"sub": "test-actor"})
-    fields = {service.DESCRIPTION: "<p>Anterior</p>", service.COMMENTS: "<p><b>Conservar</b></p>"}
+    fields = {service.DESCRIPTION: "<p>Anterior</p>", service.COMMENTS: "<p><b>Conservar</b></p>",
+              service.FUNNEL: "Solicitado"}   # Descripción por reemplazo: solo antes de la toma (luego, aclaraciones firmadas)
     item = {"eTag": '"7"', "fields": fields}
     monkeypatch.setattr(repository, "read_item", lambda *args: item)
     monkeypatch.setattr(repository, "lookup_options", lambda *args: {})

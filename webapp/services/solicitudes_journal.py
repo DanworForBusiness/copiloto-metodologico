@@ -17,6 +17,14 @@ from webapp.services import solicitudes_service as service
 
 ISSUER = "danwor-solicitudes-observation-v1"
 ZONE = BUSINESS_TZ
+# Mismo mecanismo firmado en dos columnas enriquecidas: Comentarios (observaciones de Arquitectura, rechazo) y Descripción de la demanda
+# (aclaraciones posteriores a la toma). El tipo de movimiento separa las columnas: una entrada firmada de una no se acepta en la otra.
+CLARIFICATION = "Aclaración de la demanda"
+_COLUMN_TEXT = {service.COMMENTS: ("Comentarios", "observación"), service.DESCRIPTION: ("Descripción de la demanda", "aclaración")}
+
+
+def _accepts(column, movement):
+    return movement == CLARIFICATION if column == service.DESCRIPTION else movement != CLARIFICATION
 
 
 def _encode(data):
@@ -42,25 +50,29 @@ def issue(item_id, actor):
                     "actor_id": actor, "exp": datetime.now(timezone.utc) + timedelta(hours=24)})
 
 
-def validate_column(columns):
-    column = next((c for c in columns if c.get("name") == service.COMMENTS), {})
+def validate_column(columns, name=service.COMMENTS):
+    column = next((c for c in columns if c.get("name") == name), {})
     text = column.get("text") or {}
     if (column.get("readOnly") is not False or column.get("calculated") is not None
             or text.get("allowMultipleLines") is not True
             or text.get("appendChangesToExistingText") is not False
             or text.get("textType") != "richText"):
-        raise ValueError("No se pudo confirmar la configuración de Comentarios. Tu observación se conserva sin enviar.")
+        label, noun = _COLUMN_TEXT[name]
+        raise ValueError(f"No se pudo confirmar la configuración de {label}. Tu {noun} se conserva sin enviar.")
     return text
 
 
 class _Entries(HTMLParser):
-    def __init__(self, html, item_id):
+    def __init__(self, html, item_id, column=service.COMMENTS):
         super().__init__(convert_charrefs=False)
-        self.html, self.item_id = html, item_id
+        self.html, self.item_id, self.column = html, item_id, column
         self.offsets = [0]
         for line in html.splitlines(keepends=True):
             self.offsets.append(self.offsets[-1] + len(line))
         self.depth, self.active, self.entries, self.ranges = 0, None, [], []
+        # Toda marca gobernada (`data-dw-observation`) en orden de documento: verificada o NO verificable (firma inválida, de otra
+        # columna/ítem o texto alterado fuera del Hub). Las no verificables se conservan y se exponen aparte, nunca como texto libre.
+        self.markers = []
 
     def _position(self):
         line, col = self.getpos()
@@ -72,17 +84,19 @@ class _Entries(HTMLParser):
         self.depth += 1
         if self.active:
             return
-        token = dict(attrs).get("data-dw-observation")
-        if not token:
+        attributes = dict(attrs)
+        if "data-dw-observation" not in attributes:
             return
+        data = None
         try:
-            data = _decode(token, "entry", self.item_id)
+            data = _decode(attributes["data-dw-observation"] or "", "entry", self.item_id)
             stamp = datetime.fromisoformat(data["at"])
-            if stamp.utcoffset() != timedelta(0) or not all(isinstance(data[k], str) for k in ("actor", "text", "movement")):
-                return
-            self.active = (self.depth, self._position(), data)
+            if (stamp.utcoffset() != timedelta(0) or not all(isinstance(data[k], str) for k in ("actor", "text", "movement"))
+                    or not _accepts(self.column, data["movement"])):
+                data = None
         except (ValueError, KeyError, TypeError):
-            pass
+            data = None
+        self.active = (self.depth, self._position(), data)
 
     def handle_endtag(self, tag):
         if tag != "div":
@@ -91,26 +105,73 @@ class _Entries(HTMLParser):
             _, start, data = self.active
             end = self._position() + len("</div>")
             actual = service.narrative_text(self.html[start:end])
-            expected = data["header"] + "\n" + data["text"]
-            if actual.split() == expected.split():
+            if data is not None and actual.split() == (data["header"] + "\n" + data["text"]).split():
                 self.entries.append(data)
                 self.ranges.append((start, end))
+                self.markers.append(("verified", data, (start, end)))
+            else:
+                self.markers.append(("unverifiable", actual, (start, end)))
             self.active = None
         self.depth = max(0, self.depth - 1)
 
 
-def entries(html, item_id):
-    parser = _Entries(html or "", item_id)
+def entries(html, item_id, column=service.COMMENTS):
+    parser = _Entries(html or "", item_id, column)
     parser.feed(html or "")
     parser.close()
     return parser
 
 
-def history(html, item_id):
-    parsed = entries(html, item_id)
-    rows = [{"id": e["id"], "movement": e["movement"], "date": datetime.fromisoformat(e["at"]).astimezone(ZONE).strftime("%d/%m/%Y %H:%M"),
+def _rows(parsed):
+    return [{"id": e["id"], "movement": e["movement"], "date": datetime.fromisoformat(e["at"]).astimezone(ZONE).strftime("%d/%m/%Y %H:%M"),
              "actor": e["actor"], "text": e["text"], "at": e["at"]} for e in parsed.entries]
+
+
+UNVERIFIABLE = "Aclaración no verificable"
+
+
+def _unverifiable_row(index, text):
+    return {"id": f"unverifiable:{index}", "movement": UNVERIFIABLE, "date": "—", "actor": "—", "text": text, "at": "", "verified": False}
+
+
+def description_view(html, item_id):
+    """Descripción consolidada (texto original, correcciones previas a la toma y contenido histórico SIN marcas gobernadas) +
+    aclaraciones en orden de documento (= cronológico: solo se anexan). Una aclaración firmada que ya no verifica (alterada fuera del
+    Hub, de otra columna o ítem) NO se promueve al texto consolidado: se conserva y se muestra como «no verificable»."""
+    html = html or ""
+    parsed = entries(html, item_id, service.DESCRIPTION)
+    clarifications, cursor, rest = [], 0, []
+    for index, (kind, data, (start, end)) in enumerate(parsed.markers):
+        rest.append(html[cursor:start])
+        cursor = end
+        clarifications.append({**_rows(_Single(data))[0], "verified": True} if kind == "verified" else _unverifiable_row(index, data))
+    rest.append(html[cursor:])
+    return service.narrative_text("".join(rest)), clarifications
+
+
+class _Single:
+    def __init__(self, data):
+        self.entries = [data]
+
+
+def description_mode(fields, item_id):
+    """`direct` (no tomada y sin aclaraciones: se corrige por reemplazo) · `append` (tomada y vigente: solo se agregan aclaraciones)
+    · `closed` (rechazada o cerrada: solo lectura, misma clasificación que el listado). Las aclaraciones firmadas nunca se reescriben."""
+    from webapp.services import solicitudes_admission as admission
+    fields = fields or {}
+    if fields.get(service.FUNNEL) == admission.REJECTED or fields.get(service.STATUS) in ("Finalizado", "Suspendido"):
+        return "closed"
+    if admission.description_correction_open(fields) and not entries(fields.get(service.DESCRIPTION), item_id, service.DESCRIPTION).markers:
+        return "direct"
+    return "append"
+
+
+def history(html, item_id, description=None):
+    parsed = entries(html, item_id)
+    described = entries(description, item_id, service.DESCRIPTION)
+    rows = _rows(parsed) + _rows(described)
     rows.sort(key=lambda row: datetime.fromisoformat(row["at"]), reverse=True)
+    rows.extend(_unverifiable_row(i, text) for i, (kind, text, _) in enumerate(described.markers) if kind == "unverifiable")
     original, cursor, rest = html or "", 0, []
     for start, end in parsed.ranges:
         rest.append(original[cursor:start])
@@ -155,7 +216,7 @@ def coverage_summary(codes):
             'retryable': any(COVERAGE[c][1] for c in known), 'partial': level == 'warning'}
 
 
-def version_history_coverage(html, item_id, versions, *, issues=(), current_modified=None):
+def version_history_coverage(html, item_id, versions, *, issues=(), current_modified=None, description=None):
     """One history projection: signed observations plus verified ADJACENT versions, and a structured coverage.
 
     Never infer a transition from the current item, the oldest retained version or across missing versions.
@@ -163,7 +224,7 @@ def version_history_coverage(html, item_id, versions, *, issues=(), current_modi
     missing metadata (a version without any `fields` object is). Stable version identities prevent duplicates.
     """
     from webapp.services import solicitudes_admission as admission
-    rows = history(html, item_id)
+    rows = history(html, item_id, description)
     codes = set(issues)
     indexed, ambiguous = {}, set()
     for version in versions:
@@ -268,7 +329,7 @@ def version_history_coverage(html, item_id, versions, *, issues=(), current_modi
         if any(v is not None and not isinstance(v, str) for v in (a, b)):
             codes.add('malformed_value')
         else:
-            a, b = service.narrative_text(a or '').strip(), service.narrative_text(b or '').strip()
+            a, b = (description_view(v, item_id)[0].strip() for v in (a, b))       # sin aclaraciones firmadas: esas tienen su propia fila
             if a != b:
                 rows.append({**common, 'id': f'version:{item_id}:{new["id"]}:description', 'movement': 'Cambio de descripción',
                              'text': f'Anterior: {a or "—"}\nNueva: {b or "—"}'})
@@ -276,11 +337,11 @@ def version_history_coverage(html, item_id, versions, *, issues=(), current_modi
     return rows, coverage_summary(codes)
 
 
-def version_history(html, item_id, versions, *, partial=False, current_modified=None):
+def version_history(html, item_id, versions, *, partial=False, current_modified=None, description=None):
     """Compatibility wrapper: `(rows, partial)` where `partial` means a WARNING-level gap (retention and a single
     version are informative scope, not partial coverage)."""
     rows, coverage = version_history_coverage(html, item_id, versions, issues=('version_read_error',) if partial else (),
-                                              current_modified=current_modified)
+                                              current_modified=current_modified, description=description)
     return rows, coverage['partial']
 
 
@@ -324,7 +385,7 @@ class _LegacyContract(HTMLParser):
             self.structure.append(('end', tag))
 
 
-def confirms_append(expected, observed, item_id, entry_id):
+def confirms_append(expected, observed, item_id, entry_id, column=service.COMMENTS):
     """Confirm the signed entry and the preserved history after Graph normalization.
 
     No missing, changed or duplicate signed entries, or lost legacy content,
@@ -332,7 +393,7 @@ def confirms_append(expected, observed, item_id, entry_id):
     """
     if not isinstance(expected, str) or not isinstance(observed, str):
         return False
-    before, after = entries(expected, item_id), entries(observed, item_id)
+    before, after = entries(expected, item_id, column), entries(observed, item_id, column)
     before_ids = [e['id'] for e in before.entries]
     after_ids = [e['id'] for e in after.entries]
     if (entry_id not in before_ids or before_ids != after_ids
@@ -345,15 +406,18 @@ def confirms_append(expected, observed, item_id, entry_id):
     return old.structure == new.structure and not (old.attributes - new.attributes)
 
 
-def append(original, text, ticket, item_id, user, columns, *, movement="Observación de Arquitectura", now=None):
-    definition = validate_column(columns)
+def append(original, text, ticket, item_id, user, columns, *, movement="Observación de Arquitectura", now=None, column=service.COMMENTS):
+    if not _accepts(column, movement):
+        raise ValueError("Movimiento no admitido en esta columna.")
+    definition = validate_column(columns, column)
+    label, noun = _COLUMN_TEXT[column]
     if not isinstance(text, str) or not text.strip():
-        raise ValueError("Ingresá una observación.")
+        raise ValueError(f"Ingresá una {noun}.")
     identity = _decode(ticket, "ticket", item_id)
     if identity.get("actor_id") != user.get("sub"):
-        raise ValueError("La observación no pertenece a tu formulario.")
-    if any(e["id"] == identity["id"] for e in entries(original, item_id).entries):
-        raise ValueError("Esta observación ya está registrada. Releé la solicitud antes de enviar otra intervención.")
+        raise ValueError(f"La {noun} no pertenece a tu formulario.")
+    if any(e["id"] == identity["id"] for e in entries(original, item_id, column).entries):
+        raise ValueError(f"Esta {noun} ya está registrada. Releé la solicitud antes de enviar otra intervención.")
     at = now or datetime.now(timezone.utc)
     if at.tzinfo is None:
         raise ValueError("La fecha del servidor debe ser inequívoca.")
@@ -368,5 +432,5 @@ def append(original, text, ticket, item_id, user, columns, *, movement="Observac
     combined = (original or "") + addition
     limit = definition.get("maxLength")
     if isinstance(limit, int) and limit > 0 and len(combined.encode("utf-16-le")) // 2 > limit:
-        raise ValueError("La observación supera la capacidad disponible de Comentarios. Acortá el texto; no se modificó el historial.")
+        raise ValueError(f"La {noun} supera la capacidad disponible de {label}. Acortá el texto; no se modificó el historial.")
     return combined, identity["id"]

@@ -1,0 +1,17 @@
+<div class="feedback-field feedback-field--wide solicitudes-description-block" id="solicitudes-description-clarifications"{% if not description_clarifications %} hidden{% endif %}{% if refresh_clarifications %} hx-swap-oob="outerHTML"{% endif %}>
+  {% if description_clarifications %}
+  <label>Aclaraciones posteriores</label>
+  {% set _unverifiable = description_clarifications | rejectattr('verified') | list %}
+  {% if _unverifiable %}
+  <div class="callout callout--punch callout--feedback" data-clarifications-unverifiable="{{ _unverifiable | length }}"><div class="callout__body field-hint">
+    <p>{{ _unverifiable | length }} aclaración{{ '' if _unverifiable | length == 1 else 'es' }} no verificable{{ '' if _unverifiable | length == 1 else 's' }}: el contenido fue modificado fuera del Hub. Se conserva tal cual, sin autoría ni fecha y sin integrarse al texto consolidado.</p>
+  </div></div>
+  {% endif %}
+  <ol class="solicitudes-clarifications">
+    {% for entry in description_clarifications %}<li data-clarification="{{ entry.id }}"{% if not entry.verified %} data-clarification-unverifiable{% endif %}>
+      <p class="field-hint">{% if entry.verified %}{{ entry.date }} · {{ entry.actor }}{% else %}No verificable · contenido conservado{% endif %}</p>
+      <p class="solicitudes-clarifications__text">{{ entry.text }}</p>
+    </li>{% endfor %}
+  </ol>
+  {% endif %}
+</div>
