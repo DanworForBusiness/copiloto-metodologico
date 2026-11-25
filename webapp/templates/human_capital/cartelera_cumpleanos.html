@@ -1,0 +1,60 @@
+{% extends "human_capital/_cartelera_layout.html" %}
+{% block page_title %}Cumpleaños{% endblock %}
+{% block cartelera_body %}
+<div class="cartelera-grid2">
+  <section class="dashboard-section cartelera-card">
+    <div class="cartelera-card__head"><h2>Agregar cumpleaños</h2></div>
+    <form method="post" action="/cchh/cartelera/cumpleanos" class="hc-profile-section__grid hc-profile-section__grid--fluid">
+      <div class="feedback-field feedback-field--wide"><label for="bd-name">Nombre y apellido</label><input id="bd-name" name="name" type="text" maxlength="120" required></div>
+      <div class="feedback-field feedback-field--compact"><label for="bd-day">Día</label><input id="bd-day" name="day" type="number" min="1" max="31" required></div>
+      <div class="feedback-field feedback-field--medium"><label for="bd-month">Mes</label><select id="bd-month" name="month">{% set _cur = svc.month_key()[5:7] | int %}{% for m in months %}<option value="{{ loop.index }}"{% if loop.index == _cur %} selected{% endif %}>{{ m }}</option>{% endfor %}</select></div>
+      <label class="cartelera-check feedback-field--wide"><input type="checkbox" name="authorized" value="1" checked> La persona autorizó publicar su cumpleaños</label>
+      <div class="hc-profile-form__actions"><button type="submit" class="btn-primary">Agregar</button></div>
+    </form>
+    <p class="field-hint">Solo se guardan día y mes, nunca el año de nacimiento.</p>
+    <details class="cartelera-details"><summary>Carga masiva</summary>
+      <form method="post" action="/cchh/cartelera/cumpleanos/importar">
+        <div class="feedback-field"><label for="bd-bulk">Una persona por línea: <code>Nombre Apellido;DD/MM</code></label><textarea id="bd-bulk" name="bulk" rows="6" placeholder="María Pérez;14/03"></textarea></div>
+        <label class="cartelera-check"><input type="checkbox" name="authorized" value="1" checked> Todas autorizaron publicar su cumpleaños</label>
+        <div class="hc-profile-form__actions"><button type="submit" class="btn-secondary">Importar</button></div>
+      </form>
+    </details>
+  </section>
+
+  <section class="dashboard-section cartelera-card">
+    <div class="cartelera-card__head"><h2>Próximos 7 días</h2></div>
+    {% if upcoming %}<ul class="cartelera-upcoming">{% for b in upcoming %}<li><strong>{{ b.name }}</strong><span>{{ 'Hoy' if b.offset == 0 else (b.day ~ '/' ~ b.month) }}</span></li>{% endfor %}</ul>
+    {% else %}<p class="field-hint">Sin cumpleaños publicables en los próximos 7 días.</p>{% endif %}
+  </section>
+</div>
+
+<section class="dashboard-section cartelera-card">
+  <div class="cartelera-card__head"><h2>Calendario cargado</h2><span class="dashboard-section__count">{{ birthdays | length }} persona{{ '' if birthdays | length == 1 else 's' }}</span></div>
+  {% if birthdays %}
+  <div class="matrix-scroll"><table class="dashboard-table cartelera-table">
+    <thead><tr><th class="left">Fecha</th><th class="left">Nombre</th><th class="left">Autorización</th><th class="left">Visibilidad</th><th></th></tr></thead>
+    <tbody>
+    {% for b in birthdays %}
+      <tr{% if b.hidden or not b.authorized %} class="is-muted"{% endif %}>
+        <td class="left">{{ '%02d' | format(b.day) }}/{{ '%02d' | format(b.month) }}</td>
+        <td class="left">{{ b.name }}</td>
+        <td class="left">{% if b.authorized %}<span class="dashboard-status-badge solicitudes-status-badge solicitudes-status-badge--green">Autorizado</span>{% else %}<span class="dashboard-status-badge solicitudes-status-badge solicitudes-status-badge--amber">Sin autorización</span>{% endif %}
+          {% if b.authorization %}<div class="field-hint">{{ b.authorization.by }} · {{ svc.fmt_local(b.authorization.at, with_time=False) }}</div>{% endif %}</td>
+        <td class="left">{{ 'Oculto' if b.hidden else 'Visible' }}</td>
+        <td class="right cartelera-row-actions">
+          <form method="post" action="/cchh/cartelera/cumpleanos"><input type="hidden" name="birthday_id" value="{{ b.id }}"><input type="hidden" name="revision" value="{{ b.revision }}">
+            <input type="hidden" name="name" value="{{ b.name }}"><input type="hidden" name="day" value="{{ b.day }}"><input type="hidden" name="month" value="{{ b.month }}">
+            <input type="hidden" name="authorized" value="{{ '' if b.authorized else '1' }}">
+            <button type="submit" class="cartelera-mini-btn">{{ 'Quitar autorización' if b.authorized else 'Marcar autorizado' }}</button></form>
+          <form method="post" action="/cchh/cartelera/cumpleanos/{{ b.id }}/{{ 'mostrar' if b.hidden else 'ocultar' }}"><input type="hidden" name="revision" value="{{ b.revision }}">
+            <button type="submit" class="cartelera-mini-btn">{{ 'Mostrar' if b.hidden else 'Ocultar' }}</button></form>
+          <form method="post" action="/cchh/cartelera/cumpleanos/{{ b.id }}/eliminar" onsubmit="return confirm('¿Eliminar a {{ b.name | e }} del calendario?')">
+            <button type="submit" class="cartelera-mini-btn cartelera-mini-btn--danger">Eliminar</button></form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}<div class="dashboard-empty"><span class="dashboard-empty__label">Sin cumpleaños</span><p>Agregá personas individualmente o con la carga masiva.</p></div>{% endif %}
+</section>
+{% endblock %}

@@ -1,0 +1,12 @@
+{#- Correo «Nueva edición de la Cartelera Virtual» (evento `human_capital.cartelera.published`). Solo el CONTENIDO: cabecera y pie de
+    `_layout.html`, bloques de `_blocks.html`. Valores escapados por el autoescape. El enlace lleva al portal autenticado (sin tokens). -#}
+{% extends "notifications/_layout.html" %}
+{% import "notifications/_blocks.html" as blocks %}
+{% block content %}
+{{ blocks.intro(title, "Capital Humano publicó la edición de " ~ (d.label or "") ~ " de la Cartelera Virtual de Danwor.") }}
+{{ blocks.details([
+      ("Edición", d.label),
+      ("Portada", d.headline),
+    ]) }}
+{{ blocks.hub_button(d.url, "Ver la Cartelera Virtual", brand) }}
+{% endblock %}

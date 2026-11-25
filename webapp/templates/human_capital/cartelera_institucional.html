@@ -1,0 +1,79 @@
+{% extends "human_capital/_cartelera_layout.html" %}
+{% block page_title %}Nosotros y galería{% endblock %}
+{% block cartelera_body %}
+<script type="application/json" id="ct-inst">{{ model_json | replace("</", "<\\/") | safe }}</script>
+<div x-data="carteleraInstitutional(JSON.parse(document.getElementById('ct-inst').textContent), {{ data.revision if data.revision else 'null' }})"
+     @beforeunload.window="if (dirty) { $event.preventDefault(); $event.returnValue = true }">
+  <section class="dashboard-section cartelera-card">
+    <div class="cartelera-card__head"><h2>Misión y visión</h2></div>
+    <div class="hc-profile-section__grid hc-profile-section__grid--fluid">
+      <div class="feedback-field feedback-field--wide"><label for="in-mission">Misión</label><textarea id="in-mission" rows="3" x-model="m.mission" @input="dirty=true"></textarea></div>
+      <div class="feedback-field feedback-field--wide"><label for="in-vision">Visión</label><textarea id="in-vision" rows="3" x-model="m.vision" @input="dirty=true"></textarea></div>
+    </div>
+  </section>
+
+  <section class="dashboard-section cartelera-card">
+    <div class="cartelera-card__head"><h2>Valores</h2></div>
+    <template x-for="(v, i) in m.values" :key="i">
+      <div class="cartelera-item">
+        <div class="hc-profile-section__grid hc-profile-section__grid--fluid">
+          <div class="feedback-field feedback-field--medium"><label>Valor</label><input type="text" maxlength="80" x-model="v.title" @input="dirty=true"></div>
+          <div class="feedback-field feedback-field--wide"><label>Descripción</label><textarea rows="2" x-model="v.text" @input="dirty=true"></textarea></div>
+        </div>
+        <div class="cartelera-item__foot"><span></span><span>
+          <button type="button" class="cartelera-mini-btn" @click="move(m.values, i, -1)" :disabled="i === 0">↑</button>
+          <button type="button" class="cartelera-mini-btn" @click="move(m.values, i, 1)" :disabled="i === m.values.length - 1">↓</button>
+          <button type="button" class="cartelera-mini-btn cartelera-mini-btn--danger" @click="m.values.splice(i, 1); dirty = true">Quitar</button></span></div>
+      </div>
+    </template>
+    <button type="button" class="cartelera-mini-btn" @click="m.values.push({title: '', text: ''}); dirty = true">+ Agregar valor</button>
+  </section>
+
+  <section class="dashboard-section cartelera-card">
+    <div class="cartelera-card__head"><h2>Galería</h2></div>
+    <p class="cartelera-pending" data-pending="sharepoint">Las fotos de cada álbum se suben a la carpeta SharePoint de Cartelera Virtual: disponible cuando se habilite la integración documental (acceso en verificación). Mientras tanto podés preparar los álbumes.</p>
+    <template x-for="(a, i) in m.albums" :key="a.id || i">
+      <div class="cartelera-item">
+        <div class="hc-profile-section__grid hc-profile-section__grid--fluid">
+          <div class="feedback-field feedback-field--wide"><label>Álbum</label><input type="text" maxlength="120" x-model="a.title" @input="dirty=true" placeholder="Ej.: Fiesta de fin de año 2026"></div>
+          <div class="feedback-field feedback-field--compact"><label>Fecha</label><input type="date" x-model="a.date" @input="dirty=true"></div>
+          <div class="feedback-field feedback-field--wide"><label>Descripción</label><input type="text" maxlength="600" x-model="a.description" @input="dirty=true"></div>
+        </div>
+        <div class="cartelera-item__foot"><span class="cartelera-pending cartelera-pending--inline">Fotos · pendiente de integración SharePoint</span>
+          <button type="button" class="cartelera-mini-btn cartelera-mini-btn--danger" @click="m.albums.splice(i, 1); dirty = true">Quitar álbum</button></div>
+      </div>
+    </template>
+    <button type="button" class="cartelera-mini-btn" @click="m.albums.push({id: Math.random().toString(36).slice(2, 14), title: '', date: '', description: ''}); dirty = true">+ Nuevo álbum</button>
+  </section>
+
+  <section class="dashboard-section cartelera-card">
+    <div class="cartelera-card__head"><h2>Organigrama</h2></div>
+    <p class="cartelera-pending" data-pending="sharepoint">Representación documental gobernada por Capital Humano (imagen o PDF en la carpeta SharePoint de Cartelera Virtual): disponible cuando se habilite la integración documental.</p>
+  </section>
+
+  <div class="cartelera-sticky-save">
+    <button type="button" class="btn-primary" @click="save()" :disabled="saving || !dirty" x-text="saving ? 'Guardando…' : (dirty ? 'Guardar cambios' : 'Cambios guardados')"></button>
+    <span class="field-hint" x-show="msg" x-text="msg"></span><span class="cartelera-error" x-show="err" x-text="err"></span>
+  </div>
+</div>
+<script>
+function carteleraInstitutional(m, revision) {
+  m.values = m.values || []; m.albums = m.albums || [];
+  return {
+    m, revision, dirty: false, saving: false, msg: "", err: "",
+    move(a, i, d) { const j = i + d; if (j < 0 || j >= a.length) return; [a[i], a[j]] = [a[j], a[i]]; this.dirty = true; },
+    async save() {
+      this.saving = true; this.msg = ""; this.err = "";
+      try {
+        const r = await fetch("/cchh/cartelera/institucional", { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ revision: this.revision, ...this.m }) });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) { this.err = j.error || "No se pudo guardar."; return; }
+        this.revision = j.revision; this.dirty = false; this.msg = "Guardado.";
+      } catch (e) { this.err = "No se pudo conectar con el Hub."; }
+      finally { this.saving = false; }
+    },
+  };
+}
+</script>
+{% endblock %}

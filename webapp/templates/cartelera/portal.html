@@ -1,0 +1,155 @@
+{#- Portal STANDALONE de la Cartelera Virtual (consumo de colaboradores). Documento propio, sin el shell de workspace (mismo criterio que la
+    vista standalone de Presentaciones). La VISIBILIDAD de cada edición la resolvió el servidor: esta plantilla nunca decide qué se publica. -#}
+{%- set dark = request.cookies.get('dw-content-theme') == 'dark' -%}
+{%- set first_name = ((user or {}).get('first_name') or ((user or {}).get('name') or '').split(' ')[0]) -%}
+<!doctype html>
+<html lang="es" class="{{ 'ct-dark' if dark else '' }}">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{% if page == 'novedades' and edition %}{{ svc.month_label(edition.id) }} · {% elif page == 'nosotros' %}Nosotros · {% endif %}Cartelera Virtual · Danwor</title>
+<link rel="icon" href="{{ url_for('static', path='favicon.ico') }}">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="{{ hub_fonts_url }}" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', path='cartelera.css') }}?v={{ static_version }}">
+</head>
+<body class="ct-portal">
+<header class="ct-top">
+  <div class="ct-wrap ct-top__row">
+    <a class="ct-brand" href="/cartelera" aria-label="Cartelera Virtual, inicio"><span class="ct-brand__mark">DANWOR</span><span class="ct-brand__name">Cartelera Virtual</span></a>
+    <nav class="ct-nav" aria-label="Secciones">
+      <a href="/cartelera"{% if page == 'inicio' %} aria-current="page"{% endif %}>Inicio</a>
+      <a href="/cartelera/novedades"{% if page == 'novedades' %} aria-current="page"{% endif %}>Novedades del mes</a>
+      <a href="/cartelera/nosotros"{% if page == 'nosotros' %} aria-current="page"{% endif %}>Nosotros</a>
+    </nav>
+    <div class="ct-top__tools">
+      {% if can_manage %}<a href="/cchh/cartelera" class="ct-link">Gestionar</a>{% endif %}
+      <a href="/onedanwor" class="ct-link">Volver al Hub</a>
+    </div>
+  </div>
+</header>
+{% if preview %}<div class="ct-preview">Vista previa de Capital Humano · {{ svc.STATE_LABELS[svc.effective_state(edition)] }} — los colaboradores {{ 'ya la ven' if svc.is_visible(edition) else 'todavía no la ven' }}.</div>{% endif %}
+
+<main class="ct-wrap ct-main" id="content">
+{% macro item_card(it) -%}
+  <article class="ct-item">
+    {% if it.title %}<h3>{{ it.title }}</h3>{% endif %}
+    {% if it.body %}<p>{{ it.body }}</p>{% endif %}
+    {% if it.link %}<a class="ct-linkcard" href="{{ it.link }}" target="_blank" rel="noopener">{{ it.link_label or 'Ver más' }} ↗</a>{% endif %}
+  </article>
+{%- endmacro %}
+{% macro links_list(items) -%}
+  <div class="ct-links">{% for l in items %}<a class="ct-lnk" href="{{ l.url }}" target="_blank" rel="noopener"><strong>{{ l.title }}</strong>{% if l.group %}<small>{{ l.group }}</small>{% endif %}</a>{% endfor %}</div>
+{%- endmacro %}
+
+{% if page == 'inicio' %}
+  <section class="ct-hero">
+    <div class="ct-hero__main">
+      <span class="ct-eyebrow">{{ svc.month_label(edition.id) if edition else svc.month_label(today_month) }}</span>
+      <h1>{% if first_name %}Hola, {{ first_name }}. {% endif %}Esto es lo que está pasando en Danwor.</h1>
+      {% if edition %}<p class="ct-hero__lead"><strong>{{ edition.title }}</strong>{% if edition.subtitle %} — {{ edition.subtitle }}{% endif %}</p>
+      <a class="ct-btn ct-btn--primary" href="/cartelera/novedades/{{ edition.id }}">Ver las novedades del mes</a>
+      {% else %}<p class="ct-hero__lead">Capital Humano todavía no publicó la edición de este mes.</p>{% endif %}
+    </div>
+    <div class="ct-card ct-bdays">
+      <span class="ct-eyebrow ct-eyebrow--dark">Cumpleaños</span>
+      {% set today = upcoming | selectattr('offset', 'equalto', 0) | list %}
+      {% if today %}{% for b in today %}<div class="ct-bday-today"><span class="ct-cake" aria-hidden="true">🎂</span><div><strong>{{ b.name }}</strong><div class="ct-muted">Cumple hoy</div></div></div>{% endfor %}
+      {% else %}<p class="ct-muted">Hoy no hay cumpleaños.</p>{% endif %}
+      {% set next = upcoming | rejectattr('offset', 'equalto', 0) | list %}
+      {% if next %}<div class="ct-eyebrow ct-eyebrow--dark" style="margin-top:12px">Próximos 7 días</div>
+        {% for b in next[:5] %}<div class="ct-row"><span>{{ b.name }}</span><span class="ct-muted">{{ b.day }} de {{ svc.MONTHS[b.month - 1] | lower }}</span></div>{% endfor %}{% endif %}
+    </div>
+  </section>
+
+  <section class="ct-spaces">
+    <a class="ct-space" href="/cartelera/novedades"><h2>Novedades del mes</h2><span class="ct-muted">Comunicados, proyectos, bienestar, aprendizaje, cumpleaños y beneficios.</span></a>
+    <a class="ct-space" href="/cartelera/nosotros"><h2>Nosotros</h2><span class="ct-muted">Misión, visión, valores y galería.</span></a>
+    <div class="ct-space ct-space--soon"><h2>Comunidad</h2><span class="ct-muted">Próximamente: un espacio para compartir experiencias entre colaboradores.</span></div>
+  </section>
+
+  {% if edition %}
+  <section class="ct-grid">
+    {% for sec in edition.sections if sec['items'] and svc.SECTION_BY_KEY[sec.key].kind in ('general', 'projects') %}{% if loop.index <= 4 %}
+    <div class="ct-card"><span class="ct-eyebrow ct-eyebrow--dark">{{ svc.SECTION_BY_KEY[sec.key].title }}</span>
+      {% for it in sec['items'][:3] %}<a class="ct-mini" href="/cartelera/novedades/{{ edition.id }}#sec-{{ sec.key }}">{{ it.title or it.project_name or it.body[:80] }}</a>{% endfor %}</div>
+    {% endif %}{% endfor %}
+  </section>
+  {% endif %}
+  {% if links %}<section class="ct-card"><span class="ct-eyebrow ct-eyebrow--dark">Accesos rápidos</span>{{ links_list(links[:6]) }}</section>{% endif %}
+
+{% elif page == 'novedades' %}
+  {% if not edition %}
+    <div class="ct-card ct-empty">Capital Humano todavía no publicó ninguna edición de la Cartelera Virtual.</div>
+  {% else %}
+    <div class="ct-head">
+      <div><span class="ct-eyebrow ct-eyebrow--dark">Novedades del mes</span><h1>{{ svc.month_label(edition.id) }}</h1></div>
+      {% if editions | length > 1 and not preview %}
+      <label class="ct-select"><span class="ct-sr">Edición</span>
+        <select onchange="location.href='/cartelera/novedades/' + this.value">{% for e in editions %}<option value="{{ e.id }}"{% if e.id == edition.id %} selected{% endif %}>{{ svc.month_label(e.id) }}</option>{% endfor %}</select></label>
+      {% endif %}
+    </div>
+    <section class="ct-banner"><div><span class="ct-eyebrow">{{ svc.month_label(edition.id) }}</span><h2>{{ edition.title or ('Novedades de ' ~ svc.month_label(edition.id)) }}</h2>{% if edition.subtitle %}<p>{{ edition.subtitle }}</p>{% endif %}</div></section>
+    <nav class="ct-chips" aria-label="Secciones de la edición">
+      {% for sec in edition.sections %}{% set meta = svc.SECTION_BY_KEY[sec.key] %}{% if sec['items'] or meta.kind in ('birthdays',) or (meta.kind == 'links' and links) %}<a href="#sec-{{ sec.key }}">{{ meta.title }}</a>{% endif %}{% endfor %}
+    </nav>
+    <div class="ct-sections">
+    {% for sec in edition.sections %}{% set meta = svc.SECTION_BY_KEY[sec.key] %}
+      {% if meta.kind == 'birthdays' %}
+      <section class="ct-sec is-wide" id="sec-{{ sec.key }}"><h2>{{ meta.title }}</h2>
+        <div class="ct-card"><div class="ct-cal" role="grid" aria-label="Cumpleaños de {{ svc.month_label(edition.id) }}">
+          {% for d in ('Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom') %}<div class="ct-dow">{{ d }}</div>{% endfor %}
+          {% for week in calendar.weeks %}{% for day in week %}
+            {% if day == 0 %}<div class="ct-day is-off"></div>{% else %}<div class="ct-day"><span class="ct-day__n">{{ day }}</span>{% for n in calendar.by_day.get(day, []) %}<span class="ct-day__p">{{ n }}</span>{% endfor %}</div>{% endif %}
+          {% endfor %}{% endfor %}
+        </div>
+        <ul class="ct-bday-list">{% for day, names in calendar.by_day | dictsort %}{% for n in names %}<li><strong>{{ day }}</strong> {{ n }}</li>{% endfor %}{% else %}<li class="ct-muted">Sin cumpleaños publicados este mes.</li>{% endfor %}</ul>
+        <p class="ct-muted ct-small">{{ calendar.count }} cumpleaños en {{ svc.MONTHS[edition.id[5:7] | int - 1] | lower }}.</p></div>
+      </section>
+      {% elif meta.kind == 'projects' %}{% if sec['items'] %}
+      <section class="ct-sec{{ ' is-wide' if sec.wide else '' }}" id="sec-{{ sec.key }}"><h2>{{ meta.title }}</h2>
+        <div class="ct-proj-grid">{% for it in sec['items'] %}
+          <article class="ct-item ct-proj">
+            <span class="ct-tag {{ 'is-done' if it.kind == 'fin' else '' }}">{{ 'Proyecto finalizado' if it.kind == 'fin' else 'Nuevo proyecto' }}</span>
+            <div class="ct-pmeta"><span class="ct-eyebrow ct-eyebrow--dark">Cliente</span><h3>{{ it.client_name or '—' }}</h3></div>
+            <div class="ct-pmeta"><span class="ct-eyebrow ct-eyebrow--dark">Proyecto</span><strong>{{ it.project_name }}</strong></div>
+            {% if it.service %}<div class="ct-pmeta"><span class="ct-eyebrow ct-eyebrow--dark">Tipo de servicio</span><span>{{ it.service }}</span></div>{% endif %}
+            {% if it.tech %}<div class="ct-pmeta"><span class="ct-eyebrow ct-eyebrow--dark">Tecnología</span><div class="ct-techs">{% for t in it.tech.split(',') if t.strip() %}<span>{{ t.strip() }}</span>{% endfor %}</div></div>{% endif %}
+            {% if it.body %}<div class="ct-pmeta"><span class="ct-eyebrow ct-eyebrow--dark">Solución</span><p>{{ it.body }}</p></div>{% endif %}
+            {% if it.team %}<div class="ct-pmeta"><span class="ct-eyebrow ct-eyebrow--dark">Equipo</span><p>{{ it.team }}</p></div>{% endif %}
+            {% if it.thanks %}<p class="ct-thanks">{{ it.thanks }}</p>{% endif %}
+            {% if it.link %}<a class="ct-linkcard" href="{{ it.link }}" target="_blank" rel="noopener">Ver más ↗</a>{% endif %}
+          </article>{% endfor %}</div>
+      </section>{% endif %}
+      {% elif meta.kind == 'links' %}{% if sec['items'] or links %}
+      <section class="ct-sec is-wide" id="sec-{{ sec.key }}"><h2>{{ meta.title }}</h2>
+        {% for it in sec['items'] %}{{ item_card(it) }}{% endfor %}
+        {% if links %}{{ links_list(links) }}{% endif %}
+      </section>{% endif %}
+      {% elif sec['items'] %}
+      <section class="ct-sec{{ ' is-wide' if sec.wide else '' }}" id="sec-{{ sec.key }}"><h2>{{ meta.title }}</h2>
+        {% for it in sec['items'] %}{{ item_card(it) }}{% endfor %}
+      </section>
+      {% endif %}
+    {% endfor %}
+    </div>
+  {% endif %}
+
+{% elif page == 'nosotros' %}
+  <section class="ct-hero ct-hero--single"><div class="ct-hero__main"><span class="ct-eyebrow">Nosotros</span><h1>Misión, visión y valores</h1></div></section>
+  {% if inst.mission or inst.vision %}
+  <section class="ct-grid ct-grid--2">
+    {% if inst.mission %}<div class="ct-card"><span class="ct-eyebrow ct-eyebrow--dark">Misión</span><p>{{ inst.mission }}</p></div>{% endif %}
+    {% if inst.vision %}<div class="ct-card"><span class="ct-eyebrow ct-eyebrow--dark">Visión</span><p>{{ inst.vision }}</p></div>{% endif %}
+  </section>{% endif %}
+  {% if inst['values'] %}
+  <section><h2 class="ct-h2">Nuestros valores</h2><div class="ct-values">{% for v in inst['values'] %}<div class="ct-card"><h3><span class="ct-val-n">{{ '%02d' | format(loop.index) }}</span>{{ v.title }}</h3><p>{{ v.text }}</p></div>{% endfor %}</div></section>
+  {% endif %}
+  {% if inst.albums %}
+  <section><h2 class="ct-h2">Galería</h2><div class="ct-albums">{% for a in inst.albums %}<div class="ct-card ct-album"><strong>{{ a.title }}</strong>{% if a.date %}<span class="ct-muted">{{ a.date }}</span>{% endif %}{% if a.description %}<p>{{ a.description }}</p>{% endif %}<span class="ct-muted ct-small">Fotos en preparación</span></div>{% endfor %}</div></section>
+  {% endif %}
+  {% if not (inst.mission or inst.vision or inst['values'] or inst.albums) %}<div class="ct-card ct-empty">Capital Humano todavía no cargó este contenido.</div>{% endif %}
+{% endif %}
+</main>
+<footer class="ct-wrap ct-foot ct-muted ct-small">Cartelera Virtual · Capital Humano · Danwor</footer>
+</body>
+</html>

@@ -69,6 +69,7 @@ from webapp.routers import staffing as staffing_router
 from webapp.routers import platform as platform_router
 from webapp.routers import commercial as commercial_router
 from webapp.routers import human_capital as human_capital_router
+from webapp.routers import cartelera as cartelera_router
 from webapp.routers import catalog_assessment as catalog_assessment_router
 from webapp.routers import datasphere_assessment as datasphere_assessment_router
 from webapp.routers import governed_updates as governed_updates_router
@@ -255,6 +256,20 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             log.warning("reanudación de notificaciones al arranque falló: %s", type(exc).__name__)
 
+    async def _cartelera_scheduler():
+        """Cartelera Virtual (F3/F6): consolida las ediciones programadas vencidas y dispara su aviso por correo, sin depender de que alguien
+        visite la cartelera (la VISIBILIDAD ya se resuelve en cada lectura). Mismo patrón que `remote_store.sync_loop`: bucle del proceso, cada
+        iteración en un thread; idempotente (la clave del aviso es estable) y seguro ante reinicios (la primera pasada recupera lo pendiente)."""
+        from webapp.services import cartelera_service
+        while True:
+            try:
+                await asyncio.to_thread(cartelera_service.run_due)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                log.warning("cartelera: pasada del programador falló: %s", type(exc).__name__)
+            await asyncio.sleep(60)
+
     try:
         from webapp.services import notifications as _notifications
         _notifications.startup_check()                                    # error de configuración CLARO (solo nombres de variables); nunca impide arrancar
@@ -278,10 +293,12 @@ async def lifespan(app: FastAPI):
             log.warning("no se pudo cerrar la compuerta de arranque de la publicación: %s", exc)
         tasks.append(asyncio.create_task(_restore_bg()))
         tasks.append(asyncio.create_task(remote_store.sync_loop()))
+        tasks.append(asyncio.create_task(_cartelera_scheduler()))
     else:
         await _publication_boot_recovery()
         await _governed_updates_boot()
         tasks.append(asyncio.create_task(_notifications_boot()))
+        tasks.append(asyncio.create_task(_cartelera_scheduler()))
     try:
         yield
     finally:
@@ -348,6 +365,7 @@ app.include_router(solicitudes_bulk_router.router)
 app.include_router(platform_router.router)
 app.include_router(commercial_router.router)
 app.include_router(human_capital_router.router)
+app.include_router(cartelera_router.router)
 app.include_router(commercial_strategy_router.router)
 app.include_router(commercial_presentations_router.router)
 app.include_router(catalog_assessment_router.router)

@@ -1,0 +1,23 @@
+{% extends "human_capital/_cartelera_layout.html" %}
+{% block page_title %}Accesos directos{% endblock %}
+{% block cartelera_body %}
+<section class="dashboard-section cartelera-card" x-data="{ rows: {{ (links or [{'title': '', 'group': '', 'url': ''}]) | tojson | forceescape }} }">
+  <div class="cartelera-card__head"><h2>Accesos directos permanentes</h2></div>
+  <p class="field-hint">Enlaces a políticas, formularios, beneficios y herramientas. Se muestran en todas las ediciones, al final de «Beneficios e información útil». No se copian documentos: se enlazan donde ya están.</p>
+  <form method="post" action="/cchh/cartelera/accesos">
+    <input type="hidden" name="revision" value="{{ links_revision or '' }}">
+    <template x-for="(r, i) in rows" :key="i">
+      <div class="cartelera-link-row">
+        <input type="text" name="title" x-model="r.title" placeholder="Nombre" aria-label="Nombre" maxlength="120">
+        <input type="text" name="group" x-model="r.group" placeholder="Grupo (Políticas, Formularios…)" aria-label="Grupo" maxlength="60">
+        <input type="url" name="url" x-model="r.url" placeholder="https://danwor.sharepoint.com/…" aria-label="Enlace">
+        <button type="button" class="cartelera-mini-btn cartelera-mini-btn--danger" @click="rows.splice(i, 1)">Quitar</button>
+      </div>
+    </template>
+    <div class="hc-profile-form__actions">
+      <button type="button" class="btn-secondary" @click="rows.push({title: '', group: '', url: ''})">+ Agregar acceso</button>
+      <button type="submit" class="btn-primary">Guardar accesos</button>
+    </div>
+  </form>
+</section>
+{% endblock %}

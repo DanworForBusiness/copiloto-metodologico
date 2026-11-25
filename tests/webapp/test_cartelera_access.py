@@ -1,0 +1,62 @@
+"""Cartelera Virtual — comprobaciones INDISPENSABLES de autorización y visibilidad (la batería completa llega en la etapa de consolidación)."""
+from __future__ import annotations
+
+from datetime import timedelta
+
+import pytest
+
+from tests.webapp.test_busqueda_solicitud_i1 import CCHH_EMAIL, OPS_A, env, remote  # noqa: F401
+from tests.webapp.test_operations_busquedas_i2 import operations_users, session_client  # noqa: F401
+from webapp.services import cartelera_repository as repo, cartelera_service as svc
+
+ORIGIN = {"Origin": "http://testserver"}
+
+
+@pytest.fixture
+def editions(monkeypatch):
+    monkeypatch.setattr(svc, "notify_published", lambda edition: "disabled")
+    now = svc.now_utc()
+    cur, nxt, prv = svc.month_key(), svc.shift_month(svc.month_key(), 1), svc.shift_month(svc.month_key(), -1)
+    base = {"title": "T", "subtitle": "", "sections": [], "history": []}
+    repo.save("editions", cur, {**base, "title": "Publicada", "state": "published", "published_at": now.isoformat()}, expected_revision=None)
+    repo.save("editions", nxt, {**base, "title": "Futura", "state": "scheduled", "publish_at": (now + timedelta(days=3)).isoformat()}, expected_revision=None)
+    repo.save("editions", prv, {**base, "title": "Borrador", "state": "draft"}, expected_revision=None)
+    return cur, nxt, prv
+
+
+def test_any_admitted_collaborator_reads_the_portal_without_any_vertical(editions):
+    cur, nxt, prv = editions
+    ops = session_client(OPS_A)                                   # admitido al Hub, sin Capital Humano
+    assert ops.get("/cartelera").status_code == 200
+    assert ops.get(f"/cartelera/novedades/{cur}").status_code == 200
+    for hidden in (nxt, prv):                                     # programada futura y borrador: nunca visibles
+        assert ops.get(f"/cartelera/novedades/{hidden}").status_code == 404
+    html = ops.get("/cartelera/novedades").text
+    assert "Publicada" in html and "Futura" not in html and "Borrador" not in html
+
+
+def test_management_requires_human_capital_and_verified_origin(editions):
+    cur, _, _ = editions
+    ops = session_client(OPS_A)
+    assert ops.get("/cchh/cartelera").status_code == 403
+    assert ops.post("/cchh/cartelera/ediciones", headers=ORIGIN, data={"month": "2030-01"}).status_code == 403
+    cchh = session_client(CCHH_EMAIL)
+    assert cchh.get("/cchh/cartelera").status_code == 200
+    assert cchh.post("/cchh/cartelera/ediciones", data={"month": "2030-01"}).status_code == 403       # sin Origin verificado
+    anonymous = session_client(CCHH_EMAIL)
+    anonymous.cookies.clear()
+    assert anonymous.get("/cartelera").status_code in (302, 303, 307)
+
+
+def test_a_due_scheduled_edition_is_visible_and_the_scheduler_consolidates_it(editions):
+    _, nxt, _ = editions
+    edition = repo.get("editions", nxt)
+    repo.save("editions", nxt, {"publish_at": (svc.now_utc() - timedelta(minutes=1)).isoformat()}, expected_revision=edition["revision"])
+    assert svc.is_visible(repo.get("editions", nxt))              # visible por lectura, aunque el programador no haya corrido
+    assert svc.run_due() == 1 and repo.get("editions", nxt)["state"] == "published"
+
+
+def test_stale_revision_never_overwrites(editions):
+    cur, _, _ = editions
+    with pytest.raises(repo.CarteleraConcurrentModificationError):
+        svc.save_content(cur, 99, title="x", subtitle="", sections=[], actor="t")

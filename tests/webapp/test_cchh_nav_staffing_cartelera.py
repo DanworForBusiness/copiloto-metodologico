@@ -70,18 +70,14 @@ def test_the_active_staffing_entry_is_highlighted():
     assert active == ["/cchh/entrevistas"]
 
 
-def test_the_cartelera_page_opens_its_group_and_is_only_preparatory():
-    response = session_client(CCHH_EMAIL).get("/cchh/cartelera")
+def test_the_cartelera_page_opens_its_group_and_shows_the_management(path="/cchh/cartelera"):
+    response = session_client(CCHH_EMAIL).get(path)
     assert response.status_code == 200
     html = response.text
     nav = _nav(html)
     assert not _open(_group(nav, "staffing")[1]) and not _open(_group(nav, "seguimiento")[1]) and _open(_group(nav, "cartelera")[1])
     assert re.findall(r'<a href="([^"]+)" class="module-link is-active">', nav) == ["/cchh/cartelera"]
-    main = re.search(r'<main id="content" class="module-content">(.*?)</main>', html, re.S).group(1)
-    assert '<p class="eyebrow">Cartelera Virtual</p>' in main and "<h1>Gestión de cartelera</h1>" in main
-    assert "data-cartelera-preparatory" in main and "En preparación" in main
-    for forbidden in ("<form", "hx-post", "<button", "<input", "<textarea"):                       # sin acciones: no concede nada
-        assert forbidden not in main, forbidden
+    assert '<p class="eyebrow">Cartelera Virtual</p>' in html and 'action="/cchh/cartelera/ediciones"' in html
 
 
 def test_the_cartelera_page_uses_the_existing_human_capital_boundary():

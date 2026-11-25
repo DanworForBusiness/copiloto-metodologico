@@ -1,0 +1,218 @@
+{% extends "human_capital/_cartelera_layout.html" %}
+{% block page_title %}{{ svc.month_label(edition.id) }}{% endblock %}
+{% block hero_title %}Edición de {{ svc.month_label(edition.id) }}{% endblock %}
+{% block hero_lead %}Portada, secciones y contenidos de la edición. Los cambios se guardan como borrador hasta que se publica o se programa.{% endblock %}
+{% block cartelera_body %}
+{% set tones = {'draft': 'grey', 'scheduled': 'violet', 'published': 'green', 'withdrawn': 'amber'} %}
+<script type="application/json" id="ct-model">{{ model_json | replace("</", "<\/") | safe }}</script>
+<div class="cartelera-editor" x-data="carteleraEditor(JSON.parse(document.getElementById('ct-model').textContent), {{ edition.revision }}, '{{ edition.id }}')" @beforeunload.window="if (dirty) { $event.preventDefault(); $event.returnValue = true }">
+  <div class="cartelera-editor__main">
+    <p class="field-hint"><a href="/cchh/cartelera">← Ediciones</a></p>
+
+    <section class="dashboard-section cartelera-card">
+      <div class="cartelera-card__head"><h2>Portada</h2></div>
+      <div class="hc-profile-section__grid hc-profile-section__grid--fluid">
+        <div class="feedback-field feedback-field--wide"><label for="ct-title">Título de portada</label>
+          <input id="ct-title" type="text" maxlength="160" x-model="model.title" @input="dirty=true" placeholder="Ej.: Compartir conocimiento genera crecimiento"></div>
+        <div class="feedback-field feedback-field--wide"><label for="ct-sub">Bajada</label>
+          <input id="ct-sub" type="text" maxlength="300" x-model="model.subtitle" @input="dirty=true"></div>
+        <div class="feedback-field feedback-field--wide"><label>Banner</label>
+          <p class="cartelera-pending" data-pending="sharepoint">Imagen de portada · disponible cuando se habilite la integración documental con SharePoint (acceso a la carpeta de Cartelera Virtual en verificación).</p></div>
+      </div>
+    </section>
+
+    <template x-for="(sec, si) in model.sections" :key="sec.key">
+      <section class="dashboard-section cartelera-card" :class="sec.wide && 'is-wide'">
+        <div class="cartelera-card__head">
+          <h2 x-text="sec.title"></h2>
+          <span class="cartelera-card__tools">
+            <button type="button" class="cartelera-mini-btn" @click="toggleWide(si)" :title="sec.wide ? 'Mostrar al costado' : 'Ancho completo'" x-text="sec.wide ? 'Al costado' : 'Ancho completo'"></button>
+            <template x-if="sec.kind !== 'links'"><span>
+              <button type="button" class="cartelera-mini-btn" @click="moveSection(si, -1)" :disabled="si === 0" aria-label="Subir sección">↑</button>
+              <button type="button" class="cartelera-mini-btn" @click="moveSection(si, 1)" :disabled="si >= lastMovable()" aria-label="Bajar sección">↓</button>
+            </span></template>
+          </span>
+        </div>
+
+        <template x-if="sec.kind === 'birthdays'">
+          <p class="field-hint">Se completa automáticamente con los cumpleaños autorizados y visibles del mes (pestaña <a href="/cchh/cartelera/cumpleanos">Cumpleaños</a>).</p>
+        </template>
+
+        <template x-if="sec.kind === 'general' || sec.kind === 'links'">
+          <div class="cartelera-items">
+            <template x-for="(it, ii) in sec.items" :key="it.id">
+              <div class="cartelera-item">
+                <div class="hc-profile-section__grid hc-profile-section__grid--fluid">
+                  <div class="feedback-field feedback-field--wide"><label>Título</label><input type="text" maxlength="200" x-model="it.title" @input="dirty=true"></div>
+                  <div class="feedback-field feedback-field--wide"><label>Texto</label><textarea rows="3" x-model="it.body" @input="dirty=true"></textarea></div>
+                  <div class="feedback-field feedback-field--medium"><label>Enlace (https://…)</label><input type="url" x-model="it.link" @input="dirty=true" placeholder="https://"></div>
+                  <div class="feedback-field feedback-field--medium"><label>Texto del enlace</label><input type="text" maxlength="120" x-model="it.link_label" @input="dirty=true" placeholder="Ver más"></div>
+                </div>
+                <div class="cartelera-item__foot">
+                  <span class="cartelera-pending cartelera-pending--inline">Imagen o flyer · pendiente de integración SharePoint</span>
+                  <span>
+                    <button type="button" class="cartelera-mini-btn" @click="moveItem(si, ii, -1)" :disabled="ii === 0" aria-label="Subir">↑</button>
+                    <button type="button" class="cartelera-mini-btn" @click="moveItem(si, ii, 1)" :disabled="ii === sec.items.length - 1" aria-label="Bajar">↓</button>
+                    <button type="button" class="cartelera-mini-btn cartelera-mini-btn--danger" @click="removeItem(si, ii)">Quitar</button>
+                  </span>
+                </div>
+              </div>
+            </template>
+            <button type="button" class="cartelera-mini-btn" @click="addItem(si)">+ Agregar contenido</button>
+            <template x-if="sec.kind === 'links'"><p class="field-hint">Además se muestran los <a href="/cchh/cartelera/accesos">accesos directos</a> permanentes{% if links %} ({{ links | length }}){% endif %}.</p></template>
+          </div>
+        </template>
+
+        <template x-if="sec.kind === 'projects'">
+          <div class="cartelera-items">
+            <template x-for="(it, ii) in sec.items" :key="it.id">
+              <div class="cartelera-item">
+                <div class="cartelera-project-ref">
+                  <template x-if="it.project_id"><div><span class="eyebrow">Proyecto de Operaciones</span><strong x-text="it.project_name"></strong> <span class="field-hint" x-text="it.client_name ? '· ' + it.client_name : ''"></span></div></template>
+                  <template x-if="!it.project_id"><span class="field-hint">Elegí el proyecto desde las fuentes de Operaciones.</span></template>
+                  <button type="button" class="cartelera-mini-btn" @click="openPicker(si, ii)" x-text="it.project_id ? 'Cambiar proyecto' : 'Elegir proyecto'"></button>
+                </div>
+                <div class="hc-profile-section__grid hc-profile-section__grid--fluid">
+                  <div class="feedback-field feedback-field--medium"><label>Tipo</label>
+                    <select x-model="it.kind" @change="dirty=true"><option value="inicio">Nuevo proyecto</option><option value="fin">Proyecto finalizado</option></select></div>
+                  <div class="feedback-field feedback-field--medium"><label>Tipo de servicio</label><input type="text" maxlength="300" x-model="it.service" @input="dirty=true" placeholder="Ej.: Implementación SAP Datasphere"></div>
+                  <div class="feedback-field feedback-field--wide"><label>Tecnologías (separadas por coma)</label><input type="text" maxlength="300" x-model="it.tech" @input="dirty=true"></div>
+                  <div class="feedback-field feedback-field--wide"><label>Solución</label><textarea rows="3" x-model="it.body" @input="dirty=true" placeholder="Qué necesidad resuelve y qué entrega"></textarea></div>
+                  <div class="feedback-field feedback-field--medium"><label>Equipo</label><input type="text" maxlength="300" x-model="it.team" @input="dirty=true"></div>
+                  <div class="feedback-field feedback-field--medium"><label>Enlace (https://…)</label><input type="url" x-model="it.link" @input="dirty=true"></div>
+                  <div class="feedback-field feedback-field--wide"><label>Agradecimiento</label><input type="text" maxlength="300" x-model="it.thanks" @input="dirty=true"></div>
+                </div>
+                <div class="cartelera-item__foot">
+                  <span class="cartelera-pending cartelera-pending--inline">Imagen · pendiente de integración SharePoint</span>
+                  <span>
+                    <button type="button" class="cartelera-mini-btn" @click="moveItem(si, ii, -1)" :disabled="ii === 0" aria-label="Subir">↑</button>
+                    <button type="button" class="cartelera-mini-btn" @click="moveItem(si, ii, 1)" :disabled="ii === sec.items.length - 1" aria-label="Bajar">↓</button>
+                    <button type="button" class="cartelera-mini-btn cartelera-mini-btn--danger" @click="removeItem(si, ii)">Quitar</button>
+                  </span>
+                </div>
+              </div>
+            </template>
+            <button type="button" class="cartelera-mini-btn" @click="addProject(si)">+ Agregar proyecto</button>
+          </div>
+        </template>
+      </section>
+    </template>
+  </div>
+
+  <aside class="cartelera-editor__side">
+    <section class="dashboard-section cartelera-card cartelera-publish">
+      <div class="cartelera-card__head"><h2>Publicación</h2>
+        <span class="dashboard-status-badge solicitudes-status-badge solicitudes-status-badge--{{ tones[state] }}">{{ svc.STATE_LABELS[state] }}</span></div>
+      {% if state == 'scheduled' %}<p class="field-hint">Se publica el <strong>{{ svc.fmt_local(edition.publish_at) }}</strong> (hora de Buenos Aires) y se avisa por correo.</p>
+      {% elif state == 'published' %}<p class="field-hint">Publicada el {{ svc.fmt_local(edition.published_at or edition.publish_at) }}. Los cambios guardados se ven de inmediato en el portal.</p>
+      {% elif state == 'withdrawn' %}<p class="field-hint">Retirada: no se muestra en el portal.</p>
+      {% else %}<p class="field-hint">Borrador: solo la ve Capital Humano.</p>{% endif %}
+
+      <button type="button" class="btn-primary cartelera-save" @click="save()" :disabled="saving || !dirty" x-text="saving ? 'Guardando…' : (dirty ? 'Guardar cambios' : 'Cambios guardados')"></button>
+      <p class="field-hint" role="status" x-show="msg" x-text="msg"></p>
+      <p class="cartelera-error" role="alert" x-show="err" x-text="err"></p>
+      <p class="field-hint" x-show="dirty">Guardá los cambios antes de publicar o programar.</p>
+
+      <div class="cartelera-publish__actions">
+        {% if state != 'published' %}
+        <form method="post" action="/cchh/cartelera/ediciones/{{ edition.id }}/estado" @submit="if (!confirm('¿Publicar ahora la edición de {{ svc.month_label(edition.id) }}? La verán todos los colaboradores y se enviará el aviso por correo.')) $event.preventDefault()">
+          <input type="hidden" name="action" value="publish"><input type="hidden" name="revision" :value="revision">
+          <button type="submit" class="btn-primary" :disabled="dirty">Publicar ahora</button>
+        </form>
+        <form method="post" action="/cchh/cartelera/ediciones/{{ edition.id }}/estado" class="cartelera-schedule">
+          <input type="hidden" name="action" value="schedule"><input type="hidden" name="revision" :value="revision">
+          <div class="feedback-field"><label for="ct-when">Programar (hora de Buenos Aires)</label>
+            <input id="ct-when" type="datetime-local" name="when" value="{{ svc.to_local_input(edition.publish_at) if state == 'scheduled' else '' }}" required></div>
+          <button type="submit" class="btn-secondary" :disabled="dirty">{{ 'Reprogramar' if state == 'scheduled' else 'Programar' }}</button>
+        </form>
+        {% endif %}
+        {% if state in ('scheduled', 'published') %}
+        <form method="post" action="/cchh/cartelera/ediciones/{{ edition.id }}/estado" @submit="if (!confirm('{{ '¿Retirar la edición del portal?' if state == 'published' else '¿Cancelar la programación?' }}')) $event.preventDefault()">
+          <input type="hidden" name="action" value="{{ 'withdraw' if state == 'published' else 'unschedule' }}"><input type="hidden" name="revision" :value="revision">
+          <button type="submit" class="btn-secondary">{{ 'Retirar del portal' if state == 'published' else 'Cancelar programación' }}</button>
+        </form>
+        {% endif %}
+        <a class="btn-secondary" href="/cchh/cartelera/ediciones/{{ edition.id }}/vista-previa" target="_blank" rel="noopener">Vista previa ↗</a>
+        {% if state in ('draft', 'withdrawn') %}
+        <form method="post" action="/cchh/cartelera/ediciones/{{ edition.id }}/estado" @submit="if (!confirm('¿Eliminar la edición de {{ svc.month_label(edition.id) }}? No se puede deshacer.')) $event.preventDefault()">
+          <input type="hidden" name="action" value="delete"><input type="hidden" name="revision" :value="revision">
+          <button type="submit" class="cartelera-mini-btn cartelera-mini-btn--danger">Eliminar edición</button>
+        </form>
+        {% endif %}
+      </div>
+    </section>
+    <section class="dashboard-section cartelera-card">
+      <div class="cartelera-card__head"><h2>Historial</h2></div>
+      <ul class="cartelera-history">{% for h in (edition.history or [])|reverse %}<li><span>{{ svc.fmt_local(h.at) }}</span> {{ h.action }} · <em>{{ h.actor }}</em></li>{% endfor %}</ul>
+    </section>
+  </aside>
+
+  <dialog class="dw-confirm cartelera-picker" x-ref="picker" @close="pickerFor = null">
+    <h2>Proyectos de Operaciones</h2>
+    <p class="field-hint">Fuente gobernada de Operaciones: solo se toma el nombre del proyecto y del cliente.</p>
+    <input type="search" x-model="projQuery" placeholder="Buscar por proyecto o cliente…" class="cartelera-picker__search">
+    <p class="field-hint" x-show="projLoading">Consultando Operaciones…</p>
+    <p class="cartelera-error" x-show="projErr" x-text="projErr"></p>
+    <ul class="cartelera-picker__list">
+      <template x-for="p in filteredProjects()" :key="p.id">
+        <li><button type="button" @click="pickProject(p)"><strong x-text="p.name"></strong><span x-text="p.client"></span></button></li>
+      </template>
+    </ul>
+    <div class="hc-profile-form__actions"><button type="button" class="btn-secondary" @click="$refs.picker.close()">Cerrar</button></div>
+  </dialog>
+</div>
+
+<script>
+function carteleraEditor(model, revision, month) {
+  const uid = () => Math.random().toString(36).slice(2, 14);
+  return {
+    model, revision, month, dirty: false, saving: false, msg: "", err: "",
+    projects: null, projLoading: false, projErr: "", projQuery: "", pickerFor: null,
+    lastMovable() { return this.model.sections.filter(s => s.kind !== "links").length - 1; },
+    addItem(si) { this.model.sections[si].items.push({ id: uid(), title: "", body: "", link: "", link_label: "" }); this.dirty = true; },
+    addProject(si) { this.model.sections[si].items.push({ id: uid(), project_id: "", project_name: "", client_name: "", kind: "inicio", service: "", tech: "", body: "", team: "", thanks: "", link: "" }); this.dirty = true; this.openPicker(si, this.model.sections[si].items.length - 1); },
+    removeItem(si, ii) { if (!confirm("¿Quitar este contenido?")) return; this.model.sections[si].items.splice(ii, 1); this.dirty = true; },
+    moveItem(si, ii, d) { const a = this.model.sections[si].items, j = ii + d; if (j < 0 || j >= a.length) return; [a[ii], a[j]] = [a[j], a[ii]]; this.dirty = true; },
+    moveSection(si, d) { const a = this.model.sections, j = si + d; if (j < 0 || j > this.lastMovable()) return; [a[si], a[j]] = [a[j], a[si]]; this.dirty = true; },
+    toggleWide(si) { this.model.sections[si].wide = !this.model.sections[si].wide; this.dirty = true; },
+    async save() {
+      this.saving = true; this.msg = ""; this.err = "";
+      try {
+        const r = await fetch(`/cchh/cartelera/ediciones/${this.month}/contenido`, { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ revision: this.revision, title: this.model.title, subtitle: this.model.subtitle,
+                                 sections: this.model.sections.map(s => ({ key: s.key, wide: !!s.wide, items: s.items })) }) });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) { this.err = j.error || "No se pudo guardar."; return; }
+        this.revision = j.revision; this.dirty = false; this.msg = "Guardado " + (j.updated || "");
+      } catch (e) { this.err = "No se pudo conectar con el Hub. Tus cambios siguen en pantalla."; }
+      finally { this.saving = false; }
+    },
+    async openPicker(si, ii) {
+      this.pickerFor = [si, ii]; this.$refs.picker.showModal();
+      if (this.projects !== null || this.projLoading) return;
+      this.projLoading = true; this.projErr = "";
+      let token = "";
+      try { const t = window.dwGraphToken ? await window.dwGraphToken({ interactive: true }) : ""; token = typeof t === "string" ? t : (t && t.token) || ""; } catch (e) {}
+      try {
+        const body = new URLSearchParams({ graph_token: token });
+        const r = await fetch("/cchh/cartelera/proyectos", { method: "POST", body });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) { this.projErr = j.error || "No se pudieron leer los proyectos."; return; }
+        this.projects = j.projects || [];
+      } catch (e) { this.projErr = "No se pudo conectar con el Hub."; }
+      finally { this.projLoading = false; }
+    },
+    filteredProjects() {
+      const q = this.projQuery.trim().toLowerCase();
+      return (this.projects || []).filter(p => !q || (p.name + " " + p.client).toLowerCase().includes(q)).slice(0, 60);
+    },
+    pickProject(p) {
+      if (!this.pickerFor) return;
+      const [si, ii] = this.pickerFor, it = this.model.sections[si].items[ii];
+      it.project_id = p.id; it.project_name = p.name; it.client_name = p.client || ""; this.dirty = true;
+      this.$refs.picker.close();
+    },
+  };
+}
+</script>
+{% endblock %}

@@ -210,6 +210,9 @@ NOTIFICATIONS_SENDER        = os.getenv("NOTIFICATIONS_SENDER", "").strip()
 NOTIFICATIONS_OPERATIONS_RECIPIENTS = os.getenv("NOTIFICATIONS_OPERATIONS_RECIPIENTS", "").strip()
 NOTIFICATIONS_ARQ_RECIPIENTS        = os.getenv("NOTIFICATIONS_ARQ_RECIPIENTS", "").strip()     # Arquitectura e Innovación
 NOTIFICATIONS_HC_RECIPIENTS         = os.getenv("NOTIFICATIONS_HC_RECIPIENTS", "").strip()      # Capital Humano: reservado, ningún evento todavía
+# Cartelera Virtual: destinatarios del aviso «nueva edición publicada» (típicamente la lista de distribución de colaboradores). Es configuración
+# de DESTINATARIOS del correo, no de autorización. Vacío = el evento queda registrado como «sin destinatarios» y no se envía nada.
+NOTIFICATIONS_CARTELERA_RECIPIENTS  = os.getenv("NOTIFICATIONS_CARTELERA_RECIPIENTS", "").strip()
 # URL pública del Hub para los enlaces de los correos (p. ej. https://hub.danwor.com). Opcional: sin ella se usa el origen YA validado (mismo origen)
 # del POST que originó el evento. Recomendada en producción.
 NOTIFICATIONS_HUB_BASE_URL  = os.getenv("NOTIFICATIONS_HUB_BASE_URL", "").strip().rstrip("/")
