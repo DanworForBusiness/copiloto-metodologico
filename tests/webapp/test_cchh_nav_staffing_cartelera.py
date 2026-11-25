@@ -1,6 +1,6 @@
 """Navegación de Capital Humano: dos grupos colapsables con el patrón del Copiloto (`button.nav-toggle` + `.nav-kicker` + `.nav-toggle-sign`
 y contenedor `x-show`) — STAFFING (las seis capacidades, sin cambios de rutas, numeración ni permisos) y CARTELERA VIRTUAL (una entrada
-preparatoria «Gestión de cartelera», sin lógica ni permisos nuevos)."""
+preparatoria «Gestión», sin lógica ni permisos nuevos)."""
 from __future__ import annotations
 
 import re
@@ -42,7 +42,7 @@ def test_staffing_pages_open_the_staffing_group_and_keep_the_six_entries_unchang
     cart_button, cart_container = _group(nav, "cartelera")
     assert '<span class="nav-kicker nav-kicker--appendix">CARTELERA VIRTUAL</span>' in cart_button and "nav-toggle--appendix" in cart_button
     assert 'style="display:none"' in cart_container.split(">")[0]                                    # el otro grupo: colapsado
-    assert _links(cart_container) == [("/cchh/cartelera", "01", "Gestión de cartelera")]
+    assert _links(cart_container) == [("/cchh/cartelera", "01", "Gestión")]
     assert "CAPITAL HUMANO" not in nav
 
 
