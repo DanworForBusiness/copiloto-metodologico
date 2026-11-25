@@ -3615,6 +3615,23 @@ def _catalogos_context(request: Request, *, refresh_result: dict | None, refresh
     }
 
 
+# ── CARTELERA VIRTUAL · Gestión de cartelera (preparatoria) ─────────────────────────────────────────────────────────────
+# Entrada del segundo grupo del nav (CARTELERA VIRTUAL). Solo anuncia la sección: sin persistencia, integraciones documentales, lógica de
+# Cartelera ni permisos nuevos. Usa la MISMA frontera que el resto de Capital Humano (`_require_human_capital_session`); la capacidad
+# administrativa diferenciada de Cartelera es una decisión pendiente (F1, `_handoffs/CARTELERA_VIRTUAL_DECISIONES_20261125.md`) y esta página
+# no concede nada: no tiene acciones.
+@router.get("/cchh/cartelera", response_class=HTMLResponse, include_in_schema=False)
+def human_capital_cartelera_page(request: Request):
+    redirect = _require_human_capital_session(request)
+    if redirect is not None:
+        return redirect
+    user = auth_service.session_user(request)
+    return templates.TemplateResponse(request=request, name="human_capital/cartelera.html", context={
+        "current_workspace": workspaces.HUMAN_CAPITAL, "available_workspaces": workspaces.available_workspaces(user),
+        "pack": DEFAULT_PACK, "user": user, "active_page": "cartelera",
+    })
+
+
 # ── INDICADORES (06) ─────────────────────────────────────────────────────────────────────────────────────
 # Paridad con `/metricas` de la app de referencia (spec `_handoffs/CCHH_06_INDICADORES_SPEC.md`). TODO el cálculo vive en `human_capital_indicators` (motor puro, Bloque A): el router solo arma UN snapshot por
 # request (lectura de solo lectura), delega y entrega el resultado a las plantillas, que no calculan nada de negocio. Los selectores de período de C6 y C9 son independientes: cada uno recarga SOLO su tarjeta.

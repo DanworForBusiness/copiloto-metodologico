@@ -550,7 +550,7 @@ def test_the_shared_topbar_refresh_button_and_workspace_shell_render_on_onboardi
     c = _client()
     for url in ("/cchh/onboarding", f"/cchh/onboarding/{aid}/editar"):
         html = c.get(url).text
-        assert 'hx-post="/cchh/catalogos/refresh"' in html and "CAPITAL HUMANO" in html, url
+        assert 'hx-post="/cchh/catalogos/refresh"' in html and "STAFFING" in html, url
 
 
 def test_the_post_hero_gap_is_the_same_24px_in_the_four_cchh_sections():

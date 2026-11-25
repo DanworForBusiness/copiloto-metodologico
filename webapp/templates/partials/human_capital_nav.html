@@ -22,11 +22,21 @@
    copilot_nav.html/operations_nav.html/commercial_nav.html
    (partials/workspace_shell.html) — misma fuente de identidad, nunca una
    segunda copia del formateo de nombre. #}
+{# Dos grupos colapsables con el MISMO patrón del Copiloto (partials/copilot_nav.html: `button.nav-toggle` + `.nav-kicker` + `.nav-toggle-sign`
+   −/+ + contenedor `x-show`/`x-transition.opacity`; estilos de layout.css): STAFFING (las seis capacidades de selección, sin cambios de rutas,
+   numeración ni permisos) y CARTELERA VIRTUAL (entrada preparatoria). Se abre solo el grupo de la página activa y, como en el Copiloto, al
+   scrollear el contenido el nav vuelve a reflejar dónde estás. El estado es local al nav: no toca `copilotLayout` (app.js). #}
+{% set _hc_group = 'cartelera' if active_page == 'cartelera' else 'staffing' %}
 {% from "partials/workspace_shell.html" import nav_welcome %}
 <aside class="module-nav" :class="navOpen&&'is-open'">
   {{ nav_welcome(user) }}
-  <nav aria-label="Capital Humano">
-    <p class="nav-kicker sidebar-workspace-kicker">CAPITAL HUMANO</p>
+  <nav aria-label="Capital Humano"
+       x-data="{ hcGroup: '{{ _hc_group }}', navStaffing: {{ 'true' if _hc_group == 'staffing' else 'false' }}, navCartelera: {{ 'true' if _hc_group == 'cartelera' else 'false' }} }"
+       x-init="document.querySelector('.module-content')?.addEventListener('scroll', () => { navStaffing = hcGroup === 'staffing'; navCartelera = hcGroup === 'cartelera' }, { passive: true })">
+    <button type="button" class="nav-toggle sidebar-workspace-kicker" data-nav-group="staffing" @click="navStaffing=!navStaffing" :aria-expanded="navStaffing">
+      <span class="nav-kicker">STAFFING</span><span class="nav-toggle-sign" x-text="navStaffing?'−':'+'">{{ '−' if _hc_group == 'staffing' else '+' }}</span>
+    </button>
+    <div x-show="navStaffing" x-transition.opacity{% if _hc_group != 'staffing' %} style="display:none"{% endif %}>
     {# Landing "Inicio" retirado por ahora (owner): el workspace arranca en
        Candidatos, que pasa a ser la primera entrada (01). #}
     <a href="/cchh/candidatos" class="module-link {% if active_page == 'perfiles' %}is-active{% endif %}">
@@ -62,5 +72,16 @@
     <a href="/cchh/indicadores" class="module-link {% if active_page == 'indicadores' %}is-active{% endif %}">
       <span>06</span><strong>Indicadores</strong>
     </a>
+    </div>
+    {# CARTELERA VIRTUAL — entrada PREPARATORIA: la página solo anuncia la sección (sin persistencia, integraciones ni permisos nuevos); la
+       capacidad administrativa diferenciada se define aparte (decisión F1). `active_page == 'cartelera'` lo pasa el router. #}
+    <button type="button" class="nav-toggle nav-toggle--appendix" data-nav-group="cartelera" @click="navCartelera=!navCartelera" :aria-expanded="navCartelera">
+      <span class="nav-kicker nav-kicker--appendix">CARTELERA VIRTUAL</span><span class="nav-toggle-sign" x-text="navCartelera?'−':'+'">{{ '−' if _hc_group == 'cartelera' else '+' }}</span>
+    </button>
+    <div x-show="navCartelera" x-transition.opacity{% if _hc_group != 'cartelera' %} style="display:none"{% endif %}>
+    <a href="/cchh/cartelera" class="module-link {% if active_page == 'cartelera' %}is-active{% endif %}">
+      <span>01</span><strong>Gestión de cartelera</strong>
+    </a>
+    </div>
   </nav>
 </aside>

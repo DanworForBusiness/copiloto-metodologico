@@ -15,7 +15,7 @@
     {% set rc = list_return(request, "/cchh/onboarding", onboarding, ["pipeline"]) %}<a class="catalog-back" href="{{ rc.back_url }}">← Volver a {{ rc.back_label or 'Onboarding' }}</a>
     <section class="module-hero hc-profiles-hero">
       <div class="hc-profiles-hero-text">
-        <p class="eyebrow">Capital Humano</p>
+        <p class="eyebrow">Staffing</p>
         <h1>Editar onboarding</h1>
         {% if onboarding %}<p>{% if onboarding.profile %}{{ onboarding.profile.first_name }} {{ onboarding.profile.last_name }}{% else %}Candidato eliminado del Banco{% endif %}{% if onboarding.puesto_mostrado %} · {{ onboarding.puesto_mostrado }}{% endif %}</p>{% endif %}
       </div>

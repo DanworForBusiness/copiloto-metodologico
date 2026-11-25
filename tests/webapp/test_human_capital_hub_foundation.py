@@ -170,9 +170,9 @@ def test_landing_has_no_own_css_or_js_asset_link():
 
 def test_content_shows_expected_eyebrow_title_without_banned_words():
     # Con la landing retirada, la entrada del workspace es Candidatos (Base de
-    # CVs) — sigue con el eyebrow "Capital Humano" y sin palabras prohibidas.
+    # CVs) — con el eyebrow "Staffing" (grupo del nav al que pertenece) y sin palabras prohibidas.
     text = _client_as(_AUTHORIZED_EMAIL).get("/cchh/candidatos").text
-    assert '<p class="eyebrow">Capital Humano</p>' in text
+    assert '<p class="eyebrow">Staffing</p>' in text
     assert "<h1>Base de CVs</h1>" in text
     for banned in ("Preview", "PoC", "Prototype", "Coming Soon", "preview", "coming soon"):
         assert banned not in text

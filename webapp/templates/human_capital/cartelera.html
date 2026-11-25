@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% from "partials/platform_topbar.html" import platform_topbar %}
+{% from "partials/workspace_shell.html" import sidebar_resize_handle %}
+{% block title %}Gestión de cartelera · Capital Humano · Danwor{% endblock %}
+{% block head_styles %}<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}">{% endblock %}
+{% block body %}
+<div x-data="copilotLayout('human-capital')" x-init="init()" class="app-shell no-copilot">
+  {% set _identity_html %}<iframe src="/brand/dancing/{{ pack }}?title={{ config.HUMAN_CAPITAL_APP_TITLE | urlencode }}&subtitle={{ config.HUMAN_CAPITAL_APP_SUBTITLE | urlencode }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
+  {% call platform_topbar(current_workspace, available_workspaces, current_workspace.home_url, _identity_html, "Menú") %}{% include "partials/human_capital_catalog_refresh_topbar.html" %}{% endcall %}
+  {% include "partials/human_capital_nav.html" %}
+  {{ sidebar_resize_handle() }}
+
+  <main id="content" class="module-content">
+    <section class="module-hero hc-profiles-hero">
+      <div class="hc-profiles-hero-text">
+        <p class="eyebrow">Cartelera Virtual</p>
+        <h1>Gestión de cartelera</h1>
+        <p>Espacio de Capital Humano para preparar y publicar la Cartelera Virtual de Danwor: ediciones mensuales, secciones, proyectos, cumpleaños y accesos directos.</p>
+      </div>
+    </section>
+
+    {# Página PREPARATORIA: no tiene acciones, formularios ni lectura de datos. El `id` mantiene el respiro estándar bajo el hero
+       (regla `.module-hero + #hc-…-panel` de human_capital.css) y el estado usa el MISMO componente vacío del Hub. #}
+    <div id="hc-cartelera-panel">
+      <div class="dashboard-empty" data-cartelera-preparatory>
+        <span class="dashboard-empty__label">En preparación</span>
+        <p>La gestión de la Cartelera Virtual todavía no está habilitada. Esta sección no permite crear, editar ni publicar contenido por ahora.</p>
+      </div>
+    </div>
+  </main>
+</div>
+{% endblock %}

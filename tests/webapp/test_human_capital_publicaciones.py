@@ -435,7 +435,7 @@ def test_the_shared_topbar_refresh_button_and_back_link_render_on_publicaciones_
     c = _client()
     for url in ("/cchh/publicaciones", "/cchh/publicaciones/nueva", f"/cchh/publicaciones/{p['publicacion_id']}/editar"):
         html = c.get(url).text
-        assert 'hx-post="/cchh/catalogos/refresh"' in html and "CAPITAL HUMANO" in html, url
+        assert 'hx-post="/cchh/catalogos/refresh"' in html and "STAFFING" in html, url
     assert 'class="catalog-back" href="/cchh/publicaciones"' in c.get("/cchh/publicaciones/nueva").text
 
 

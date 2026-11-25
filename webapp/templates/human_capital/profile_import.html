@@ -27,7 +27,7 @@
     <div x-data="{ modo: '{{ _modo }}' }" data-import-modes>
     <section class="module-hero hc-profiles-hero">
       <div class="hc-profiles-hero-text">
-        <p class="eyebrow">Capital Humano</p>
+        <p class="eyebrow">Staffing</p>
         <h1>Carga masiva de CVs</h1>
         <p :hidden="modo!=='sharepoint'" {{ 'hidden' if _modo != 'sharepoint' }}>Incorporá los CVs que Capital Humano deja en la carpeta <a class="whatsnew-banner__cta" data-cvinbox-folder-link data-sub="" target="_blank" rel="noopener noreferrer">inbound</a> de SharePoint.</p>
         <p :hidden="modo!=='excel'" {{ 'hidden' if _modo != 'excel' }}>Subí un Excel con varios candidatos para cargarlos al banco de CVs de una sola vez.</p>
