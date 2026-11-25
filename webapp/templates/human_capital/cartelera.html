@@ -2,7 +2,7 @@
 {% block page_title %}Ediciones{% endblock %}
 {% block hero_actions %}
   <a href="/cartelera" class="btn-secondary" target="_blank" rel="noopener">Ver portal de colaboradores ↗</a>
-  <button type="button" class="btn-primary" data-ct-new-open{% if not candidates %} disabled title="Ya existen las ediciones de los próximos meses"{% endif %}>+ Nueva cartelera</button>
+  <button type="button" class="btn-primary" data-ct-new-open>+ Nueva cartelera</button>
 {% endblock %}
 {% block cartelera_body %}
 {% set tones = {'draft': 'grey', 'scheduled': 'violet', 'published': 'green', 'withdrawn': 'amber'} %}
@@ -16,9 +16,9 @@
       <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/><path d="m10 8 5 3-5 3Z"/></svg>
       <span class="chart-tooltip" aria-hidden="true"><p>{{ 'Presentar' if st == 'published' else 'Vista previa' }}</p></span>
     </a>
-    <button type="button" class="table-action-btn chart-tooltip-anchor" data-ct-copy-open data-ct-source="{{ e.id }}" data-ct-label="{{ label }}" aria-label="Copiar la edición de {{ label }} como nueva cartelera"{% if not candidates %} disabled{% endif %}>
+    <button type="button" class="table-action-btn chart-tooltip-anchor" data-ct-copy-open data-ct-source="{{ e.id }}" data-ct-label="{{ label }}" aria-label="Copiar la edición de {{ label }} como nueva cartelera">
       <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-      <span class="chart-tooltip" aria-hidden="true"><p>{{ 'Copiar como nueva cartelera' if candidates else 'Sin meses libres para copiar' }}</p></span>
+      <span class="chart-tooltip" aria-hidden="true"><p>Copiar como nueva cartelera</p></span>
     </button>
     <a href="/cchh/cartelera/ediciones/{{ e.id }}" class="table-action-btn chart-tooltip-anchor" aria-label="Editar la edición de {{ label }}">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
@@ -108,7 +108,8 @@
       <p class="dw-confirm__msg" data-ct-dialog-msg>Se crea una edición vacía en borrador para el mes que elijas.</p>
       <div class="feedback-field">
         <label for="ct-month">Mes de la edición</label>
-        <select id="ct-month" name="month" required>{% for m in candidates %}<option value="{{ m }}">{{ svc.month_label(m) }}</option>{% endfor %}</select>
+        <input id="ct-month" type="month" name="month" value="{{ default_month }}" required data-ct-taken="{{ taken | join(',') }}">
+        <p class="dashboard-empty__hint" data-ct-month-hint>Cualquier mes que todavía no tenga edición. Se propone el próximo período disponible.</p>
       </div>
     </div>
     <div class="dw-confirm__actions">
@@ -135,6 +136,12 @@
     open(`/cchh/cartelera/ediciones/${btn.dataset.ctSource}/copiar`, "Copiar como nueva cartelera",
          `Se crea un borrador con la portada y los contenidos de ${btn.dataset.ctLabel}, sin su estado de publicación, programación ni historial.`, "Crear copia")));
   dialog.querySelector("[data-ct-dialog-cancel]").addEventListener("click", () => dialog.close());
+  // Aviso inmediato si el mes ya tiene edición (la autoridad sigue siendo el servidor, que rechaza el duplicado).
+  const month = dialog.querySelector("#ct-month"), hint = dialog.querySelector("[data-ct-month-hint]"), submit = dialog.querySelector("[data-ct-dialog-submit]");
+  const taken = new Set((month.dataset.ctTaken || "").split(",").filter(Boolean));
+  const check = () => { const busy = taken.has(month.value); month.setCustomValidity(busy ? "Ese mes ya tiene una edición." : ""); submit.disabled = busy || !month.value;
+    hint.textContent = busy ? "Ese mes ya tiene una edición: elegí otro." : "Cualquier mes que todavía no tenga edición. Se propone el próximo período disponible."; };
+  month.addEventListener("input", check); check();
 })();
 </script>
 {% endblock %}

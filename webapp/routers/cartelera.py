@@ -97,10 +97,11 @@ def editions_page(request: Request):
     editions = svc.list_editions()
     current = svc.current_edition()
     current_id = current["id"] if current else None
-    preparing = [e for e in editions if svc.effective_state(e) in ("draft", "scheduled", "withdrawn")]
-    history = [e for e in editions if svc.effective_state(e) == "published" and e["id"] != current_id]
+    preparing = [e for e in editions if svc.effective_state(e) in ("draft", "scheduled")]
+    history = [e for e in editions if (svc.effective_state(e) == "published" and e["id"] != current_id) or svc.effective_state(e) == "withdrawn"]
     return templates.TemplateResponse(request=request, name="human_capital/cartelera.html", headers=_NO_STORE, context=_shell(
-        request, user, "ediciones", current=current, preparing=preparing, history=history, candidates=svc.free_months()))
+        request, user, "ediciones", current=current, preparing=preparing, history=history, default_month=svc.next_free_month(),
+        taken=[e["id"] for e in editions]))
 
 
 @router.post(f"{BASE}/ediciones", include_in_schema=False)

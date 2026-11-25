@@ -205,11 +205,13 @@ def copy_edition(source_month: str, month: str, actor: str) -> dict:
     return repo.save("editions", month, fields, expected_revision=None)
 
 
-def free_months(span: int = 6) -> list[str]:
-    """Meses sin edición, del mes en curso a los `span - 1` siguientes (para crear o copiar)."""
+def next_free_month() -> str:
+    """Próximo período sin edición a partir del mes en curso (propuesta por defecto para crear o copiar; cualquier otro mes libre es válido)."""
     existing = {e["id"] for e in list_editions()}
-    current = month_key()
-    return [m for m in (shift_month(current, d) for d in range(span)) if m not in existing]
+    month = month_key()
+    while month in existing:
+        month = shift_month(month, 1)
+    return month
 
 
 def _items_from_form(kind: str, rows: list[dict]) -> list[dict]:
