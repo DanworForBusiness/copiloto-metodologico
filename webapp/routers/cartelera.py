@@ -357,6 +357,7 @@ def _render_portal(request: Request, page: str, *, edition: dict | None = None, 
     user = user or auth_service.session_user(request)
     ctx = {"page": page, "svc": svc, "user": user, "preview": preview, "edition": edition, "links": svc.site_links(),
            "editions": svc.visible_editions(), "inst": svc.institutional(), "today_month": svc.month_key(),
+           "today_day": svc.now_utc().astimezone(svc.BUSINESS_TZ).day,
            "upcoming": svc.upcoming_birthdays(7), "can_manage": human_capital_access.is_human_capital_authorized_user(user)}
     if edition is not None:
         ctx["calendar"] = _calendar(edition["id"])
