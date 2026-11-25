@@ -16,7 +16,7 @@
     <a class="catalog-back" href="{{ rc.back_url }}">← Volver a Publicaciones</a>
     <section class="module-hero hc-profiles-hero">
       <div class="hc-profiles-hero-text">
-        <p class="eyebrow">Staffing</p>
+        <p class="eyebrow">Seguimiento</p>
         <h1>{{ 'Editar publicación' if is_edit else 'Nueva publicación' }}</h1>
         {% if is_edit and publicacion %}<p>{{ publicacion.posicion }} · {{ publicacion.canal }} · {{ publicacion.periodo }}</p>{% else %}<p>Registrá los avisos publicados de una búsqueda o de una posición genérica.</p>{% endif %}
       </div>

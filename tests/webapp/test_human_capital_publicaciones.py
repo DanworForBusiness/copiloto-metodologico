@@ -231,7 +231,7 @@ def test_list_page_columns_actions_nav_and_plain_text_channel():
     _seed_mixed()
     c = _client()
     page = c.get("/cchh/publicaciones").text
-    assert "<h1>Publicaciones</h1>" in page and "+ Nueva publicación" in page and "<strong>Avisos</strong>" in page and "05" in page
+    assert "<h1>Publicaciones</h1>" in page and "+ Nueva publicación" in page and "<span>01</span><strong>Avisos</strong>" in page
     assert 'href="/cchh/publicaciones" class="module-link is-active"' in page
     for col in ("posicion", "canal", "cantidad", "periodo", "fecha", "observacion"):
         assert f'data-column-key="{col}"' in page
