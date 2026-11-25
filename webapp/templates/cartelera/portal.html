@@ -40,7 +40,7 @@
     </div>
   </div>
 </header>
-{% if preview %}<div class="preview-bar">Vista previa de Capital Humano · {{ svc.STATE_LABELS[svc.effective_state(edition)] }} — los colaboradores {{ 'ya la ven' if svc.is_visible(edition) else 'todavía no la ven' }}.</div>{% endif %}
+{% if preview %}<div class="preview-bar">{{ preview_note ~ ' · ' if preview_note else 'Vista previa de Capital Humano · ' }}{{ svc.STATE_LABELS[svc.effective_state(edition)] }} — los colaboradores {{ 'ya la ven' if svc.is_visible(edition) else 'todavía no la ven' }}.</div>{% endif %}
 
 <main class="wrap" id="content">
 {% macro item_html(it) -%}

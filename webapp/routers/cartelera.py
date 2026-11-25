@@ -141,9 +141,10 @@ def edition_editor(request: Request, month: str):
     edition = _edition_or_404(month)
     model = {"title": edition.get("title", ""), "subtitle": edition.get("subtitle", ""),
              "sections": [{**s, **{k: svc.SECTION_BY_KEY[s["key"]][k] for k in ("title", "kind")}} for s in edition["sections"]]}
+    birthdays = sorted(svc.birthdays_of_month(int(month[5:7])), key=lambda b: (int(b["day"]), b["name"].lower()))
     return templates.TemplateResponse(request=request, name="human_capital/cartelera_edicion.html", headers=_NO_STORE, context=_shell(
         request, user, "ediciones", edition=edition, model_json=json.dumps(model, ensure_ascii=False), state=svc.effective_state(edition),
-        links=svc.site_links()))
+        links=svc.site_links(), birthdays=birthdays, min_schedule=svc.to_local_input(svc.now_utc().isoformat())))
 
 
 @router.post(f"{BASE}/ediciones/{{month}}/contenido", include_in_schema=False)
@@ -195,6 +196,22 @@ def edition_preview(request: Request, month: str):
         return redirect
     edition = _edition_or_404(month)
     return _render_portal(request, "novedades", edition=edition, preview=True)
+
+
+@router.post(f"{BASE}/ediciones/{{month}}/vista-previa", response_class=HTMLResponse, include_in_schema=False)
+async def edition_live_preview(request: Request, month: str):
+    """Vista previa del contenido EN PANTALLA (sin guardar), renderizada con la MISMA plantilla del portal. No persiste nada ni cambia la
+    visibilidad; es POST porque viaja el borrador completo (y exige el mismo origen verificado que cualquier escritura de gestión)."""
+    _admin_write(request)
+    try:
+        body = await request.json()
+        edition = svc.preview_edition(month, title=body.get("title", ""), subtitle=body.get("subtitle", ""),
+                                      sections=list(body.get("sections") or []))
+    except repo.CarteleraNotFoundError:
+        raise HTTPException(404, "La edición no existe") from None
+    except (svc.CarteleraValidationError, ValueError, TypeError) as exc:
+        return JSONResponse({"error": str(exc) or "Datos inválidos."}, status_code=422, headers=_NO_STORE)
+    return _render_portal(request, "novedades", edition=edition, preview=True, preview_note="Vista previa del editor · incluye los cambios sin guardar")
 
 
 @router.post(f"{BASE}/proyectos", include_in_schema=False)
@@ -353,9 +370,10 @@ def _calendar(month_key: str) -> dict:
     return {"weeks": weeks, "by_day": by_day, "count": sum(len(v) for v in by_day.values())}
 
 
-def _render_portal(request: Request, page: str, *, edition: dict | None = None, preview: bool = False, user: dict | None = None):
+def _render_portal(request: Request, page: str, *, edition: dict | None = None, preview: bool = False, user: dict | None = None,
+                   preview_note: str = ""):
     user = user or auth_service.session_user(request)
-    ctx = {"page": page, "svc": svc, "user": user, "preview": preview, "edition": edition, "links": svc.site_links(),
+    ctx = {"page": page, "svc": svc, "user": user, "preview": preview, "preview_note": preview_note, "edition": edition, "links": svc.site_links(),
            "editions": svc.visible_editions(), "inst": svc.institutional(), "today_month": svc.month_key(),
            "today_day": svc.now_utc().astimezone(svc.BUSINESS_TZ).day,
            "upcoming": svc.upcoming_birthdays(7), "can_manage": human_capital_access.is_human_capital_authorized_user(user)}

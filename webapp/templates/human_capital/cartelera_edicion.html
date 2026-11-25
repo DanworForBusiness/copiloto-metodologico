@@ -1,199 +1,548 @@
+{#- EDITOR de una edición de la Cartelera Virtual. Lenguaje del Hub para la gestión; el resultado se ve con la plantilla REAL del portal.
+    Estructura (patrón de Presentaciones): encabezado de trabajo compacto (`.catalog-back` + identidad + «Sin guardar» + Guardar) · modos Contenido /
+    Vista previa (`.experience-tabs`) · lienzo de secciones colapsables (`.dashboard-section`, arrastrables como en Staffing/Operaciones) · panel
+    lateral con Publicación, la maqueta de Estructura (refleja la grilla del portal: media columna / ancho completo, orden y secciones ocultas) e
+    Historial. Acciones con `.table-action-btn` + `.chart-tooltip`; confirmaciones con `dwConfirm` (diálogo compartido del Hub).
+    La vista previa en vivo manda el borrador EN PANTALLA a `…/vista-previa` (POST, sin persistir) y lo muestra en un iframe `srcdoc`. -#}
 {% extends "human_capital/_cartelera_layout.html" %}
-{% block page_title %}{{ svc.month_label(edition.id) }}{% endblock %}
-{% block hero_title %}Edición de {{ svc.month_label(edition.id) }}{% endblock %}
-{% block hero_lead %}Portada, secciones y contenidos de la edición. Los cambios se guardan como borrador hasta que se publica o se programa.{% endblock %}
-{% block cartelera_body %}
 {% set tones = {'draft': 'grey', 'scheduled': 'violet', 'published': 'green', 'withdrawn': 'amber'} %}
+{% set month_name = svc.month_label(edition.id) %}
+{% block page_title %}{{ month_name }}{% endblock %}
+{% macro icon(name) -%}
+<svg viewBox="0 0 24 24" aria-hidden="true">{% if name == 'up' %}<path d="M12 19V5"/><path d="m5 12 7-7 7 7"/>{% elif name == 'down' %}<path d="M12 5v14"/><path d="m19 12-7 7-7-7"/>{% elif name == 'trash' %}<path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/>{% elif name == 'edit' %}<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>{% elif name == 'close' %}<path d="M6 6l12 12"/><path d="M18 6 6 18"/>{% elif name == 'desktop' %}<rect x="3" y="4" width="18" height="12" rx="1.5"/><path d="M8 20h8"/><path d="M12 16v4"/>{% elif name == 'phone' %}<rect x="7" y="3" width="10" height="18" rx="2"/><path d="M11 18h2"/>{% elif name == 'refresh' %}<path d="M20 11a8 8 0 0 0-14.3-4.9L4 8"/><path d="M4 4v4h4"/><path d="M4 13a8 8 0 0 0 14.3 4.9L20 16"/><path d="M20 20v-4h-4"/>{% elif name == 'out' %}<path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 14v6H4V6h6"/>{% elif name == 'info' %}<circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 7.8v.2"/>{% elif name == 'swap' %}<path d="M7 7h11l-3-3"/><path d="M17 17H6l3 3"/>{% endif %}</svg>
+{%- endmacro %}
+
+{% block cartelera_header %}{% endblock %}
+{% block cartelera_tabs %}{% endblock %}
+{% block cartelera_feedback %}{% endblock %}{# los avisos de resultado van DEBAJO del encabezado de trabajo #}
+
+{% block cartelera_body %}
 <script type="application/json" id="ct-model">{{ model_json | replace("</", "<\/") | safe }}</script>
-<div class="cartelera-editor" x-data="carteleraEditor(JSON.parse(document.getElementById('ct-model').textContent), {{ edition.revision }}, '{{ edition.id }}')" @beforeunload.window="if (dirty) { $event.preventDefault(); $event.returnValue = true }">
-  <div class="cartelera-editor__main">
-    <p class="field-hint"><a href="/cchh/cartelera">← Ediciones</a></p>
+<div class="cartelera-editor" x-data="carteleraEditor(JSON.parse(document.getElementById('ct-model').textContent), {{ edition.revision }}, '{{ edition.id }}')"
+     x-init="init()" @beforeunload.window="if (dirty) { $event.preventDefault(); $event.returnValue = true }"
+     @keydown.window.ctrl.s.prevent="save()" @keydown.window.meta.s.prevent="save()">
 
-    <details class="dashboard-section" open><summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Portada</span></summary><div class="dashboard-section__body">
-      <div class="hc-profile-section__grid hc-profile-section__grid--fluid">
-        <div class="feedback-field feedback-field--wide"><label for="ct-title">Título de portada</label>
-          <input id="ct-title" type="text" maxlength="160" x-model="model.title" @input="dirty=true" placeholder="Ej.: Compartir conocimiento genera crecimiento"></div>
-        <div class="feedback-field feedback-field--wide"><label for="ct-sub">Bajada</label>
-          <input id="ct-sub" type="text" maxlength="300" x-model="model.subtitle" @input="dirty=true"></div>
-        <div class="feedback-field feedback-field--wide"><label>Banner</label>
-          <p class="cartelera-pending" data-pending="sharepoint">Imagen de portada · disponible cuando se habilite la integración documental con SharePoint (acceso a la carpeta de Cartelera Virtual en verificación).</p></div>
-      </div>
-    </div></details>
+  {# ── Encabezado de trabajo (mismo patrón que el editor de Presentaciones: volver · identidad · estado de guardado · acciones) ── #}
+  <header class="catalog-actionbar cartelera-wsheader">
+    <a class="catalog-back" href="/cchh/cartelera" @click="leave($event)">← Ediciones</a>
+    <div class="cartelera-wsheader__id">
+      <span class="cartelera-wsheader__eyebrow">Cartelera · editando</span>
+      <h1 class="cartelera-wsheader__title">{{ month_name }}</h1>
+      <span class="dashboard-status-badge solicitudes-status-badge solicitudes-status-badge--{{ tones[state] }}">{{ svc.STATE_LABELS[state] }}</span>
+    </div>
+    <div class="catalog-actionbar__actions cartelera-wsheader__actions">
+      <span class="field-hint cartelera-wsheader__saved" role="status" x-show="!dirty && msg" x-text="msg"></span>
+      <span class="status-badge status-badge--tentativo" x-show="dirty" x-cloak>Sin guardar</span>
+      <button type="button" class="btn-secondary" x-show="dirty" x-cloak @click="discard()">Descartar</button>
+      <button type="button" class="btn-primary" @click="save()" :disabled="saving || !dirty" x-text="saving ? 'Guardando…' : 'Guardar'"></button>
+    </div>
+  </header>
 
-    <template x-for="(sec, si) in model.sections" :key="sec.key">
-      <details class="dashboard-section" :class="sec.wide && 'is-wide'" open>
-        <summary class="dashboard-section__head">
-          <span class="dashboard-section__caret"></span><span class="dashboard-section__title" x-text="sec.title"></span>
-          <span class="cartelera-card__tools">
-            <button type="button" class="cartelera-mini-btn" @click.prevent="toggleWide(si)" :title="sec.wide ? 'Mostrar al costado' : 'Ancho completo'" x-text="sec.wide ? 'Al costado' : 'Ancho completo'"></button>
-            <template x-if="sec.kind !== 'links'"><span>
-              <button type="button" class="table-action-btn chart-tooltip-anchor" @click.prevent="moveSection(si, -1)" :disabled="si === 0" aria-label="Subir sección"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Subir sección</p></span></button>
-              <button type="button" class="table-action-btn chart-tooltip-anchor" @click.prevent="moveSection(si, 1)" :disabled="si >= lastMovable()" aria-label="Bajar sección"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Bajar sección</p></span></button>
-            </span></template>
-          </span>
-        </summary>
-        <div class="dashboard-section__body">
-
-        <template x-if="sec.kind === 'birthdays'">
-          <p class="field-hint">Se completa automáticamente con los cumpleaños autorizados y visibles del mes (pestaña <a href="/cchh/cartelera/cumpleanos">Cumpleaños</a>).</p>
-        </template>
-
-        <template x-if="sec.kind === 'general' || sec.kind === 'links'">
-          <div class="cartelera-items">
-            <template x-for="(it, ii) in sec.items" :key="it.id">
-              <div class="cartelera-item">
-                <div class="hc-profile-section__grid hc-profile-section__grid--fluid">
-                  <div class="feedback-field feedback-field--wide"><label>Título</label><input type="text" maxlength="200" x-model="it.title" @input="dirty=true"></div>
-                  <div class="feedback-field feedback-field--wide"><label>Texto</label><textarea rows="3" x-model="it.body" @input="dirty=true"></textarea></div>
-                  <div class="feedback-field feedback-field--medium"><label>Enlace (https://…)</label><input type="url" x-model="it.link" @input="dirty=true" placeholder="https://"></div>
-                  <div class="feedback-field feedback-field--medium"><label>Texto del enlace</label><input type="text" maxlength="120" x-model="it.link_label" @input="dirty=true" placeholder="Ver más"></div>
-                </div>
-                <div class="cartelera-item__foot">
-                  <span class="cartelera-pending cartelera-pending--inline">Imagen o flyer · pendiente de integración SharePoint</span>
-                  <span>
-                    <button type="button" class="table-action-btn chart-tooltip-anchor" @click="moveItem(si, ii, -1)" :disabled="ii === 0" aria-label="Subir"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Subir</p></span></button>
-                    <button type="button" class="table-action-btn chart-tooltip-anchor" @click="moveItem(si, ii, 1)" :disabled="ii === sec.items.length - 1" aria-label="Bajar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Bajar</p></span></button>
-                    <button type="button" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" @click="removeItem(si, ii)" aria-label="Quitar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Quitar</p></span></button>
-                  </span>
-                </div>
-              </div>
-            </template>
-            <button type="button" class="cartelera-mini-btn" @click="addItem(si)">+ Agregar contenido</button>
-            <template x-if="sec.kind === 'links'"><p class="field-hint">Además se muestran los <a href="/cchh/cartelera/accesos">accesos directos</a> permanentes{% if links %} ({{ links | length }}){% endif %}.</p></template>
-          </div>
-        </template>
-
-        <template x-if="sec.kind === 'projects'">
-          <div class="cartelera-items">
-            <template x-for="(it, ii) in sec.items" :key="it.id">
-              <div class="cartelera-item">
-                <div class="cartelera-project-ref">
-                  <template x-if="it.project_id"><div><span class="eyebrow">Proyecto de Operaciones</span><strong x-text="it.project_name"></strong> <span class="field-hint" x-text="it.client_name ? '· ' + it.client_name : ''"></span></div></template>
-                  <template x-if="!it.project_id"><span class="field-hint">Elegí el proyecto desde las fuentes de Operaciones.</span></template>
-                  <button type="button" class="cartelera-mini-btn" @click="openPicker(si, ii)" x-text="it.project_id ? 'Cambiar proyecto' : 'Elegir proyecto'"></button>
-                </div>
-                <div class="hc-profile-section__grid hc-profile-section__grid--fluid">
-                  <div class="feedback-field feedback-field--medium"><label>Tipo</label>
-                    <select x-model="it.kind" @change="dirty=true"><option value="inicio">Nuevo proyecto</option><option value="fin">Proyecto finalizado</option></select></div>
-                  <div class="feedback-field feedback-field--medium"><label>Tipo de servicio</label><input type="text" maxlength="300" x-model="it.service" @input="dirty=true" placeholder="Ej.: Implementación SAP Datasphere"></div>
-                  <div class="feedback-field feedback-field--wide"><label>Tecnologías (separadas por coma)</label><input type="text" maxlength="300" x-model="it.tech" @input="dirty=true"></div>
-                  <div class="feedback-field feedback-field--wide"><label>Solución</label><textarea rows="3" x-model="it.body" @input="dirty=true" placeholder="Qué necesidad resuelve y qué entrega"></textarea></div>
-                  <div class="feedback-field feedback-field--medium"><label>Equipo</label><input type="text" maxlength="300" x-model="it.team" @input="dirty=true"></div>
-                  <div class="feedback-field feedback-field--medium"><label>Enlace (https://…)</label><input type="url" x-model="it.link" @input="dirty=true"></div>
-                  <div class="feedback-field feedback-field--wide"><label>Agradecimiento</label><input type="text" maxlength="300" x-model="it.thanks" @input="dirty=true"></div>
-                </div>
-                <div class="cartelera-item__foot">
-                  <span class="cartelera-pending cartelera-pending--inline">Imagen · pendiente de integración SharePoint</span>
-                  <span>
-                    <button type="button" class="table-action-btn chart-tooltip-anchor" @click="moveItem(si, ii, -1)" :disabled="ii === 0" aria-label="Subir"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Subir</p></span></button>
-                    <button type="button" class="table-action-btn chart-tooltip-anchor" @click="moveItem(si, ii, 1)" :disabled="ii === sec.items.length - 1" aria-label="Bajar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Bajar</p></span></button>
-                    <button type="button" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" @click="removeItem(si, ii)" aria-label="Quitar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Quitar</p></span></button>
-                  </span>
-                </div>
-              </div>
-            </template>
-            <button type="button" class="cartelera-mini-btn" @click="addProject(si)">+ Agregar proyecto</button>
-          </div>
-        </template>
-      </div></details>
-    </template>
+  {% if ok %}<div class="callout callout--success callout--feedback" role="status" x-data="{ on: true }" x-show="on" x-init="setTimeout(() => on = false, 7000)"><div class="callout__body field-hint"><p>{{ ok }}</p></div></div>{% endif %}
+  {% if error %}<div class="callout callout--warn callout--feedback" role="alert"><div class="callout__body field-hint"><p>{{ error }}</p></div></div>{% endif %}
+  <div class="callout callout--warn callout--feedback" role="alert" x-show="err" x-cloak><div class="callout__body field-hint"><p x-text="err"></p></div></div>
+  <div class="callout callout--feedback cartelera-recover" x-show="recovery" x-cloak role="status">
+    <div class="callout__body field-hint"><p><strong>Hay cambios sin guardar de tu última sesión en este navegador</strong> (<span x-text="recovery && recovery.when"></span>).</p></div>
+    <div class="cartelera-recover__actions"><button type="button" class="btn-primary" @click="recover()">Recuperarlos</button><button type="button" class="btn-secondary" @click="dropRecovery()">Descartarlos</button></div>
   </div>
 
-  <aside class="cartelera-editor__side">
-    <details class="dashboard-section cartelera-publish" open><summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Publicación</span>
-        <span class="dashboard-status-badge solicitudes-status-badge solicitudes-status-badge--{{ tones[state] }}">{{ svc.STATE_LABELS[state] }}</span></summary><div class="dashboard-section__body">
-      {% if state == 'scheduled' %}<p class="field-hint">Se publica el <strong>{{ svc.fmt_local(edition.publish_at) }}</strong> (hora de Buenos Aires) y se avisa por correo.</p>
-      {% elif state == 'published' %}<p class="field-hint">Publicada el {{ svc.fmt_local(edition.published_at or edition.publish_at) }}. Los cambios guardados se ven de inmediato en el portal.</p>
-      {% elif state == 'withdrawn' %}<p class="field-hint">Retirada: no se muestra en el portal.</p>
-      {% else %}<p class="field-hint">Borrador: solo la ve Capital Humano.</p>{% endif %}
+  <nav class="experience-tabs cartelera-modes" aria-label="Modo del editor">
+    <button type="button" :class="mode === 'edit' && 'is-active'" :aria-current="mode === 'edit' ? 'page' : null" @click="mode = 'edit'">Contenido</button>
+    <button type="button" :class="mode === 'preview' && 'is-active'" :aria-current="mode === 'preview' ? 'page' : null" @click="openPreview()">Vista previa</button>
+    <a class="cartelera-modes__aside" href="/cchh/cartelera/ediciones/{{ edition.id }}/vista-previa" target="_blank" rel="noopener">Ver como colaborador (versión guardada) ↗</a>
+  </nav>
 
-      <button type="button" class="btn-primary cartelera-save" @click="save()" :disabled="saving || !dirty" x-text="saving ? 'Guardando…' : (dirty ? 'Guardar cambios' : 'Cambios guardados')"></button>
-      <p class="field-hint" role="status" x-show="msg" x-text="msg"></p>
-      <p class="cartelera-error" role="alert" x-show="err" x-text="err"></p>
-      <p class="field-hint" x-show="dirty">Guardá los cambios antes de publicar o programar.</p>
+  <div class="cartelera-editor__grid">
+    <div class="cartelera-editor__main">
 
-      <div class="cartelera-publish__actions">
-        {% if state != 'published' %}
-        <form method="post" action="/cchh/cartelera/ediciones/{{ edition.id }}/estado" @submit="if (!confirm('¿Publicar ahora la edición de {{ svc.month_label(edition.id) }}? La verán todos los colaboradores y se enviará el aviso por correo.')) $event.preventDefault()">
-          <input type="hidden" name="action" value="publish"><input type="hidden" name="revision" :value="revision">
-          <button type="submit" class="btn-primary" :disabled="dirty">Publicar ahora</button>
-        </form>
-        <form method="post" action="/cchh/cartelera/ediciones/{{ edition.id }}/estado" class="cartelera-schedule">
-          <input type="hidden" name="action" value="schedule"><input type="hidden" name="revision" :value="revision">
-          <div class="feedback-field"><label for="ct-when">Programar (hora de Buenos Aires)</label>
-            <input id="ct-when" type="datetime-local" name="when" value="{{ svc.to_local_input(edition.publish_at) if state == 'scheduled' else '' }}" required></div>
-          <button type="submit" class="btn-secondary" :disabled="dirty">{{ 'Reprogramar' if state == 'scheduled' else 'Programar' }}</button>
-        </form>
-        {% endif %}
-        {% if state in ('scheduled', 'published') %}
-        <form method="post" action="/cchh/cartelera/ediciones/{{ edition.id }}/estado" @submit="if (!confirm('{{ '¿Retirar la edición del portal?' if state == 'published' else '¿Cancelar la programación?' }}')) $event.preventDefault()">
-          <input type="hidden" name="action" value="{{ 'withdraw' if state == 'published' else 'unschedule' }}"><input type="hidden" name="revision" :value="revision">
-          <button type="submit" class="btn-secondary">{{ 'Retirar del portal' if state == 'published' else 'Cancelar programación' }}</button>
-        </form>
-        {% endif %}
-        <a class="btn-secondary" href="/cchh/cartelera/ediciones/{{ edition.id }}/vista-previa" target="_blank" rel="noopener">Vista previa ↗</a>
-        {% if state in ('draft', 'withdrawn') %}
-        <form method="post" action="/cchh/cartelera/ediciones/{{ edition.id }}/estado" @submit="if (!confirm('¿Eliminar la edición de {{ svc.month_label(edition.id) }}? No se puede deshacer.')) $event.preventDefault()">
-          <input type="hidden" name="action" value="delete"><input type="hidden" name="revision" :value="revision">
-          <button type="submit" class="cartelera-mini-btn cartelera-mini-btn--danger">Eliminar edición</button>
-        </form>
-        {% endif %}
+      {# ═════════ MODO CONTENIDO ═════════ #}
+      <div x-show="mode === 'edit'">
+        <details class="dashboard-section" id="ct-sec-portada" open>
+          <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Portada</span>
+            <span class="dashboard-section__count" x-text="model.title.trim() ? '' : 'Falta el título'"></span></summary>
+          <div class="dashboard-section__body">
+            <p class="field-hint cartelera-sec-lead">Encabeza el banner de Novedades y el saludo del Inicio del portal.</p>
+            <div class="hc-profile-section__grid hc-profile-section__grid--fluid">
+              <div class="feedback-field feedback-field--wide"><label for="ct-title">Título de portada <span class="cartelera-counter" x-text="model.title.length + '/160'"></span></label>
+                <input id="ct-title" type="text" maxlength="160" x-model="model.title" placeholder="Ej.: Compartir conocimiento genera crecimiento"></div>
+              <div class="feedback-field feedback-field--wide"><label for="ct-sub">Bajada <span class="cartelera-counter" x-text="model.subtitle.length + '/300'"></span></label>
+                <input id="ct-sub" type="text" maxlength="300" x-model="model.subtitle" placeholder="Una línea que acompañe al título (opcional)"></div>
+              <div class="feedback-field feedback-field--wide"><label>Imagen de portada</label>
+                <p class="cartelera-pending" data-pending="sharepoint">Disponible cuando se habilite la integración documental con SharePoint (acceso a la carpeta de Cartelera Virtual en verificación). Mientras tanto el portal usa el banner de marca.</p></div>
+            </div>
+          </div>
+        </details>
+
+        <template x-for="(sec, si) in model.sections" :key="sec.key">
+          <details class="dashboard-section cartelera-sec" :id="'ct-sec-' + sec.key" open
+                   :class="{ 'is-dragging': drag.key === sec.key, 'is-drop-target': drag.over === sec.key && drag.key !== sec.key }"
+                   @dragover="dragOver($event, sec)" @drop.prevent="dropOn(sec)">
+            <summary class="dashboard-section__head" :draggable="sec.kind !== 'links'" @dragstart="dragStart($event, sec)" @dragend="dragEnd()">
+              <span class="dashboard-section__grip" aria-hidden="true" x-show="sec.kind !== 'links'">⋮⋮</span>
+              <span class="dashboard-section__caret"></span>
+              <span class="dashboard-section__title" x-text="sec.title"></span>
+              <span class="dashboard-section__count" x-text="countLabel(sec)"></span>
+              <span class="cartelera-sec__tools" x-show="sec.kind !== 'links'">
+                <button type="button" class="table-action-btn chart-tooltip-anchor" @click.prevent="moveSection(si, -1)" :disabled="si === 0" aria-label="Subir sección">{{ icon('up') }}<span class="chart-tooltip" aria-hidden="true"><p>Subir sección</p></span></button>
+                <button type="button" class="table-action-btn chart-tooltip-anchor" @click.prevent="moveSection(si, 1)" :disabled="si >= lastMovable()" aria-label="Bajar sección">{{ icon('down') }}<span class="chart-tooltip" aria-hidden="true"><p>Bajar sección</p></span></button>
+              </span>
+            </summary>
+            <div class="dashboard-section__body">
+              <div class="cartelera-sec__meta">
+                <p class="field-hint cartelera-sec-lead" x-text="sectionLead(sec)"></p>
+                <template x-if="sec.kind === 'general'">
+                  <label class="cartelera-width">Ancho en el portal
+                    <select @change="sec.wide = $event.target.value === 'true'"><option value="false" :selected="!sec.wide">Media columna</option><option value="true" :selected="sec.wide">Ancho completo</option></select></label>
+                </template>
+                <template x-if="sec.kind !== 'general'"><span class="field-hint">Ocupa el ancho completo del portal.</span></template>
+              </div>
+              <p class="cartelera-hidden-note" x-show="hiddenInPortal(sec)">Sin contenidos: esta sección no se muestra a los colaboradores.</p>
+
+              {# Cumpleaños: automático, se lee de la pestaña Cumpleaños. #}
+              <template x-if="sec.kind === 'birthdays'">
+                <div>
+                  {% if birthdays %}
+                  <ul class="cartelera-bday-preview">{% for b in birthdays %}<li><b>{{ b.day }}</b> {{ b.name }}</li>{% endfor %}</ul>
+                  {% else %}<p class="field-hint">No hay cumpleaños autorizados y visibles para {{ svc.MONTHS[edition.id[5:7] | int - 1] | lower }}. El portal muestra el calendario vacío.</p>{% endif %}
+                  <p class="field-hint">Se gestionan en <a href="/cchh/cartelera/cumpleanos" @click="leave($event)">Cumpleaños</a>: solo aparecen los autorizados y visibles, con día y mes.</p>
+                </div>
+              </template>
+
+              {# Contenidos generales y de la sección de enlaces #}
+              <template x-if="sec.kind === 'general' || sec.kind === 'links'">
+                <div class="cartelera-entries">
+                  <template x-for="(it, ii) in sec.items" :key="it.id">
+                    <article class="cartelera-entry" :class="{ 'is-open': openId === it.id, 'has-error': linkError(it) }" :id="'ct-it-' + it.id">
+                      <div class="cartelera-entry__row" @click="toggle(it)">
+                        <div class="cartelera-entry__summary">
+                          <strong x-text="it.title.trim() || (it.body.trim() ? it.body.trim().slice(0, 70) : 'Contenido sin completar')" :class="!(it.title.trim() || it.body.trim()) && 'is-empty'"></strong>
+                          <span class="cartelera-entry__snippet" x-show="it.title.trim() && it.body.trim()" x-text="it.body.trim().slice(0, 140)"></span>
+                          <span class="cartelera-entry__flags">
+                            <span class="status-badge status-badge--activo" x-show="isFeatured(it)">Destacado en Inicio</span>
+                            <span class="status-badge" x-show="it.link.trim()" x-text="'Enlace · ' + (it.link_label.trim() || 'sin texto')"></span>
+                            <span class="status-badge status-badge--tentativo" x-show="!(it.title.trim() || it.body.trim())">Vacío · no se guarda</span>
+                            <span class="status-badge status-badge--tentativo" x-show="linkError(it)">Enlace inválido</span>
+                          </span>
+                        </div>
+                        <span class="cartelera-entry__actions" @click.stop>
+                          <button type="button" class="table-action-btn chart-tooltip-anchor" @click="toggle(it)" :aria-label="openId === it.id ? 'Cerrar edición' : 'Editar'"><template x-if="openId !== it.id">{{ icon('edit') }}</template><template x-if="openId === it.id">{{ icon('close') }}</template><span class="chart-tooltip" aria-hidden="true"><p x-text="openId === it.id ? 'Cerrar edición' : 'Editar'"></p></span></button>
+                          <button type="button" class="table-action-btn chart-tooltip-anchor" @click="moveItem(si, ii, -1)" :disabled="ii === 0" aria-label="Subir">{{ icon('up') }}<span class="chart-tooltip" aria-hidden="true"><p>Subir</p></span></button>
+                          <button type="button" class="table-action-btn chart-tooltip-anchor" @click="moveItem(si, ii, 1)" :disabled="ii === sec.items.length - 1" aria-label="Bajar">{{ icon('down') }}<span class="chart-tooltip" aria-hidden="true"><p>Bajar</p></span></button>
+                          <button type="button" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" @click="removeItem(si, ii)" aria-label="Quitar">{{ icon('trash') }}<span class="chart-tooltip" aria-hidden="true"><p>Quitar</p></span></button>
+                        </span>
+                      </div>
+                      <div class="cartelera-entry__form" x-show="openId === it.id">
+                        <div class="hc-profile-section__grid hc-profile-section__grid--fluid">
+                          <div class="feedback-field feedback-field--wide"><label :for="'t-' + it.id">Título</label><input :id="'t-' + it.id" type="text" maxlength="200" x-model="it.title" placeholder="Ej.: Pausas activas los miércoles"></div>
+                          <div class="feedback-field feedback-field--wide"><label :for="'b-' + it.id">Texto</label><textarea :id="'b-' + it.id" rows="4" x-model="it.body" placeholder="Los saltos de línea se respetan en el portal."></textarea></div>
+                          <div class="feedback-field feedback-field--medium"><label :for="'l-' + it.id">Enlace <span class="cartelera-counter">opcional</span></label><input :id="'l-' + it.id" type="url" x-model="it.link" placeholder="https://"><p class="feedback-error" x-show="linkError(it)">Tiene que empezar con https://</p></div>
+                          <div class="feedback-field feedback-field--medium"><label :for="'ll-' + it.id">Texto del enlace</label><input :id="'ll-' + it.id" type="text" maxlength="120" x-model="it.link_label" :disabled="!it.link.trim()" placeholder="Ver más"></div>
+                          <div class="feedback-field feedback-field--wide"><label>Imagen o flyer</label><p class="cartelera-pending cartelera-pending--inline">Disponible con la integración documental de SharePoint</p></div>
+                        </div>
+                      </div>
+                    </article>
+                  </template>
+                  <div class="cartelera-entries__add">
+                    <button type="button" class="btn-secondary" @click="addItem(si)" x-text="sec.kind === 'links' ? '+ Agregar información útil' : '+ Agregar contenido'"></button>
+                  </div>
+                  <template x-if="sec.kind === 'links'">
+                    <div class="cartelera-globallinks">
+                      <p class="field-hint">Debajo de estos contenidos el portal suma los <a href="/cchh/cartelera/accesos" @click="leave($event)">accesos directos</a> permanentes{% if links %} ({{ links | length }}){% endif %}:</p>
+                      {% if links %}<div class="cartelera-globallinks__list">{% for l in links %}<span class="status-badge status-badge--inactivo">{{ l.title }}</span>{% endfor %}</div>{% else %}<p class="field-hint">Todavía no hay accesos directos cargados.</p>{% endif %}
+                    </div>
+                  </template>
+                </div>
+              </template>
+
+              {# Proyectos del mes: referencia gobernada de Operaciones + texto editorial libre #}
+              <template x-if="sec.kind === 'projects'">
+                <div class="cartelera-entries">
+                  <template x-for="(it, ii) in sec.items" :key="it.id">
+                    <article class="cartelera-entry" :class="{ 'is-open': openId === it.id, 'has-error': linkError(it) }" :id="'ct-it-' + it.id">
+                      <div class="cartelera-entry__row" @click="toggle(it)">
+                        <div class="cartelera-entry__summary">
+                          <span class="cartelera-entry__flags"><span class="status-badge" :class="it.kind === 'fin' ? 'status-badge--activo' : 'status-badge--tentativo'" x-text="it.kind === 'fin' ? 'Proyecto finalizado' : 'Nuevo proyecto'"></span>
+                            <span class="status-badge status-badge--activo" x-show="isFeatured(it)">Destacado en Inicio</span></span>
+                          <strong x-text="it.project_name"></strong>
+                          <span class="cartelera-entry__snippet" x-text="[it.client_name, it.service].filter(Boolean).join(' · ')"></span>
+                        </div>
+                        <span class="cartelera-entry__actions" @click.stop>
+                          <button type="button" class="table-action-btn chart-tooltip-anchor" @click="toggle(it)" :aria-label="openId === it.id ? 'Cerrar edición' : 'Editar'"><template x-if="openId !== it.id">{{ icon('edit') }}</template><template x-if="openId === it.id">{{ icon('close') }}</template><span class="chart-tooltip" aria-hidden="true"><p x-text="openId === it.id ? 'Cerrar edición' : 'Editar'"></p></span></button>
+                          <button type="button" class="table-action-btn chart-tooltip-anchor" @click="moveItem(si, ii, -1)" :disabled="ii === 0" aria-label="Subir">{{ icon('up') }}<span class="chart-tooltip" aria-hidden="true"><p>Subir</p></span></button>
+                          <button type="button" class="table-action-btn chart-tooltip-anchor" @click="moveItem(si, ii, 1)" :disabled="ii === sec.items.length - 1" aria-label="Bajar">{{ icon('down') }}<span class="chart-tooltip" aria-hidden="true"><p>Bajar</p></span></button>
+                          <button type="button" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" @click="removeItem(si, ii)" aria-label="Quitar proyecto">{{ icon('trash') }}<span class="chart-tooltip" aria-hidden="true"><p>Quitar proyecto</p></span></button>
+                        </span>
+                      </div>
+                      <div class="cartelera-entry__form" x-show="openId === it.id">
+                        <div class="cartelera-project-ref">
+                          <div><span class="eyebrow">Proyecto de Operaciones</span><strong x-text="it.project_name"></strong> <span class="field-hint" x-text="it.client_name ? '· ' + it.client_name : ''"></span></div>
+                          <button type="button" class="table-action-btn table-action-btn--text" @click="openPicker(si, ii)">{{ icon('swap') }} Cambiar</button>
+                        </div>
+                        <div class="hc-profile-section__grid hc-profile-section__grid--fluid">
+                          <div class="feedback-field feedback-field--medium"><label>Momento</label>
+                            <select x-model="it.kind"><option value="inicio">Nuevo proyecto</option><option value="fin">Proyecto finalizado</option></select></div>
+                          <div class="feedback-field feedback-field--medium"><label>Tipo de servicio</label><input type="text" maxlength="300" x-model="it.service" placeholder="Ej.: Implementación SAP Datasphere"></div>
+                          <div class="feedback-field feedback-field--wide"><label>Tecnologías <span class="cartelera-counter">separadas por coma</span></label><input type="text" maxlength="300" x-model="it.tech" placeholder="Ej.: SAP Datasphere, SAP Analytics Cloud">
+                            <div class="cartelera-techs" x-show="techs(it).length"><template x-for="t in techs(it)" :key="t"><span class="status-badge status-badge--inactivo" x-text="t"></span></template></div></div>
+                          <div class="feedback-field feedback-field--wide"><label>Solución</label><textarea rows="3" x-model="it.body" placeholder="Qué necesidad resuelve y qué entrega"></textarea></div>
+                          <div class="feedback-field feedback-field--medium"><label>Equipo</label><input type="text" maxlength="300" x-model="it.team" placeholder="Ej.: Equipo Datasphere"></div>
+                          <div class="feedback-field feedback-field--medium"><label>Enlace «Ver más» <span class="cartelera-counter">opcional</span></label><input type="url" x-model="it.link" placeholder="https://"><p class="feedback-error" x-show="linkError(it)">Tiene que empezar con https://</p></div>
+                          <div class="feedback-field feedback-field--wide"><label>Agradecimiento <span class="cartelera-counter">opcional</span></label><input type="text" maxlength="300" x-model="it.thanks" placeholder="¡Gracias a todo el equipo por el compromiso!"></div>
+                          <div class="feedback-field feedback-field--wide"><label>Imagen</label><p class="cartelera-pending cartelera-pending--inline">Disponible con la integración documental de SharePoint</p></div>
+                        </div>
+                      </div>
+                    </article>
+                  </template>
+                  <div class="cartelera-entries__add">
+                    <button type="button" class="btn-secondary" @click="openPicker(si, null)">+ Agregar proyecto desde Operaciones</button>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </details>
+        </template>
       </div>
-    </div></details>
-    <details class="dashboard-section" open><summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Historial</span></summary><div class="dashboard-section__body">
-      <ul class="cartelera-history">{% for h in (edition.history or [])|reverse %}<li><span>{{ svc.fmt_local(h.at) }}</span> {{ h.action }} · <em>{{ h.actor }}</em></li>{% endfor %}</ul>
-    </div></details>
-  </aside>
 
-  <dialog class="dw-confirm cartelera-picker" x-ref="picker" @close="pickerFor = null">
-    <h2>Proyectos de Operaciones</h2>
-    <p class="field-hint">Fuente gobernada de Operaciones: solo se toma el nombre del proyecto y del cliente.</p>
-    <input type="search" x-model="projQuery" placeholder="Buscar por proyecto o cliente…" class="cartelera-picker__search">
-    <p class="field-hint" x-show="projLoading">Consultando Operaciones…</p>
-    <p class="cartelera-error" x-show="projErr" x-text="projErr"></p>
-    <ul class="cartelera-picker__list">
-      <template x-for="p in filteredProjects()" :key="p.id">
-        <li><button type="button" @click="pickProject(p)"><strong x-text="p.name"></strong><span x-text="p.client"></span></button></li>
-      </template>
-    </ul>
-    <div class="hc-profile-form__actions"><button type="button" class="btn-secondary" @click="$refs.picker.close()">Cerrar</button></div>
+      {# ═════════ MODO VISTA PREVIA (plantilla real del portal, con el borrador en pantalla) ═════════ #}
+      <div class="cartelera-preview" x-show="mode === 'preview'" x-cloak>
+        <div class="cartelera-preview__bar">
+          <p class="field-hint">Así lo verán los colaboradores en <strong>Novedades</strong>, con los cambios que todavía no guardaste.</p>
+          <span class="cartelera-preview__tools">
+            <button type="button" class="table-action-btn chart-tooltip-anchor" :class="device === 'desktop' && 'is-active'" :aria-pressed="device === 'desktop'" @click="setDevice('desktop')" aria-label="Escritorio">{{ icon('desktop') }}<span class="chart-tooltip" aria-hidden="true"><p>Escritorio</p></span></button>
+            <button type="button" class="table-action-btn chart-tooltip-anchor" :class="device === 'phone' && 'is-active'" :aria-pressed="device === 'phone'" @click="setDevice('phone')" aria-label="Celular">{{ icon('phone') }}<span class="chart-tooltip" aria-hidden="true"><p>Celular</p></span></button>
+            <button type="button" class="table-action-btn chart-tooltip-anchor" @click="renderPreview()" aria-label="Actualizar vista previa">{{ icon('refresh') }}<span class="chart-tooltip" aria-hidden="true"><p>Actualizar</p></span></button>
+          </span>
+        </div>
+        <p class="feedback-error" x-show="previewErr" x-text="previewErr"></p>
+        <div class="cartelera-preview__stage" x-ref="stage" :aria-busy="previewLoading" @resize.window.debounce.150ms="fit()">
+          <div class="cartelera-preview__holder" x-ref="holder"><iframe class="cartelera-preview__frame" x-ref="frame" title="Vista previa de la edición" @load="framed()"></iframe></div>
+          <div class="cartelera-preview__loading" x-show="previewLoading"><span class="field-hint">Preparando la vista previa…</span></div>
+        </div>
+      </div>
+    </div>
+
+    {# ═════════ PANEL LATERAL ═════════ #}
+    <aside class="cartelera-editor__side">
+      <section class="dashboard-section cartelera-panel">
+        <div class="dashboard-section__head cartelera-panel__head"><span class="dashboard-section__title">Publicación</span>
+          <span class="dashboard-status-badge solicitudes-status-badge solicitudes-status-badge--{{ tones[state] }}">{{ svc.STATE_LABELS[state] }}</span></div>
+        <div class="dashboard-section__body">
+          {% if state == 'scheduled' %}<p class="field-hint">Se publica el <strong>{{ svc.fmt_local(edition.publish_at) }}</strong> (hora de Buenos Aires). Hasta entonces solo la ve Capital Humano.</p>
+          {% elif state == 'published' %}<p class="field-hint">Publicada el {{ svc.fmt_local(edition.published_at or edition.publish_at) }}. Lo que guardes se ve de inmediato en el portal.</p>
+          {% elif state == 'withdrawn' %}<p class="field-hint">Retirada: no se muestra en el portal. Podés volver a publicarla o programarla.</p>
+          {% else %}<p class="field-hint">Borrador: solo la ve Capital Humano.</p>{% endif %}
+          <p class="field-hint" x-show="dirty" x-cloak>Tus cambios sin guardar se guardan antes de publicar o programar.</p>
+
+          <form method="post" action="/cchh/cartelera/ediciones/{{ edition.id }}/estado" x-ref="stateForm" class="cartelera-publish">
+            <input type="hidden" name="action" x-ref="stateAction"><input type="hidden" name="revision" :value="revision">
+            {% if state != 'published' %}
+            <button type="button" class="btn-primary" @click="stateAction('publish')">Publicar ahora</button>
+            <div class="cartelera-publish__schedule">
+              <label for="ct-when" class="field-hint">{{ 'Cambiar la fecha programada' if state == 'scheduled' else 'O programala (hora de Buenos Aires)' }}</label>
+              <input id="ct-when" type="datetime-local" name="when" x-ref="when" min="{{ min_schedule }}" value="{{ svc.to_local_input(edition.publish_at) if state == 'scheduled' else '' }}">
+              <button type="button" class="btn-secondary" @click="stateAction('schedule')">{{ 'Reprogramar' if state == 'scheduled' else 'Programar' }}</button>
+            </div>
+            {% endif %}
+            {% if state == 'scheduled' %}<button type="button" class="btn-secondary" @click="stateAction('unschedule')">Cancelar programación</button>{% endif %}
+            {% if state == 'published' %}<button type="button" class="btn-secondary" @click="stateAction('withdraw')">Retirar del portal</button>{% endif %}
+          </form>
+          <p class="cartelera-pending cartelera-pending--inline cartelera-publish__mail">Aviso por correo al publicarse · envío real en validación</p>
+          {% if state in ('draft', 'withdrawn') %}
+          <div class="cartelera-publish__danger">
+            <button type="button" class="table-action-btn table-action-btn--text table-action-btn--danger" @click="stateAction('delete')">{{ icon('trash') }} Eliminar edición</button>
+          </div>
+          {% endif %}
+        </div>
+      </section>
+
+      <section class="dashboard-section cartelera-panel">
+        <div class="dashboard-section__head cartelera-panel__head"><span class="dashboard-section__title">Estructura</span>
+          <span class="dashboard-section__count">Novedades</span></div>
+        <div class="dashboard-section__body">
+          <ol class="cartelera-map" aria-label="Orden y ancho de las secciones en el portal">
+            <li class="cartelera-map__block is-wide is-fixed"><button type="button" @click="goTo('portada')"><span>Portada</span><small x-text="model.title.trim() ? 'Banner del mes' : 'Falta el título'"></small></button></li>
+            <template x-for="(sec, si) in model.sections" :key="sec.key">
+              <li class="cartelera-map__block" :class="{ 'is-wide': sec.wide || sec.kind !== 'general', 'is-hidden': hiddenInPortal(sec), 'is-fixed': sec.kind === 'links', 'is-dragging': drag.key === sec.key, 'is-drop-target': drag.over === sec.key && drag.key !== sec.key }"
+                  :draggable="sec.kind !== 'links'" @dragstart="dragStart($event, sec)" @dragend="dragEnd()" @dragover="dragOver($event, sec)" @drop.prevent="dropOn(sec)">
+                <button type="button" @click="goTo(sec.key)" :title="hiddenInPortal(sec) ? 'Sin contenidos: no se muestra' : ''">
+                  <span x-text="sec.title"></span><small x-text="hiddenInPortal(sec) ? 'No se muestra' : countLabel(sec)"></small></button>
+              </li>
+            </template>
+          </ol>
+          <p class="field-hint cartelera-map__hint">Arrastrá los bloques para cambiar el orden. «Beneficios e información útil» cierra siempre la edición. Los primeros 6 contenidos aparecen en <em>Destacado</em> del Inicio.</p>
+        </div>
+      </section>
+
+      <details class="dashboard-section cartelera-panel">
+        <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Historial</span>
+          <span class="dashboard-section__count">{{ (edition.history or []) | length }}</span></summary>
+        <div class="dashboard-section__body">
+          <ol class="cartelera-history">{% for h in (edition.history or [])|reverse %}
+            <li><span class="cartelera-history__when">{{ svc.fmt_local(h.at) }}</span><span>{{ h.action }}{% if h.count and h.count > 1 %} <span class="field-hint">({{ h.count }} guardados)</span>{% endif %}</span><em>{{ h.actor }}</em></li>
+          {% else %}<li class="field-hint">Sin movimientos.</li>{% endfor %}</ol>
+        </div>
+      </details>
+    </aside>
+  </div>
+
+  {# Selector de proyectos de Operaciones: misma anatomía que el diálogo compartido del Hub (`.dw-confirm`). #}
+  <dialog class="dw-confirm cartelera-picker" x-ref="picker" @close="pickerFor = null" aria-labelledby="ct-picker-title">
+    <div class="dw-confirm__body">
+      <h2 class="dw-confirm__title" id="ct-picker-title" x-text="pickerFor && pickerFor[1] !== null ? 'Cambiar el proyecto' : 'Agregar un proyecto del mes'"></h2>
+      <p class="dw-confirm__msg">Se toma de las fuentes de Operaciones solo el nombre del proyecto y del cliente; el resto del texto lo escribís vos.</p>
+      <input type="search" x-model="projQuery" x-ref="projSearch" placeholder="Buscar por proyecto o cliente…" class="cartelera-picker__search" aria-label="Buscar proyecto">
+      <p class="field-hint" x-show="projLoading">Consultando Operaciones…</p>
+      <p class="feedback-error" x-show="projErr" x-text="projErr"></p>
+      <ul class="cartelera-picker__list" x-show="!projLoading && !projErr">
+        <template x-for="p in filteredProjects()" :key="p.id">
+          <li><button type="button" @click="pickProject(p)" :disabled="usedProject(p)"><strong x-text="p.name"></strong><span x-text="usedProject(p) ? 'Ya está en la edición' : p.client"></span></button></li>
+        </template>
+        <li class="field-hint" x-show="projects && !filteredProjects().length">No hay proyectos que coincidan.</li>
+      </ul>
+    </div>
+    <div class="dw-confirm__actions"><button type="button" class="btn-secondary" @click="$refs.picker.close()">Cancelar</button></div>
   </dialog>
 </div>
 
 <script>
 function carteleraEditor(model, revision, month) {
   const uid = () => Math.random().toString(36).slice(2, 14);
+  const HTTPS = /^https:\/\/[^\s<>"]+$/;
+  const DRAFT_KEY = "dw-cartelera-draft:" + month;
+  const FEATURED = 6;
+  const LEADS = {
+    general: "Tarjetas con título, texto y enlace opcional, en el orden de la lista.",
+    projects: "Tarjetas de proyecto: cliente, proyecto, servicio, tecnologías, solución, equipo y agradecimiento.",
+    birthdays: "Calendario automático del mes con los cumpleaños autorizados.",
+    links: "Información útil y, debajo, los accesos directos permanentes del portal.",
+  };
+  const store = {
+    get() { try { return JSON.parse(localStorage.getItem(DRAFT_KEY) || "null"); } catch (e) { return null; } },
+    set(v) { try { localStorage.setItem(DRAFT_KEY, JSON.stringify(v)); } catch (e) {} },
+    clear() { try { localStorage.removeItem(DRAFT_KEY); } catch (e) {} },
+  };
+  model.sections.forEach(s => { s.wide = s.kind === "general" && !!s.wide; (s.items || []).forEach(it => { for (const k of ["title", "body", "link", "link_label"]) if (it[k] == null) it[k] = ""; }); });
   return {
-    model, revision, month, dirty: false, saving: false, msg: "", err: "",
+    model, revision, month, saved: "", dirty: false, saving: false, msg: "", err: "",
+    mode: "edit", device: "desktop", scale: 1, previewLoading: false, previewErr: "",
+    openId: null, recovery: null, drag: { key: null, over: null },
     projects: null, projLoading: false, projErr: "", projQuery: "", pickerFor: null,
-    lastMovable() { return this.model.sections.filter(s => s.kind !== "links").length - 1; },
-    addItem(si) { this.model.sections[si].items.push({ id: uid(), title: "", body: "", link: "", link_label: "" }); this.dirty = true; },
-    addProject(si) { this.model.sections[si].items.push({ id: uid(), project_id: "", project_name: "", client_name: "", kind: "inicio", service: "", tech: "", body: "", team: "", thanks: "", link: "" }); this.dirty = true; this.openPicker(si, this.model.sections[si].items.length - 1); },
-    removeItem(si, ii) { if (!confirm("¿Quitar este contenido?")) return; this.model.sections[si].items.splice(ii, 1); this.dirty = true; },
-    moveItem(si, ii, d) { const a = this.model.sections[si].items, j = ii + d; if (j < 0 || j >= a.length) return; [a[ii], a[j]] = [a[j], a[ii]]; this.dirty = true; },
-    moveSection(si, d) { const a = this.model.sections, j = si + d; if (j < 0 || j > this.lastMovable()) return; [a[si], a[j]] = [a[j], a[si]]; this.dirty = true; },
-    toggleWide(si) { this.model.sections[si].wide = !this.model.sections[si].wide; this.dirty = true; },
+
+    // ── estado de guardado ─────────────────────────────────────────────────────────
+    init() {
+      this.saved = JSON.stringify(this.payload());
+      const draft = store.get();
+      if (draft && draft.revision === this.revision && draft.payload && JSON.stringify(draft.payload) !== this.saved) {
+        this.recovery = { ...draft, when: new Date(draft.at).toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" }) };
+      } else if (draft) { store.clear(); }
+      let t = null;
+      this.$watch("model", () => {
+        this.dirty = JSON.stringify(this.payload()) !== this.saved;
+        clearTimeout(t);
+        t = setTimeout(() => { if (this.dirty) store.set({ revision: this.revision, at: Date.now(), payload: this.payload() }); else if (!this.recovery) store.clear(); }, 400);
+      });
+    },
+    payload() {
+      return { title: this.model.title, subtitle: this.model.subtitle,
+               sections: this.model.sections.map(s => ({ key: s.key, wide: !!s.wide, items: s.items })) };
+    },
+    recover() {
+      const p = this.recovery.payload;
+      this.model.title = p.title || ""; this.model.subtitle = p.subtitle || "";
+      const byKey = Object.fromEntries(p.sections.map(s => [s.key, s]));
+      const ordered = p.sections.map(s => this.model.sections.find(m => m.key === s.key)).filter(Boolean);
+      this.model.sections.forEach(m => { if (!ordered.includes(m)) ordered.push(m); });
+      ordered.forEach(m => { const s = byKey[m.key]; if (s) { m.wide = !!s.wide; m.items = s.items || []; } });
+      this.model.sections = ordered;
+      this.recovery = null;
+    },
+    dropRecovery() { this.recovery = null; store.clear(); },
+    async discard() {
+      if (!(await this.ask({ title: "Descartar cambios", message: "Se pierden los cambios que todavía no guardaste en esta edición.", confirmLabel: "Descartar" }))) return;
+      store.clear(); this.dirty = false; location.reload();
+    },
+    issues() {
+      const out = [];
+      this.model.sections.forEach(s => s.items.forEach(it => { if (this.linkError(it)) out.push({ sec: s, it }); }));
+      return out;
+    },
     async save() {
-      this.saving = true; this.msg = ""; this.err = "";
+      if (this.saving || !this.dirty) return true;
+      const bad = this.issues();
+      if (bad.length) {
+        this.err = bad.length === 1 ? "Hay un enlace que no empieza con https://. Corregilo para poder guardar." : `Hay ${bad.length} enlaces que no empiezan con https://. Corregilos para poder guardar.`;
+        this.mode = "edit"; this.openId = bad[0].it.id; this.$nextTick(() => this.goTo(bad[0].sec.key, bad[0].it.id));
+        return false;
+      }
+      this.saving = true; this.err = "";
       try {
+        const body = this.payload();
         const r = await fetch(`/cchh/cartelera/ediciones/${this.month}/contenido`, { method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ revision: this.revision, title: this.model.title, subtitle: this.model.subtitle,
-                                 sections: this.model.sections.map(s => ({ key: s.key, wide: !!s.wide, items: s.items })) }) });
+          body: JSON.stringify({ revision: this.revision, ...body }) });
         const j = await r.json().catch(() => ({}));
-        if (!r.ok) { this.err = j.error || "No se pudo guardar."; return; }
-        this.revision = j.revision; this.dirty = false; this.msg = "Guardado " + (j.updated || "");
-      } catch (e) { this.err = "No se pudo conectar con el Hub. Tus cambios siguen en pantalla."; }
+        if (r.status === 409) { this.err = (j.error || "La edición cambió mientras editabas.") + " Tus cambios siguen en pantalla y en este navegador: recargá la página para ver la versión nueva y recuperarlos."; return false; }
+        if (!r.ok) { this.err = j.error || "No se pudo guardar. Tus cambios siguen en pantalla."; return false; }
+        // Lo guardado puede diferir de lo enviado (filas vacías descartadas): se adopta como nueva referencia.
+        this.model.sections.forEach(s => { if (s.kind === "general" || s.kind === "links") s.items = s.items.filter(it => it.title.trim() || it.body.trim()); });
+        this.revision = j.revision; this.saved = JSON.stringify(this.payload()); this.dirty = false; this.recovery = null; store.clear();
+        this.msg = "Guardado " + (j.updated ? j.updated.slice(-5) : "");
+        return true;
+      } catch (e) { this.err = "No se pudo conectar con el Hub. Tus cambios siguen en pantalla y en este navegador."; return false; }
       finally { this.saving = false; }
     },
+    ask(opts) { return typeof dwConfirm === "function" ? dwConfirm(opts) : Promise.resolve(window.confirm(opts.message)); },
+    async leave(ev) {
+      if (!this.dirty) return;
+      ev.preventDefault();
+      const href = ev.currentTarget.getAttribute("href");
+      if (await this.ask({ title: "Salir sin guardar", message: "Tenés cambios sin guardar. Quedan guardados en este navegador y vas a poder recuperarlos al volver a esta edición.", confirmLabel: "Salir", okClass: "btn-primary" })) {
+        this.dirty = false; location.assign(href);
+      }
+    },
+
+    // ── publicación ───────────────────────────────────────────────────────────────
+    async stateAction(action) {
+      const label = {{ month_name | tojson }};
+      const asks = {
+        publish: { title: "Publicar ahora", message: `La edición de ${label} pasa a verse en el portal para todos los colaboradores.`, confirmLabel: "Publicar", okClass: "btn-primary" },
+        unschedule: { title: "Cancelar programación", message: "La edición vuelve a borrador y no se publica en la fecha prevista.", confirmLabel: "Cancelar programación", cancelLabel: "Volver" },
+        withdraw: { title: "Retirar del portal", message: `Los colaboradores dejan de ver la edición de ${label}. Podés volver a publicarla.`, confirmLabel: "Retirar" },
+        delete: { title: "Eliminar edición", message: `Se elimina la edición de ${label} con todos sus contenidos. No se puede deshacer.`, confirmLabel: "Eliminar" },
+      };
+      if (action === "schedule") {
+        const when = this.$refs.when && this.$refs.when.value;
+        if (!when) { this.err = "Elegí la fecha y hora de publicación."; this.$refs.when.focus(); return; }
+        if (new Date(when) <= new Date()) { this.err = "La fecha programada ya pasó: usá «Publicar ahora»."; return; }
+      } else if (!(await this.ask(asks[action]))) return;
+      if (action !== "delete" && this.dirty && !(await this.save())) return;
+      this.dirty = false;
+      this.$refs.stateAction.value = action;
+      this.$nextTick(() => this.$refs.stateForm.submit());
+    },
+
+    // ── secciones y contenidos ────────────────────────────────────────────────────
+    lastMovable() { return this.model.sections.filter(s => s.kind !== "links").length - 1; },
+    sectionLead(sec) { return LEADS[sec.kind] || ""; },
+    filled(it) { return it.project_id ? true : !!(it.title.trim() || it.body.trim()); },
+    countLabel(sec) {
+      if (sec.kind === "birthdays") return {{ (birthdays | length) | tojson }} + " este mes";
+      const n = sec.items.filter(it => this.filled(it)).length;
+      return n === 0 ? "Vacía" : n + (n === 1 ? " contenido" : " contenidos");
+    },
+    hiddenInPortal(sec) {
+      if (sec.kind === "birthdays") return false;
+      if (sec.kind === "links" && {{ (links | length) | tojson }} > 0) return false;
+      return !sec.items.some(it => this.filled(it));
+    },
+    isFeatured(it) {
+      let n = 0;
+      for (const s of this.model.sections) {
+        if (s.kind !== "general" && s.kind !== "projects") continue;
+        for (const x of s.items) { if (!this.filled(x)) continue; if (x === it) return n < FEATURED; n++; }
+      }
+      return false;
+    },
+    linkError(it) { const l = (it.link || "").trim(); return !!l && !HTTPS.test(l); },
+    techs(it) { return (it.tech || "").split(",").map(t => t.trim()).filter(Boolean); },
+    toggle(it) { this.openId = this.openId === it.id ? null : it.id; },
+    addItem(si) {
+      const it = { id: uid(), title: "", body: "", link: "", link_label: "" };
+      this.model.sections[si].items.push(it); this.openId = it.id;
+      this.$nextTick(() => { const el = document.getElementById("t-" + it.id); if (el) el.focus(); });
+    },
+    async removeItem(si, ii) {
+      const it = this.model.sections[si].items[ii];
+      const name = it.project_name || it.title.trim() || "este contenido";
+      if (this.filled(it) && !(await this.ask({ title: "Quitar contenido", message: `Se quita «${name}» de la edición. El cambio se confirma al guardar.`, confirmLabel: "Quitar" }))) return;
+      this.model.sections[si].items.splice(ii, 1);
+    },
+    moveItem(si, ii, d) { const a = this.model.sections[si].items, j = ii + d; if (j < 0 || j >= a.length) return; a.splice(j, 0, a.splice(ii, 1)[0]); },
+    moveSection(si, d) { const a = this.model.sections, j = si + d; if (j < 0 || j > this.lastMovable()) return; a.splice(j, 0, a.splice(si, 1)[0]); },
+    goTo(key, itemId) {
+      if (this.mode === "preview" && key !== "portada") { this.scrollPreview(key); return; }
+      this.mode = "edit";
+      this.$nextTick(() => {
+        const sec = document.getElementById("ct-sec-" + key);
+        if (!sec) return;
+        sec.open = true;
+        const target = itemId ? document.getElementById("ct-it-" + itemId) : sec;
+        (target || sec).scrollIntoView({ block: "start" });
+      });
+    },
+
+    // ── arrastrar y soltar (mismo idioma visual que las secciones de Staffing: grip, is-dragging, is-drop-target) ──
+    dragStart(ev, sec) { if (sec.kind === "links") { ev.preventDefault(); return; } this.drag.key = sec.key; ev.dataTransfer.effectAllowed = "move"; try { ev.dataTransfer.setData("text/plain", sec.key); } catch (e) {} },
+    dragOver(ev, sec) { if (!this.drag.key || sec.kind === "links") return; ev.preventDefault(); this.drag.over = sec.key; },
+    dropOn(sec) {
+      const a = this.model.sections, from = a.findIndex(s => s.key === this.drag.key), to = a.findIndex(s => s.key === sec.key);
+      if (from >= 0 && to >= 0 && from !== to && sec.kind !== "links") a.splice(to, 0, a.splice(from, 1)[0]);
+      this.dragEnd();
+    },
+    dragEnd() { this.drag.key = null; this.drag.over = null; },
+
+    // ── vista previa en vivo ─────────────────────────────────────────────────────
+    openPreview() { this.mode = "preview"; this.renderPreview(); },
+    setDevice(d) { this.device = d; this.$nextTick(() => this.fit()); },
+    async renderPreview() {
+      this.previewLoading = true; this.previewErr = "";
+      try {
+        const r = await fetch(`/cchh/cartelera/ediciones/${this.month}/vista-previa`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(this.payload()) });
+        if (!r.ok) { const j = await r.json().catch(() => ({})); this.previewErr = j.error || "No se pudo preparar la vista previa."; this.previewLoading = false; return; }
+        this.$refs.frame.srcdoc = await r.text();
+      } catch (e) { this.previewErr = "No se pudo conectar con el Hub."; this.previewLoading = false; }
+    },
+    framed() {
+      const f = this.$refs.frame, doc = f && f.contentDocument;
+      if (!doc || !doc.body || !doc.body.childElementCount) return;
+      this.previewLoading = false;
+      if (!doc.__ctWired) {
+        doc.__ctWired = true;
+        doc.addEventListener("click", ev => {                                     // en la vista previa los enlaces no navegan dentro del marco
+          const a = ev.target.closest && ev.target.closest("a[href]");
+          if (!a) return;
+          const href = a.getAttribute("href");
+          ev.preventDefault();
+          if (href.startsWith("#")) { const t = doc.getElementById(href.slice(1)); if (t) t.scrollIntoView({ behavior: "smooth" }); }
+          else window.open(a.href, "_blank", "noopener");
+        });
+        doc.querySelectorAll("select").forEach(s => s.disabled = true);
+        if (window.ResizeObserver) new ResizeObserver(() => this.fit()).observe(doc.body);
+      }
+      this.fit();
+    },
+    // El portal se dibuja a su ancho REAL (escritorio 1240 px, celular 390 px) y se escala para entrar en el lienzo: así se ve la grilla de
+    // dos columnas, el ancho completo y los cortes responsivos tal como los verá el colaborador.
+    fit() {
+      const f = this.$refs.frame, doc = f && f.contentDocument, stage = this.$refs.stage, holder = this.$refs.holder;
+      if (!doc || !doc.body || !stage) return;
+      const W = this.device === "phone" ? 390 : 1240;
+      const k = Math.min(1, (stage.clientWidth - 28) / W);
+      f.style.width = W + "px";
+      f.style.transform = `scale(${k})`;
+      const h = Math.max(480, doc.body.scrollHeight);
+      f.style.height = h + "px";
+      holder.style.width = Math.round(W * k) + "px";
+      holder.style.height = Math.round(h * k) + "px";
+      this.scale = k;
+    },
+    scrollPreview(key) {
+      const doc = this.$refs.frame && this.$refs.frame.contentDocument, el = doc && doc.getElementById("sec-" + key);
+      if (!el) return;
+      const scroller = document.getElementById("content");                          // `.module-content` es el contenedor que scrollea en el Hub
+      const top = this.$refs.frame.getBoundingClientRect().top + el.getBoundingClientRect().top * (this.scale || 1) - scroller.getBoundingClientRect().top - 80;
+      scroller.scrollBy({ top });
+    },
+
+    // ── proyectos de Operaciones ──────────────────────────────────────────────────
     async openPicker(si, ii) {
-      this.pickerFor = [si, ii]; this.$refs.picker.showModal();
+      this.pickerFor = [si, ii]; this.projQuery = ""; this.$refs.picker.showModal();
+      this.$nextTick(() => this.$refs.projSearch && this.$refs.projSearch.focus());
       if (this.projects !== null || this.projLoading) return;
       this.projLoading = true; this.projErr = "";
       let token = "";
       try { const t = window.dwGraphToken ? await window.dwGraphToken({ interactive: true }) : ""; token = typeof t === "string" ? t : (t && t.token) || ""; } catch (e) {}
       try {
-        const body = new URLSearchParams({ graph_token: token });
-        const r = await fetch("/cchh/cartelera/proyectos", { method: "POST", body });
+        const r = await fetch("/cchh/cartelera/proyectos", { method: "POST", body: new URLSearchParams({ graph_token: token }) });
         const j = await r.json().catch(() => ({}));
         if (!r.ok) { this.projErr = j.error || "No se pudieron leer los proyectos."; return; }
         this.projects = j.projects || [];
@@ -201,13 +550,24 @@ function carteleraEditor(model, revision, month) {
       finally { this.projLoading = false; }
     },
     filteredProjects() {
-      const q = this.projQuery.trim().toLowerCase();
-      return (this.projects || []).filter(p => !q || (p.name + " " + p.client).toLowerCase().includes(q)).slice(0, 60);
+      const fold = typeof dwSearchFold === "function" ? dwSearchFold : (v => String(v || "").toLowerCase());
+      const q = fold(this.projQuery);
+      return (this.projects || []).filter(p => !q || fold(p.name + " " + p.client).includes(q)).slice(0, 80);
+    },
+    usedProject(p) {
+      const [si, ii] = this.pickerFor || [];
+      const sec = this.model.sections[si];
+      return !!sec && sec.items.some((it, k) => it.project_id === p.id && k !== ii);
     },
     pickProject(p) {
       if (!this.pickerFor) return;
-      const [si, ii] = this.pickerFor, it = this.model.sections[si].items[ii];
-      it.project_id = p.id; it.project_name = p.name; it.client_name = p.client || ""; this.dirty = true;
+      const [si, ii] = this.pickerFor, items = this.model.sections[si].items;
+      if (ii === null) {
+        const it = { id: uid(), project_id: p.id, project_name: p.name, client_name: p.client || "", kind: "inicio", service: "", tech: "", body: "", team: "", thanks: "", link: "" };
+        items.push(it); this.openId = it.id;
+      } else {
+        Object.assign(items[ii], { project_id: p.id, project_name: p.name, client_name: p.client || "" });
+      }
       this.$refs.picker.close();
     },
   };

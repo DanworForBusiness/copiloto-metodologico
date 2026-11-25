@@ -162,8 +162,23 @@ def get_edition(month: str) -> dict | None:
     return edition
 
 
+EDIT_ACTION = "Editó el contenido"
+_EDIT_COALESCE_SECONDS = 30 * 60
+
+
 def _history(edition: dict | None, actor: str, action: str) -> list[dict]:
-    return [*((edition or {}).get("history") or []), {"at": repo.now_iso(), "actor": actor, "action": action}][-100:]
+    """Historial de la edición. Los guardados de contenido sucesivos de la MISMA persona dentro de 30 minutos se agrupan en una sola entrada
+    (se actualiza su hora y se cuenta cuántos fueron): el historial muestra hitos legibles, no cada clic en «Guardar»."""
+    history = list((edition or {}).get("history") or [])
+    now = repo.now_iso()
+    if action == EDIT_ACTION and history:
+        last = history[-1]
+        last_at = parse_utc(last.get("at"))
+        if (last.get("action") == EDIT_ACTION and last.get("actor") == actor and last_at
+                and (now_utc() - last_at).total_seconds() <= _EDIT_COALESCE_SECONDS):
+            history[-1] = {**last, "at": now, "count": int(last.get("count") or 1) + 1}
+            return history[-100:]
+    return [*history, {"at": now, "actor": actor, "action": action}][-100:]
 
 
 def create_edition(month: str, actor: str, *, copy_previous: bool) -> dict:
@@ -238,16 +253,28 @@ def save_content(month: str, revision: int, *, title: str, subtitle: str, sectio
     edition = get_edition(month)
     if edition is None:
         raise repo.CarteleraNotFoundError(month)
+    fields = {**_clean_content(title, subtitle, sections), "history": _history(edition, actor, EDIT_ACTION)}
+    return repo.save("editions", month, fields, expected_revision=revision)
+
+
+def _clean_content(title: str, subtitle: str, sections: list[dict]) -> dict:
     clean = []
     for sec in sections:
         meta = SECTION_BY_KEY.get(sec.get("key"))
         if not meta:
             continue
         items = [] if meta["kind"] == "birthdays" else _items_from_form(meta["kind"], sec.get("items") or [])
-        clean.append({"key": meta["key"], "wide": bool(sec.get("wide")), "items": items})
-    fields = {"title": _text(title, limit=160), "subtitle": _text(subtitle, limit=300), "sections": normalize_sections(clean),
-              "history": _history(edition, actor, "Editó el contenido")}
-    return repo.save("editions", month, fields, expected_revision=revision)
+        clean.append({"key": meta["key"], "wide": bool(sec.get("wide")) and meta["kind"] == "general", "items": items})
+    return {"title": _text(title, limit=160), "subtitle": _text(subtitle, limit=300), "sections": normalize_sections(clean)}
+
+
+def preview_edition(month: str, *, title: str, subtitle: str, sections: list[dict]) -> dict:
+    """Edición tal como quedaría con el contenido EN PANTALLA del editor (sin guardar): MISMA validación que `save_content`, nada se persiste.
+    Conserva estado y fechas de la guardada: la vista previa nunca cambia qué ven los colaboradores."""
+    edition = get_edition(month)
+    if edition is None:
+        raise repo.CarteleraNotFoundError(month)
+    return {**edition, **_clean_content(title, subtitle, sections)}
 
 
 def publish_now(month: str, revision: int, actor: str) -> dict:

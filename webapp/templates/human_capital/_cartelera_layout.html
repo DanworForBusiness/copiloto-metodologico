@@ -14,6 +14,7 @@
   {{ sidebar_resize_handle() }}
 
   <main id="content" class="module-content">
+    {% block cartelera_header %}
     <section class="module-hero hc-profiles-hero">
       <div class="hc-profiles-hero-text">
         <p class="eyebrow">Cartelera Virtual</p>
@@ -24,13 +25,18 @@
         {% block hero_actions %}<a href="/cartelera" class="btn-secondary" target="_blank" rel="noopener">Ver portal de colaboradores ↗</a>{% endblock %}
       </div>
     </section>
+    {% endblock %}
     <div id="hc-cartelera-panel">
+      {% block cartelera_tabs %}
       {# MISMO primitivo de pestañas que el Tablero Integral de Operaciones (`.experience-tabs`, tools.css). #}
       <nav class="experience-tabs cartelera-tabs" aria-label="Secciones de la Cartelera Virtual">
         {% for key, label, href in tabs %}<button type="button" class="{{ 'is-active' if key == tab else '' }}"{% if key == tab %} aria-current="page"{% endif %} onclick="location.assign('{{ href }}')">{{ label }}</button>{% endfor %}
       </nav>
+      {% endblock %}
+      {% block cartelera_feedback %}
       {% if ok %}<div class="callout callout--success callout--feedback" role="status"><div class="callout__body field-hint"><p>{{ ok }}</p></div></div>{% endif %}
       {% if error %}<div class="callout callout--warn callout--feedback" role="alert"><div class="callout__body field-hint"><p>{{ error }}</p></div></div>{% endif %}
+      {% endblock %}
       {% block cartelera_body %}{% endblock %}
     </div>
   </main>
