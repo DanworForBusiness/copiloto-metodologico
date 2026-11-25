@@ -140,5 +140,20 @@ check(S.clients.sel.events.includes("change") && S.lob.sel.events.includes("chan
 check(cards.every((x) => !x.hidden), "…y no queda ningún tile oculto por una búsqueda previa");
 S.domains.sel.events.length = 0; c.resetPick(); check(S.domains.sel.events.length === 0, "un 2.º dropdown ya vacío no dispara requests innecesarios");
 
+// 8. contador «N catálogos»: TODAS las tarjetas de la vista que cumplen el 2.º dropdown + la búsqueda (no solo las visibles por scroll)
+c = make(); c.catalogKind = "clients";
+check(c.count === null && c.countLabel === "", "contador: sin tarjetas cargadas todavía, el encabezado queda en blanco");
+S.clients.sel.value = "A"; c.pick({ target: S.clients.sel });
+check(c.count === null && c.countLabel === "", "contador: al elegir el valor queda en blanco hasta que htmx trae las tarjetas");
+c.search(); check(c.count === 3 && c.countLabel === "3 catálogos", "contador: plural con todas las tarjetas del cliente");
+c.q = "stock"; c.search(); check(c.count === 1 && c.countLabel === "1 catálogo", "contador: singular «1 catálogo»");
+c.q = "despachos gestion"; c.search(); check(c.count === 0 && c.countLabel === "0 catálogos", "contador: estado vacío «0 catálogos»");
+c.clearSearch(); check(c.count === 3 && c.countLabel === "3 catálogos", "contador: «Limpiar» vuelve al total del cliente");
+c.clearPick(); check(c.count === null && c.countLabel === "", "contador: la ✕ del filtro lo deja en blanco");
+c.resetPick(); check(c.count === null, "contador: cambiar el dropdown 1 lo deja en blanco");
+c = make(); c.catalogKind = "data_products"; c.resetPick();
+check(c.count === 2 && c.countLabel === "2 catálogos", "contador: Data Products (sin 2.º dropdown) cuenta sus tarjetas al abrir la vista");
+c.catalogKind = "lob"; S.lob.res.children.length = 0; c.search(); check(c.count === 0 && !c.noMatch, "contador: región sin tarjetas = 0 (sin «sin coincidencias»)");
+
 if (failures) { console.log(failures + " verificación(es) fallida(s)"); process.exit(1); }
 console.log("OK");

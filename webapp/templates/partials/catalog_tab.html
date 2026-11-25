@@ -3,9 +3,11 @@
 {% set module_number = document.summary.number|string %}
 {% set is_architecture_catalog = module_number == "01" or document.summary.stem.startswith("01_") %}
 {% set is_security_catalog = module_number == "02" or document.summary.stem.startswith("02_") %}
-{% macro search_row(sid) %}
+{% macro search_row(sid, counter=False) %}
 <div x-show="showSearch" x-cloak>
-  <label for="{{ sid }}">Buscar</label>
+  {#- `counter` (Catálogo de datos): el encabezado es el CONTADOR de catálogos que cumplen los filtros vigentes (2.º dropdown + búsqueda), calculado por
+      `dwCatalogBrowse.search()` sobre TODAS las tarjetas de la vista (no solo las visibles por scroll). Mismo <label>, mismo estilo; en blanco mientras cargan. -#}
+  {% if counter %}<label for="{{ sid }}" data-catalog-count aria-live="polite" x-text="countLabel || '\u00a0'">&nbsp;</label>{% else %}<label for="{{ sid }}">Buscar</label>{% endif %}
   <div class="whatsnew-filters whatsnew-filters--inline">
     <div class="whatsnew-filter whatsnew-filter--fill">
       <input type="search" id="{{ sid }}" data-catalog-search x-model="q" @input="search()" @keydown.escape="clearSearch()" aria-label="Buscar en el catálogo" placeholder="Buscar..." autocomplete="off">
@@ -231,7 +233,7 @@
         </select>
       </div>
       </div>
-      {{ search_row('catalog-search-domains') }}
+      {{ search_row('catalog-search-domains', counter=True) }}
     </div>
     <div id="catalog-flows" class="catalog-flows" data-catalog-results x-show="!noMatch">
       <div class="tool-empty">
@@ -259,7 +261,7 @@
         </select>
       </div>
       </div>
-      {{ search_row('catalog-search-lob') }}
+      {{ search_row('catalog-search-lob', counter=True) }}
     </div>
     <div id="catalog-lob-region" class="catalog-region">
       <div class="catalog-loading section-analysis-loading" role="status" aria-live="polite"><span class="section-analysis-spinner" aria-hidden="true"></span><span class="section-analysis-loading-copy">Cargando modelos…</span></div>
@@ -287,7 +289,7 @@
         </select>
       </div>
       </div>
-      {{ search_row('catalog-search-clients') }}
+      {{ search_row('catalog-search-clients', counter=True) }}
     </div>
     <div id="catalog-client-region" class="catalog-region">
       <div class="catalog-loading section-analysis-loading" role="status" aria-live="polite"><span class="section-analysis-spinner" aria-hidden="true"></span><span class="section-analysis-loading-copy">Cargando modelos…</span></div>
@@ -303,7 +305,7 @@
 
   <div x-show="catalogKind === 'data_products'" x-cloak class="catalog-flows" data-catalog-kind="data_products">
     {% if catalog_data_products %}
-    <div class="tree-picker catalog-picker--secondary catalog-picker--search">{{ search_row('catalog-search-dp') }}</div>
+    <div class="tree-picker catalog-picker--secondary catalog-picker--search">{{ search_row('catalog-search-dp', counter=True) }}</div>
     <ul class="catalog-flows-list" data-catalog-results x-show="!noMatch">
       {% for dp in catalog_data_products %}
       <li class="catalog-card catalog-card--{{ dp.veredicto|catalog_verdict_tone }}"

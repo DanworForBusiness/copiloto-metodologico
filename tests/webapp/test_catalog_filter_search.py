@@ -55,7 +55,7 @@ def test_each_secondary_dropdown_is_replaced_by_search_and_clear_once_a_value_is
     assert 'hx-get="/catalog/' in wrap and 'hx-trigger="change"' in wrap                                           # la carga de tiles sigue siendo la de siempre (htmx)
     row = sec[sec.index('<div x-show="showSearch" x-cloak>'):]
     row = row[: row.index("</button>") + len("</button>")]
-    sid = re.search(r'<label for="(catalog-search-[a-z]+)">Buscar</label>', row).group(1)                         # etiqueta «Buscar» con la misma gramática que «Cliente»/«Modelo»
+    sid = re.search(r'<label for="(catalog-search-[a-z]+)" data-catalog-count', row).group(1)                        # encabezado = contador «N catálogos» (mismo <label>; ver test del contador)
     assert f'id="{sid}"' in row and 'type="search"' in row and 'placeholder="Buscar..."' in row and 'aria-label="Buscar en el catálogo"' in row and 'x-model="q"' in row and '@input="search()"' in row
     assert '<button type="button" class="whatsnew-filter__clear" @click="clearSearch()">✕ Limpiar</button>' in row   # patrón del Hub para «✕ Limpiar»
     assert "<label class=\"whatsnew-filter" not in row                                                              # el contenedor del input NO es un <label>: dentro de `.tree-picker` heredaba display:block y margen inferior
@@ -124,3 +124,21 @@ def test_search_is_client_side_only_no_route_or_backend_change():
 def test_catalog_filter_search_harness():
     r = subprocess.run(["node", str(HARNESS)], capture_output=True, text=True, timeout=60, encoding="utf-8")
     assert r.returncode == 0, r.stdout + r.stderr
+
+
+# ───────────── contador «N CATÁLOGOS» (reemplaza el encabezado «Buscar» del Catálogo de datos) ─────────────
+@pytest.mark.parametrize("kind,sid", [("domains", "catalog-search-domains"), ("lob", "catalog-search-lob"), ("clients", "catalog-search-clients"), ("data_products", "catalog-search-dp")])
+def test_the_search_heading_of_the_data_catalog_is_the_live_catalog_counter(kind, sid):
+    sec = section(render(), kind)
+    row = sec[sec.index('<div x-show="showSearch" x-cloak>'):]
+    row = row[: row.index("</button>") + len("</button>")]
+    expected = '<label for="' + sid + '" data-catalog-count aria-live="polite" x-text="countLabel || ' + r"'\u00a0'" + '">&nbsp;</label>'
+    assert expected in row                                                                                     # MISMO <label> (tipografía/espaciado), texto dinámico
+    assert ">Buscar</label>" not in row
+    assert f'id="{sid}"' in row and 'placeholder="Buscar..."' in row and 'aria-label="Buscar en el catálogo"' in row                       # el input no cambia
+    assert '<button type="button" class="whatsnew-filter__clear" @click="clearSearch()">✕ Limpiar</button>' in row                       # «Limpiar» intacto
+
+
+def test_the_connectivity_catalog_keeps_its_search_heading():
+    html = render(number="01", stem="01_Arquitectura_y_Conectividad", catalog_connection_types=[], catalog_connection_clients=[])
+    assert html.count('">Buscar</label>') == 2 and "data-catalog-count" not in html                                                  # módulo 01: sin contador (sus tarjetas son conexiones)

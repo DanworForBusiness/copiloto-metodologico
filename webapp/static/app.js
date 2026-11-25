@@ -1078,8 +1078,10 @@ window.DwCatalogSearch = DwCatalogSearch;
 function dwCatalogBrowse(defaultKind) {
   const KIND_LABEL = { domains: "Modelos", lob: "Líneas de negocio", clients: "Clientes", connections: "Conexiones" };
   return {
-    catalogKind: defaultKind || "", picked: "", pickedLabel: "", q: "", noMatch: false,
+    catalogKind: defaultKind || "", picked: "", pickedLabel: "", q: "", noMatch: false, count: null,
     get kindLabel() { return KIND_LABEL[this.catalogKind] || ""; },
+    // Encabezado del buscador del Catálogo de datos: catálogos que cumplen los filtros vigentes (2.º dropdown + búsqueda). `null` = aún sin tarjetas cargadas.
+    get countLabel() { return this.count === null ? "" : (this.count === 1 ? "1 catálogo" : `${this.count} catálogos`); },
     get hasPick() { return !!this.picked && this.catalogKind in KIND_LABEL; },
     get showSearch() { return this.hasPick || this.catalogKind === "data_products"; },
     init() {
@@ -1095,6 +1097,7 @@ function dwCatalogBrowse(defaultKind) {
       const section = this.section();
       const r = DwCatalogSearch.apply(section && section.querySelector("[data-catalog-results]"), this.q);
       this.noMatch = r.total > 0 && r.shown === 0;
+      this.count = r.shown;                                       // TODAS las tarjetas de la vista que pasan el filtro (no solo las visibles por scroll)
     },
     // El control recién mostrado (x-show) puede no estar visible todavía en el primer tick: se reintenta cada 50 ms (hasta ~2 s) hasta que lo esté.
     focusWhenVisible(find) {
@@ -1111,7 +1114,7 @@ function dwCatalogBrowse(defaultKind) {
       const sel = event.target;
       this.picked = sel.value;
       this.pickedLabel = sel.value ? sel.options[sel.selectedIndex].text : "";
-      this.q = ""; this.noMatch = false;
+      this.q = ""; this.noMatch = false; this.count = null;       // hasta que htmx traiga las tarjetas del valor elegido (después del swap, `search()` lo recalcula)
       if (this.picked) this.focusSearch();
     },
     clearSearch() { this.q = ""; this.search(); this.focusSearch(); },
@@ -1119,17 +1122,18 @@ function dwCatalogBrowse(defaultKind) {
     clearPick() {
       const section = this.section();
       const sel = section && section.querySelector(".catalog-picker--secondary select");
-      this.picked = ""; this.pickedLabel = ""; this.q = ""; this.noMatch = false;
+      this.picked = ""; this.pickedLabel = ""; this.q = ""; this.noMatch = false; this.count = null;
       if (sel && sel.value) { sel.value = ""; sel.dispatchEvent(new Event("change", { bubbles: true })); }
       this.focusWhenVisible(() => sel);
     },
     // Cambio del dropdown 1 (o carga inicial): todos los 2.º dropdown vuelven a «Elegí…», sin buscador ni leyenda.
     resetPick() {
-      this.picked = ""; this.pickedLabel = ""; this.q = ""; this.noMatch = false;
+      this.picked = ""; this.pickedLabel = ""; this.q = ""; this.noMatch = false; this.count = null;
       this.$root.querySelectorAll(".catalog-picker--secondary select").forEach(sel => {
         if (sel.value) { sel.value = ""; sel.dispatchEvent(new Event("change", { bubbles: true })); }
       });
       this.$root.querySelectorAll("li.catalog-card[hidden]").forEach(li => { li.hidden = false; });
+      this.$nextTick(() => { if (this.catalogKind === "data_products") this.search(); });   // sin 2.º dropdown: sus tarjetas ya están en la página, se cuentan al abrir la vista (tras actualizar `catalogKind`)
     },
   };
 }
