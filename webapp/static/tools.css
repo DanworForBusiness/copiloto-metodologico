@@ -552,7 +552,7 @@
 .admin-tool__body { padding: 0 12px 12px; border-top: 1px solid var(--line); padding-top: 12px; }
 .admin-tool h4 { margin: 0 0 4px; color: var(--ink); font-size: .9rem; }
 .admin-help { margin: 0 0 10px; color: var(--soft); font-size: .74rem; line-height: 1.5; }
-.admin-help[data-dsa-bg] { margin-top: 12px; }   /* Diagnóstico ad hoc: separa el aviso «continúa en segundo plano» del preload de arriba (solo esta vista), mismo ritmo que .section-analysis-loading */
+.admin-help[data-dsa-bg], .admin-help[data-dsp-bg] { margin-top: 12px; }   /* Diagnóstico ad hoc y Publicar modelo: separa el aviso «continúa en segundo plano» del preload de arriba (solo estas vistas), mismo ritmo que .section-analysis-loading */
 .admin-help code, .admin-result code, .admin-table code { font: .72rem var(--mono); color: var(--gold); }
 .admin-label { display: block; color: var(--soft); font-size: .72rem; margin-bottom: 4px; }
 /* Texto explicativo compacto (Borrado selectivo): mismo nivel tipográfico que los labels «Desde/Hasta», sin
