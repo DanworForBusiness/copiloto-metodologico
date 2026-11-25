@@ -1,8 +1,7 @@
 {% extends "human_capital/_cartelera_layout.html" %}
 {% block page_title %}Accesos directos{% endblock %}
 {% block cartelera_body %}
-<section class="dashboard-section cartelera-card" x-data="{ rows: {{ (links or [{'title': '', 'group': '', 'url': ''}]) | tojson | forceescape }} }">
-  <div class="cartelera-card__head"><h2>Accesos directos permanentes</h2></div>
+<details class="dashboard-section" x-data="{ rows: {{ (links or [{'title': '', 'group': '', 'url': ''}]) | tojson | forceescape }} }" open><summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Accesos directos permanentes</span></summary><div class="dashboard-section__body">
   <p class="field-hint">Enlaces a políticas, formularios, beneficios y herramientas. Se muestran en todas las ediciones, al final de «Beneficios e información útil». No se copian documentos: se enlazan donde ya están.</p>
   <form method="post" action="/cchh/cartelera/accesos">
     <input type="hidden" name="revision" value="{{ links_revision or '' }}">
@@ -11,7 +10,7 @@
         <input type="text" name="title" x-model="r.title" placeholder="Nombre" aria-label="Nombre" maxlength="120">
         <input type="text" name="group" x-model="r.group" placeholder="Grupo (Políticas, Formularios…)" aria-label="Grupo" maxlength="60">
         <input type="url" name="url" x-model="r.url" placeholder="https://danwor.sharepoint.com/…" aria-label="Enlace">
-        <button type="button" class="cartelera-mini-btn cartelera-mini-btn--danger" @click="rows.splice(i, 1)">Quitar</button>
+        <button type="button" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" @click="rows.splice(i, 1)" aria-label="Quitar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Quitar</p></span></button>
       </div>
     </template>
     <div class="hc-profile-form__actions">
@@ -19,5 +18,5 @@
       <button type="submit" class="btn-primary">Guardar accesos</button>
     </div>
   </form>
-</section>
+</div></details>
 {% endblock %}

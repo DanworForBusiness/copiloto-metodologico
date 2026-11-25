@@ -9,8 +9,7 @@
   <div class="cartelera-editor__main">
     <p class="field-hint"><a href="/cchh/cartelera">← Ediciones</a></p>
 
-    <section class="dashboard-section cartelera-card">
-      <div class="cartelera-card__head"><h2>Portada</h2></div>
+    <details class="dashboard-section" open><summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Portada</span></summary><div class="dashboard-section__body">
       <div class="hc-profile-section__grid hc-profile-section__grid--fluid">
         <div class="feedback-field feedback-field--wide"><label for="ct-title">Título de portada</label>
           <input id="ct-title" type="text" maxlength="160" x-model="model.title" @input="dirty=true" placeholder="Ej.: Compartir conocimiento genera crecimiento"></div>
@@ -19,20 +18,21 @@
         <div class="feedback-field feedback-field--wide"><label>Banner</label>
           <p class="cartelera-pending" data-pending="sharepoint">Imagen de portada · disponible cuando se habilite la integración documental con SharePoint (acceso a la carpeta de Cartelera Virtual en verificación).</p></div>
       </div>
-    </section>
+    </div></details>
 
     <template x-for="(sec, si) in model.sections" :key="sec.key">
-      <section class="dashboard-section cartelera-card" :class="sec.wide && 'is-wide'">
-        <div class="cartelera-card__head">
-          <h2 x-text="sec.title"></h2>
+      <details class="dashboard-section" :class="sec.wide && 'is-wide'" open>
+        <summary class="dashboard-section__head">
+          <span class="dashboard-section__caret"></span><span class="dashboard-section__title" x-text="sec.title"></span>
           <span class="cartelera-card__tools">
-            <button type="button" class="cartelera-mini-btn" @click="toggleWide(si)" :title="sec.wide ? 'Mostrar al costado' : 'Ancho completo'" x-text="sec.wide ? 'Al costado' : 'Ancho completo'"></button>
+            <button type="button" class="cartelera-mini-btn" @click.prevent="toggleWide(si)" :title="sec.wide ? 'Mostrar al costado' : 'Ancho completo'" x-text="sec.wide ? 'Al costado' : 'Ancho completo'"></button>
             <template x-if="sec.kind !== 'links'"><span>
-              <button type="button" class="cartelera-mini-btn" @click="moveSection(si, -1)" :disabled="si === 0" aria-label="Subir sección">↑</button>
-              <button type="button" class="cartelera-mini-btn" @click="moveSection(si, 1)" :disabled="si >= lastMovable()" aria-label="Bajar sección">↓</button>
+              <button type="button" class="table-action-btn chart-tooltip-anchor" @click.prevent="moveSection(si, -1)" :disabled="si === 0" aria-label="Subir sección"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Subir sección</p></span></button>
+              <button type="button" class="table-action-btn chart-tooltip-anchor" @click.prevent="moveSection(si, 1)" :disabled="si >= lastMovable()" aria-label="Bajar sección"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Bajar sección</p></span></button>
             </span></template>
           </span>
-        </div>
+        </summary>
+        <div class="dashboard-section__body">
 
         <template x-if="sec.kind === 'birthdays'">
           <p class="field-hint">Se completa automáticamente con los cumpleaños autorizados y visibles del mes (pestaña <a href="/cchh/cartelera/cumpleanos">Cumpleaños</a>).</p>
@@ -51,9 +51,9 @@
                 <div class="cartelera-item__foot">
                   <span class="cartelera-pending cartelera-pending--inline">Imagen o flyer · pendiente de integración SharePoint</span>
                   <span>
-                    <button type="button" class="cartelera-mini-btn" @click="moveItem(si, ii, -1)" :disabled="ii === 0" aria-label="Subir">↑</button>
-                    <button type="button" class="cartelera-mini-btn" @click="moveItem(si, ii, 1)" :disabled="ii === sec.items.length - 1" aria-label="Bajar">↓</button>
-                    <button type="button" class="cartelera-mini-btn cartelera-mini-btn--danger" @click="removeItem(si, ii)">Quitar</button>
+                    <button type="button" class="table-action-btn chart-tooltip-anchor" @click="moveItem(si, ii, -1)" :disabled="ii === 0" aria-label="Subir"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Subir</p></span></button>
+                    <button type="button" class="table-action-btn chart-tooltip-anchor" @click="moveItem(si, ii, 1)" :disabled="ii === sec.items.length - 1" aria-label="Bajar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Bajar</p></span></button>
+                    <button type="button" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" @click="removeItem(si, ii)" aria-label="Quitar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Quitar</p></span></button>
                   </span>
                 </div>
               </div>
@@ -85,9 +85,9 @@
                 <div class="cartelera-item__foot">
                   <span class="cartelera-pending cartelera-pending--inline">Imagen · pendiente de integración SharePoint</span>
                   <span>
-                    <button type="button" class="cartelera-mini-btn" @click="moveItem(si, ii, -1)" :disabled="ii === 0" aria-label="Subir">↑</button>
-                    <button type="button" class="cartelera-mini-btn" @click="moveItem(si, ii, 1)" :disabled="ii === sec.items.length - 1" aria-label="Bajar">↓</button>
-                    <button type="button" class="cartelera-mini-btn cartelera-mini-btn--danger" @click="removeItem(si, ii)">Quitar</button>
+                    <button type="button" class="table-action-btn chart-tooltip-anchor" @click="moveItem(si, ii, -1)" :disabled="ii === 0" aria-label="Subir"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Subir</p></span></button>
+                    <button type="button" class="table-action-btn chart-tooltip-anchor" @click="moveItem(si, ii, 1)" :disabled="ii === sec.items.length - 1" aria-label="Bajar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Bajar</p></span></button>
+                    <button type="button" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" @click="removeItem(si, ii)" aria-label="Quitar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Quitar</p></span></button>
                   </span>
                 </div>
               </div>
@@ -95,14 +95,13 @@
             <button type="button" class="cartelera-mini-btn" @click="addProject(si)">+ Agregar proyecto</button>
           </div>
         </template>
-      </section>
+      </div></details>
     </template>
   </div>
 
   <aside class="cartelera-editor__side">
-    <section class="dashboard-section cartelera-card cartelera-publish">
-      <div class="cartelera-card__head"><h2>Publicación</h2>
-        <span class="dashboard-status-badge solicitudes-status-badge solicitudes-status-badge--{{ tones[state] }}">{{ svc.STATE_LABELS[state] }}</span></div>
+    <details class="dashboard-section cartelera-publish" open><summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Publicación</span>
+        <span class="dashboard-status-badge solicitudes-status-badge solicitudes-status-badge--{{ tones[state] }}">{{ svc.STATE_LABELS[state] }}</span></summary><div class="dashboard-section__body">
       {% if state == 'scheduled' %}<p class="field-hint">Se publica el <strong>{{ svc.fmt_local(edition.publish_at) }}</strong> (hora de Buenos Aires) y se avisa por correo.</p>
       {% elif state == 'published' %}<p class="field-hint">Publicada el {{ svc.fmt_local(edition.published_at or edition.publish_at) }}. Los cambios guardados se ven de inmediato en el portal.</p>
       {% elif state == 'withdrawn' %}<p class="field-hint">Retirada: no se muestra en el portal.</p>
@@ -140,11 +139,10 @@
         </form>
         {% endif %}
       </div>
-    </section>
-    <section class="dashboard-section cartelera-card">
-      <div class="cartelera-card__head"><h2>Historial</h2></div>
+    </div></details>
+    <details class="dashboard-section" open><summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Historial</span></summary><div class="dashboard-section__body">
       <ul class="cartelera-history">{% for h in (edition.history or [])|reverse %}<li><span>{{ svc.fmt_local(h.at) }}</span> {{ h.action }} · <em>{{ h.actor }}</em></li>{% endfor %}</ul>
-    </section>
+    </div></details>
   </aside>
 
   <dialog class="dw-confirm cartelera-picker" x-ref="picker" @close="pickerFor = null">

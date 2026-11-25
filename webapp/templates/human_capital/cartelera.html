@@ -1,40 +1,77 @@
 {% extends "human_capital/_cartelera_layout.html" %}
+{% from "partials/table_action_macros.html" import table_action_link %}
 {% block page_title %}Ediciones{% endblock %}
 {% block cartelera_body %}
 {% set tones = {'draft': 'grey', 'scheduled': 'violet', 'published': 'green', 'withdrawn': 'amber'} %}
-<section class="dashboard-section cartelera-card">
-  <div class="cartelera-card__head"><h2>Nueva edición</h2></div>
-  {% if candidates %}
-  <form method="post" action="/cchh/cartelera/ediciones" class="cartelera-inline-form">
-    <div class="feedback-field"><label for="ct-month">Mes</label>
-      <select id="ct-month" name="month">{% for m in candidates %}<option value="{{ m }}"{% if m == default_month %} selected{% endif %}>{{ svc.month_label(m) }}</option>{% endfor %}</select>
-    </div>
-    <label class="cartelera-check"><input type="checkbox" name="copy_previous" value="1"{% if editions %} checked{% endif %}> Usar la edición anterior como plantilla (textos y enlaces, sin proyectos)</label>
-    <button type="submit" class="btn-primary">+ Crear edición</button>
-  </form>
-  {% else %}<p class="field-hint">Ya existen las ediciones de los meses cercanos.</p>{% endif %}
-</section>
+{% set eff = {} %}{% for e in editions %}{% set _ = eff.update({e.id: svc.effective_state(e)}) %}{% endfor %}
 
-<section class="dashboard-section cartelera-card">
-  <div class="cartelera-card__head"><h2>Ediciones</h2><span class="dashboard-section__count">{{ editions | length }} edición{{ '' if editions | length == 1 else 'es' }}</span></div>
-  {% if editions %}
-  <div class="matrix-scroll"><table class="dashboard-table cartelera-table">
-    <thead><tr><th class="left">Mes</th><th class="left">Portada</th><th class="left">Estado</th><th class="left">Publicación</th><th class="left">Última edición</th><th></th></tr></thead>
-    <tbody>
-    {% for e in editions %}{% set st = svc.effective_state(e) %}
-      <tr>
-        <td class="left"><a href="/cchh/cartelera/ediciones/{{ e.id }}"><strong>{{ svc.month_label(e.id) }}</strong></a></td>
-        <td class="left">{{ e.title or '—' }}</td>
-        <td class="left"><span class="dashboard-status-badge solicitudes-status-badge solicitudes-status-badge--{{ tones[st] }}">{{ svc.STATE_LABELS[st] }}</span></td>
-        <td class="left">{% if st == 'scheduled' %}{{ svc.fmt_local(e.publish_at) }}{% elif st == 'published' %}{{ svc.fmt_local(e.published_at or e.publish_at) }}{% else %}—{% endif %}</td>
-        <td class="left">{{ svc.fmt_local(e.updated_at) }}</td>
-        <td class="right"><a class="cartelera-mini-btn" href="/cchh/cartelera/ediciones/{{ e.id }}">Editar</a></td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table></div>
-  {% else %}
-  <div class="dashboard-empty"><span class="dashboard-empty__label">Sin ediciones</span><p>Creá la primera edición mensual de la Cartelera Virtual.</p></div>
-  {% endif %}
-</section>
+{# Alta: MISMA barra de herramientas que los filtros de Capital Humano (`.hc-profile-filters.filter-toolbar-card`). #}
+{% if candidates %}
+<form method="post" action="/cchh/cartelera/ediciones" class="hc-profile-filters filter-toolbar-card cartelera-create">
+  <div class="feedback-field feedback-field--auto"><label for="ct-month">Nueva edición</label>
+    <select id="ct-month" name="month">{% for m in candidates %}<option value="{{ m }}"{% if m == default_month %} selected{% endif %}>{{ svc.month_label(m) }}</option>{% endfor %}</select>
+  </div>
+  <label class="cartelera-check"><input type="checkbox" name="copy_previous" value="1"{% if editions %} checked{% endif %}> Usar la edición anterior como plantilla</label>
+  <button type="submit" class="btn-primary">+ Crear edición</button>
+</form>
+{% endif %}
+
+<div class="dashboard-sections" data-dashboard-key="cchh-cartelera-ediciones">
+  <details class="dashboard-section" data-section-id="ediciones" data-persist-collapse open>
+    <summary class="dashboard-section__head" draggable="true">
+      <span class="dashboard-section__caret"></span>
+      <span class="dashboard-section__title">Ediciones</span>
+      <span class="dashboard-section__count">{{ editions | length }} edici{{ 'ón' if editions | length == 1 else 'ones' }}</span>
+    </summary>
+    <div class="dashboard-section__body">
+      {# Indicadores: MISMO primitivo `.activity-kpi` que «Solicitudes Vigentes» y Carga masiva. #}
+      <div class="activity-kpi-grid">
+        {% for key, label, tone in (('published', 'Publicadas', 'activity-kpi--positive'), ('scheduled', 'Programadas', 'activity-kpi--info'), ('draft', 'Borradores', 'activity-kpi--attention'), ('withdrawn', 'Retiradas', 'activity-kpi--alert')) %}
+        <div class="activity-kpi {{ tone }}"><span class="activity-kpi__value">{{ eff.values() | select('equalto', key) | list | length }}</span><span class="activity-kpi__label">{{ label }}</span></div>
+        {% endfor %}
+      </div>
+      {% if editions %}
+      <div class="matrix-scroll">
+        <table class="dashboard-table">
+          <colgroup><col style="width:16%"><col style="width:34%"><col style="width:13%"><col style="width:15%"><col style="width:15%"><col style="width:110px"></colgroup>
+          <thead><tr><th class="left">Mes</th><th class="left">Portada</th><th class="left">Estado</th><th class="left">Publicación</th><th class="left">Última edición</th><th class="center">Acciones</th></tr></thead>
+          <tbody>
+          {% for e in editions %}{% set st = eff[e.id] %}
+            <tr>
+              <td class="left"><strong>{{ svc.month_label(e.id) }}</strong></td>
+              <td class="left">{{ e.title or '—' }}</td>
+              <td class="left"><span class="dashboard-status-badge solicitudes-status-badge solicitudes-status-badge--{{ tones[st] }}">{{ svc.STATE_LABELS[st] }}</span></td>
+              <td class="left">{% if st == 'scheduled' %}{{ svc.fmt_local(e.publish_at) }}{% elif st == 'published' %}{{ svc.fmt_local(e.published_at or e.publish_at) }}{% else %}—{% endif %}</td>
+              <td class="left">{{ svc.fmt_local(e.updated_at) }}</td>
+              <td class="center">
+                <div class="dw-row-actions">
+                  <a href="/cchh/cartelera/ediciones/{{ e.id }}" class="table-action-btn chart-tooltip-anchor" aria-label="Editar la edición de {{ svc.month_label(e.id) }}">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                    <span class="chart-tooltip" aria-hidden="true"><p>Editar</p></span>
+                  </a>
+                  {{ table_action_link('/cchh/cartelera/ediciones/' ~ e.id ~ '/vista-previa', 'Vista previa', 'Vista previa de la edición de ' ~ svc.month_label(e.id)) }}
+                  {% if st in ('draft', 'withdrawn') %}
+                  <form method="post" action="/cchh/cartelera/ediciones/{{ e.id }}/estado" class="dw-row-actions__form"
+                        data-dw-confirm-form data-dw-confirm-title="Eliminar edición"
+                        data-dw-confirm-message="¿Eliminar la edición de {{ svc.month_label(e.id) }}? Esta acción no se puede deshacer." data-dw-confirm-ok="Eliminar">
+                    <input type="hidden" name="action" value="delete"><input type="hidden" name="revision" value="{{ e.revision }}">
+                    <button type="submit" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" aria-label="Eliminar la edición de {{ svc.month_label(e.id) }}">
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+                      <span class="chart-tooltip" aria-hidden="true"><p>Eliminar</p></span>
+                    </button>
+                  </form>
+                  {% endif %}
+                </div>
+              </td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="dashboard-empty" data-empty-kind="dataset_empty"><span class="dashboard-empty__label">Sin ediciones</span><p>Creá la primera edición mensual con «+ Crear edición».</p></div>
+      {% endif %}
+    </div>
+  </details>
+</div>
 {% endblock %}

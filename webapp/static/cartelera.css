@@ -22,7 +22,12 @@
 .cartelera-card__head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .cartelera-card__head h2 { margin: 0; font-size: 1rem; }
 .cartelera-card__tools { display: inline-flex; gap: 6px; align-items: center; }
-.cartelera-card.is-wide { border-left: 3px solid var(--gold); }
+.dashboard-section.is-wide { border-left: 3px solid var(--gold); }
+.cartelera-card__tools { margin-left: auto; display: inline-flex; gap: 6px; align-items: center; }
+.cartelera-card__tools > span, .cartelera-item__foot > span { display: inline-flex; gap: 4px; align-items: center; }
+.cartelera-create { display: flex; flex-wrap: wrap; gap: 14px 20px; align-items: flex-end; margin-bottom: 16px; }
+.cartelera-create .cartelera-check { padding-bottom: 9px; white-space: nowrap; }
+#hc-cartelera-panel .dashboard-section { margin-bottom: 14px; }
 .cartelera-inline-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 16px; }
 .cartelera-inline-form .feedback-field { margin: 0; min-width: 200px; }
 .cartelera-check { display: inline-flex; align-items: center; gap: 8px; font-size: .82rem; }

@@ -25,8 +25,9 @@
       </div>
     </section>
     <div id="hc-cartelera-panel">
-      <nav class="tool-tabs cartelera-tabs" aria-label="Secciones de la Cartelera Virtual">
-        {% for key, label, href in tabs %}<a href="{{ href }}" class="{{ 'is-active' if key == tab else '' }}"{% if key == tab %} aria-current="page"{% endif %}>{{ label }}</a>{% endfor %}
+      {# MISMO primitivo de pestañas que el Tablero Integral de Operaciones (`.experience-tabs`, tools.css). #}
+      <nav class="experience-tabs cartelera-tabs" aria-label="Secciones de la Cartelera Virtual">
+        {% for key, label, href in tabs %}<button type="button" class="{{ 'is-active' if key == tab else '' }}"{% if key == tab %} aria-current="page"{% endif %} onclick="location.assign('{{ href }}')">{{ label }}</button>{% endfor %}
       </nav>
       {% if ok %}<div class="callout callout--success callout--feedback" role="status"><div class="callout__body field-hint"><p>{{ ok }}</p></div></div>{% endif %}
       {% if error %}<div class="callout callout--warn callout--feedback" role="alert"><div class="callout__body field-hint"><p>{{ error }}</p></div></div>{% endif %}

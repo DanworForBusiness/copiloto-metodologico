@@ -4,16 +4,14 @@
 <script type="application/json" id="ct-inst">{{ model_json | replace("</", "<\\/") | safe }}</script>
 <div x-data="carteleraInstitutional(JSON.parse(document.getElementById('ct-inst').textContent), {{ data.revision if data.revision else 'null' }})"
      @beforeunload.window="if (dirty) { $event.preventDefault(); $event.returnValue = true }">
-  <section class="dashboard-section cartelera-card">
-    <div class="cartelera-card__head"><h2>Misión y visión</h2></div>
+  <details class="dashboard-section" open><summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Misión y visión</span></summary><div class="dashboard-section__body">
     <div class="hc-profile-section__grid hc-profile-section__grid--fluid">
       <div class="feedback-field feedback-field--wide"><label for="in-mission">Misión</label><textarea id="in-mission" rows="3" x-model="m.mission" @input="dirty=true"></textarea></div>
       <div class="feedback-field feedback-field--wide"><label for="in-vision">Visión</label><textarea id="in-vision" rows="3" x-model="m.vision" @input="dirty=true"></textarea></div>
     </div>
-  </section>
+  </div></details>
 
-  <section class="dashboard-section cartelera-card">
-    <div class="cartelera-card__head"><h2>Valores</h2></div>
+  <details class="dashboard-section" open><summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Valores</span></summary><div class="dashboard-section__body">
     <template x-for="(v, i) in m.values" :key="i">
       <div class="cartelera-item">
         <div class="hc-profile-section__grid hc-profile-section__grid--fluid">
@@ -21,16 +19,15 @@
           <div class="feedback-field feedback-field--wide"><label>Descripción</label><textarea rows="2" x-model="v.text" @input="dirty=true"></textarea></div>
         </div>
         <div class="cartelera-item__foot"><span></span><span>
-          <button type="button" class="cartelera-mini-btn" @click="move(m.values, i, -1)" :disabled="i === 0">↑</button>
-          <button type="button" class="cartelera-mini-btn" @click="move(m.values, i, 1)" :disabled="i === m.values.length - 1">↓</button>
-          <button type="button" class="cartelera-mini-btn cartelera-mini-btn--danger" @click="m.values.splice(i, 1); dirty = true">Quitar</button></span></div>
+          <button type="button" class="table-action-btn chart-tooltip-anchor" @click="move(m.values, i, -1)" :disabled="i === 0" aria-label="Subir"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Subir</p></span></button>
+          <button type="button" class="table-action-btn chart-tooltip-anchor" @click="move(m.values, i, 1)" :disabled="i === m.values.length - 1" aria-label="Bajar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Bajar</p></span></button>
+          <button type="button" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" @click="m.values.splice(i, 1); dirty = true" aria-label="Quitar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Quitar</p></span></button></span></div>
       </div>
     </template>
     <button type="button" class="cartelera-mini-btn" @click="m.values.push({title: '', text: ''}); dirty = true">+ Agregar valor</button>
-  </section>
+  </div></details>
 
-  <section class="dashboard-section cartelera-card">
-    <div class="cartelera-card__head"><h2>Galería</h2></div>
+  <details class="dashboard-section" open><summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Galería</span></summary><div class="dashboard-section__body">
     <p class="cartelera-pending" data-pending="sharepoint">Las fotos de cada álbum se suben a la carpeta SharePoint de Cartelera Virtual: disponible cuando se habilite la integración documental (acceso en verificación). Mientras tanto podés preparar los álbumes.</p>
     <template x-for="(a, i) in m.albums" :key="a.id || i">
       <div class="cartelera-item">
@@ -40,16 +37,15 @@
           <div class="feedback-field feedback-field--wide"><label>Descripción</label><input type="text" maxlength="600" x-model="a.description" @input="dirty=true"></div>
         </div>
         <div class="cartelera-item__foot"><span class="cartelera-pending cartelera-pending--inline">Fotos · pendiente de integración SharePoint</span>
-          <button type="button" class="cartelera-mini-btn cartelera-mini-btn--danger" @click="m.albums.splice(i, 1); dirty = true">Quitar álbum</button></div>
+          <button type="button" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" @click="m.albums.splice(i, 1); dirty = true" aria-label="Quitar álbum"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Quitar álbum</p></span></button></div>
       </div>
     </template>
     <button type="button" class="cartelera-mini-btn" @click="m.albums.push({id: Math.random().toString(36).slice(2, 14), title: '', date: '', description: ''}); dirty = true">+ Nuevo álbum</button>
-  </section>
+  </div></details>
 
-  <section class="dashboard-section cartelera-card">
-    <div class="cartelera-card__head"><h2>Organigrama</h2></div>
+  <details class="dashboard-section" open><summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Organigrama</span></summary><div class="dashboard-section__body">
     <p class="cartelera-pending" data-pending="sharepoint">Representación documental gobernada por Capital Humano (imagen o PDF en la carpeta SharePoint de Cartelera Virtual): disponible cuando se habilite la integración documental.</p>
-  </section>
+  </div></details>
 
   <div class="cartelera-sticky-save">
     <button type="button" class="btn-primary" @click="save()" :disabled="saving || !dirty" x-text="saving ? 'Guardando…' : (dirty ? 'Guardar cambios' : 'Cambios guardados')"></button>
