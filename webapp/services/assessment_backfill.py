@@ -83,6 +83,12 @@ ACTIVACION COORDINADA de ``judgment-rules/v6`` (MISMO contrato; migracion ``judg
 sobre una transicion ni desde otro ruleset):
     python -m webapp.services.assessment_backfill --backfill-judgment --dry-run --target-ruleset judgment-rules/v6
     python -m webapp.services.assessment_backfill --backfill-judgment --apply --target-ruleset judgment-rules/v6 --confirm-migration judgment_rules_v6 --approval aprobacion.json --operator <id> --backup-dir <dir vacio>
+
+ACTIVACION COORDINADA de ``judgment-rules/v7`` (MISMO contrato; migracion ``judgment_rules_v7``). PRERREQUISITO: marcador v6 FINALIZED con el padron consolidado en v6. El candidato v7 de cada
+sobre se deriva con las decisiones de la instantanea (carriles: una aceptacion acotada solo llega a su consumidor declarado) y con la evidencia estructural del sidecar
+``structural-evidence/v1`` SOLO si verifica contra el perfil persistido (ausente, alterada u obsoleta => E3/E5 sin efecto: el candidato se ABSTIENE de usarla). Sin regenerar perfiles.
+    python -m webapp.services.assessment_backfill --backfill-judgment --dry-run --target-ruleset judgment-rules/v7
+    python -m webapp.services.assessment_backfill --backfill-judgment --apply --target-ruleset judgment-rules/v7 --confirm-migration judgment_rules_v7 --approval aprobacion.json --operator <id> --backup-dir <dir vacio>
   EXCLUSION: la activacion se NIEGA si hay aprobaciones gobernadas en vuelo (``governed_update_requests.approvals_in_flight``); mientras el marcador esta en ACTIVATING/ACTIVE, el circuito
   de actualizacion gobernada no registra, no arranca y su autorizador niega justo antes de escribir; las vias aseguradas individuales se niegan tras la autorizacion. La exclusion se apoya en el
   marcador del almacen gobernado (archivo compartido + write-through): NO es un lock distribuido; la red de seguridad final es la validacion de la activacion (Juicio visible intacto)
@@ -136,7 +142,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
 
 from tools.catalog import leaf_materialization_evidence as lme
-from tools.catalog.methodological_judgment.contract import RULESET_V5, RULESET_V6
+from tools.catalog.methodological_judgment.contract import RULESET_V5, RULESET_V6, RULESET_V7
 from webapp.services import assessment_service as svc
 from webapp.services import catalog_reads
 from webapp.services import durable_backup as dbk
@@ -1090,6 +1096,7 @@ def restore_from_remote_run(migration: str, run_id: str, staging_dir: Any, *, ap
     return out
 
 
+JUDGMENT_V7_ACTIVATION_MIGRATION = "judgment_rules_v7"   # ACTIVACION coordinada de judgment-rules/v7 (mismo contrato que v5/v6; prerrequisito: v6 FINALIZED; consume SOLO evidencia verificada)
 JUDGMENT_V6_ACTIVATION_MIGRATION = "judgment_rules_v6"   # ACTIVACION coordinada de judgment-rules/v6 (mismo contrato que v5; prerrequisito: v5 FINALIZED)
 JUDGMENT_V5_ACTIVATION_MIGRATION = "judgment_rules_v5"   # ADOPCION + ACTIVACION coordinada de judgment-rules/v5 (marcador ruleset-activation/v1; ver ``secured_activate_ruleset``)
 JUDGMENT_ADOPTION_MIGRATION = "judgment_rules_v4"      # nombre de la migracion de ADOPCION del contrato de Juicio vigente (v4; la de v3 fue "judgment_rules_v3") (plan firmado + respaldo + diario); el apply por CLI SOLO existe por ``secured_adopt_judgment``
@@ -1315,9 +1322,9 @@ def secured_adopt_judgment(*, authorizer: Callable[[str, dict], "ma.Authorizatio
     return out
 
 
-_ACTIVATION_MIGRATIONS = {RULESET_V5: JUDGMENT_V5_ACTIVATION_MIGRATION, RULESET_V6: JUDGMENT_V6_ACTIVATION_MIGRATION}
+_ACTIVATION_MIGRATIONS = {RULESET_V5: JUDGMENT_V5_ACTIVATION_MIGRATION, RULESET_V6: JUDGMENT_V6_ACTIVATION_MIGRATION, RULESET_V7: JUDGMENT_V7_ACTIVATION_MIGRATION}
 # Ruleset que debe estar FINALIZED (marcador consolidado) para activar el objetivo. v5 no lo tiene (su activacion partio de la ausencia de marcador).
-_ACTIVATION_PREREQUISITES = {RULESET_V6: RULESET_V5}
+_ACTIVATION_PREREQUISITES = {RULESET_V6: RULESET_V5, RULESET_V7: RULESET_V6}
 PREREQUISITE_NOT_MET = "PREREQUISITE_NOT_MET"
 GOVERNED_UPDATES_IN_FLIGHT = "GOVERNED_UPDATES_IN_FLIGHT"
 RULESET_ACTIVATION_IN_PROGRESS = "RULESET_ACTIVATION_IN_PROGRESS"
@@ -2009,7 +2016,7 @@ def main(argv: list[str] | None = None) -> int:
                     help="confirmación EXPLÍCITA que exige --apply en las migraciones sensibles (" + ", ".join(sorted(CONFIRMATION_REQUIRED)) + "): debe repetir el nombre de la migración")
     ap.add_argument("--target-ruleset", default="", metavar="RULESET",
                     help="con --backfill-judgment: ruleset OBJETIVO distinto del visible (p. ej. judgment-rules/v5). --dry-run = A/B global sin escrituras; --apply = ACTIVACION "
-                         "coordinada global (marcador ruleset-activation/v1; exige --confirm-migration " + JUDGMENT_V5_ACTIVATION_MIGRATION + " o " + JUDGMENT_V6_ACTIVATION_MIGRATION + ", --approval, --operator y --backup-dir)")
+                         "coordinada global (marcador ruleset-activation/v1; exige --confirm-migration " + JUDGMENT_V5_ACTIVATION_MIGRATION + ", " + JUDGMENT_V6_ACTIVATION_MIGRATION + " o " + JUDGMENT_V7_ACTIVATION_MIGRATION + ", --approval, --operator y --backup-dir)")
     ap.add_argument("--finalize-ruleset-activation", action="store_true",
                     help="consolida una activacion ACTIVE (candidato -> unico Juicio vivo + previous_judgment escalar); exige --operator, --confirm-plan <prefijo del digest> y, si la "
                          "activacion ancló un respaldo, --backup-dir con ESE respaldo (registra COMMITTED para poder revertir la finalizacion con --restore-backup)")

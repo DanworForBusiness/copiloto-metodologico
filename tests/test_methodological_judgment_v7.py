@@ -113,10 +113,10 @@ def test_v7_equals_v6_on_every_reference_case_without_acceptances(alias):
     assert key(j6) == key(j7) and j7["ruleset_version"] == C.RULESET_V7
 
 
-def test_v7_is_available_but_not_current_and_has_no_activation_migration_yet():
+def test_v7_is_available_but_not_current_and_only_activatable_by_its_signed_migration_over_v6():
     from webapp.services import assessment_backfill as bf
     assert C.RULESET_V7 in C.RULESETS and C.CURRENT_RULESET_VERSION != C.RULESET_V7
-    assert C.RULESET_V7 not in bf._ACTIVATION_MIGRATIONS                                         # activarlo exige una migracion firmada aparte (no autorizada)
+    assert bf._ACTIVATION_MIGRATIONS[C.RULESET_V7] == "judgment_rules_v7" and bf._ACTIVATION_PREREQUISITES[C.RULESET_V7] == C.RULESET_V6
 
 
 # ───────────── R-ACC: ALCANCE de consumo declarado ─────────────
