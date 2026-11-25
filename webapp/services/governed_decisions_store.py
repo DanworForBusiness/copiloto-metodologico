@@ -175,6 +175,10 @@ def reconstruct(client: str, technical_id: str, current_contract_digest: str | N
     los provee el llamador (este módulo NO lee evidencia/Assessments). Rechaza historiales contradictorios (fail-closed).
     NO modifica nada (solo lectura)."""
     events = _dedupe_and_check(load_events(client, technical_id))
-    status = gd.derive_status(events, current_contract_digest, now)
+    status = gd.derive_status(events, current_contract_digest, now)                       # carril histórico (sin alcance): semántica de siempre
     ordered = sorted(events, key=lambda e: (gd.parse_utc(e["decided_at"]), str(e.get("event_id") or "")))
-    return {"subject": {"client": client, "technical_id": technical_id}, "events": ordered, "status": status}
+    out = {"subject": {"client": client, "technical_id": technical_id}, "events": ordered, "status": status}
+    lanes = gd.scoped_lanes(events)
+    if lanes:                                                                             # v7: carriles por consumidor declarado (independientes del histórico)
+        out["scoped_status"] = {m: gd.derive_status(events, current_contract_digest, now, lane=m) for m in lanes}
+    return out

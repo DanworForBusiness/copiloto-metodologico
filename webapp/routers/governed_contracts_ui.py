@@ -117,7 +117,7 @@ def governed_contract_detail(request: Request, client: str = "", remote_entity: 
         recon = {"subject": {"client": client, "technical_id": gd.cds_technical_id(identity)},
                  "events": [], "status": gd.derive_status([], digest, now),
                  "consumers": consumers, "evidence_digest": digest}
-    chips = presenter.dimension_chips(recon["status"])
+    chips = presenter.dimension_chips(recon.get("summary_status") or recon["status"])   # v7: solo acotadas ⇒ «Ratificada con alcance», no «Sin decisión»
     # Evidencia OBSERVADA (slice) para el panel de evidencia; si no se puede resolver, se informa el motivo (no rompe la vista).
     observed, observed_note = None, None
     try:

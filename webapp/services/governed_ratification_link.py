@@ -9,7 +9,10 @@ Una hoja se enlaza ÚNICAMENTE si cumple TODO:
   · hoja `REMOTE_IMPORTED` con `contract_class == EXTERNAL_CONTRACT_UNDETERMINED` y exactamente una `remote_entity` (identidad inequívoca);
   · existe una ratificación vigente del MISMO (client, remote_connection, remote_entity) — no revocada;
   · el digest per-CDS actual de la evidencia MATCH-ea el de la ratificación (STALE / UNKNOWN / evidencia contradictoria entre consumidores NO enlazan);
-  · `REVIEW_DUE` enlaza (D7: revisión vencida no es caducidad) pero se informa.
+  · `REVIEW_DUE` enlaza (D7: revisión vencida no es caducidad) pero se informa;
+  · v7 — CARRILES: se evalúa primero el carril de ESTE modelo (ratificaciones cuyo `applies_to` lo incluye) y, si no tiene una ratificación vigente con
+    evidencia MATCH, el carril HISTÓRICO (sin alcance). El carril de OTRO consumidor nunca se enlaza (OUT_OF_SCOPE si es lo único que hay) y una
+    ratificación acotada jamás desplaza la histórica de los demás consumidores. Sin eventos acotados: enlace idéntico al de siempre.
 El motor vuelve a validar cada ratificación contra el perfil (elegibilidad de la clase, identidad, exposición decision-crítica).
 """
 from __future__ import annotations
@@ -45,6 +48,7 @@ def link_ratifications(profile: Mapping[str, Any], client: str, *, now: datetime
     leaves = (ce.get("source_contract_classes") or {}).get("leaves") or []
     linked: list[dict] = []
     report: list[dict] = []
+    am = str(((profile or {}).get("scope") or {}).get("terminal_analytic_model") or "")
     for lf in sorted((l for l in leaves if isinstance(l, dict)), key=lambda l: str(l.get("leaf"))):
         name = str(lf.get("leaf"))
         if lf.get("leaf_kind") != gd.LEAF_KIND_REMOTE_IMPORTED or lf.get("contract_class") != UNDETERMINED_CLASS:
@@ -63,8 +67,14 @@ def link_ratifications(profile: Mapping[str, Any], client: str, *, now: datetime
         if foreign:
             report.append(_report(name, OUT_NOT_LINKED, "FOREIGN_SUBJECT_EVENTS", technical_id=tid))
             continue
-        st = gd.derive_status(events, current, now)
-        if st["decision"] == gd.DECISION_NONE:
+        st_hist = gd.derive_status(events, current, now)
+        st_own = gd.derive_status(events, current, now, lane=am) if am else None
+        own_ok = st_own is not None and st_own["decision"] == gd.DECISION_RATIFIED and st_own["evidence"] == gd.EVIDENCE_MATCH
+        hist_ok = st_hist["decision"] == gd.DECISION_RATIFIED and st_hist["evidence"] == gd.EVIDENCE_MATCH
+        st = st_own if own_ok or (not hist_ok and st_own is not None and st_own["decision"] != gd.DECISION_NONE) else st_hist
+        if st["decision"] == gd.DECISION_NONE and gd.scoped_lanes(events):
+            report.append(_report(name, OUT_NOT_LINKED, "OUT_OF_SCOPE", technical_id=tid, applies_to=gd.scoped_lanes(events)))
+        elif st["decision"] == gd.DECISION_NONE:
             report.append(_report(name, OUT_NOT_LINKED, "NO_RATIFICATION", technical_id=tid))
         elif st["decision"] == gd.DECISION_REVOKED:
             report.append(_report(name, OUT_NOT_LINKED, "REVOKED", technical_id=tid))
@@ -74,7 +84,16 @@ def link_ratifications(profile: Mapping[str, Any], client: str, *, now: datetime
             report.append(_report(name, OUT_NOT_LINKED, "EVIDENCE_UNKNOWN", technical_id=tid))
         else:
             event = next(e for e in events if e["event_id"] == st["ratified_event_id"])
-            linked.append({"leaf": name, "identity": identity, "technical_id": tid, "event_id": event["event_id"], "digest": event["evidence_ref"]["digest"],
-                           "evidence_ref": dict(event["evidence_ref"]), "decided_at": event["decided_at"]})
-            report.append(_report(name, OUT_LINKED, None, technical_id=tid, event_id=event["event_id"], review=st["review"]))
+            scope = event.get("applies_to")
+            item = {"leaf": name, "identity": identity, "technical_id": tid, "event_id": event["event_id"], "digest": event["evidence_ref"]["digest"],
+                    "evidence_ref": dict(event["evidence_ref"]), "decided_at": event["decided_at"]}
+            if scope is not None:
+                item["applies_to"] = list(scope)
+            linked.append(item)
+            trace = {}
+            if gd.scoped_lanes(events):                                # v7: qué carril se usó y qué decisión histórica quedó precedida PARA ESTE consumidor
+                trace = {"lane": "SCOPED" if scope is not None else "HISTORICAL"}
+                if scope is not None and hist_ok:
+                    trace["precedes_historical_event_id"] = st_hist["ratified_event_id"]
+            report.append(_report(name, OUT_LINKED, None, technical_id=tid, event_id=event["event_id"], review=st["review"], **trace))
     return {"ratified_contracts": linked, "report": report}

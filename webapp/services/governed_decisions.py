@@ -84,6 +84,7 @@ REVIEW_MAX_MONTHS = 24
 
 # Dimensiones del estado derivado (precisión 2): coexisten, no se colapsan.
 DECISION_NONE, DECISION_RATIFIED, DECISION_REVOKED = "NONE", "RATIFIED", "REVOKED"
+DECISION_RATIFIED_SCOPED = "RATIFIED_SCOPED"   # SOLO presentación (``summary_status``): fuente sin ratificación histórica y con ≥1 aceptación acotada vigente
 EVIDENCE_MATCH, EVIDENCE_STALE, EVIDENCE_UNKNOWN, EVIDENCE_NA = "MATCH", "STALE", "UNKNOWN", "NA"
 REVIEW_CURRENT, REVIEW_DUE, REVIEW_NA = "CURRENT", "DUE", "NA"
 # `principal`: etiqueta única SOLO para presentación, derivada sin perder las dimensiones.
@@ -292,6 +293,20 @@ def _validate_subject(subject: Any) -> None:
     _require_exact_text(subject.get("technical_id"), "subject.technical_id")
 
 
+def _validate_applies_to(value: Any) -> None:
+    """`applies_to` (opcional, solo CONTRACT_RATIFICATION/RATIFIED): ALCANCE DE CONSUMO explícito = lista NO vacía de modelos terminales del MISMO cliente,
+    exactos (sin comodines), sin duplicados y en orden canónico. Que cada modelo EXISTA y CONSUMA la identidad ratificada lo acredita el backend contra
+    los Assessments gobernados (`governed_decisions_ops.ratify`); aquí solo forma. Ausente ⇒ ratificación histórica, semántica sin cambios."""
+    if not isinstance(value, list) or not value:
+        raise ValidationError("applies_to debe ser una lista NO vacía de modelos terminales")
+    for v in value:
+        _require_exact_text(v, "applies_to[]")
+    if len(set(value)) != len(value):
+        raise ValidationError("applies_to no admite duplicados")
+    if value != sorted(value):
+        raise ValidationError("applies_to debe estar en orden canónico (ordenado)")
+
+
 def _validate_evidence_ref(ref: Any) -> None:
     if not isinstance(ref, dict):
         raise ValidationError("evidence_ref debe ser objeto")
@@ -364,10 +379,12 @@ def _validate_contract_specifics(event: dict, etype: str, decided_at: Any) -> No
             raise ValidationError("review_by anterior a decided_at")
         if rb > max_review_by(decided_at):
             raise ValidationError(f"review_by excede el máximo (+{REVIEW_MAX_MONTHS} meses)")
+        if "applies_to" in event:
+            _validate_applies_to(event.get("applies_to"))           # v7: alcance de consumo (aditivo; los eventos históricos no lo traen)
     elif etype == EVENT_REVOKED:
         _require_exact_text(event.get("revokes_event_id"), "revokes_event_id")
-        if "evidence_ref" in event or "review_by" in event:
-            raise ValidationError("un REVOKED no lleva evidence_ref ni review_by")
+        if "evidence_ref" in event or "review_by" in event or "applies_to" in event:
+            raise ValidationError("un REVOKED no lleva evidence_ref, review_by ni applies_to")
 
 
 def _validate_review_specifics(event: dict, etype: str, decided_at: Any) -> None:
@@ -417,7 +434,8 @@ def _validate_review_specifics(event: dict, etype: str, decided_at: Any) -> None
 
 def build_ratification(*, event_id: str, subject: dict, rationale: str, actor: str, decided_at: str,
                        canonical_evidence: dict | None = None, evidence_ref_override: dict | None = None,
-                       review_by: str | None = None, traceability: dict | None = None, request_id: str | None = None) -> dict:
+                       review_by: str | None = None, traceability: dict | None = None, request_id: str | None = None,
+                       applies_to: list[str] | None = None) -> dict:
     """Arma (y valida) un evento RATIFIED. `event_id`/`decided_at`/`actor` los IMPONE el backend. Evidencia: pasar
     `evidence_ref_override` ya armado (per-CDS, B3 → `cds_evidence_ref`) o `canonical_evidence` (nivel perfil, compat).
     `request_id` = token de idempotencia (A). `review_by` def +12m. `traceability` es contexto, NO amplía alcance (D4)."""
@@ -438,6 +456,8 @@ def build_ratification(*, event_id: str, subject: dict, rationale: str, actor: s
         event["traceability"] = traceability
     if request_id is not None:
         event["request_id"] = request_id
+    if applies_to is not None:
+        event["applies_to"] = sorted(applies_to) if isinstance(applies_to, (list, tuple, set, frozenset)) else applies_to   # forma canónica; validate_event rechaza lo demás
     validate_event(event)
     return event
 
@@ -526,8 +546,69 @@ def _sorted_events(events: list[dict]) -> list[dict]:
     return sorted(events, key=lambda e: (parse_utc(e.get("decided_at")), str(e.get("event_id") or "")))
 
 
-def derive_status(events: list[dict], current_contract_digest: str | None, now: datetime) -> dict:
+UNSCOPED_LANE = None        # carril histórico: ratificaciones SIN `applies_to` (semántica v4.B exacta)
+
+
+def _target(e: dict, by_id: dict) -> dict | None:
+    t = by_id.get(e.get("revokes_event_id"))
+    return t if t is not None and t.get("event") == EVENT_RATIFIED else None
+
+
+def event_lanes(e: dict, by_id: dict) -> frozenset:
+    """Carriles de vigencia a los que pertenece un evento. RATIFIED sin alcance → carril histórico (``UNSCOPED_LANE``); con alcance → un carril por
+    modelo declarado. REVOKED → los carriles de la ratificación que revoca (si el objetivo no existe o no es un RATIFIED: carril histórico, como siempre)."""
+    if e.get("event") == EVENT_RATIFIED:
+        return frozenset(e["applies_to"]) if e.get("applies_to") else frozenset({UNSCOPED_LANE})
+    t = _target(e, by_id)
+    return event_lanes(t, by_id) if t is not None else frozenset({UNSCOPED_LANE})
+
+
+def scoped_lanes(events: list[dict]) -> list[str]:
+    """Modelos con carril propio (aparecen en algún `applies_to`)."""
+    return sorted({m for e in events if e.get("event") == EVENT_RATIFIED for m in (e.get("applies_to") or ())})
+
+
+_LANE_KEYS = ("decision", "evidence", "review", "principal", "effective_review_by", "ratified_event_id")
+
+
+def summary_status(events: list[dict], current_contract_digest: str | None, now: datetime) -> dict:
+    """Estado de PRESENTACIÓN de una fuente (inventario / ficha). NO es el estado de vigencia que consume el scoring (ese es ``derive_status`` por carril).
+    · Sin ratificaciones acotadas: EXACTAMENTE ``derive_status`` (histórico), sin claves nuevas.
+    · Con carriles acotados: el estado histórico + ``scoped`` {modelo: estado del carril} + ``lanes`` (HISTORICAL_AND_SCOPED | SCOPED_ONLY).
+      Si NO hay decisión histórica, la fuente no se presenta como NONE: ``RATIFIED_SCOPED`` si algún carril está vigente (evidencia/revisión = la PEOR de
+      los carriles vigentes; principal = STALE > UNKNOWN > REVIEW_DUE > RATIFIED_SCOPED) o ``REVOKED`` si todos fueron revocados."""
+    hist = derive_status(events, current_contract_digest, now)
+    lanes = scoped_lanes(events)
+    if not lanes:
+        return hist
+    scoped = {m: derive_status(events, current_contract_digest, now, lane=m) for m in lanes}
+    out = dict(hist)
+    out["scoped"] = {m: {k: s.get(k) for k in _LANE_KEYS} for m, s in scoped.items()}
+    out["lanes"] = "SCOPED_ONLY" if hist["decision"] == DECISION_NONE else "HISTORICAL_AND_SCOPED"
+    if hist["decision"] != DECISION_NONE:
+        return out
+    live = [s for s in scoped.values() if s["decision"] == DECISION_RATIFIED]
+    if not live:
+        out.update(decision=DECISION_REVOKED, principal=PRINCIPAL_REVOKED, evidence=EVIDENCE_NA, review=REVIEW_NA)
+        return out
+    ev = {s["evidence"] for s in live}
+    evidence = EVIDENCE_STALE if EVIDENCE_STALE in ev else (EVIDENCE_UNKNOWN if EVIDENCE_UNKNOWN in ev else EVIDENCE_MATCH)
+    review = REVIEW_DUE if any(s["review"] == REVIEW_DUE for s in live) else REVIEW_CURRENT
+    principal = (PRINCIPAL_EVIDENCE_STALE if evidence == EVIDENCE_STALE else PRINCIPAL_EVIDENCE_UNKNOWN if evidence == EVIDENCE_UNKNOWN
+                 else PRINCIPAL_REVIEW_DUE if review == REVIEW_DUE else DECISION_RATIFIED_SCOPED)
+    out.update(decision=DECISION_RATIFIED_SCOPED, evidence=evidence, review=review, principal=principal,
+               effective_review_by=min(parse_utc(s["effective_review_by"]) for s in live).isoformat())
+    return out
+
+
+def derive_status(events: list[dict], current_contract_digest: str | None, now: datetime, lane: str | None = UNSCOPED_LANE) -> dict:
     """Estado derivado de UN subject (eventos ya filtrados por subject), calculado en lectura — NUNCA se almacena (D7).
+
+    CARRILES (v7, `applies_to`): la vigencia se deriva POR CARRIL, nunca por subject completo. ``lane=None`` (por defecto) = carril HISTÓRICO: solo
+    ratificaciones SIN alcance y las revocaciones que las apuntan — con SOLO eventos históricos el resultado es idéntico al de siempre. ``lane="<AM>"`` =
+    carril del consumidor declarado: ratificaciones cuyo `applies_to` lo incluye y las revocaciones de ESAS ratificaciones; en un carril acotado una
+    revocación solo surte efecto si apunta a la ratificación VIGENTE del carril (revocar una ya reemplazada no apaga la renovación). Una ratificación
+    acotada NUNCA altera el carril histórico ni el de otro consumidor, y viceversa.
 
     Devuelve tres dimensiones que COEXISTEN + un `principal` solo para presentación:
       decision: NONE | RATIFIED | REVOKED
@@ -540,13 +621,16 @@ def derive_status(events: list[dict], current_contract_digest: str | None, now: 
     if now.tzinfo is None:
         raise ValidationError("now debe ser datetime aware (UTC)")
 
-    ordered = _sorted_events(events)
+    by_id = {e.get("event_id"): e for e in events}
+    ordered = [e for e in _sorted_events(events) if lane in event_lanes(e, by_id)]
     decision = DECISION_NONE
     active: dict | None = None            # última ratificación vigente (None si revocada o inexistente)
     for e in ordered:
         if e["event"] == EVENT_RATIFIED:
             decision, active = DECISION_RATIFIED, e
         elif e["event"] == EVENT_REVOKED:
+            if lane is not UNSCOPED_LANE and (active is None or e.get("revokes_event_id") != active.get("event_id")):
+                continue                  # carril acotado: revocar una ratificación ya reemplazada (o ya revocada) no cambia el carril
             decision, active = DECISION_REVOKED, None
 
     evidence = EVIDENCE_NA

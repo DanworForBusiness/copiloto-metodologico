@@ -27,6 +27,7 @@ from tools.catalog.layer_semantics import GOVERNED_CONTRACT_CLASSES
 from tools.catalog.methodological_judgment.profile_access import ProfileEvidence
 
 from . import contract as C
+from . import structural as ST
 from .cta import build_cta_candidates
 from .rules import (_review, decision_critical_undetermined_source, dimension_resolution, dimension_resolution_v4, evaluate_rules, har_unknown_candidates, naming_gate,
                     published_contract_conformance, resolve_level_exploratory, resolve_level_v4)
@@ -161,7 +162,11 @@ def explicit_mixed_with_physical(ev: ProfileEvidence, leaf: str) -> bool:
             and comps <= (GOVERNED_CONTRACT_CLASSES | {PHYSICAL_ABAP_TABLE_BOUNDARY}))
 
 
-def _missing_strength_dimensions(ev: ProfileEvidence, strengths: list[dict], policy: str, v4: bool = False, v6: bool = False) -> list[dict]:
+ACCEPTED_SOURCE_CAUSE = "SOURCE_CONTACT_ACCEPTED_BY_RATIFICATION"
+
+
+def _missing_strength_dimensions(ev: ProfileEvidence, strengths: list[dict], policy: str, v4: bool = False, v6: bool = False,
+                                 accepted: frozenset = frozenset()) -> list[dict]:
     """Dimensiones sin fortaleza afirmativa, cada una con su ``state`` y su ``cause`` estable. Solo lee hechos canónicos ya usados por las reglas; no inventa evidencia."""
     have = {s["rule_id"] for s in strengths}
     out = []
@@ -173,6 +178,9 @@ def _missing_strength_dimensions(ev: ProfileEvidence, strengths: list[dict], pol
             classes = {ev.classify_source(l, policy) for l in ev.source_contact_leaves}
             if not ev.source_contact_leaves:
                 cause = "NO_SOURCE_CONTACT_OBSERVED"
+            elif accepted and "EXTERNAL_CONTRACT_UNDETERMINED" in classes and all(
+                    l in accepted for l in ev.source_contact_leaves if ev.classify_source(l, policy) == "EXTERNAL_CONTRACT_UNDETERMINED"):
+                cause = ACCEPTED_SOURCE_CAUSE                                    # v7 (R-ACC): toda hoja indeterminada esta ACEPTADA para este consumo: clase conocida, sin fortaleza
             elif "EXTERNAL_CONTRACT_UNDETERMINED" in classes and not (
                     v6 and all(explicit_mixed_with_physical(ev, l) for l in ev.source_contact_leaves if ev.classify_source(l, policy) == "EXTERNAL_CONTRACT_UNDETERMINED")):
                 state, cause = INSUFFICIENT_EVIDENCE, "SOURCE_CONTRACT_CLASS_UNDETERMINED"
@@ -255,7 +263,8 @@ def _source_assessment(ev: ProfileEvidence) -> dict:
 _UNDETERMINED_CLASS = "EXTERNAL_CONTRACT_UNDETERMINED"
 
 
-def _resolve_ratifications(ev: ProfileEvidence, ratified_contracts: Iterable[Mapping[str, Any]] | None, policy: str) -> tuple[frozenset, list[dict]]:
+def _resolve_ratifications(ev: ProfileEvidence, ratified_contracts: Iterable[Mapping[str, Any]] | None, policy: str, accept: bool = False,
+                           accepted_out: set | None = None) -> tuple[frozenset, list[dict]]:
     """Valida CONTRA EL PERFIL cada ratificacion ya resuelta por el llamador (identidad + vigencia + digest MATCH se comprueban FUERA del motor: este solo lee la evidencia).
     Una ratificacion solo resuelve la indeterminacion contractual decision-critica (LVL-05) de una hoja ``REMOTE_IMPORTED`` cuya clase explicita es ``EXTERNAL_CONTRACT_UNDETERMINED`` y cuya identidad
     (remote_connection, remote_entity) coincide EXACTAMENTE con la del evento. Una hoja de clase fisica cruda / gobernada / desconocida / de plataforma NO es elegible: la ratificacion humana no
@@ -286,11 +295,19 @@ def _resolve_ratifications(ev: ProfileEvidence, ratified_contracts: Iterable[Map
                     code = "DUPLICATE_LEAF"
         if code is not None:
             rec.update(status="REJECTED", reject_code=code)
+        elif leaf not in critical and accept and ev.am in (item.get("applies_to") or ()):
+            rec.update(status="APPLIED", effect=C.RATIFICATION_EFFECT_ACCEPTED)           # v7 (R-ACC): contrato ACEPTADO para ESTE consumo declarado
+            applied.add(leaf)
+            if accepted_out is not None:
+                accepted_out.add(leaf)
         elif leaf not in critical:
             rec.update(status="NO_EFFECT", reject_code="NO_DECISION_CRITICAL_EXPOSURE")      # valida, pero esta hoja no era la causa de LVL-05: nada que resolver
         else:
             rec.update(status="APPLIED")
             applied.add(leaf)
+            if accept and accepted_out is not None and ev.am in (item.get("applies_to") or ()):
+                rec["effect"] = C.RATIFICATION_EFFECT_ACCEPTED                          # v7: ademas de resolver LVL-05, aceptada para ESTE consumo declarado
+                accepted_out.add(leaf)
         records.append(rec)
     return frozenset(applied), records
 
@@ -304,7 +321,10 @@ def decision_inputs(ratified_contracts: Iterable[Mapping[str, Any]] | None) -> d
     items = []
     for i in ratified_contracts or ():
         if isinstance(i, Mapping):
-            items.append({k: copy.deepcopy(i.get(k)) for k in _INPUT_KEYS})
+            item = {k: copy.deepcopy(i.get(k)) for k in _INPUT_KEYS}
+            if i.get("applies_to"):                                              # v7: alcance de consumo declarado (ausente en las historicas: entrada identica)
+                item["applies_to"] = sorted(str(a) for a in i["applies_to"])
+            items.append(item)
     items.sort(key=lambda r: (str(r["leaf"]), str(r["event_id"])))
     return {"version": C.DECISION_INPUTS_VERSION, "policy": C.DISPOSITION_GOVERNED_CONTRACT_RATIFIED, "scope": C.RATIFICATION_SCOPE, "ratified_contracts": items,
             "signature": C.signature({"policy": C.DISPOSITION_GOVERNED_CONTRACT_RATIFIED, "ratified_contracts": items})}
@@ -329,7 +349,8 @@ def _materialization_options(ev: ProfileEvidence, materialization_csn: Mapping[s
 
 def evaluate_judgment(profile: Mapping[str, Any], dispositions: Iterable[Mapping[str, Any]] | None = None, *, external_policy: str = "UNDETERMINED",
                       variants: Iterable[str] = (), materialization_csn: Mapping[str, Any] | None = None,
-                      ratified_contracts: Iterable[Mapping[str, Any]] | None = None, ruleset: str = C.RULESET_V2) -> dict:
+                      ratified_contracts: Iterable[Mapping[str, Any]] | None = None, ruleset: str = C.RULESET_V2,
+                      structural_evidence: Mapping[str, Any] | None = None) -> dict:
     """Juicio determinista sobre un perfil de Assessment YA persistido/generado (solo lectura). ``external_policy`` existe SOLO para pruebas de sensibilidad
     (``UNDETERMINED`` es la politica vigente); no forma parte del contrato de produccion."""
     variants = frozenset(variants or ())
@@ -337,10 +358,11 @@ def evaluate_judgment(profile: Mapping[str, Any], dispositions: Iterable[Mapping
         raise ValueError(f"variantes desconocidas: {sorted(variants - C.VARIANTS)}")
     if ruleset not in C.RULESETS:
         raise ValueError(f"ruleset desconocido: {ruleset!r} (permitidos: {list(C.RULESETS)})")
-    v6 = ruleset == C.RULESET_V6                                          # v6 = v5 + correcciones de reconocimiento (E2, E4a; ver contract)
-    v5 = ruleset in (C.RULESET_V5, C.RULESET_V6)                          # v5 = v4 + compuerta de naming (BUENA->ADECUADA) + PRO-MAT-02 + exactitud de fuente externa (ver contract)
-    v4 = ruleset in (C.RULESET_V4, C.RULESET_V5, C.RULESET_V6)
-    v3 = ruleset in (C.RULESET_V3, C.RULESET_V4, C.RULESET_V5, C.RULESET_V6)            # v4/v5 incluyen la politica de ratificacion de v3 (misma entrada ``ratified_contracts``/``decision_inputs``)
+    v7 = ruleset == C.RULESET_V7                                          # v7 = v6 + R-ACC estricta (contrato externo aceptado; ver contract)
+    v6 = ruleset in (C.RULESET_V6, C.RULESET_V7)                          # v6 = v5 + correcciones de reconocimiento (E2, E4a; ver contract)
+    v5 = ruleset in (C.RULESET_V5, C.RULESET_V6, C.RULESET_V7)            # v5 = v4 + compuerta de naming (BUENA->ADECUADA) + PRO-MAT-02 + exactitud de fuente externa (ver contract)
+    v4 = ruleset in (C.RULESET_V4, C.RULESET_V5, C.RULESET_V6, C.RULESET_V7)
+    v3 = ruleset in (C.RULESET_V3, C.RULESET_V4, C.RULESET_V5, C.RULESET_V6, C.RULESET_V7)            # v4/v5 incluyen la politica de ratificacion de v3 (misma entrada ``ratified_contracts``/``decision_inputs``)
     if v3 and variants:
         raise ValueError(f"{ruleset} no admite variantes experimentales (solo la politica de ratificacion de gobierno, que es parte del ruleset)")
     active = frozenset({C.VARIANT_T5_LOCAL_PHYSICAL, C.VARIANT_MATERIALIZED_INPUT}) if v4 else variants   # politica v4: T5 + evidencia de materializacion PERSISTIDA (leaf-materialization/v1); T4 y LEVEL_RESOLUTION NO se activan (no agregan fortalezas)
@@ -353,11 +375,24 @@ def evaluate_judgment(profile: Mapping[str, Any], dispositions: Iterable[Mapping
         return _unjudgeable(ev, "ASSESSMENT_NOT_JUDGEABLE", ruleset)
     if not ev.has_canonical_evidence_v3:
         return _unjudgeable(ev, "CANONICAL_EVIDENCE_V3_REQUIRED", ruleset)
-    ratified_leaves, ratification_records = _resolve_ratifications(ev, ratified_contracts, external_policy) if ratifying else (frozenset(), [])
+    _accepted: set = set()
+    ratified_leaves, ratification_records = (_resolve_ratifications(ev, ratified_contracts, external_policy, accept=v7, accepted_out=_accepted)
+                                             if ratifying else (frozenset(), []))
+    accepted = frozenset(_accepted) if v7 else frozenset()                # R-ACC: hojas externas ACEPTADAS para ESTE consumo DECLARADO (solo v7)
     res = evaluate_rules(ev, external_policy, active, ratified_leaves, v5=v5, v6=v6)
     reasons = copy.deepcopy(res["reasons"])
     reviews = copy.deepcopy(res["review_candidates"])
     strengths = res["strengths"]
+    jkp = ST.valid_block((structural_evidence or {}).get("join_key_profile")) if v7 else None
+    e3 = ST.e3_enrichment(ev, jkp, external_policy) if v7 and jkp is not None else None
+    e5 = ST.e5_key_sufficiency(ev, jkp, external_policy) if v7 and jkp is not None else None
+    if e5 is not None and e5["state"] == ST.DEFICIENT:                   # v7 E5: la clave publicada NO identifica la fila (evidencia positiva): deficiencia LOCAL del contrato publicado
+        bad = [x for x in e5["nodes"] if x["state"] == ST.DEFICIENT]
+        reasons.append({"reason_id": "PUB-LOC-02:closure", "rule_id": "PUB-LOC-02", "classification": C.LOCAL_WEAKNESS, "dimension": C.PUBLISHED_CONTRACT,
+                        "statement_key": "pub.declared_key_does_not_identify_the_effective_grain", "affected_artifacts": sorted(x["node"] for x in bad),
+                        "evidence_refs": ["ext:join_key_profile"], "deterministic_basis": ["PUB.declared_key_misses_grain_components:" + ",".join(sorted({m for x in bad for m in x["missing"]}))],
+                        "evaluability": C.EVALUATED, "disposition": {"allowed": True, "required": False, "max_class_if_confirmed": C.LOCAL_WEAKNESS}, "state": C.OPEN_CANDIDATE})
+        strengths = [s for s in strengths if s["rule_id"] != "PUB-STR-01"]       # la identidad de la fila PRECEDE a la nomenclatura: sin fortaleza del contrato publicado
     limitations = res["evidence_limitations"]
     not_eval = _contracts_not_evaluable(ev)
     # Fuente externa indeterminada DECISION-CRITICA: hoja EXTERNAL_CONTRACT_UNDETERMINED cuyo vocabulario llega verbatim al publicado (ver
@@ -376,8 +411,9 @@ def evaluate_judgment(profile: Mapping[str, Any], dispositions: Iterable[Mapping
             status, (level, level_rule), nd_reason = C.DETERMINED, resolved, None
             level_no_exc = level
     elif v4 and level_rule == "LVL-06":                                                # v4: resolucion por estado de dimension (politica adoptada, no experimental)
-        pre_missing = _missing_strength_dimensions(ev, strengths, external_policy, True, v6)
-        dim_states = dimension_resolution_v4(ev, external_policy, strengths, reasons, pre_missing, published_contract_conformance(ev, external_policy, v6)["conditions"]["lineage_complete"], True)
+        pre_missing = _missing_strength_dimensions(ev, strengths, external_policy, True, v6, accepted)
+        dim_states = dimension_resolution_v4(ev, external_policy, strengths, reasons, pre_missing, published_contract_conformance(ev, external_policy, v6)["conditions"]["lineage_complete"], True,
+                                             accepted=accepted, e3_enrichment=bool(e3 and e3["state"] == ST.DEMONSTRATED))
         resolved = resolve_level_v4(dim_states)
         if resolved is not None:
             status, (level, level_rule), nd_reason = C.DETERMINED, resolved, None
@@ -397,7 +433,7 @@ def evaluate_judgment(profile: Mapping[str, Any], dispositions: Iterable[Mapping
     reasons.sort(key=lambda r: (_CLASS_RANK[r["classification"]], r["rule_id"], r["reason_id"]))
     reviews.sort(key=lambda r: (r["rule_id"], r["review_id"]))
     cta = build_cta_candidates(reasons, reviews, res["qualifiers"], limitations, res["supporting_evidence"])
-    missing_dims = _missing_strength_dimensions(ev, strengths, external_policy, v4, v6) if level_rule == "LVL-06" else None
+    missing_dims = _missing_strength_dimensions(ev, strengths, external_policy, v4, v6, accepted) if level_rule == "LVL-06" else None
     out = {
         "judgment_schema_version": C.JUDGMENT_SCHEMA_VERSION, "ruleset_version": ruleset, "status": status, "level": level, "closure": closure,
         "plena_assignment": C.PLENA_ASSIGNMENT, "plena_state": C.PLENA_STATE, "level_rule": level_rule,
@@ -420,6 +456,8 @@ def evaluate_judgment(profile: Mapping[str, Any], dispositions: Iterable[Mapping
                                                   "artifacts": gate["non_recoverable_artifacts"] if gate["state"] == C.NAMING_GATE_BLOCK else gate["unknown_non_recoverable_artifacts"],
                                                   "resulting_status": C.DETERMINED, "resulting_level": C.BUENA},
                                                  {"change_key": "NEW_EVIDENCE_OF_A_RELEVANT_OR_MATERIAL_REASON_WOULD_LOWER_THE_LEVEL", "reason_ids": [], "resulting_status": C.DETERMINED, "resulting_level": None}]
+    if v7 and jkp is not None:                                           # entrada estructural CONSUMIDA (entra en la firma de salida) + resultado de E3/E5
+        out["structural_evidence"] = {"version": C.STRUCTURAL_EVIDENCE_VERSION, "digest": C.signature(dict(jkp)), "e3": e3, "e5": e5}
     if v5:
         out["naming_gate"] = gate
         out["material_compensation"] = res.get("material_compensation") or []

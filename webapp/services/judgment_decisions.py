@@ -76,20 +76,22 @@ def take_snapshot(clients: list[str], *, now: datetime | None = None) -> Snapsho
     return Snapshot(MODE_REGISTRY, now or datetime.now(timezone.utc), out)
 
 
-def derive(profile: Mapping[str, Any], client: str, snapshot: Snapshot, ruleset: str | None = None) -> tuple[dict, dict]:
+def derive(profile: Mapping[str, Any], client: str, snapshot: Snapshot, ruleset: str | None = None, structural_evidence: Mapping[str, Any] | None = None) -> tuple[dict, dict]:
     """(Juicio del ruleset VIGENTE —v3/v4 incluyen la politica de ratificacion—, reporte del enlace). Determinista dado (perfil, instantánea): el motor solo recibe las ratificaciones ENLAZADAS (identidad + vigencia + digest MATCH)."""
     rep = link.link_ratifications(profile, client, now=snapshot.taken_at, load_events=snapshot.load_events)
     linked = rep["ratified_contracts"]
     if ruleset is None:
         from webapp.services import judgment_activation as ja
         ruleset = ja.active_ruleset()                                       # ruleset VISIBLE (activación gobernada) salvo que el operador pida otro explícitamente (adopción)
-    j = evaluate_judgment(profile, ruleset=ruleset, ratified_contracts=linked)
+    # `structural_evidence`: entrada YA VERIFICADA del sidecar del sobre (``assessment_service.structural_input``); solo v7 la recibe (v2–v6: llamada histórica exacta)
+    extra = {"structural_evidence": structural_evidence} if structural_evidence is not None and ruleset == "judgment-rules/v7" else {}
+    j = evaluate_judgment(profile, ruleset=ruleset, ratified_contracts=linked, **extra)
     # La ENTRADA persistida = solo las ratificaciones que RESOLVIERON algo (hoja decision-critica). Una ratificacion valida de un contrato que este modelo usa sin que sea decision-critica (NO_EFFECT)
     # no cambia el Juicio: no entra en ``decision_inputs`` (evita churn de firmas y falsos «pendiente de reevaluacion» si luego se revoca). Se re-evalua una sola vez sin ellas.
     applied_ids = {d.get("event_id") for d in j.get("dispositions_applied", ()) if d.get("decision") == "GOVERNED_CONTRACT_RATIFIED" and d.get("status") == "APPLIED"}
     effective = [i for i in linked if i["event_id"] in applied_ids]
     if len(effective) != len(linked):
-        j = evaluate_judgment(profile, ruleset=ruleset, ratified_contracts=effective)
+        j = evaluate_judgment(profile, ruleset=ruleset, ratified_contracts=effective, **extra)
     return j, rep
 
 
