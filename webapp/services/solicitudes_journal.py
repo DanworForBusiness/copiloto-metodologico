@@ -262,6 +262,16 @@ def version_history_coverage(html, item_id, versions, *, issues=(), current_modi
                              'before': a if key == service.STATUS else service.display_date(a),
                              'after': b if key == service.STATUS else service.display_date(b),
                              'badge_kind': 'architecture' if key == service.STATUS else '', 'text': ''})
+        # Descripción de la demanda: mismo origen (versiones de SharePoint: autor, fecha), valor anterior y nuevo como texto plano.
+        # Se compara el TEXTO (no el HTML que SharePoint puede re-serializar) para no inventar movimientos.
+        a, b = value(before, service.DESCRIPTION), value(after, service.DESCRIPTION)
+        if any(v is not None and not isinstance(v, str) for v in (a, b)):
+            codes.add('malformed_value')
+        else:
+            a, b = service.narrative_text(a or '').strip(), service.narrative_text(b or '').strip()
+            if a != b:
+                rows.append({**common, 'id': f'version:{item_id}:{new["id"]}:description', 'movement': 'Cambio de descripción',
+                             'text': f'Anterior: {a or "—"}\nNueva: {b or "—"}'})
     rows.sort(key=lambda r: datetime.fromisoformat(r['at']) if r.get('at') else datetime.min.replace(tzinfo=timezone.utc), reverse=True)
     return rows, coverage_summary(codes)
 

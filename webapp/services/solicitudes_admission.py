@@ -17,6 +17,17 @@ def audit_approval(actor, item_id, correlation):
     )
 
 
+def description_correction_open(fields):
+    """Demanda todavía NO TOMADA: Funnel `Solicitado` y sin colaborador asignado (por LookupId ni por valor).
+
+    Habilita a cualquier usuario autorizado en Operaciones a corregir SOLO la Descripción de la demanda; no otorga
+    `can_edit` ni permisos de Arquitectura. Ante cualquier representación de asignación, falla cerrado."""
+    fields = fields or {}
+    return (fields.get(service.FUNNEL) == REQUESTED
+            and not service.lookup_ids(fields, service.ASSIGNEES)
+            and not service.values(fields.get(service.ASSIGNEES)))
+
+
 class AdmissionContractError(ValueError):
     pass
 

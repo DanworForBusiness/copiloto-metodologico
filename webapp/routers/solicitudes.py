@@ -231,10 +231,13 @@ def _edit_panel(request, item_id, *, item=None, options=None, error="", auth_rec
     values = service.form_values(item["fields"]) if item else {}
     user = _user(request) or {}
     can_edit, can_edit_architecture = permissions
-    template = "partials/solicitudes_display.html" if request.query_params.get("mode") == "display" or (item and not can_edit) else "partials/solicitudes_edit.html"
+    display_mode = request.query_params.get("mode") == "display"
+    template = "partials/solicitudes_display.html" if display_mode or (item and not can_edit) else "partials/solicitudes_edit.html"
+    # Corrección colaborativa: quien solo accede a Operaciones ve la solicitud en solo lectura salvo la Descripción, mientras no esté tomada.
+    can_correct_description = bool(item) and not can_edit and not display_mode and admission.description_correction_open(item["fields"])
     return templates.TemplateResponse(request=request, name=template, context={
         "item_id": item_id, "values": values, "current": values,
-        "can_edit_architecture": can_edit_architecture,
+        "can_edit_architecture": can_edit_architecture, "can_correct_description": can_correct_description,
         "options": options or {}, "error": error, "auth_recovery": auth_recovery,
         "project_display": service.project_label(item["fields"], (options or {}).get(service.PROJECT)) if item else "",
         "etag": _etag(item) if item else "", "funnel": item["fields"].get(service.FUNNEL) if item else "",
@@ -353,7 +356,11 @@ async def solicitudes_save(request: Request, item_id: str, graph_token: str = Fo
     try:
         item = await run_in_threadpool(repository.read_item, graph_token, item_id)
         can_edit, can_architecture = await run_in_threadpool(repository.edit_permissions, graph_token, item, user)
-        if not can_edit or (not can_architecture and (
+        # Corrección de Descripción (solicitud no tomada, re-evaluada sobre el registro VIGENTE): solo ese campo + ETag/token. Sin admisión,
+        # observaciones ni ningún otro campo; cualquier extra es 403 antes de escribir.
+        correcting = (not can_edit and admission.description_correction_open(item.get("fields"))
+                      and not set(form) - {service.DESCRIPTION, "etag", "graph_token", "token_diagnostic"})
+        if not (can_edit or correcting) or (not can_architecture and (
                 any(key in form for key in (service.STATUS, service.ASSIGNEES, service.ACTUAL, service.COMMENTS))
                 or str(form.get("new_observation", "")).strip())):
             outcome = "forbidden"
@@ -374,7 +381,7 @@ async def solicitudes_save(request: Request, item_id: str, graph_token: str = Fo
                     item["fields"].get(service.COMMENTS), new_observation,
                     str(form.get("observation_ticket", "")), item_id, user, columns,
                 )
-            if admission.proposes_approval(item["fields"], submitted, payload):
+            if not correcting and admission.proposes_approval(item["fields"], submitted, payload):   # la corrección nunca admite la demanda
                 if columns is None:
                     columns = await run_in_threadpool(repository.read_creation_columns, graph_token)
                 payload = admission.approval_patch(
