@@ -407,6 +407,57 @@ def import_birthdays(text: str, actor: str, *, authorized: bool) -> tuple[int, l
     return created, rejected
 
 
+def birthday_visibility(b: dict) -> str:
+    """`visible` (autorización registrada y no oculto) · `hidden` (autorizado pero ocultado voluntariamente) · `unauthorized` (sin autorización:
+    NUNCA visible, aunque no esté oculto)."""
+    if not b.get("authorized"):
+        return "unauthorized"
+    return "hidden" if b.get("hidden") else "visible"
+
+
+VISIBILITY_LABELS = {"visible": "Visible", "hidden": "Oculto", "unauthorized": "Sin autorización"}
+
+
+def filter_birthdays(*, q: str = "", month: str = "", visibility: str = "") -> list[dict]:
+    q = (q or "").strip().lower()
+    out = []
+    for b in list_birthdays():
+        if q and q not in b.get("name", "").lower():
+            continue
+        if month and str(b.get("month")) != str(month):
+            continue
+        if visibility and birthday_visibility(b) != visibility:
+            continue
+        out.append(b)
+    return out
+
+
+def preview_birthday_import(text: str) -> list[dict]:
+    """Vista previa de la carga masiva (mismo flujo que la carga masiva de CVs: previsualizar, elegir, confirmar). Una fila por línea con
+    estado `valid` · `duplicate` (ya cargado) · `invalid` y su mensaje. Nunca escribe."""
+    existing = {(b.get("name", "").lower(), int(b.get("day", 0)), int(b.get("month", 0))) for b in list_birthdays()}
+    seen, rows = set(), []
+    for n, line in enumerate((text or "").splitlines(), start=1):
+        raw = line.strip()
+        if not raw:
+            continue
+        m = re.match(r"^(.+?)[;,\t]\s*(\d{1,2})[/\-.](\d{1,2})\s*$", raw)
+        if not m:
+            rows.append({"line": n, "raw": raw, "status": "invalid", "message": "Formato esperado: Nombre Apellido;DD/MM"})
+            continue
+        name = m.group(1).strip()[:120]
+        try:
+            d, mo = _valid_day_month(m.group(2), m.group(3))
+        except CarteleraValidationError:
+            rows.append({"line": n, "raw": raw, "name": name, "status": "invalid", "message": "Día o mes inválido"})
+            continue
+        key = (name.lower(), d, mo)
+        status, message = ("duplicate", "Ya está cargado") if key in existing or key in seen else ("valid", "Se incorpora")
+        seen.add(key)
+        rows.append({"line": n, "raw": raw, "name": name, "day": d, "month": mo, "status": status, "message": message})
+    return rows
+
+
 def public_birthdays() -> list[dict]:
     """Solo los que tienen autorización de publicación y no están ocultos."""
     return [b for b in list_birthdays() if b.get("authorized") and not b.get("hidden")]

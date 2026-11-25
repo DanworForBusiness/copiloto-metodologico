@@ -208,12 +208,16 @@ def project_options(request: Request, graph_token: str = Form("")):
 
 # ── gestión: cumpleaños ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 @router.get(f"{BASE}/cumpleanos", response_class=HTMLResponse, include_in_schema=False)
-def birthdays_page(request: Request):
+def birthdays_page(request: Request, q: str = "", mes: str = "", visibilidad: str = ""):
     user, redirect = _admin(request)
     if redirect:
         return redirect
+    visibilidad = visibilidad if visibilidad in svc.VISIBILITY_LABELS else ""
+    mes = mes if mes.isdigit() and 1 <= int(mes) <= 12 else ""
+    all_rows = svc.list_birthdays()
     return templates.TemplateResponse(request=request, name="human_capital/cartelera_cumpleanos.html", headers=_NO_STORE, context=_shell(
-        request, user, "cumpleanos", birthdays=svc.list_birthdays(), upcoming=svc.upcoming_birthdays(7), months=svc.MONTHS))
+        request, user, "cumpleanos", birthdays=svc.filter_birthdays(q=q, month=mes, visibility=visibilidad), total=len(all_rows),
+        upcoming=svc.upcoming_birthdays(30), months=svc.MONTHS, q=q, mes=mes, visibilidad=visibilidad))
 
 
 @router.post(f"{BASE}/cumpleanos", include_in_schema=False)
@@ -223,22 +227,49 @@ def birthday_save(request: Request, birthday_id: str = Form(""), revision: str =
     try:
         svc.save_birthday(birthday_id or None, int(revision) if revision else None, name=name, day=day, month=month,
                           authorized=authorized == "1", actor=_actor(user))
+    except repo.CarteleraNotFoundError:
+        raise HTTPException(404, "No existe") from None
     except _ERRORS as exc:
         return _back(f"{BASE}/cumpleanos", error=str(exc) if isinstance(exc, svc.CarteleraValidationError) else _storage_message(exc))
-    return _back(f"{BASE}/cumpleanos", ok="Cumpleaños guardado.")
+    return _back(f"{BASE}/cumpleanos", ok="Cumpleaños actualizado." if birthday_id else "Cumpleaños agregado.")
+
+
+@router.get(f"{BASE}/cumpleanos/importar", response_class=HTMLResponse, include_in_schema=False)
+def birthday_import_page(request: Request):
+    user, redirect = _admin(request)
+    if redirect:
+        return redirect
+    return templates.TemplateResponse(request=request, name="human_capital/cartelera_cumpleanos_importar.html", headers=_NO_STORE, context=_shell(
+        request, user, "cumpleanos", rows=None, bulk=""))
+
+
+@router.post(f"{BASE}/cumpleanos/importar/vista-previa", response_class=HTMLResponse, include_in_schema=False)
+async def birthday_import_preview(request: Request):
+    user = _admin_write(request)
+    form = await request.form()
+    text = str(form.get("bulk") or "")
+    upload = form.get("file")
+    if upload is not None and getattr(upload, "filename", ""):
+        raw = await upload.read()
+        if len(raw) > 512 * 1024:
+            return _back(f"{BASE}/cumpleanos/importar", error="El archivo supera 512 KB.")
+        text = raw.decode("utf-8-sig", errors="replace")
+    rows = svc.preview_birthday_import(text)
+    return templates.TemplateResponse(request=request, name="human_capital/cartelera_cumpleanos_importar.html", headers=_NO_STORE, context=_shell(
+        request, user, "cumpleanos", rows=rows, bulk=text))
 
 
 @router.post(f"{BASE}/cumpleanos/importar", include_in_schema=False)
-def birthday_import(request: Request, bulk: str = Form(""), authorized: str = Form("")):
+async def birthday_import(request: Request):
     user = _admin_write(request)
+    form = await request.form()
+    lines = [str(v) for v in form.getlist("line")]
     try:
-        created, rejected = svc.import_birthdays(bulk, _actor(user), authorized=authorized == "1")
+        created, rejected = svc.import_birthdays(chr(10).join(lines), _actor(user), authorized=form.get("authorized") == "1")
     except _ERRORS as exc:
         return _back(f"{BASE}/cumpleanos", error=_storage_message(exc))
-    message = f"{created} cumpleaños importados."
-    if rejected:
-        return _back(f"{BASE}/cumpleanos", ok=message, error=f"{len(rejected)} líneas no tienen el formato «Nombre;DD/MM»: " + " | ".join(rejected[:5]))
-    return _back(f"{BASE}/cumpleanos", ok=message)
+    message = f"{created} cumpleaños importado{'' if created == 1 else 's'}."
+    return _back(f"{BASE}/cumpleanos", ok=message, error=f"{len(rejected)} líneas no se pudieron importar." if rejected else "")
 
 
 @router.post(f"{BASE}/cumpleanos/{{birthday_id}}/{{action}}", include_in_schema=False)

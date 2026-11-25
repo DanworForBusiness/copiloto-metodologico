@@ -167,3 +167,14 @@ a.ct-space:hover { border-color: var(--ct-gold); }
 .ct-foot { padding-bottom: 28px; text-align: center; }
 @media (max-width: 900px) { .ct-hero, .ct-spaces, .ct-grid, .ct-grid--2, .ct-sections { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 640px) { .ct-cal { display: none; } .ct-bday-list { display: block; } .ct-top__row { gap: 10px; padding: 10px 0; } .ct-nav { order: 3; width: 100%; overflow-x: auto; } .ct-top__tools { margin-left: auto; } }
+
+/* Próximos cumpleaños: tiles `.activity-kpi` del Hub con acento NEUTRO (sin la paleta por posición de los KPIs) y el dorado institucional para hoy. */
+.cartelera-bday-tiles { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); margin-bottom: 0; }
+.cartelera-bday-tiles .activity-kpi { --kpi-accent: rgba(128,128,128,.45); }
+.cartelera-bday-tiles .activity-kpi.is-today { --kpi-accent: var(--gold); background: rgba(231,176,8,.08); }
+.cartelera-bday-tiles .activity-kpi__label { color: var(--soft); }
+.cartelera-bday-tiles .is-today .activity-kpi__label { color: var(--gold); }
+.cartelera-bday-tiles .activity-kpi__hint { color: inherit; font-size: .84rem; font-weight: 600; }
+.cartelera-dialog-row { display: grid; grid-template-columns: 110px 1fr; gap: 12px; }
+.cartelera-import { margin-top: 6px; }
+.hc-profile-form .cartelera-check, .hc-profile-form > .dashboard-sections { grid-column: 1 / -1; }
