@@ -366,8 +366,8 @@ def test_process_detail_header_has_the_same_structure_as_the_rest_of_cchh_with_a
         text = re.search(r'<div class="hc-profiles-hero-text">(.*?)</div>\s*<div class="hc-profiles-hero-actions">(.*?)</div>\s*$', hero, re.S)
         assert text, "texto y acciones deben ser contenedores hermanos independientes"
         ident, actions = text.group(1), text.group(2)
-        order = [ident.index('<p class="eyebrow">Capital Humano</p>'), ident.index("<h1>")]                         # eyebrow → título (como Cargar CV / Editar candidato)
-        assert order == sorted(order) and ident.lstrip().startswith('<p class="eyebrow">Capital Humano</p>')
+        order = [ident.index('<p class="eyebrow">Staffing</p>'), ident.index("<h1>")]                         # eyebrow → título (como Cargar CV / Editar candidato)
+        assert order == sorted(order) and ident.lstrip().startswith('<p class="eyebrow">Staffing</p>')
         assert "hero-meta" not in ident[: ident.index("<h1>")]                                                      # la meta ya no precede al título
         assert "btn-" in actions and "<h1>" not in actions and "eyebrow" not in actions
         assert html.index('class="catalog-back"') < html.index('class="module-hero hc-profiles-hero"')            # «← Volver» antes del hero

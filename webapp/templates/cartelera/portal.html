@@ -1,0 +1,407 @@
+{#- Portal STANDALONE de la Cartelera Virtual (consumo de colaboradores). Honra la propuesta visual ORIGINAL de la app de Capital Humano
+    (app-cartelera, `public/app.html`): misma hoja de estilos (`cartelera_portal.css`), mismas clases, íconos y estructura (barra negra de marca,
+    navegación en píldoras doradas, hero con anillo dorado, espacios, banner del mes, chips de sección, grilla de categorías, tarjetas de
+    proyecto y calendario). La VISIBILIDAD de cada edición la resuelve el servidor: esta plantilla nunca decide qué se publica. -#}
+{%- set first_name = ((user or {}).get('first_name') or ((user or {}).get('name') or '').split(' ')[0]) -%}
+{%- set ICONS = {
+  'home': 'M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z', 'board': 'M4 4h16v12H4zM8 20h8M12 16v4', 'wall': 'M4 5h16M4 12h16M4 19h10',
+  'megaphone': 'M3 10v4h4l7 4V6L7 10zM17 9a4 4 0 0 1 0 6', 'heart': 'M12 20s-7-4.5-7-10a4 4 0 0 1 7-2.5A4 4 0 0 1 19 10c0 5.5-7 10-7 10z',
+  'bulb': 'M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9V16h7v-2.1A6 6 0 0 0 12 3z', 'cake': 'M4 21h16M5 21v-7h14v7M8 14V11M12 14V11M16 14V11M12 7a1.5 1.5 0 0 0 0-3',
+  'gift': 'M4 10h16v4H4zM6 14v7h12v-7M12 10v11M12 10c-2 0-4-1-4-3s3-2 4 3c1-5 4-5 4-3s-2 3-4 3',
+  'star': 'M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z',
+  'rocket': 'M5 15c-1 1-1.5 4-1.5 4s3-.5 4-1.5M9 15l-2-2c1.5-5 6-9 11-9 0 5-4 9.5-9 11zM14 9.5a1 1 0 1 0 0-.01',
+  'users': 'M16 19v-1a4 4 0 0 0-8 0v1M12 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM20 19v-1a3 3 0 0 0-2.5-3M17 5.5a3 3 0 0 1 0 5',
+  'link': 'M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1',
+  'out': 'M14 4h6v6M20 4l-9 9M18 14v6H4V6h6', 'check': 'M5 12l5 5 9-10', 'image': 'M4 5h16v14H4zM4 16l5-5 4 4 2-2 5 5M15 9.5a1 1 0 1 0 0-.01',
+  'move': 'M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3', 'up': 'M12 19V5M5 12l7-7 7 7', 'down': 'M12 5v14M19 12l-7 7-7-7',
+  'plus': 'M12 5v14M5 12h14', 'trash': 'M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6', 'swap': 'M7 7h11l-3-3M17 17H6l3 3', 'edit': 'M4 20h4L19 9l-4-4L4 16zM14 6l4 4',
+  'bell': 'M6 16V11a6 6 0 1 1 12 0v5l2 2H4zM10 21h4', 'chat': 'M4 5h16v11H9l-5 4z', 'flag': 'M5 21V4M5 4h11l-2 4 2 4H5',
+  'shield': 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z', 'pin': 'M9 4h6l-1 6 3 3H7l3-3zM12 13v8', 'poll': 'M4 20V12M9 20V6M14 20v-9M19 20V9',
+  'x': 'M6 6l12 12M18 6L6 18', 'search': 'M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM20 20l-4-4', 'clock': 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2'} -%}
+{%- set SECTION_ICON = {'comunicados': 'megaphone', 'proyectos': 'rocket', 'bienestar': 'heart', 'aprendizaje': 'bulb', 'cumpleanos': 'cake', 'otros': 'star', 'beneficios': 'gift'} -%}
+{%- from 'cartelera/_social.html' import social_block with context -%}
+{%- macro ic(name, cls='') -%}<svg class="svg {{ cls }}" viewBox="0 0 24 24" aria-hidden="true"><path d="{{ ICONS.get(name, ICONS['star']) }}"/></svg>{%- endmacro -%}
+<!doctype html>
+<html lang="es" data-theme="{{ 'dark' if request.cookies.get('dw-content-theme') == 'dark' else 'light' }}">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Cartelera Virtual · {{ {'inicio': 'Inicio', 'novedades': 'Novedades', 'nosotros': 'Nosotros', 'comunidad': 'Comunidad', 'saludo': 'Cumpleaños'}.get(page, 'Inicio') }} | Danwor</title>
+<link rel="icon" href="{{ url_for('static', path='favicon.ico') }}">
+{#- Montserrat (Google Fonts) es variable: UN solo woff2 latino sirve todos los pesos. Se precarga en paralelo con las hojas para que el primer
+    render ya la tenga (en refresh con o sin caché); si Google cambia la versión del archivo, la hoja sigue funcionando igual y el respaldo
+    métrico de `cartelera_portal.css` evita cualquier salto. -#}
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preload" as="font" type="font/woff2" crossorigin href="https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459Wlhyw.woff2">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="{{ url_for('static', path='cartelera_portal.css') }}?v={{ static_version }}">
+{% if social_on %}<link rel="stylesheet" href="{{ url_for('static', path='cartelera_social.css') }}?v={{ static_version }}"><script defer src="{{ url_for('static', path='cartelera_social.js') }}?v={{ static_version }}"></script>{% endif %}
+{% if edit_mode %}<link rel="stylesheet" href="{{ url_for('static', path='cartelera_canvas.css') }}?v={{ static_version }}"><script defer src="{{ url_for('static', path='cartelera_canvas.js') }}?v={{ static_version }}"></script>{% endif %}
+</head>
+<body{% if social_on %} data-social-me="{{ me }}"{% endif %}{% if edit_mode %} class="ct-editing{{ ' ct-layout' if layout_mode else '' }}"{% endif %}>
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="{{ urls.inicio }}" aria-label="Danwor, inicio"><img src="{{ brand_logo_url }}" alt="Danwor" class="brand-logo"></a>
+    <nav class="main" aria-label="Secciones"{% if edit_mode %} data-ct-pages{% endif %}>
+      <a href="{{ urls.inicio }}"{% if page == 'inicio' %} aria-current="page"{% endif %}>{{ ic('home') }}Inicio</a>
+      <a href="{{ urls.novedades }}"{% if page == 'novedades' %} aria-current="page"{% endif %}>{{ ic('board') }}Novedades</a>
+      <a href="/cartelera/comunidad"{% if page == 'comunidad' %} aria-current="page"{% endif %}>{{ ic('wall') }}Comunidad</a>
+      <a href="{{ urls.nosotros }}"{% if page == 'nosotros' %} aria-current="page"{% endif %}>{{ ic('star') }}Nosotros</a>
+    </nav>
+    {% if social_on %}<div class="hdr-tools">
+      {% if social_on %}<button type="button" class="icon-btn" data-sx="notif" aria-label="Notificaciones{{ ', ' ~ notif_unseen ~ ' nuevas' if notif_unseen }}">{{ ic('bell') }}{% if notif_unseen %}<span class="badge-dot">{{ '9+' if notif_unseen > 9 else notif_unseen }}</span>{% endif %}</button>{% endif %}
+      {#- Presentación limpia en CUALQUIER recorrido (consumo, Presentar, edición): sin controles administrativos ni «Volver al Hub». -#}
+    </div>{% endif %}
+  </div>
+</header>
+{% if preview and not edit_mode %}<div class="preview-bar">{{ preview_note ~ ' · ' if preview_note else 'Vista previa de Capital Humano · ' }}{{ svc.STATE_LABELS[svc.effective_state(edition or greeting)] }} — los colaboradores {{ 'ya lo ven' if svc.is_visible(edition or greeting) else 'todavía no lo ven' }}.</div>{% endif %}
+
+<main class="wrap" id="content">
+{% macro item_html(it) -%}
+  <article class="item"{% if it.id %} id="it-{{ it.id }}"{% endif %}>
+    {% if it.title %}<h3>{{ it.title }}</h3>{% endif %}
+    {% if it.body %}<p>{{ it.body }}</p>{% endif %}
+    {% if it.link %}<a class="linkcard" href="{{ it.link }}" target="_blank" rel="noopener">{{ ic('out') }}<span>{{ it.link_label or it.link }}</span></a>{% endif %}
+    {% if social_on and it.id %}{{ social_block('item:' ~ it.id, True) }}{% endif %}
+  </article>
+{%- endmacro %}
+{% macro links_html(items) -%}
+  {% for l in items %}<a class="lnk" href="{{ l.url }}" target="_blank" rel="noopener"><span class="ic">{{ ic('link') }}</span><span style="min-width:0">{{ l.title }}<small>{{ l.group }}</small></span></a>{% endfor %}
+{%- endmacro %}
+
+{#- En el lienzo del editor (`edit_mode`) se dibujan TODAS las páginas del portal y se alterna entre ellas sin recargar: así se recorre la
+    cartelera completa conservando los cambios pendientes. Sin `edit_mode`, solo la página pedida (como siempre). -#}
+{% set pages = ['inicio', 'novedades', 'nosotros'] if edit_mode and page != 'saludo' else [page] %}
+{% macro page_open(pg) %}{% if edit_mode %}<div data-ct-page="{{ pg }}"{% if pg != page %} hidden{% endif %}>{% endif %}{% endmacro %}
+{% macro page_close() %}{% if edit_mode %}</div>{% endif %}{% endmacro %}
+{% set E = edit_mode %}
+{% macro ed_btn(act, icon_name, label, extra='') -%}<button type="button" class="icon-btn ct-ed-btn" data-ct-act="{{ act }}" title="{{ label }}" aria-label="{{ label }}" {{ extra }}>{{ ic(icon_name) }}</button>{%- endmacro %}
+{% macro ed_text(field, value, tag='span', ph='', multi=False, cls='') -%}
+  {%- if edit_mode and layout_mode -%}<{{ tag }} class="ct-ro {{ cls }}" data-ct-f="{{ field }}" data-ph="{{ ph }}">{{ value or '' }}</{{ tag }}>
+  {%- elif edit_mode -%}<{{ tag }} class="ct-edit {{ cls }}" contenteditable="plaintext-only" spellcheck="true" data-ct-f="{{ field }}" data-ph="{{ ph }}"{% if multi %} data-multi{% endif %}>{{ value or '' }}</{{ tag }}>
+  {%- elif value -%}<{{ tag }}{% if cls %} class="{{ cls }}"{% endif %}>{{ value }}</{{ tag }}>{%- endif -%}
+{%- endmacro %}
+{% macro item_tools(kind) -%}
+  <div class="ct-ed ct-item-tools" contenteditable="false">
+    <span class="grip" draggable="true" data-ct-grip="item" title="Arrastrar para ordenar (también a otra sección)">{{ ic('move') }}</span>
+    {{ ed_btn('up', 'up', 'Subir') }}{{ ed_btn('down', 'down', 'Bajar') }}
+    {% if not layout_mode %}{{ ed_btn('link', 'link', 'Enlace') }}
+    {% if kind == 'projects' %}{{ ed_btn('swap', 'swap', 'Cambiar el proyecto de Operaciones') }}{% endif %}
+    {{ ed_btn('', 'image', 'Imagen: disponible con la integración documental de SharePoint', 'disabled') }}
+    {{ ed_btn('del', 'trash', 'Quitar') }}{% endif %}
+  </div>
+  <span class="tag off ct-ed ct-feat" contenteditable="false" hidden>{{ ic('star') }}Destacado en Inicio</span>
+{%- endmacro %}
+{% macro link_panel(it, label=True) -%}{% if not layout_mode %}
+  <div class="ct-ed ct-linkpanel" contenteditable="false" hidden>
+    <label class="f">Enlace <span class="h">empieza con https://{% if label %} · el texto del botón se edita sobre la cartelera{% endif %}</span><input type="url" data-ct-link value="{{ it.link or '' }}" placeholder="https://"></label>
+    <span class="ct-linkerr" hidden>Tiene que empezar con https://</span>
+  </div>
+{% endif %}{%- endmacro %}
+{% macro general_item(it) -%}
+  {% if edit_mode %}
+  <article class="item" data-ct-item data-id="{{ it.id }}" data-link="{{ it.link or '' }}">
+    {{ item_tools('general') }}
+    {{ ed_text('title', it.title, 'h3', 'Título') }}
+    {{ ed_text('body', it.body, 'p', 'Texto del contenido', True) }}
+    <a class="linkcard" data-ct-linkcard{% if not it.link %} hidden{% endif %}>{{ ic('out') }}{{ ed_text('link_label', it.link_label, 'span', it.link or 'Ver más') }}</a>
+    {{ link_panel(it) }}
+  </article>
+  {% else %}{{ item_html(it) }}{% endif %}
+{%- endmacro %}
+{% macro project_item(it) -%}
+  <article class="item proj"{% if not edit_mode and it.id %} id="it-{{ it.id }}"{% endif %}{% if edit_mode %}  data-ct-item data-id="{{ it.id }}" data-link="{{ it.link or '' }}" data-project-id="{{ it.project_id }}" data-kind="{{ 'fin' if it.kind == 'fin' else 'inicio' }}"{% endif %}>
+    {% if edit_mode %}{{ item_tools('projects') }}{% endif %}
+    <div class="row" style="gap:6px">{% if edit_mode and not layout_mode %}<button type="button" class="tag {{ 'done' if it.kind == 'fin' else 'off' }} ct-ed ct-kind" contenteditable="false" data-ct-act="kind" title="Cambiar entre nuevo y finalizado">{{ ic('check' if it.kind == 'fin' else 'rocket') }}<span>{{ 'Proyecto finalizado' if it.kind == 'fin' else 'Nuevo proyecto' }}</span></button>{% else %}<span class="tag {{ 'done' if it.kind == 'fin' else 'off' }}">{{ ic('check' if it.kind == 'fin' else 'rocket') }}{{ 'Proyecto finalizado' if it.kind == 'fin' else 'Nuevo proyecto' }}</span>{% endif %}</div>
+    <div class="pmeta"><span class="eyebrow">Cliente</span><h3{% if edit_mode %} data-ct-ro="client_name"{% endif %}>{{ it.client_name or '—' }}</h3></div>
+    <div class="pmeta"><span class="eyebrow">Proyecto</span><b{% if edit_mode %} data-ct-ro="project_name"{% endif %}>{{ it.project_name }}</b></div>
+    {% if it.service or edit_mode %}<div class="pmeta"><span class="eyebrow">Tipo de servicio</span>{{ ed_text('service', it.service, 'b', 'Ej.: Implementación SAP Datasphere') }}</div>{% endif %}
+    {% if it.tech or edit_mode %}<div class="pmeta"><span class="eyebrow">Tecnología</span><div class="row" style="gap:6px"{% if edit_mode %} data-ct-chips{% endif %}>{% for t in (it.tech or '').split(',') if t.strip() %}<span class="chip" style="cursor:default">{{ t.strip() }}</span>{% endfor %}</div>{% if edit_mode %}{{ ed_text('tech', it.tech, 'span', 'Tecnologías separadas por coma', cls='ct-techline') }}{% endif %}</div>{% endif %}
+    {% if it.body or edit_mode %}<div class="pmeta"><span class="eyebrow">Solución</span>{{ ed_text('body', it.body, 'p', 'Qué necesidad resuelve y qué entrega', True) }}</div>{% endif %}
+    {% if it.team or edit_mode %}<div class="pmeta"><span class="eyebrow">Equipo</span>{{ ed_text('team', it.team, 'p', 'Ej.: Equipo Datasphere') }}</div>{% endif %}
+    {% if it.thanks or edit_mode %}{{ ed_text('thanks', it.thanks, 'p', 'Agradecimiento (opcional)', True, 'thanks') }}{% endif %}
+    {% if edit_mode %}<a class="linkcard" data-ct-linkcard{% if not it.link %} hidden{% endif %}>{{ ic('out') }}<span>Ver más</span></a>{{ link_panel(it, False) }}
+    {% elif it.link %}<a class="linkcard" href="{{ it.link }}" target="_blank" rel="noopener">{{ ic('out') }}<span>Ver más</span></a>{% endif %}
+    {% if social_on and it.id %}{{ social_block('item:' ~ it.id, True) }}{% endif %}
+  </article>
+{%- endmacro %}
+{% if 'inicio' in pages %}{{ page_open('inicio') }}
+<div class="stack">
+  {% if edit_mode %}<p class="ct-ed ct-note" contenteditable="false">{{ ic('home') }}Inicio se arma con la portada y los primeros contenidos de Novedades: lo que edites acá se guarda en la edición, una sola vez. Cumpleaños y accesos rápidos se administran en sus pestañas.</p>{% endif %}
+  <section class="hero">
+    <div class="hero-main">
+      <span class="eyebrow" style="color:var(--gold)">{{ svc.month_label(edition.id) if edition else svc.month_label(today_month) }}</span>
+      <h1>{% if first_name %}Hola, {{ first_name }}. {% endif %}Esto es lo que está pasando en Danwor.</h1>
+      <p>{% if edition and edit_mode and not layout_mode %}<span class="ct-edit" contenteditable="plaintext-only" spellcheck="true" data-ct-mirror="title" data-ph="Título de portada">{{ edition.title }}</span><span data-ct-sep{% if not edition.subtitle %} hidden{% endif %}> — </span><span class="ct-edit" contenteditable="plaintext-only" spellcheck="true" data-ct-mirror="subtitle" data-ph="Bajada (opcional)">{{ edition.subtitle }}</span>{% elif edition %}{{ edition.title }}{% if edition.subtitle %} — {{ edition.subtitle }}{% endif %}{% else %}Consultá las novedades del mes, encontrá información útil y celebrá con tus compañeros.{% endif %}</p>
+      <div class="row" style="position:relative;z-index:1">
+        <a class="btn primary" href="{{ urls.edition }}">{{ ic('board') }}Ver las novedades</a>
+        {% if not edit_mode %}<a class="btn" style="background:transparent;color:#F5F5F3;border-color:#5A5A5B" href="/cartelera/comunidad?publicar=1">{{ ic('plus') }}Publicar en Comunidad</a>{% endif %}
+      </div>
+    </div>
+    <div class="card pad stack" style="gap:6px">
+      <div class="row" style="justify-content:space-between"><span class="eyebrow">Cumpleaños</span>{% if edition %}<a href="{{ urls.edition }}#sec-cumpleanos" class="muted" style="font-size:12px">Ver calendario</a>{% endif %}</div>
+      {% set todays = upcoming | selectattr('offset', 'equalto', 0) | list %}
+      {% if todays %}{% for b in todays %}<div class="bday-today"><span class="avatar" style="background:var(--gold)">{{ ic('cake') }}</span><div style="flex:1"><b>{{ b.name }}</b><div class="muted" style="font-size:12px">Cumple hoy</div></div>{% set gid = b.id ~ '-' ~ this_year %}{% if gid in live_greetings and not edit_mode %}<a class="btn sm" href="/cartelera/saludos/{{ gid }}#saludar">Saludar</a>{% endif %}</div>{% endfor %}
+      {% else %}<p class="muted" style="margin:6px 0">Hoy no hay cumpleaños cargados.</p>{% endif %}
+      {% set week = upcoming | rejectattr('offset', 'equalto', 0) | list %}
+      {% if week %}<div class="eyebrow" style="margin-top:8px">Próximos 7 días</div>
+        {% for b in week[:4] %}<div class="row" style="justify-content:space-between;font-size:13px;padding:4px 0"><span>{{ b.name }}</span><span class="muted">{{ b.day }} de {{ svc.MONTHS[b.month - 1] | lower }}</span></div>{% endfor %}{% endif %}
+    </div>
+  </section>
+
+  <section class="spaces">
+    <a class="space" href="{{ urls.edition }}"><span class="ic">{{ ic('board', 'lg') }}</span><h2>Novedades de {{ (svc.month_label(edition.id) if edition else svc.month_label(today_month)).split(' ')[0] | lower }}</h2><span class="muted"{% if edit_mode %} data-ct-echo="title"{% endif %}>{{ edition.title if edition and edition.title else 'Novedades, bienestar, aprendizaje, cumpleaños y accesos directos.' }}</span></a>
+    <a class="space" href="/cartelera/comunidad"><span class="ic">{{ ic('wall', 'lg') }}</span><h2>Comunidad Danwor</h2><span class="muted">{{ community_count ~ (' publicación' if community_count == 1 else ' publicaciones') ~ ' · ' if community_count else '' }}celebraciones, reconocimientos, proyectos e ideas.</span></a>
+    <a class="space" href="{{ urls.nosotros }}"><span class="ic">{{ ic('star', 'lg') }}</span><h2>Nosotros</h2><span class="muted">Nuestra misión, visión y valores.</span></a>
+  </section>
+
+  <section class="home-grid">
+    <div class="card pad">
+      <div class="row" style="justify-content:space-between;margin-bottom:6px"><h2>Destacado</h2>{% if edition %}<a href="{{ urls.edition }}" class="muted" style="font-size:12px">Ir a Novedades</a>{% endif %}</div>
+      {% if edit_mode %}<div data-ct-featured>{% endif %}{% set ns = namespace(n=0) %}
+      {% if edition %}{% for sec in edition.sections if svc.SECTION_BY_KEY[sec.key].kind in ('general', 'projects') %}{% for it in sec['items'] %}{% if ns.n < 6 %}{% set ns.n = ns.n + 1 %}
+        <div class="mini-post"><div class="row" style="gap:6px"><span class="tag cat">{{ svc.SECTION_BY_KEY[sec.key].title }}</span></div>
+          <a href="{{ urls.edition }}#sec-{{ sec.key }}">{{ it.title or it.project_name or it.body[:80] }}</a>
+          {% if it.client_name %}<span class="muted" style="font-size:12px">{{ it.client_name }}</span>{% endif %}</div>
+      {% endif %}{% endfor %}{% endfor %}{% endif %}
+      {% if ns.n == 0 %}<div class="empty">Todavía no hay novedades publicadas.</div>{% endif %}{% if edit_mode %}</div>{% endif %}
+    </div>
+    <div class="stack">
+      <div class="card pad stack" style="gap:10px"><span class="eyebrow">Accesos rápidos</span>{% if links %}<div class="links">{{ links_html(links[:4]) }}</div>{% else %}<p class="muted" style="margin:0">Sin accesos cargados.</p>{% endif %}</div>
+    </div>
+  </section>
+</div>
+
+{{ page_close() }}{% endif %}
+{% if 'novedades' in pages %}{{ page_open('novedades') }}
+{#- NOVEDADES: UNA sola representación para consumo y edición. Con `edit_mode` (solo el lienzo del editor de Capital Humano) la MISMA estructura
+    suma la capa de edición: textos `contenteditable` (`data-ct-f`), herramientas `contenteditable=false` (`.ct-ed`), secciones vacías visibles y
+    las plantillas de contenidos nuevos. Las herramientas reutilizan los controles de la app original (`.btn sm`, `.icon-btn`, `.arr-tools`,
+    `.grip`, `.dropover`, `.dragging`, `.drop-empty`), que ya viven en esta hoja. Sin `edit_mode` el HTML es el de siempre. -#}
+<div class="stack"{% if E %} data-ct-canvas data-month="{{ edition.id }}"{% endif %}>
+  {% if not edition %}
+    <div class="row" style="justify-content:space-between;margin-bottom:16px"><div><span class="eyebrow">Novedades del mes</span><h1>Novedades</h1></div></div>
+    <div class="card empty">Capital Humano todavía no publicó las novedades de este mes.</div>
+  {% else %}
+    <div class="row" style="justify-content:space-between;margin-bottom:16px"><div><span class="eyebrow">Novedades del mes</span><h1>{{ svc.month_label(edition.id) }}</h1></div>
+      {#- Solo el selector de meses: ordenar y editar novedades se abren desde Gestión de cartelera, nunca desde la presentación. -#}
+      {% if editions | length > 1 and not preview %}<div class="row">
+        {% if editions | length > 1 and not preview %}<label for="cartMonthSel" style="position:absolute;left:-9999px">Mes</label>
+        <select id="cartMonthSel" style="width:auto" onchange="location.href='/cartelera/novedades/' + this.value">{% for e in editions %}<option value="{{ e.id }}"{% if e.id == edition.id %} selected{% endif %}>{{ svc.month_label(e.id) }}</option>{% endfor %}</select>{% endif %}
+      </div>{% endif %}
+    </div>
+    {% if E and layout_mode %}<div class="arr-bar ct-ed" contenteditable="false">{{ ic('move') }}<span><b>Modo ordenar.</b> Arrastrá las secciones para cambiarlas de lugar y los contenidos para darles más o menos prioridad (también entre secciones). Con <b>Poner al costado</b> o <b>Ancho completo</b> decidís si una sección comparte fila con otra. Guardá o cancelá desde la barra superior.</span></div>{% endif %}
+    <section class="cart-banner"><div class="txt"><span class="eyebrow">{{ svc.month_label(edition.id) }}{{ ' · borrador' if preview and not E and not svc.is_visible(edition) else '' }}</span>
+      {% if E %}{{ ed_text('title', edition.title, 'h1', 'Título de portada') }}{{ ed_text('subtitle', edition.subtitle, 'p', 'Bajada (opcional)') }}
+      {% else %}<h1>{{ edition.title or ('Novedades de ' ~ svc.month_label(edition.id)) }}</h1>{% if edition.subtitle %}<p>{{ edition.subtitle }}</p>{% endif %}{% endif %}</div>
+      {% if E and not layout_mode %}<div class="ct-ed ct-banner-tools" contenteditable="false"><button type="button" class="btn sm" disabled title="Disponible con la integración documental de SharePoint">{{ ic('image') }}Imagen de portada · pendiente</button></div>{% endif %}
+    </section>
+    <nav class="cart-nav" aria-label="Secciones de Novedades"{% if E %} data-ct-nav{% endif %}>
+      {% for sec in edition.sections %}{% set meta = svc.SECTION_BY_KEY[sec.key] %}{% if E or sec['items'] or meta.kind == 'birthdays' or (meta.kind == 'links' and links) %}<a class="chip" href="#sec-{{ sec.key }}"{% if E %} data-ct-chip="{{ sec.key }}"{% endif %}>{{ ic(SECTION_ICON.get(sec.key, 'star')) }}{{ meta.title }}</a>{% endif %}{% endfor %}
+    </nav>
+    <div class="cart-grid"{% if E %} data-ct-grid{% endif %}>
+    {% for sec in edition.sections %}{% set meta = svc.SECTION_BY_KEY[sec.key] %}
+      {% set show = E or sec['items'] or meta.kind == 'birthdays' or (meta.kind == 'links' and links) %}
+      {% if show %}
+      <section class="cat-sec{{ ' wide' if sec.wide or meta.kind in ('birthdays', 'links', 'projects') else '' }}" id="sec-{{ sec.key }}"{% if E %} data-ct-sec="{{ sec.key }}" data-ct-kind="{{ meta.kind }}"{% endif %}>
+        <div class="cat-head">{% if E and meta.kind != 'links' %}<span class="grip ct-ed" contenteditable="false" draggable="true" data-ct-grip="sec" title="Arrastrar sección">{{ ic('move') }}</span>{% endif %}<span class="ic">{{ ic(SECTION_ICON.get(sec.key, 'star')) }}</span><h2>{{ meta.title }}</h2>
+          {% if E %}<div class="arr-tools ct-ed" contenteditable="false">
+            <span class="tag cat ct-hidden-tag" hidden>No se muestra: sin contenidos</span>
+            {% if meta.kind == 'general' %}<button type="button" class="btn sm" data-ct-act="wide">{{ 'Poner al costado' if sec.wide else 'Ancho completo' }}</button>
+            {% elif meta.kind == 'links' %}<span class="muted" style="font-size:12px">Siempre al final</span>
+            {% else %}<span class="muted" style="font-size:12px">Ancho completo</span>{% endif %}
+            {% if meta.kind != 'links' %}{{ ed_btn('secup', 'up', 'Subir sección') }}{{ ed_btn('secdown', 'down', 'Bajar sección') }}{% endif %}
+          </div>{% endif %}
+        </div>
+        {% if meta.kind == 'birthdays' %}
+          {% if E %}<p class="ct-ed ct-note" contenteditable="false">{{ ic('cake') }}Automático: muestra los cumpleaños autorizados y visibles del mes. Se gestionan en la pestaña Cumpleaños.</p>{% endif %}
+          <div class="card pad"><div class="cal" role="grid" aria-label="Cumpleaños de {{ svc.month_label(edition.id) }}">
+            {% for d in ('Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom') %}<div class="dow">{{ d }}</div>{% endfor %}
+            {% for week in calendar.weeks %}{% for day in week %}
+              {% if day == 0 %}<div class="d off"></div>{% else %}<div class="d{{ ' today' if edition.id == today_month and day == today_day else '' }}"><span class="n">{{ day }}</span>{% for n in calendar.by_day.get(day, []) %}{% if n.greeting and not edit_mode %}<a class="p" href="/cartelera/saludos/{{ n.greeting }}" title="{{ n.name }}: ver el saludo">{{ n.name }}</a>{% else %}<span class="p" title="{{ n.name }}">{{ n.name }}</span>{% endif %}{% endfor %}</div>{% endif %}
+            {% endfor %}{% endfor %}
+          </div>
+          <div class="bday-list">{% for day, names in calendar.by_day | dictsort %}{% for n in names %}<div class="item" style="padding:10px 14px;display:flex;gap:10px;align-items:center"><b style="width:28px;font-variant-numeric:tabular-nums">{{ day }}</b><span style="flex:1">{{ n.name }}</span>{% if n.greeting and not edit_mode %}<a class="btn sm" href="/cartelera/saludos/{{ n.greeting }}">Saludar</a>{% endif %}</div>{% endfor %}{% else %}<p class="muted">Sin cumpleaños cargados este mes.</p>{% endfor %}</div>
+          <p class="muted" style="font-size:12px;margin:10px 0 0">{{ calendar.count }} cumpleaños en {{ svc.MONTHS[edition.id[5:7] | int - 1] | lower }}.</p></div>
+        {% elif meta.kind == 'projects' %}
+          <div class="proj-grid"{% if E %} data-ct-items{% endif %}>{% for it in sec['items'] %}{{ project_item(it) }}{% endfor %}</div>
+          {% if E and not layout_mode %}<button type="button" class="drop-empty ct-ed ct-add" contenteditable="false" data-ct-act="addproj">{{ ic('plus') }}Agregar proyecto desde Operaciones</button>{% endif %}
+        {% else %}
+          {% if E %}<div class="ct-items" data-ct-items>{% endif %}{% for it in sec['items'] %}{{ general_item(it) }}{% endfor %}{% if E %}</div>{% endif %}{% if E and not layout_mode %}
+          <button type="button" class="drop-empty ct-ed ct-add" contenteditable="false" data-ct-act="add">{{ ic('plus') }}Agregar contenido</button>{% endif %}
+          {% if meta.kind == 'links' %}
+            {% if links %}<div class="links">{{ links_html(links) }}</div>{% endif %}
+            {% if E %}<p class="ct-ed ct-note" contenteditable="false">{{ ic('link') }}{{ 'Accesos directos permanentes del portal: se administran en la pestaña Accesos directos.' if links else 'Todavía no hay accesos directos permanentes (pestaña Accesos directos).' }}</p>{% endif %}
+          {% endif %}
+        {% endif %}
+      </section>
+      {% endif %}
+    {% endfor %}
+    </div>
+    {% if E %}
+    <template data-ct-tpl="general">{{ general_item({'id': '', 'title': '', 'body': '', 'link': '', 'link_label': ''}) }}</template>
+    <template data-ct-tpl="projects">{{ project_item({'id': '', 'project_id': '', 'project_name': '', 'client_name': '', 'kind': 'inicio', 'service': '', 'tech': '', 'body': '', 'team': '', 'thanks': '', 'link': ''}) }}</template>
+    {% endif %}
+  {% endif %}
+</div>
+
+{{ page_close() }}{% endif %}
+{% if 'saludo' in pages %}{{ page_open('saludo') }}
+{#- SALUDO DE CUMPLEAÑOS: la tarjeta de celebración del portal (mismo `.hero` del Inicio: portada oscura con el anillo dorado + tarjeta de
+    cumpleaños). En el editor (`edit_mode`) la MISMA tarjeta suma la capa de edición: título y mensaje inline, enlace e imagen. -#}
+{% set g = greeting %}
+<div class="stack"{% if edit_mode %} data-ct-greeting{% endif %}>
+  {% if edit_mode %}<p class="ct-ed ct-note" contenteditable="false">{{ ic('cake') }}Editá el saludo directamente sobre la tarjeta. Así lo verán los colaboradores desde el Inicio y el calendario de Novedades el día del cumpleaños.</p>{% endif %}
+  <section class="hero">
+    <div class="hero-main"{% if edit_mode %} data-ct-item data-id="{{ g.id }}" data-link="{{ g.link or '' }}"{% endif %}>
+      {% if edit_mode %}<div class="ct-ed ct-item-tools" contenteditable="false">{{ ed_btn('link', 'link', 'Enlace') }}{{ ed_btn('', 'image', 'Imagen o flyer: disponible con la integración documental de SharePoint', 'disabled') }}</div>{% endif %}
+      <span class="eyebrow" style="color:var(--gold)">Cumpleaños · {{ greet_date.day }} de {{ svc.MONTHS[greet_date.month - 1] | lower }}</span>
+      {% if edit_mode %}{{ ed_text('title', g.title, 'h1', 'Título del saludo') }}{{ ed_text('body', g.body, 'p', 'Mensaje del saludo', True) }}
+      {% else %}<h1>{{ g.title }}</h1>{% if g.body %}<p style="white-space:pre-wrap">{{ g.body }}</p>{% endif %}{% endif %}
+      <div class="row" style="position:relative;z-index:1">
+        {% if edit_mode %}<a class="btn primary" data-ct-linkcard{% if not g.link %} hidden{% endif %}>{{ ic('out') }}{{ ed_text('link_label', g.link_label, 'span', g.link or 'Ver más') }}</a>
+        {% elif g.link %}<a class="btn primary" href="{{ g.link }}" target="_blank" rel="noopener">{{ ic('out') }}{{ g.link_label or 'Ver más' }}</a>{% endif %}
+        {% if not edit_mode %}<a class="btn" style="background:transparent;color:#F5F5F3;border-color:#5A5A5B" href="{{ urls.inicio }}">{{ ic('home') }}Volver al inicio</a>{% endif %}
+      </div>
+      {% if edit_mode %}{{ link_panel(g) }}{% endif %}
+    </div>
+    <div class="card pad stack" style="gap:6px">
+      <span class="eyebrow">Cumpleaños</span>
+      <div class="bday-today"><span class="avatar" style="background:var(--gold)">{{ ic('cake') }}</span><div style="flex:1"><b>{{ birthday.name }}</b><div class="muted" style="font-size:12px">{{ greet_date.day }} de {{ svc.MONTHS[greet_date.month - 1] | lower }}</div></div></div>
+      <p class="muted" style="margin:6px 0 0;font-size:13px">¡Sumate al saludo de todo el equipo de Danwor!</p>
+      {% if not edit_mode %}<a href="{{ urls.edition }}#sec-cumpleanos" class="muted" style="font-size:12px">Ver el calendario del mes</a>{% endif %}
+    </div>
+  </section>
+  {% if social_on %}<div class="card pad">{{ social_block('greeting:' ~ g.id) }}</div>{% endif %}
+</div>
+{{ page_close() }}{% endif %}
+{% if 'comunidad' in pages %}
+{#- COMUNIDAD — muro de la app original: categorías a la izquierda, publicador + filtros + publicaciones al centro, cumpleaños próximos y
+    pautas a la derecha. El servidor entrega SOLO publicaciones publicadas y vigentes (pendientes, programadas, rechazadas y retiradas se
+    gestionan en Gestión de cartelera › Comunidad); acá solo se dibuja. Acciones de PARTICIPACIÓN, iguales para cualquier permiso administrativo: lo propio se
+    edita o elimina y lo ajeno se reporta. La moderación (retirar, eliminar y fijar lo ajeno) vive en Gestión de cartelera › Comunidad. -#}
+{% macro post_card(p) -%}
+  {%- set cat = social_categories_by_id.get(p.category, {'name': p.category, 'icon': 'wall'}) -%}
+  {%- set st = social_post_state(p) -%}
+  {%- set mine = p.author == me -%}
+  {%- set live = st != 'removed' -%}
+  {%- set author = 'Capital Humano' if p.official else social_names.get(p.author, p.author_name or 'Colaborador/a') -%}
+  <article class="card post{{ ' pinned' if p.pinned and st == 'published' else '' }}{{ ' removed' if st == 'removed' else '' }}" id="post-{{ p.id }}" data-post="{{ p.id }}">
+    <div class="post-h">
+      <span class="avatar{{ ' ch' if p.official else '' }}" aria-hidden="true">{{ 'CH' if p.official else ((author.split() | map('first') | list)[:2] | join('') | upper) }}</span>
+      <div class="who"><b>{{ author }}</b><span>{{ social_when(p.publish_at or p.created_at) }}{{ ' · editado' if p.edited_at }}</span></div>
+      <div class="row" style="gap:2px">
+        {% if mine and live %}<button type="button" class="icon-btn" data-sx="editpost" data-id="{{ p.id }}" data-post-json="{{ social_post_json(p) }}" aria-label="Editar" title="Editar">{{ ic('edit') }}</button>
+        <button type="button" class="icon-btn" data-sx="delpost" data-id="{{ p.id }}" aria-label="Eliminar" title="Eliminar">{{ ic('trash') }}</button>{% endif %}
+        {% if not mine and st == 'published' %}<button type="button" class="icon-btn" data-sx="report" data-kind="post" data-id="{{ p.id }}" aria-label="Reportar" title="Reportar contenido">{{ ic('flag') }}</button>{% endif %}
+      </div>
+    </div>
+    <div class="row" style="gap:6px">
+      {% if p.pinned and st != 'removed' %}<span class="tag off">{{ ic('pin') }}Fijado</span>{% endif %}
+      {% if p.official %}<span class="tag off">Oficial</span>{% endif %}
+      <span class="tag cat">{{ cat.name }}</span>
+      {% if st == 'pending' %}<span class="tag pend">{{ ic('clock') }}Pendiente de aprobación</span>{% endif %}
+      {% if st == 'removed' %}<span class="tag warn">Retirada por moderación</span>{% endif %}
+      {% if st == 'scheduled' %}<span class="tag pend">{{ ic('clock') }}Programada · {{ svc.fmt_local(p.publish_at) }}</span>{% endif %}
+    </div>
+    {% if p.title %}<h3 style="font-size:17px">{{ p.title }}</h3>{% endif %}
+    {% if p.body %}<div class="post-body">{{ social_render(p.body, social_names) }}</div>{% endif %}
+    {% if p.link %}<a class="linkcard" href="{{ p.link }}" target="_blank" rel="noopener">{{ ic('link') }}<span>{{ p.link_label or p.link }}</span></a>{% endif %}
+    {% set poll = social_poll(p) %}
+    {% if poll %}
+    <div class="poll"><div class="row" style="justify-content:space-between"><span class="eyebrow">{{ ic('poll') }} Encuesta</span><span class="muted" style="font-size:12px">{{ poll.total }} {{ 'voto' if poll.total == 1 else 'votos' }}{% if p.poll.closes_at %} · {{ 'cerrada' if poll.closed else 'cierra el ' ~ p.poll.closes_at[8:10] ~ '/' ~ p.poll.closes_at[5:7] }}{% endif %}</span></div>
+      {% for o in p.poll.options %}<button type="button" class="popt{{ ' mine' if poll.mine == loop.index0 else '' }}" data-sx="vote" data-id="{{ p.id }}" data-i="{{ loop.index0 }}"{% if poll.closed or st != 'published' %} disabled{% endif %} aria-pressed="{{ 'true' if poll.mine == loop.index0 else 'false' }}">{% if poll.show %}<span class="bar" style="width:{{ poll.pct[loop.index0] }}%"></span>{% endif %}<span>{{ o }}{{ ' · tu voto' if poll.mine == loop.index0 else '' }}</span>{% if poll.show %}<b style="font-variant-numeric:tabular-nums">{{ poll.pct[loop.index0] }}%</b>{% endif %}</button>{% endfor %}
+      {% if not poll.show %}<span class="muted" style="font-size:12px">{{ 'Los resultados se muestran al cierre.' if p.poll.results == 'after_close' else 'Votá para ver los resultados.' }}</span>{% endif %}
+    </div>
+    {% endif %}
+    {% if st == 'published' %}{{ social_block('post:' ~ p.id) }}{% endif %}
+  </article>
+{%- endmacro %}
+<div class="stack" data-community>
+  <div class="wall">
+    <aside class="side left"><div class="card pad" style="padding:12px"><div class="eyebrow" style="padding:4px 10px 8px">Categorías</div><div class="cats">
+      <a class="catbtn" href="?cat=all" aria-pressed="{{ 'true' if wall_filter.cat == 'all' else 'false' }}" style="text-decoration:none">{{ ic('wall') }}Todo<span class="ct">{{ wall_counts.get('all', 0) }}</span></a>
+      {% for c in social_categories %}<a class="catbtn" href="?cat={{ c.id }}" aria-pressed="{{ 'true' if wall_filter.cat == c.id else 'false' }}" style="text-decoration:none">{{ ic(c.icon) }}{{ c.name }}<span class="ct">{{ wall_counts.get(c.id, 0) }}</span></a>{% endfor %}
+    </div></div></aside>
+    <div class="stack">
+      <div class="card composer-cta"><span class="avatar" aria-hidden="true">{{ ((me_name.split() | map('first') | list)[:2] | join('') | upper) or '?' }}</span><button type="button" class="fake" data-sx="compose">Compartí un logro, un agradecimiento o una idea…</button><button type="button" class="btn primary" data-sx="compose">{{ ic('plus') }}Publicar</button></div>
+      <form class="toolbar" method="get">
+        <input type="hidden" name="cat" value="{{ wall_filter.cat }}">
+        <div class="searchbox">{{ ic('search') }}<label for="wallQ" style="position:absolute;left:-9999px">Buscar</label><input type="search" id="wallQ" name="q" autocomplete="off" placeholder="Buscar publicaciones, personas, temas…" value="{{ wall_filter.q }}"></div>
+        <label for="wallType" style="position:absolute;left:-9999px">Tipo</label><select id="wallType" name="tipo" style="width:auto" onchange="this.form.submit()">{% for v, l in social_wall_types %}<option value="{{ v }}"{% if wall_filter.tipo == v %} selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+        <label for="wallFrom" style="position:absolute;left:-9999px">Desde</label><input type="date" id="wallFrom" name="desde" value="{{ wall_filter.desde }}" style="width:auto" title="Desde fecha" onchange="this.form.submit()">
+      </form>
+      {% for p in posts %}{{ post_card(p) }}{% else %}<div class="card empty">{{ 'No hay publicaciones con estos filtros.' if wall_filter.cat != 'all' or wall_filter.q or wall_filter.tipo != 'all' or wall_filter.desde else 'Todavía no hay publicaciones en Comunidad.' }}</div>{% endfor %}
+    </div>
+    <aside class="side right">
+      <div class="card pad stack" style="gap:8px"><span class="eyebrow">Cumpleaños próximos</span>{% for b in upcoming[:6] %}<div class="row" style="justify-content:space-between;font-size:13px"><span>{{ b.name }}</span><span class="muted">{{ 'hoy' if b.offset == 0 else b.day ~ '/' ~ b.month }}</span></div>{% else %}<span class="muted" style="font-size:13px">Nada en los próximos 7 días.</span>{% endfor %}</div>
+      <div class="card pad stack" style="gap:8px"><span class="eyebrow">Pautas de la comunidad</span><p class="muted" style="margin:0;font-size:12px">{{ social_rules }}</p></div>
+    </aside>
+  </div>
+</div>
+{# Publicador (alta y edición): el modal de la app original. Imágenes y adjuntos: integración documental (F5) pendiente. #}
+<template id="ct-composer-tpl">
+  <div class="modal-h"><h2 data-cp-title>Nueva publicación</h2><button type="button" class="icon-btn" data-sx="close" aria-label="Cerrar">{{ ic('x') }}</button></div>
+  <label class="f">Categoría<select id="cp-cat">{% for c in social_categories if c.collab or can_publish_official %}<option value="{{ c.id }}">{{ c.name }}{{ ' (requiere aprobación)' if c.approval else '' }}</option>{% endfor %}</select></label>
+  <label class="f">Título<input type="text" id="cp-title" maxlength="140" placeholder="Ej.: ¡Felicitaciones al equipo de BI!"></label>
+  <label class="f">Mensaje <span class="h">Escribí @ para mencionar a alguien de Danwor.</span><textarea id="cp-body" data-mention rows="5"></textarea></label>
+  <div class="grid2">
+    <label class="f">Imagen o flyer <span class="h">Disponible cuando se habilite la integración documental con SharePoint.</span><input type="text" disabled placeholder="Pendiente de integración"></label>
+    <label class="f">Enlace (opcional) <span class="h">Video, documento de SharePoint, artículo…</span><input type="url" id="cp-link" placeholder="https://…"></label>
+  </div>
+  <div id="cp-pollbox"></div>
+  <label class="check notice gold" id="cp-consent" hidden><input type="checkbox" id="cp-consentchk"> Confirmo que las personas involucradas están de acuerdo con que se comparta esta novedad.</label>
+  {% if can_publish_official %}<div class="card pad stack" style="gap:10px;background:var(--surface-2)"><span class="eyebrow">Comunicación oficial</span>
+    <label class="check"><input type="checkbox" id="cp-official" checked> Publicar como Capital Humano (oficial)</label>
+    <label class="f">Programar publicación <span class="h">Dejalo vacío para publicar ahora.</span><input type="datetime-local" id="cp-when"></label></div>{% endif %}
+  <p class="muted" style="margin:0;font-size:12px" data-cp-error></p>
+  <div class="row" style="justify-content:space-between"><button type="button" class="btn ghost sm" data-sx="togglepoll">{{ ic('poll') }}<span>Agregar encuesta</span></button>
+  <div class="row"><button type="button" class="btn" data-sx="close">Cancelar</button><button type="button" class="btn primary" data-sx="publish">Publicar</button></div></div>
+</template>
+{% endif %}
+{% if 'nosotros' in pages %}{{ page_open('nosotros') }}
+<div class="stack">
+  {% if edit_mode %}<p class="ct-ed ct-note" contenteditable="false">{{ ic('star') }}Nosotros no forma parte de la edición del mes: misión, visión, valores y galería se administran en la pestaña «Nosotros y galería».</p>{% endif %}
+  <section class="hero-main mv-hero">
+    <span class="eyebrow" style="color:var(--gold)">Nosotros</span>
+    <h1>Misión, visión y valores</h1>
+    {% if inst.intro %}<p>{{ inst.intro }}</p>{% endif %}
+    {% if inst.links %}<div class="row" style="position:relative;z-index:1">{% for l in inst.links %}<a class="btn{{ ' primary' if loop.first else '' }}"{% if not loop.first %} style="background:transparent;color:#F5F5F3;border-color:#5A5A5B"{% endif %} href="{{ l.url }}" target="_blank" rel="noopener">{{ ic('out') }}{{ l.label }}</a>{% endfor %}</div>{% endif %}
+  </section>
+  {% if inst.mission or inst.vision %}
+  <section class="mv-grid">
+    {% if inst.mission %}<div class="card pad mv-item"><span class="eyebrow">Misión</span><p>{{ inst.mission }}</p></div>{% endif %}
+    {% if inst.vision %}<div class="card pad mv-item"><span class="eyebrow">Visión</span><p>{{ inst.vision }}</p></div>{% endif %}
+  </section>{% endif %}
+  {% if inst['values'] %}
+  <section class="stack" style="gap:12px">
+    <h2 style="margin:8px 0 0">Nuestros valores</h2>
+    {% if inst.values_intro %}<p class="muted" style="margin:0;max-width:80ch">{{ inst.values_intro }}</p>{% endif %}
+    <div class="val-grid">{% for v in inst['values'] %}<div class="card pad val"><h3><span class="val-n">{{ '%02d' | format(loop.index) }}</span>{{ v.title }}</h3><p>{{ v.text }}</p></div>{% endfor %}</div>
+  </section>{% endif %}
+  {#- Organigrama y galería: MISMO marcado que `orgChartHtml` y `galleryHtml` de la app original (clases `.org`, `.og-*`, `.gal-*` de
+      cartelera_portal.css), sin los accesos de administración. El organigrama es contenido estructurado de «Nosotros y galería»; en su raíz va
+      el logo institucional del Hub (mismo activo que el encabezado) sobre una placa oscura. Las fotos de la galería son documentales (F5):
+      hasta la integración, ningún álbum tiene fotos y, como en la original, se ve «Todavía no hay álbumes.». -#}
+  {%- macro og_node(n) -%}
+    {%- if n.kind == 'persona' -%}<div class="og-node og-persona"><b>{{ n.name or 'Nombre' }}</b><span>{{ n.title }}</span></div>
+    {%- else -%}<div class="og-node og-{{ 'area' if n.kind == 'area' else 'puesto' }}">{{ n.title }}</div>{%- endif -%}
+  {%- endmacro -%}
+  {%- macro og_li(n) -%}<li>{{ og_node(n) }}{% if n.children %}<ul>{% for c in n.children %}{{ og_li(c) }}{% endfor %}</ul>{% endif %}</li>{%- endmacro -%}
+  {% set tree = org_tree(inst.org or []) %}
+  <section class="stack" style="gap:12px">
+    <div class="row" style="justify-content:space-between;margin-top:8px"><div><span class="eyebrow">Organigrama</span><h2 style="margin:4px 0 0">Nuestro equipo</h2></div></div>
+    <div class="card pad"><div class="org-scroll"><ul class="org"><li><div class="og-logo og-logo--hub"><img src="{{ brand_logo_url }}" alt="Danwor"></div>{% if tree %}<ul>{% for n in tree %}{{ og_li(n) }}{% endfor %}</ul>{% endif %}</li></ul></div></div>
+  </section>
+  {% set photo_albums = (inst.albums or []) | selectattr('photos') | list %}
+  <section class="stack" style="gap:12px">
+    <div class="row" style="justify-content:space-between;margin-top:8px"><div><span class="eyebrow">Galería</span><h2 style="margin:4px 0 0">Nuestros momentos</h2></div></div>
+    {% if photo_albums %}<div class="gal-grid">{% for a in photo_albums %}<div class="gal-album"><span class="gal-cap"><b>{{ a.title or 'Álbum' }}</b><span>{{ a.date }}</span></span></div>{% endfor %}</div>
+    {% else %}<div class="card pad"><div class="empty">Todavía no hay álbumes.</div></div>{% endif %}
+  </section>
+</div>
+{{ page_close() }}{% endif %}
+</main>
+<div id="layer"></div>
+</body>
+</html>

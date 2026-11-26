@@ -108,12 +108,12 @@ def test_navigation_has_06_indicadores_active_only_on_its_page_and_present_on_th
         a = soup(response).find("a", href=PAGE)
         return a, (a.get("class") or []) if a else []
     a, classes = link(client().get(PAGE))
-    assert a is not None and "is-active" in classes and text_of(a) == "06 Indicadores"
+    assert a is not None and "is-active" in classes and text_of(a) == "02 Indicadores"                     # grupo SEGUIMIENTO (numeración por grupo)
     for other in ("/cchh/publicaciones", "/cchh/candidatos", "/cchh/busquedas"):
         a, classes = link(client().get(other))
         assert a is not None and "is-active" not in classes, other
     others = [text_of(x) for x in soup(client().get(PAGE)).select("nav a.module-link")]
-    assert others[:5] == ["01 Candidatos", "02 Búsquedas", "03 Entrevistas", "04 Onboarding", "05 Avisos"] and others[5] == "06 Indicadores"
+    assert others[:6] == ["01 Candidatos", "02 Búsquedas", "03 Entrevistas", "04 Onboarding", "01 Avisos", "02 Indicadores"]   # STAFFING + SEGUIMIENTO
 
 
 def test_the_page_has_the_original_header_and_no_export_button_yet_and_no_global_filters(tmp_path):

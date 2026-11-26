@@ -176,6 +176,10 @@ def human_capital_page(request: Request):
     # ANTES del redirect — un usuario no admitido sigue recibiendo 403 (mismo
     # contrato fail-closed que Commercial/Operations), nunca un redirect que
     # esconda la denegación. `landing.html` se conserva para reactivarlo luego.
+    # Admitido al workspace SOLO por moderación de Comunidad (sin Capital Humano): su única solución es Gestión de cartelera › Comunidad.
+    user = auth_service.session_user(request)
+    if user and not human_capital_access.is_human_capital_authorized_user(user) and human_capital_access.is_human_capital_workspace_member(user):
+        return RedirectResponse(url="/cchh/cartelera/comunidad", status_code=307)
     redirect = _require_human_capital_session(request)
     if redirect is not None:
         return redirect

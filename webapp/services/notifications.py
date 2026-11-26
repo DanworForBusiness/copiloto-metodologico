@@ -125,6 +125,16 @@ EVENTS: dict[str, EventSpec] = {
         template="notifications/search_created.html",
         title="Nueva búsqueda de recurso",
     ),
+    # Capital Humano publicó (ahora o por programación) una edición de la Cartelera Virtual; la leen todos los colaboradores. Evento SOLO-To.
+    # La clave es «<mes>:<published_at>»: una publicación efectiva = como mucho un correo, aunque el programador o un reinicio la reprocesen.
+    "human_capital.cartelera.published": EventSpec(
+        workspace="human-capital",
+        to_setting="NOTIFICATIONS_CARTELERA_RECIPIENTS",
+        cc_setting="",
+        subject=lambda d: f"Cartelera Virtual | {d.get('label', '')}",
+        template="notifications/cartelera_published.html",
+        title="Nueva edición de la Cartelera Virtual",
+    ),
 }
 
 

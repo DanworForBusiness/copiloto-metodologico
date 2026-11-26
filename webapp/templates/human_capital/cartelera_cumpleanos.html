@@ -1,0 +1,188 @@
+{% extends "human_capital/_cartelera_layout.html" %}
+{% from "human_capital/_cartelera_table.html" import dw_table %}
+{% from "partials/pager.html" import render_pager %}
+{% block page_title %}Cumpleaños{% endblock %}
+{#- Estado de la vista (filtros, orden, página) para que las subpantallas vuelvan al mismo lugar (`_birthdays_return`). -#}
+{% set _volver = ('volver=' ~ request.url.query | urlencode) if request.url.query else '' %}
+{% block hero_actions %}
+  <a href="/cchh/cartelera/cumpleanos/importar{{ '?' ~ _volver if _volver }}" class="btn-secondary">Carga masiva</a>
+  <button type="button" class="btn-primary" data-bd-new>+ Nuevo cumpleaños</button>
+{% endblock %}
+{% block cartelera_body %}
+{#- Modelo: nombre, día, mes y AUTORIZACIÓN DE PUBLICACIÓN (único atributo de publicación). Autorizado ⇒ aparece en la Cartelera. -#}
+{% set g_labels = {'none': 'Preparar saludo', 'draft': 'Saludo en borrador', 'scheduled': 'Saludo programado', 'published': 'Saludo publicado', 'withdrawn': 'Saludo retirado'} %}
+{% macro cake() %}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21h16"/><path d="M5 21v-7h14v7"/><path d="M8 14v-3M12 14v-3M16 14v-3"/><path d="M12 7a1.5 1.5 0 0 0 0-3"/></svg>{% endmacro %}
+{% macro greeting_href(b, g) %}/cchh/cartelera/cumpleanos/{{ b.id }}/saludo?anio={{ g.year }}{{ '&' ~ _volver if _volver }}{% endmacro %}
+{#- Datos para el MISMO diálogo de edición que abre el lápiz de la tabla (y ahora también cada tarjeta de próximos). -#}
+{% macro edit_data(b) %}data-bd-edit data-bd-id="{{ b.id }}" data-bd-rev="{{ b.revision }}" data-bd-name="{{ b.name }}" data-bd-day="{{ b.day }}" data-bd-month="{{ b.month }}" data-bd-auth="{{ '1' if b.authorized else '' }}"{% endmacro %}
+
+<div class="dashboard-sections" data-dashboard-key="cchh-cartelera-cumpleanos">
+  {# Próximos 30 días: MISMO primitivo `.activity-kpi` del Hub, interactivo como los tiles del CRM (`.activity-kpi--clickable`: cursor, hover,
+     foco): toda la tarjeta abre la edición del registro; el enlace del saludo lleva a su editor. Hoy conserva el acento institucional. #}
+  <details class="dashboard-section" data-section-id="proximos" data-persist-collapse open>
+    <summary class="dashboard-section__head">
+      <span class="dashboard-section__caret"></span>
+      <span class="dashboard-section__title">Próximos cumpleaños</span>
+      {# Ayuda contextual: MISMO `(i)` del Hub que Operaciones → Carga de horas (`.chart-tooltip-anchor` + `.activity-kpi__info` + `.chart-tooltip`). #}
+      {% set _bd_help = "Una sola carga alimenta el calendario de Novedades y el «Cumple hoy» del Inicio. Tocá una tarjeta para editar el cumpleaños; «Preparar saludo» arma la tarjeta de celebración de la persona sobre su diseño final: la ajustás, la publicás o la programás para su día." %}
+      <span class="chart-tooltip-anchor">
+        <button type="button" class="activity-kpi__info" aria-label="{{ _bd_help }}">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 7.8v.2"/></svg>
+        </button>
+        <span class="chart-tooltip"><p>{{ _bd_help }}</p></span>
+      </span>
+      <span class="dashboard-section__count">Próximos 30 días · {{ upcoming | length }}</span>
+    </summary>
+    <div class="dashboard-section__body">
+      {% if upcoming %}
+      <div class="activity-kpi-grid cartelera-bday-tiles">
+        {% for b in upcoming[:12] %}
+        <div class="activity-kpi activity-kpi--clickable{{ ' is-today' if b.offset == 0 else '' }}" role="button" tabindex="0" {{ edit_data(b) }} aria-label="Editar el cumpleaños de {{ b.name }}">
+          <span class="activity-kpi__value">{{ '%02d' | format(b.day) }}/{{ '%02d' | format(b.month) }}</span>
+          <span class="activity-kpi__label">{{ 'Hoy' if b.offset == 0 else ('Mañana' if b.offset == 1 else 'En ' ~ b.offset ~ ' días') }}</span>
+          <span class="activity-kpi__hint">{{ b.name }}</span>
+          {% set g = greetings[b.id] %}
+          <a class="cartelera-greet-cta{{ ' is-done' if g.state in ('scheduled', 'published') else '' }}" href="{{ greeting_href(b, g) }}">{{ cake() }}<span>{% if g.state == 'none' %}Preparar saludo{% elif g.state == 'published' %}Saludo publicado{% elif g.state == 'scheduled' %}Programado · {{ svc.fmt_local(g.greeting.publish_at)[:5] }} {{ svc.fmt_local(g.greeting.publish_at)[-5:] }}{% else %}Continuar saludo{% endif %}</span></a>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="dashboard-empty"><span class="dashboard-empty__label">Sin cumpleaños próximos</span><p>No hay cumpleaños autorizados en los próximos 30 días.</p></div>
+      {% endif %}
+    </div>
+  </details>
+</div>
+
+{#- Envoltorio de herencia HTMX: el paginador compartido y las cabeceras ordenables piden la página completa y toman solo el panel. -#}
+<div hx-select="#ct-birthdays-panel" hx-push-url="true">
+<div id="ct-birthdays-panel">
+  {# Búsqueda y filtros: MISMA barra que Base de CVs (`.hc-profile-filters.filter-toolbar-card`, HTMX sobre esta misma página). #}
+  <form class="hc-profile-filters filter-toolbar-card" hx-get="/cchh/cartelera/cumpleanos" hx-target="#ct-birthdays-panel" hx-select="#ct-birthdays-panel" hx-swap="outerHTML" hx-push-url="true">
+    <div class="feedback-field feedback-field--wide">
+      <label for="bd-q">Buscar</label>
+      <input id="bd-q" autocomplete="off" name="q" type="text" value="{{ q }}" placeholder="Nombre..." hx-get="/cchh/cartelera/cumpleanos" hx-target="#ct-birthdays-panel" hx-select="#ct-birthdays-panel" hx-swap="outerHTML" hx-include="closest form" hx-push-url="true" hx-trigger="keyup changed delay:400ms">
+    </div>
+    <div class="feedback-field feedback-field--compact">
+      <label for="bd-f-mes">Mes</label>
+      <select id="bd-f-mes" name="mes" hx-get="/cchh/cartelera/cumpleanos" hx-target="#ct-birthdays-panel" hx-select="#ct-birthdays-panel" hx-swap="outerHTML" hx-include="closest form" hx-push-url="true" hx-trigger="change">
+        <option value="">Todos</option>
+        {% for m in months %}<option value="{{ loop.index }}"{% if mes == loop.index | string %} selected{% endif %}>{{ m }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="feedback-field feedback-field--compact">
+      <label for="bd-f-auth">Autorización</label>
+      <select id="bd-f-auth" name="autorizacion" hx-get="/cchh/cartelera/cumpleanos" hx-target="#ct-birthdays-panel" hx-select="#ct-birthdays-panel" hx-swap="outerHTML" hx-include="closest form" hx-push-url="true" hx-trigger="change">
+        <option value="">Todas</option>
+        {% for key, label in svc.AUTH_FILTERS.items() %}<option value="{{ key }}"{% if autorizacion == key %} selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+    </div>
+    {# El orden y el tamaño de página sobreviven a la búsqueda y los filtros; la página vuelve a 1. #}
+    {% if request.query_params.get('orden') %}<input type="hidden" name="orden" value="{{ request.query_params.get('orden') }}"><input type="hidden" name="dir" value="{{ request.query_params.get('dir', 'asc') }}">{% endif %}
+    {% if request.query_params.get('page_size') %}<input type="hidden" name="page_size" value="{{ pager.page_size }}">{% endif %}
+    <button type="button" class="whatsnew-filter__clear" hx-get="/cchh/cartelera/cumpleanos" hx-target="#ct-birthdays-panel" hx-select="#ct-birthdays-panel" hx-swap="outerHTML" hx-push-url="true">✕ Limpiar</button>
+  </form>
+
+  <div class="dashboard-sections" data-dashboard-key="cchh-cartelera-cumpleanos-lista">
+    <details class="dashboard-section" data-section-id="cumpleanos" data-persist-collapse open>
+      <summary class="dashboard-section__head">
+        <span class="dashboard-section__caret"></span>
+        <span class="dashboard-section__title">Cumpleaños</span>
+        <span class="dashboard-section__count">{% if filtered != total %}{{ filtered }} de {% endif %}{{ total }} persona{{ '' if total == 1 else 's' }}{% if pager.total_pages > 1 %} · {{ pager.range_start }}–{{ pager.range_end }}{% endif %}</span>
+      </summary>
+      <div class="dashboard-section__body">
+        {% if birthdays %}
+        {% set cols = [dict(key='fecha', label='Fecha', width='12%', **sort_cols.fecha), dict(key='colaborador', label='Colaborador', width='40%', **sort_cols.colaborador),
+                       dict(key='autorizacion', label='Autorización de publicación', width='34%', **sort_cols.autorizacion)] %}
+        {% call dw_table('cumpleanos', cols, actions_width='140px', sort_target='#ct-birthdays-panel') %}
+            {% for b in birthdays %}{% set g = greetings[b.id] %}
+              <tr>
+                <td class="left" data-column-key="fecha">{{ '%02d' | format(b.day) }}/{{ '%02d' | format(b.month) }}</td>
+                <td class="left row-label" data-column-key="colaborador" title="{{ b.name }}"><strong>{{ b.name }}</strong></td>
+                <td class="left" data-column-key="autorizacion"><span class="dashboard-status-badge solicitudes-status-badge solicitudes-status-badge--{{ 'green' if b.authorized else 'amber' }}">{{ 'Autorizado' if b.authorized else 'Sin autorización' }}</span>
+                  {% if b.authorization %}<div class="field-hint">{{ b.authorization.by }} · {{ svc.fmt_local(b.authorization.at, with_time=False) }}</div>{% endif %}</td>
+                <td class="center">
+                  <div class="dw-row-actions">
+                    <button type="button" class="table-action-btn chart-tooltip-anchor" {{ edit_data(b) }} aria-label="Editar a {{ b.name }}">
+                      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                      <span class="chart-tooltip" aria-hidden="true"><p>Editar</p></span>
+                    </button>
+                    {% if g.can_prepare %}<a href="{{ greeting_href(b, g) }}" class="table-action-btn chart-tooltip-anchor" aria-label="{{ g_labels[g.state] }} de {{ b.name }}">{{ cake() }}<span class="chart-tooltip" aria-hidden="true"><p>{{ g_labels[g.state] }} · {{ '%02d' | format(g.date.day) }}/{{ '%02d' | format(g.date.month) }}/{{ g.year }}</p></span></a>
+                    {% else %}<span class="table-action-btn chart-tooltip-anchor is-disabled" aria-disabled="true" tabindex="0" aria-label="Preparar saludo no disponible">{{ cake() }}<span class="chart-tooltip" aria-hidden="true"><p>Para preparar el saludo, la persona tiene que tener la autorización de publicación.</p></span></span>{% endif %}
+                    <form method="post" action="/cchh/cartelera/cumpleanos/{{ b.id }}/eliminar" class="dw-row-actions__form"
+                          data-dw-confirm-form data-dw-confirm-title="Eliminar cumpleaños" data-dw-confirm-message="¿Eliminar a {{ b.name }} del calendario? También se eliminan sus saludos. Esta acción no se puede deshacer." data-dw-confirm-ok="Eliminar">
+                      <input type="hidden" name="volver" data-bd-return>
+                      <button type="submit" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" aria-label="Eliminar a {{ b.name }}">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+                        <span class="chart-tooltip" aria-hidden="true"><p>Eliminar</p></span>
+                      </button>
+                    </form>
+                  </div>
+                </td>
+              </tr>
+            {% endfor %}
+        {% endcall %}
+        {{ render_pager(pager, "#ct-birthdays-panel", "Paginación de cumpleaños", "Cumpleaños por página") }}
+        {% elif total %}
+        <div class="dashboard-empty" data-empty-kind="no_matches"><span class="dashboard-empty__label">Sin resultados</span><p>No hay cumpleaños para los filtros seleccionados.</p></div>
+        {% else %}
+        <div class="dashboard-empty" data-empty-kind="dataset_empty"><span class="dashboard-empty__label">Sin cumpleaños</span><p>Cargá el primero con «+ Nuevo cumpleaños» o con la carga masiva.</p></div>
+        {% endif %}
+      </div>
+    </details>
+  </div>
+</div>
+</div>
+
+{# Alta y edición: MISMO diálogo `dw-confirm` que Ediciones. Solo día y mes; la autorización de publicación es el único atributo de
+   publicación y NO viene marcada en las altas. Lo abren el lápiz de la tabla y las tarjetas de próximos cumpleaños. #}
+<dialog class="dw-confirm" id="bd-dialog" aria-labelledby="bd-dialog-title">
+  <form method="post" action="/cchh/cartelera/cumpleanos" class="tree-feedback-form">
+    <input type="hidden" name="birthday_id" value=""><input type="hidden" name="revision" value=""><input type="hidden" name="volver" data-bd-return>
+    <div class="dw-confirm__body">
+      <h2 class="dw-confirm__title" id="bd-dialog-title">Nuevo cumpleaños</h2>
+      <div class="feedback-field"><label for="bd-name">Nombre y apellido</label><input id="bd-name" name="name" type="text" maxlength="120" required></div>
+      <div class="cartelera-dialog-row">
+        <div class="feedback-field"><label for="bd-day">Día</label><input id="bd-day" name="day" type="number" min="1" max="31" required></div>
+        <div class="feedback-field"><label for="bd-month">Mes</label><select id="bd-month" name="month">{% for m in months %}<option value="{{ loop.index }}">{{ m }}</option>{% endfor %}</select></div>
+      </div>
+      <label class="cartelera-check cartelera-check--spaced"><input type="checkbox" name="authorized" value="1"> La persona autorizó publicar su cumpleaños</label>
+      <p class="dashboard-empty__hint">Solo se guardan día y mes, nunca el año de nacimiento. Sin autorización, el cumpleaños no aparece en la Cartelera.</p>
+    </div>
+    <div class="dw-confirm__actions">
+      <button type="button" class="btn-secondary" data-bd-cancel>Cancelar</button>
+      <button type="submit" class="btn-primary" data-bd-submit>Agregar</button>
+    </div>
+  </form>
+</dialog>
+<script>
+(() => {
+  const dialog = document.getElementById("bd-dialog"), form = dialog.querySelector("form");
+  const currentMonth = {{ svc.month_key()[5:7] | int }};
+  // Al guardar o eliminar se vuelve a ESTA vista: mismos filtros y estado de navegación (el servidor solo acepta una query de esta página).
+  const syncReturn = () => document.querySelectorAll("[data-bd-return]").forEach(i => { i.value = location.search; });
+  const open = data => {
+    form.reset();
+    form.birthday_id.value = data.id || ""; form.revision.value = data.rev || "";
+    form.elements.name.value = data.name || ""; form.day.value = data.day || ""; form.month.value = data.month || currentMonth;
+    form.authorized.checked = data.auth === "1";
+    dialog.querySelector("#bd-dialog-title").textContent = data.id ? "Editar cumpleaños" : "Nuevo cumpleaños";
+    dialog.querySelector("[data-bd-submit]").textContent = data.id ? "Guardar cambios" : "Agregar";
+    syncReturn();
+    dialog.showModal();
+  };
+  const fromEl = el => ({ id: el.dataset.bdId, rev: el.dataset.bdRev, name: el.dataset.bdName, day: el.dataset.bdDay, month: el.dataset.bdMonth, auth: el.dataset.bdAuth });
+  document.addEventListener("click", e => {
+    if (e.target.closest("[data-bd-new]")) { open({}); return; }
+    if (e.target.closest("a")) return;                                     // el enlace del saludo dentro de la tarjeta navega a su editor
+    const edit = e.target.closest("[data-bd-edit]");
+    if (edit) open(fromEl(edit));
+  });
+  document.addEventListener("keydown", e => {                              // tarjetas: Enter / Espacio, como los tiles del CRM
+    const tile = e.target.closest && e.target.closest(".activity-kpi[data-bd-edit]");
+    if (tile && e.target === tile && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); open(fromEl(tile)); }
+  });
+  document.addEventListener("submit", e => { if (e.target.closest("#ct-birthdays-panel, #bd-dialog")) syncReturn(); }, true);
+  dialog.querySelector("[data-bd-cancel]").addEventListener("click", () => dialog.close());
+})();
+</script>
+{% endblock %}

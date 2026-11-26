@@ -21,7 +21,7 @@
     {% set rc = list_return(request, "/cchh/candidatos") %}<a class="catalog-back" href="{{ rc.back_url }}">← Volver al listado</a>
     <section class="module-hero hc-profiles-hero">
       <div class="hc-profiles-hero-text">
-        <p class="eyebrow">Capital Humano · Ficha del candidato</p>
+        <p class="eyebrow">Staffing · Ficha del candidato</p>
         <h1>{{ profile.first_name }} {{ profile.last_name }}</h1>
         {% set hero_meta_parts = [] %}
         {% if profile.profile_skills %}{% set _ = hero_meta_parts.append(profile.profile_skills) %}{% endif %}

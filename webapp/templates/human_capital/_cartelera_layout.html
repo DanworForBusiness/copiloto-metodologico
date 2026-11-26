@@ -1,0 +1,51 @@
+{#- Layout de GESTIÓN de Cartelera Virtual dentro de Capital Humano: MISMO shell que el resto de la vertical (topbar, nav, resize) + hero +
+    pestañas internas (`tool-tabs`, mismo componente del Copiloto) + mensajes de resultado (`callout--feedback`). Cada vista define
+    `cartelera_body`. -#}
+{% extends "base.html" %}
+{% from "partials/platform_topbar.html" import platform_topbar %}
+{% from "partials/workspace_shell.html" import sidebar_resize_handle %}
+{% block title %}{% block page_title %}Gestión{% endblock %} · Cartelera Virtual · Danwor{% endblock %}
+{% block head_styles %}<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}"><link rel="stylesheet" href="{{ url_for('static', path='operations_solicitudes.css') }}?v={{ static_version }}"><link rel="stylesheet" href="{{ url_for('static', path='cartelera.css') }}?v={{ static_version }}">{% endblock %}
+{% block body %}
+{#- Mismo shell de Capital Humano para cualquier persona admitida al workspace. `hc_full` falso = solo moderación de Comunidad: la navegación
+    muestra únicamente CARTELERA VIRTUAL › Gestión y no se ofrece la actualización del catálogo (acción de Capital Humano). -#}
+{% set _hc = hc_full is not defined or hc_full %}
+<div x-data="copilotLayout('human-capital')" x-init="init()" class="app-shell no-copilot">
+  {% set _identity_html %}<iframe src="/brand/dancing/{{ pack }}?title={{ config.HUMAN_CAPITAL_APP_TITLE | urlencode }}&subtitle={{ config.HUMAN_CAPITAL_APP_SUBTITLE | urlencode }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
+  {% call platform_topbar(current_workspace, available_workspaces, current_workspace.home_url, _identity_html, "Menú") %}{% if _hc %}{% include "partials/human_capital_catalog_refresh_topbar.html" %}{% endif %}{% endcall %}
+  {% include "partials/human_capital_nav.html" %}
+  {{ sidebar_resize_handle() }}
+
+  <main id="content" class="module-content">
+    {#- Subpantallas que reemplazan el contenido (p. ej. Carga masiva): «← Volver» = primitivo transversal del Hub (`.catalog-back`, tools.css),
+        MISMO que Staffing → Candidatos → Carga masiva. -#}
+    {% block cartelera_back %}{% endblock %}
+    {% block cartelera_header %}
+    <section class="module-hero hc-profiles-hero">
+      <div class="hc-profiles-hero-text">
+        <p class="eyebrow">Cartelera Virtual</p>
+        <h1>{% block hero_title %}Gestión de cartelera{% endblock %}</h1>
+        <p>{% block hero_lead %}Preparación y publicación de la Cartelera Virtual de Danwor: ediciones mensuales, cumpleaños, contenido institucional y accesos directos.{% endblock %}</p>
+      </div>
+      <div class="hc-profiles-hero-actions">
+        {% block hero_actions %}<a href="/cartelera" class="btn-secondary" target="_blank" rel="noopener">Abrir Cartelera ↗</a>{% endblock %}
+      </div>
+    </section>
+    {% endblock %}
+    <div id="hc-cartelera-panel">
+      {% block cartelera_tabs %}
+      {# MISMO primitivo de pestañas que el Tablero Integral de Operaciones (`.experience-tabs`, tools.css). #}
+      <nav class="experience-tabs cartelera-tabs" aria-label="Secciones de la Cartelera Virtual">
+        {% for key, label, href in tabs %}<button type="button" class="{{ 'is-active' if key == tab else '' }}"{% if key == tab %} aria-current="page"{% endif %} onclick="location.assign('{{ href }}')">{{ label }}</button>{% endfor %}
+      </nav>
+      {% endblock %}
+      {% block cartelera_feedback %}
+      {% if ok %}<div class="callout callout--success callout--feedback" role="status"><div class="callout__body field-hint"><p>{{ ok }}</p></div></div>{% endif %}
+      {% if error %}<div class="callout callout--warn callout--feedback" role="alert"><div class="callout__body field-hint"><p>{{ error }}</p></div></div>{% endif %}
+      {% endblock %}
+      {% block cartelera_body %}{% endblock %}
+    </div>
+  </main>
+</div>
+<script src="{{ url_for('static', path='ssr_table_columns.js') }}?v={{ static_version }}" defer></script>
+{% endblock %}

@@ -550,7 +550,7 @@ def test_the_shared_topbar_refresh_button_and_workspace_shell_render_on_onboardi
     c = _client()
     for url in ("/cchh/onboarding", f"/cchh/onboarding/{aid}/editar"):
         html = c.get(url).text
-        assert 'hx-post="/cchh/catalogos/refresh"' in html and "CAPITAL HUMANO" in html, url
+        assert 'hx-post="/cchh/catalogos/refresh"' in html and "STAFFING" in html, url
 
 
 def test_the_post_hero_gap_is_the_same_24px_in_the_four_cchh_sections():
@@ -695,7 +695,10 @@ def test_cchh_templates_use_only_the_shared_badge_primitive_for_status_and_indic
     templates_dir = [*(root / "templates" / "human_capital").glob("*.html"), *(root / "templates" / "partials").glob("human_capital_*.html")]
     for t in templates_dir:
         text = t.read_text(encoding="utf-8")
-        assert "dashboard-status-badge" not in text, t.name                                    # no el pill de CRM mezclado con el badge de estado de CCHH/Catálogo
+        # Dos primitivos reconocidos: `status-badge` (estado de entidad CCHH/Catálogo) y la píldora de CICLO DE VIDA de Solicitudes
+        # (`dashboard-status-badge solicitudes-status-badge--*`, la de partials/solicitudes_badge.html; la usa Cartelera Virtual para sus ediciones).
+        # Lo prohibido sigue siendo la píldora de CRM suelta (`dashboard-status-badge` sin el modificador de Solicitudes).
+        assert "dashboard-status-badge" not in text.replace("dashboard-status-badge solicitudes-status-badge", ""), t.name
         assert "busqueda-signal" not in text, t.name                                           # las señales ya no tienen estilo local propio
     card = (root / "templates" / "partials" / "human_capital_busqueda_card.html").read_text(encoding="utf-8")
     assert card.count('class="status-badge status-badge--') >= 3                               # estancada / sin requerimiento / onboarding pendiente

@@ -1,0 +1,306 @@
+{#- EDITOR VISUAL de una edición de la Cartelera Virtual — workspace dedicado, mismo patrón que el editor de Presentaciones:
+    la barra superior del Hub (volver · identidad · modo · «Sin guardar» · Guardar) y, debajo, la cartelera REAL (`cartelera/portal.html`)
+    en un iframe del mismo origen con `edit_mode`: se edita sobre la propia representación (textos inline como en Estrategia, herramientas de
+    sección y contenido, arrastre como el «modo ordenar» de la app original). El lienzo es `…/lienzo`; la «Vista del colaborador» es la misma
+    plantilla SIN capa de edición, con el borrador en pantalla (`…/vista-previa`, POST, no persiste).
+    Esta página maneja lo que no es contenido: guardado con revisión (409), borrador local y recuperación, publicación y programación, historial
+    y el selector gobernado de proyectos de Operaciones. Puente con el lienzo: `window.ctHost` (acá) ↔ `window.ctCanvas` (cartelera_canvas.js). -#}
+{% extends "base.html" %}
+{% from "partials/platform_topbar.html" import platform_topbar %}
+{% set tones = {'draft': 'grey', 'scheduled': 'violet', 'published': 'green', 'withdrawn': 'amber'} %}
+{% set month_name = svc.month_label(edition.id) %}
+{% block title %}Editar · {{ month_name }} · Cartelera Virtual · Capital Humano · Danwor{% endblock %}
+{% block head_styles %}<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}"><link rel="stylesheet" href="{{ url_for('static', path='operations_solicitudes.css') }}?v={{ static_version }}"><link rel="stylesheet" href="{{ url_for('static', path='cartelera.css') }}?v={{ static_version }}">{% endblock %}
+{% macro icon(name) -%}
+<svg viewBox="0 0 24 24" aria-hidden="true">{% if name == 'trash' %}<path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/>{% elif name == 'panel' %}<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/>{% endif %}</svg>
+{%- endmacro %}
+
+{% block body %}
+<div x-data="copilotLayout('human-capital')" x-init="init()" class="app-shell no-copilot ct-workspace">
+  {% set _identity_html %}<iframe src="/brand/dancing/{{ pack }}?title={{ config.HUMAN_CAPITAL_APP_TITLE | urlencode }}&subtitle={{ config.HUMAN_CAPITAL_APP_SUBTITLE | urlencode }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
+  {% call platform_topbar(current_workspace, available_workspaces, current_workspace.home_url, _identity_html, "Menú") %}{% endcall %}
+
+  <main id="content" class="module-content">
+    <script type="application/json" id="ct-boot">{{ {'revision': edition.revision, 'month': edition.id, 'label': month_name, 'page': canvas_page, 'layout': editor_mode == 'ordenar', 'back': back_to_portal} | tojson }}</script>
+    <div id="hc-cartelera-panel" class="ct-ws" x-data="carteleraEditor(JSON.parse(document.getElementById('ct-boot').textContent))" x-init="boot()"
+         @beforeunload.window="if (dirty) { $event.preventDefault(); $event.returnValue = true }"
+         @keydown.window.ctrl.s.prevent="save()" @keydown.window.meta.s.prevent="save()">
+
+      <header class="catalog-actionbar cartelera-wsheader ct-ws__header">
+        {% if back_to_portal %}<a class="catalog-back" href="{{ back_to_portal }}" @click="leave($event)">← Volver a la cartelera</a>{% endif %}
+        <a class="catalog-back" href="/cchh/cartelera" @click="leave($event)">{{ '· Ediciones' if back_to_portal else '← Volver a Ediciones' }}</a>
+        <div class="cartelera-wsheader__id">
+          <span class="cartelera-wsheader__eyebrow">{{ 'Cartelera · ordenando' if editor_mode == 'ordenar' else 'Cartelera · editando' }}</span>
+          <h1 class="cartelera-wsheader__title">{{ month_name }}</h1>
+          <span class="dashboard-status-badge solicitudes-status-badge solicitudes-status-badge--{{ tones[state] }}">{{ svc.STATE_LABELS[state] }}</span>
+        </div>
+        {% if editor_mode != 'ordenar' %}<nav class="experience-tabs ct-ws__modes" aria-label="Modo">
+          <button type="button" :class="mode === 'edit' && 'is-active'" @click="mode = 'edit'">Editar</button>
+          <button type="button" :class="mode === 'view' && 'is-active'" @click="showView()">Vista del colaborador</button>
+        </nav>{% endif %}
+        <span class="ct-ws__devices">
+          <button type="button" class="table-action-btn chart-tooltip-anchor" x-show="!layout" :class="side && 'is-active'" :aria-pressed="side" @click="side = !side" aria-label="Publicación e historial">{{ icon('panel') }}<span class="chart-tooltip" aria-hidden="true"><p>Publicación e historial</p></span></button>
+        </span>
+        <div class="catalog-actionbar__actions cartelera-wsheader__actions">
+          <span class="field-hint cartelera-wsheader__saved" role="status" x-show="!dirty && msg" x-text="msg"></span>
+          <span class="status-badge status-badge--tentativo" x-show="dirty" x-cloak>Sin guardar</span>
+          {% if editor_mode == 'ordenar' %}
+          <button type="button" class="btn-secondary" @click="cancelLayout()">Cancelar</button>
+          <button type="button" class="btn-primary" @click="saveLayout()" :disabled="saving || !dirty" x-text="saving ? 'Guardando…' : 'Guardar orden'"></button>
+          {% else %}
+          <button type="button" class="btn-secondary" x-show="dirty" x-cloak @click="discard()">Descartar</button>
+          <button type="button" class="btn-primary" @click="save()" :disabled="saving || !dirty" x-text="saving ? 'Guardando…' : 'Guardar'"></button>
+          {% endif %}
+        </div>
+      </header>
+
+      <div class="ct-ws__notices">
+        {% if ok %}<div class="callout callout--success callout--feedback" role="status" x-data="{ on: true }" x-show="on" x-init="setTimeout(() => on = false, 6000)"><div class="callout__body field-hint"><p>{{ ok }}</p></div></div>{% endif %}
+        {% if error %}<div class="callout callout--warn callout--feedback" role="alert"><div class="callout__body field-hint"><p>{{ error }}</p></div></div>{% endif %}
+        <div class="callout callout--warn callout--feedback" role="alert" x-show="err" x-cloak><div class="callout__body field-hint"><p x-text="err"></p></div></div>
+        <div class="callout callout--feedback cartelera-recover" x-show="recovery" x-cloak role="status">
+          <div class="callout__body field-hint"><p><strong>Hay cambios sin guardar de tu última sesión en este navegador</strong> (<span x-text="recovery && recovery.when"></span>).</p></div>
+          <div class="cartelera-recover__actions"><button type="button" class="btn-primary" @click="recover()">Recuperarlos</button><button type="button" class="btn-secondary" @click="dropRecovery()">Descartarlos</button></div>
+        </div>
+      </div>
+
+      <div class="ct-ws__body" :class="side && 'has-side'">
+        <div class="ct-ws__stage">
+          <iframe class="ct-ws__frame" x-ref="edit" x-show="mode === 'edit'" src="/cchh/cartelera/ediciones/{{ edition.id }}/lienzo?pagina={{ canvas_page }}{{ '&modo=ordenar' if editor_mode == 'ordenar' else '' }}" title="Edición de {{ month_name }}"></iframe>
+          <iframe class="ct-ws__frame" x-ref="view" x-show="mode === 'view'" x-cloak title="Vista del colaborador" @load="quietView()"></iframe>
+          <div class="ct-ws__loading" x-show="loading" x-cloak><span class="field-hint" x-text="loading"></span></div>
+        </div>
+
+        <aside class="ct-ws__side" x-show="side" x-cloak>
+          <section class="dashboard-section cartelera-panel">
+            <div class="dashboard-section__head cartelera-panel__head"><span class="dashboard-section__title">Publicación</span>
+              <span class="dashboard-status-badge solicitudes-status-badge solicitudes-status-badge--{{ tones[state] }}">{{ svc.STATE_LABELS[state] }}</span></div>
+            <div class="dashboard-section__body">
+              {% if state == 'scheduled' %}<p class="field-hint">Se publica el <strong>{{ svc.fmt_local(edition.publish_at) }}</strong> (hora de Buenos Aires). Hasta entonces solo la ve Capital Humano.</p>
+              {% elif state == 'published' %}<p class="field-hint">Publicada el {{ svc.fmt_local(edition.published_at or edition.publish_at) }}. Lo que guardes se ve de inmediato en el portal; lo que no guardes, no.</p>
+              {% elif state == 'withdrawn' %}<p class="field-hint">Retirada: no se muestra en el portal. Podés volver a publicarla o programarla.</p>
+              {% else %}<p class="field-hint">Borrador: solo la ve Capital Humano.</p>{% endif %}
+              <p class="field-hint" x-show="dirty" x-cloak>Tus cambios sin guardar se guardan antes de publicar o programar.</p>
+              <form method="post" action="/cchh/cartelera/ediciones/{{ edition.id }}/estado" x-ref="stateForm" class="cartelera-publish">
+                <input type="hidden" name="action" x-ref="stateAction"><input type="hidden" name="revision" :value="revision">
+                {% if state != 'published' %}
+                <button type="button" class="btn-primary" @click="stateAction('publish')">Publicar ahora</button>
+                <div class="cartelera-publish__schedule">
+                  <label for="ct-when" class="field-hint">{{ 'Cambiar la fecha programada' if state == 'scheduled' else 'O programala (hora de Buenos Aires)' }}</label>
+                  <input id="ct-when" type="datetime-local" name="when" x-ref="when" min="{{ min_schedule }}" value="{{ svc.to_local_input(edition.publish_at) if state == 'scheduled' else '' }}">
+                  <button type="button" class="btn-secondary" @click="stateAction('schedule')">{{ 'Reprogramar' if state == 'scheduled' else 'Programar' }}</button>
+                </div>
+                {% endif %}
+                {% if state == 'scheduled' %}<button type="button" class="btn-secondary" @click="stateAction('unschedule')">Cancelar programación</button>{% endif %}
+                {% if state == 'published' %}<button type="button" class="btn-secondary" @click="stateAction('withdraw')">Retirar del portal</button>{% endif %}
+              </form>
+              <p class="cartelera-pending cartelera-pending--inline cartelera-publish__mail">Aviso por correo al publicarse · envío real en validación</p>
+              {% if state in ('draft', 'withdrawn') %}
+              <div class="cartelera-publish__danger"><button type="button" class="table-action-btn table-action-btn--text table-action-btn--danger" @click="stateAction('delete')">{{ icon('trash') }} Eliminar edición</button></div>
+              {% endif %}
+            </div>
+          </section>
+          <details class="dashboard-section cartelera-panel">
+            <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Historial</span>
+              <span class="dashboard-section__count">{{ (edition.history or []) | length }}</span></summary>
+            <div class="dashboard-section__body">
+              <ol class="cartelera-history">{% for h in (edition.history or [])|reverse %}
+                <li><span class="cartelera-history__when">{{ svc.fmt_local(h.at) }}</span><span>{{ h.action }}{% if h.count and h.count > 1 %} <span class="field-hint">({{ h.count }} guardados)</span>{% endif %}</span><em>{{ h.actor }}</em></li>
+              {% else %}<li class="field-hint">Sin movimientos.</li>{% endfor %}</ol>
+            </div>
+          </details>
+          <p class="field-hint ct-ws__help">Editá los textos directamente sobre la cartelera. Pasá el mouse por un contenido para ver sus herramientas y arrastrá el ícono de mover para ordenar secciones y contenidos.</p>
+        </aside>
+      </div>
+
+      {# Selector gobernado de proyectos de Operaciones (anatomía de `.dw-confirm`). #}
+      <dialog class="dw-confirm cartelera-picker" x-ref="picker" @close="closePicker()" aria-labelledby="ct-picker-title">
+        <div class="dw-confirm__body">
+          <h2 class="dw-confirm__title" id="ct-picker-title" x-text="picker && picker.replacing ? 'Cambiar el proyecto' : 'Agregar un proyecto del mes'"></h2>
+          <p class="dw-confirm__msg">Se toma de las fuentes de Operaciones solo el nombre del proyecto y del cliente; el resto lo escribís sobre la tarjeta.</p>
+          <input type="search" x-model="projQuery" autocomplete="off" x-ref="projSearch" placeholder="Buscar por proyecto o cliente…" class="cartelera-picker__search" aria-label="Buscar proyecto">
+          <p class="field-hint" x-show="projLoading">Consultando Operaciones…</p>
+          <p class="feedback-error" x-show="projErr" x-text="projErr"></p>
+          <ul class="cartelera-picker__list" x-show="!projLoading && !projErr">
+            <template x-for="p in filteredProjects()" :key="p.id">
+              <li><button type="button" @click="pickProject(p)" :disabled="picker && picker.used.includes(p.id)"><strong x-text="p.name"></strong><span x-text="picker && picker.used.includes(p.id) ? 'Ya está en la edición' : p.client"></span></button></li>
+            </template>
+            <li class="field-hint" x-show="projects && !filteredProjects().length">No hay proyectos que coincidan.</li>
+          </ul>
+        </div>
+        <div class="dw-confirm__actions"><button type="button" class="btn-secondary" @click="$refs.picker.close()">Cancelar</button></div>
+      </dialog>
+    </div>
+  </main>
+</div>
+
+<script>
+function carteleraEditor(boot) {
+  const DRAFT_KEY = "dw-cartelera-draft:" + boot.month;
+  const store = {
+    get() { try { return JSON.parse(localStorage.getItem(DRAFT_KEY) || "null"); } catch (e) { return null; } },
+    set(v) { try { localStorage.setItem(DRAFT_KEY, JSON.stringify(v)); } catch (e) {} },
+    clear() { try { localStorage.removeItem(DRAFT_KEY); } catch (e) {} },
+  };
+  return {
+    revision: boot.revision, month: boot.month, saved: null, dirty: false, saving: false, msg: "", err: "", loading: "Preparando la cartelera…",
+    mode: "edit", page: boot.page || "inicio", layout: !!boot.layout, side: !boot.layout && window.innerWidth >= 1280, recovery: null, canvas: null, phase: "load", t: null,
+    projects: null, projLoading: false, projErr: "", projQuery: "", picker: null,
+
+    boot() {
+      const self = this;
+      window.ctHost = {                                                                 // puente que usa el lienzo (cartelera_canvas.js)
+        canvasReady(c) { self.attach(c); },
+        confirm(opts) { return self.ask(opts); },
+        pickProject(opts) { return self.openPicker(opts); },
+        save() { return self.save(); },
+        pageChanged(pg) { self.page = pg; },
+      };
+      this.$watch("mode", m => { if (m === "edit") this.err = ""; });
+    },
+    attach(c) {
+      this.canvas = c; this.loading = ""; if (c.page) this.page = c.page();
+      c.onChange(() => this.changed());
+      const now = JSON.stringify(c.serialize());
+      if (this.phase === "load" || this.phase === "discard") {
+        this.saved = now; this.dirty = false;
+        if (this.phase === "load") {
+          const draft = this.layout ? null : store.get();             // Ordenar no ofrece ni pisa borradores del editor completo
+          if (draft && draft.revision === this.revision && draft.payload && JSON.stringify(draft.payload) !== now) {
+            this.recovery = { ...draft, when: new Date(draft.at).toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" }) };
+          } else if (draft) store.clear();
+        }
+      } else { this.changed(); }
+      this.phase = "ready";
+      const doc = this.$refs.edit.contentDocument;                                   // Ctrl/Cmd+S también desde adentro del lienzo
+      if (doc && !doc.__ctKeys) { doc.__ctKeys = true; doc.addEventListener("keydown", ev => { if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "s") { ev.preventDefault(); this.save(); } }); }
+    },
+    payload() { return this.canvas ? this.canvas.serialize() : null; },
+    changed() {
+      const p = this.payload(); if (!p) return;
+      this.dirty = JSON.stringify(p) !== this.saved;
+      clearTimeout(this.t);
+      if (this.layout) return;
+      this.t = setTimeout(() => { if (this.dirty) store.set({ revision: this.revision, at: Date.now(), payload: this.payload() }); else if (!this.recovery) store.clear(); }, 400);
+    },
+    async renderInto(frame, payload, edit) {
+      const r = await fetch(`/cchh/cartelera/ediciones/${this.month}/vista-previa?pagina=${this.page}${edit ? "&edit=1" : ""}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || "No se pudo preparar la cartelera."); }
+      frame.srcdoc = await r.text();
+    },
+    async recover() {
+      const draft = this.recovery; this.recovery = null; this.loading = "Recuperando tus cambios…"; this.phase = "recover"; this.mode = "edit";
+      try { await this.renderInto(this.$refs.edit, draft.payload, true); } catch (e) { this.err = e.message; this.loading = ""; this.phase = "ready"; }
+    },
+    dropRecovery() { this.recovery = null; store.clear(); },
+    reloadCanvas() {
+      const f = this.$refs.edit; this.loading = "Preparando la cartelera…"; this.phase = "discard";
+      f.removeAttribute("srcdoc"); f.src = `/cchh/cartelera/ediciones/${this.month}/lienzo?pagina=${this.page}${this.layout ? "&modo=ordenar" : ""}&t=${Date.now()}`;
+    },
+    // ── modo Ordenar (botón de Novedades): mismo guardado; al terminar vuelve a la cartelera de origen ──
+    exitLayout() { this.dirty = false; location.assign(boot.back || "/cchh/cartelera"); },
+    async cancelLayout() {
+      if (this.dirty && !(await this.ask({ title: "Cancelar el orden", message: "Se descartan los cambios de orden y ancho que todavía no guardaste.", confirmLabel: "Descartar" }))) return;
+      this.exitLayout();
+    },
+    async saveLayout() { if (await this.save()) this.exitLayout(); },
+    async discard() {
+      if (!(await this.ask({ title: "Descartar cambios", message: "Se pierden los cambios que todavía no guardaste en esta edición.", confirmLabel: "Descartar" }))) return;
+      store.clear(); this.recovery = null; this.mode = "edit"; this.reloadCanvas();
+    },
+    async showView() {
+      this.mode = "view"; this.err = ""; this.loading = "Preparando la vista del colaborador…";
+      try { await this.renderInto(this.$refs.view, this.payload(), false); }
+      catch (e) { this.err = e.message + " Corregilo en modo Editar."; }
+      finally { this.loading = ""; }
+    },
+    quietView() {                                                                       // en la vista del colaborador los enlaces no navegan el marco
+      const doc = this.$refs.view.contentDocument; if (!doc || !doc.body) return;
+      doc.addEventListener("click", ev => {
+        const a = ev.target.closest && ev.target.closest("a[href]"); if (!a) return;
+        ev.preventDefault();
+        const href = a.getAttribute("href");
+        if (href.startsWith("#")) { const t = doc.getElementById(href.slice(1)); if (t) t.scrollIntoView({ behavior: "smooth" }); }
+        else if (/^https:\/\//.test(a.href) && !a.href.startsWith(location.origin)) window.open(a.href, "_blank", "noopener");
+      });
+      doc.querySelectorAll("select").forEach(s => { s.disabled = true; });
+    },
+    async save() {
+      if (this.saving || !this.dirty || !this.canvas) return !this.dirty;
+      if (this.canvas.invalidLinks().length) {
+        this.err = "Hay enlaces que no empiezan con https://. Corregilos para poder guardar.";
+        this.mode = "edit"; this.$nextTick(() => this.canvas.revealError()); return false;
+      }
+      this.saving = true; this.err = "";
+      try {
+        const r = await fetch(`/cchh/cartelera/ediciones/${this.month}/contenido`, { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ revision: this.revision, ...this.payload() }) });
+        const j = await r.json().catch(() => ({}));
+        if (r.status === 409) { this.err = (j.error || "La edición cambió mientras editabas.") + " Tus cambios siguen en pantalla y en este navegador: recargá la página para ver la versión nueva y recuperarlos."; return false; }
+        if (!r.ok) { this.err = j.error || "No se pudo guardar. Tus cambios siguen en pantalla."; return false; }
+        this.canvas.pruneEmpty();                                                      // el servidor descarta los contenidos vacíos
+        this.revision = j.revision; this.saved = JSON.stringify(this.payload()); this.dirty = false; this.recovery = null; store.clear();
+        this.msg = "Guardado " + (j.updated ? j.updated.slice(-5) : "");
+        return true;
+      } catch (e) { this.err = "No se pudo conectar con el Hub. Tus cambios siguen en pantalla y en este navegador."; return false; }
+      finally { this.saving = false; }
+    },
+    ask(opts) { return typeof dwConfirm === "function" ? dwConfirm(opts) : Promise.resolve(window.confirm(opts.message)); },
+    async leave(ev) {
+      if (!this.dirty) return;
+      ev.preventDefault();
+      const href = ev.currentTarget.getAttribute("href");
+      if (await this.ask({ title: "Salir sin guardar", message: "Tenés cambios sin guardar. Quedan en este navegador y vas a poder recuperarlos al volver a esta edición.", confirmLabel: "Salir", okClass: "btn-primary" })) { this.dirty = false; location.assign(href); }
+    },
+    async stateAction(action) {
+      const label = boot.label;
+      const asks = {
+        publish: { title: "Publicar ahora", message: `La edición de ${label} pasa a verse en el portal para todos los colaboradores.`, confirmLabel: "Publicar", okClass: "btn-primary" },
+        unschedule: { title: "Cancelar programación", message: "La edición vuelve a borrador y no se publica en la fecha prevista.", confirmLabel: "Cancelar programación", cancelLabel: "Volver" },
+        withdraw: { title: "Retirar del portal", message: `Los colaboradores dejan de ver la edición de ${label}. Podés volver a publicarla.`, confirmLabel: "Retirar" },
+        delete: { title: "Eliminar edición", message: `Se elimina la edición de ${label} con todos sus contenidos. No se puede deshacer.`, confirmLabel: "Eliminar" },
+      };
+      if (action === "schedule") {
+        const when = this.$refs.when && this.$refs.when.value;
+        if (!when) { this.err = "Elegí la fecha y hora de publicación."; this.$refs.when.focus(); return; }
+        if (new Date(when) <= new Date()) { this.err = "La fecha programada ya pasó: usá «Publicar ahora»."; return; }
+      } else if (!(await this.ask(asks[action]))) return;
+      if (action !== "delete" && this.dirty && !(await this.save())) return;
+      this.dirty = false;
+      this.$refs.stateAction.value = action;
+      this.$nextTick(() => this.$refs.stateForm.submit());
+    },
+
+    // ── selector gobernado de proyectos de Operaciones ──
+    openPicker(opts) {
+      return new Promise(resolve => {
+        this.picker = { used: opts.used || [], replacing: !!opts.replacing, resolve };
+        this.projQuery = ""; this.$refs.picker.showModal();
+        this.$nextTick(() => this.$refs.projSearch && this.$refs.projSearch.focus());
+        this.loadProjects();
+      });
+    },
+    closePicker() { if (this.picker) { this.picker.resolve(null); this.picker = null; } },
+    pickProject(p) { const pk = this.picker; this.picker = null; pk.resolve(p); this.$refs.picker.close(); },
+    async loadProjects() {
+      if (this.projects !== null || this.projLoading) return;
+      this.projLoading = true; this.projErr = "";
+      let token = "";
+      try { const t = window.dwGraphToken ? await window.dwGraphToken({ interactive: true }) : ""; token = typeof t === "string" ? t : (t && t.token) || ""; } catch (e) {}
+      try {
+        const r = await fetch("/cchh/cartelera/proyectos", { method: "POST", body: (() => { const b = new URLSearchParams(); b.set("graph_token", token); return b; })() });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) { this.projErr = j.error || "No se pudieron leer los proyectos."; return; }
+        this.projects = j.projects || [];
+      } catch (e) { this.projErr = "No se pudo conectar con el Hub."; }
+      finally { this.projLoading = false; }
+    },
+    filteredProjects() {
+      const fold = typeof dwSearchFold === "function" ? dwSearchFold : (v => String(v || "").toLowerCase());
+      const q = fold(this.projQuery);
+      return (this.projects || []).filter(p => !q || fold(p.name + " " + p.client).includes(q)).slice(0, 80);
+    },
+  };
+}
+</script>
+{% endblock %}

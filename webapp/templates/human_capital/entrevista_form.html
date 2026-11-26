@@ -17,7 +17,7 @@
     {% set rc = list_return(request, "/cchh/entrevistas", entrevista if is_edit else form_values) %}<a class="catalog-back" href="{{ rc.back_url }}">← Volver a {{ rc.back_label or 'Entrevistas' }}</a>
     <section class="module-hero hc-profiles-hero">
       <div class="hc-profiles-hero-text">
-        <p class="eyebrow">Capital Humano</p>
+        <p class="eyebrow">Staffing</p>
         <h1>{{ 'Editar entrevista' if is_edit else 'Nueva entrevista' }}</h1>
         {% if is_edit and entrevista %}<p>{% if entrevista.profile %}{{ entrevista.profile.first_name }} {{ entrevista.profile.last_name }}{% endif %}</p>{% elif form_values.busqueda_id %}<p>Registro administrativo de la entrevista de este candidato en la Búsqueda de origen.</p>{% else %}<p>Para un candidato del Banco de CVs que todavía no está en ninguna Búsqueda.</p>{% endif %}
       </div>

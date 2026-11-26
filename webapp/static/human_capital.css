@@ -64,6 +64,7 @@
 .module-hero + #hc-onboarding-panel,
 .module-hero + #hc-publicaciones-panel,
 .module-hero + #hc-indicadores-panel,
+.module-hero + #hc-cartelera-panel,
 .module-hero + #hc-solicitudes-panel,
 .module-hero + #hc-solicitud-conflict,
 .module-hero + .dashboard-sections[data-dashboard-key="cchh-solicitudes-disponibles"] { margin-top: 24px; }

@@ -1460,3 +1460,33 @@ class StaffingRepository:
             if cid and name:
                 result.append((cid, name))
         return result
+
+    def get_projects(self, access_token: str, *, cache_scope: str | None = None) -> list[tuple[str, str, str | None, str | None]]:
+        """SOLO la identidad de los proyectos: (id, nombre, id de cliente, nombre de cliente). Fuente GOBERNADA de Operaciones (lista
+        Proyectos + Cliente vía el lookup Empresa), con los MISMOS lectores, mapeo y resolución de Cliente que `get_allocations`; nunca
+        campos comerciales, contractuales ni financieros. Consumidor: Cartelera Virtual (referencia del proyecto del mes)."""
+        site_id = self._require_site_id()
+        mapping = self._require_field_mapping()
+        self.last_diagnostics = {}
+        if cache_scope is not None:
+            proyectos = self._fetch_proyectos_delta(site_id, mapping, access_token, cache_scope=cache_scope)
+        else:
+            fields = [mapping.proyecto_title] + ([mapping.proyecto_empresa_lookup] if mapping.proyecto_empresa_lookup else [])
+            proyectos = self._timed_fetch("proyectos", _list_items_url(site_id, self.proyectos_list_id, fields), access_token)
+        clientes_by_id: dict[str, dict] = {}
+        if mapping.proyecto_empresa_lookup and mapping.cliente_title:
+            if cache_scope is not None:
+                clientes = self._fetch_cliente_delta(site_id, mapping, access_token, cache_scope=cache_scope)
+            else:
+                clientes = self._timed_fetch("cliente", _list_items_url(site_id, self.cliente_list_id, [mapping.cliente_title]), access_token)
+            clientes_by_id = {str(item.get("id")): item for item in clientes if item.get("id") is not None}
+        result: list[tuple[str, str, str | None, str | None]] = []
+        for item in proyectos:
+            pid = str(item.get("id") or "")
+            name = _resolved_title(item, mapping.proyecto_title)
+            if not (pid and name):
+                continue
+            empresa_id = _stringify((item.get("fields") or {}).get(mapping.proyecto_empresa_lookup)) if mapping.proyecto_empresa_lookup else None
+            client = clientes_by_id.get(empresa_id) if empresa_id else None
+            result.append((pid, name, empresa_id, _resolved_title(client, mapping.cliente_title) if client else None))
+        return result

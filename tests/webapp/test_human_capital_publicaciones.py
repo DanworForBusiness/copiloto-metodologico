@@ -231,7 +231,7 @@ def test_list_page_columns_actions_nav_and_plain_text_channel():
     _seed_mixed()
     c = _client()
     page = c.get("/cchh/publicaciones").text
-    assert "<h1>Publicaciones</h1>" in page and "+ Nueva publicación" in page and "<strong>Avisos</strong>" in page and "05" in page
+    assert "<h1>Publicaciones</h1>" in page and "+ Nueva publicación" in page and "<span>01</span><strong>Avisos</strong>" in page
     assert 'href="/cchh/publicaciones" class="module-link is-active"' in page
     for col in ("posicion", "canal", "cantidad", "periodo", "fecha", "observacion"):
         assert f'data-column-key="{col}"' in page
@@ -435,7 +435,7 @@ def test_the_shared_topbar_refresh_button_and_back_link_render_on_publicaciones_
     c = _client()
     for url in ("/cchh/publicaciones", "/cchh/publicaciones/nueva", f"/cchh/publicaciones/{p['publicacion_id']}/editar"):
         html = c.get(url).text
-        assert 'hx-post="/cchh/catalogos/refresh"' in html and "CAPITAL HUMANO" in html, url
+        assert 'hx-post="/cchh/catalogos/refresh"' in html and "STAFFING" in html, url
     assert 'class="catalog-back" href="/cchh/publicaciones"' in c.get("/cchh/publicaciones/nueva").text
 
 

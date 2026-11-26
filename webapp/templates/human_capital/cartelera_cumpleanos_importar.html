@@ -1,0 +1,58 @@
+{% extends "human_capital/_cartelera_layout.html" %}
+{% block page_title %}Carga masiva de cumpleaños{% endblock %}
+{% block hero_title %}Carga masiva de cumpleaños{% endblock %}
+{% block hero_lead %}Pegá o subí una lista con una persona por línea para cargar varios cumpleaños de una sola vez. Solo se guardan día y mes.{% endblock %}
+{% block cartelera_back %}<a class="catalog-back" href="{{ back_url }}">← Volver a Cumpleaños</a>{% endblock %}
+{% block hero_actions %}{% endblock %}
+{% block cartelera_tabs %}{% endblock %}
+{% block cartelera_body %}
+{# MISMO flujo que la carga masiva de CVs (Staffing → Candidatos → Carga masiva): archivo o texto → «Ver vista previa» → tabla con estado y
+   mensaje por fila → «Confirmar importación». Nada se guarda hasta confirmar. #}
+{% set st_tones = {'valid': 'green', 'duplicate': 'grey', 'invalid': 'amber'} %}
+{% set st_labels = {'valid': 'Válida', 'duplicate': 'Ya cargado', 'invalid': 'Con error'} %}
+{% if rows is none %}
+<form class="hc-profile-form cartelera-import" method="post" action="/cchh/cartelera/cumpleanos/importar/vista-previa" enctype="multipart/form-data"><input type="hidden" name="volver" value="{{ volver }}">
+  <div class="feedback-field feedback-field--wide"><label for="bd-bulk">Lista (una persona por línea: <code>Nombre Apellido;DD/MM</code>)</label>
+    <textarea id="bd-bulk" name="bulk" rows="8" placeholder="María Pérez;14/03&#10;Juan Gómez;02/11">{{ bulk }}</textarea></div>
+  <div class="feedback-field feedback-field--wide"><label for="bd-file">O un archivo CSV / TXT con el mismo formato (opcional)</label>
+    <input id="bd-file" name="file" type="file" accept=".csv,.txt,text/csv,text/plain"></div>
+  <div class="hc-profile-form__actions"><button type="submit" class="btn-primary">Ver vista previa</button></div>
+</form>
+{% else %}
+{% set valid = rows | selectattr('status', 'equalto', 'valid') | list %}
+<form class="hc-profile-form hc-profile-form--plain" method="post" action="/cchh/cartelera/cumpleanos/importar"><input type="hidden" name="volver" value="{{ volver }}">
+  <div class="dashboard-sections">
+    <details class="dashboard-section" open>
+      <summary class="dashboard-section__head">
+        <span class="dashboard-section__caret"></span><span class="dashboard-section__title">Vista previa</span>
+        <span class="dashboard-section__count">{{ valid | length }} de {{ rows | length }} fila{{ '' if rows | length == 1 else 's' }} para importar</span>
+      </summary>
+      <div class="dashboard-section__body">
+        {% if rows %}
+        <div class="matrix-scroll"><table class="dashboard-table">
+          <thead><tr><th class="left">Línea</th><th class="left">Nombre</th><th class="left">Fecha</th><th class="left">Estado</th><th class="left">Mensaje</th><th class="center">Incluir</th></tr></thead>
+          <tbody>
+          {% for r in rows %}
+            <tr>
+              <td class="left">{{ r.line }}</td>
+              <td class="left">{{ r.name or r.raw }}</td>
+              <td class="left">{% if r.day %}{{ '%02d' | format(r.day) }}/{{ '%02d' | format(r.month) }}{% else %}—{% endif %}</td>
+              <td class="left"><span class="dashboard-status-badge solicitudes-status-badge solicitudes-status-badge--{{ st_tones[r.status] }}">{{ st_labels[r.status] }}</span></td>
+              <td class="left">{{ r.message }}</td>
+              <td class="center">{% if r.status == 'valid' %}<input type="checkbox" name="line" value="{{ r.name }};{{ '%02d' | format(r.day) }}/{{ '%02d' | format(r.month) }}" checked aria-label="Incluir a {{ r.name }}">{% endif %}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table></div>
+        {% else %}<div class="dashboard-empty"><span class="dashboard-empty__label">Sin filas</span><p>No se encontraron líneas para importar.</p></div>{% endif %}
+      </div>
+    </details>
+  </div>
+  <label class="cartelera-check"><input type="checkbox" name="authorized" value="1"> Todas las personas incluidas autorizaron publicar su cumpleaños</label>
+  <div class="hc-profile-form__actions">
+    <a href="/cchh/cartelera/cumpleanos/importar{{ '?volver=' ~ volver | urlencode if volver }}" class="btn-secondary">Volver a cargar</a>
+    <button type="submit" class="btn-primary"{% if not valid %} disabled{% endif %}>Confirmar importación</button>
+  </div>
+</form>
+{% endif %}
+{% endblock %}

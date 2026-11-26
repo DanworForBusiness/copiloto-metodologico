@@ -22,11 +22,26 @@
    copilot_nav.html/operations_nav.html/commercial_nav.html
    (partials/workspace_shell.html) — misma fuente de identidad, nunca una
    segunda copia del formateo de nombre. #}
+{# Tres grupos colapsables con el MISMO patrón del Copiloto (partials/copilot_nav.html: `button.nav-toggle` + `.nav-kicker` + `.nav-toggle-sign`
+   −/+ + contenedor `x-show`/`x-transition.opacity`; estilos de layout.css): STAFFING (selección: Candidatos, Búsquedas, Entrevistas, Onboarding),
+   SEGUIMIENTO (Avisos e Indicadores) y CARTELERA VIRTUAL (entrada preparatoria). Rutas y permisos sin cambios; la numeración se reinicia en
+   cada grupo, como en el Copiloto. Se abre solo el grupo de la página activa y, como en el Copiloto, al scrollear el contenido el nav vuelve
+   a reflejar dónde estás. El estado es local al nav: no toca `copilotLayout` (app.js). #}
+{% set _hc_group = 'cartelera' if active_page == 'cartelera' else ('seguimiento' if active_page in ('publicaciones', 'indicadores') else 'staffing') %}
 {% from "partials/workspace_shell.html" import nav_welcome %}
 <aside class="module-nav" :class="navOpen&&'is-open'">
   {{ nav_welcome(user) }}
-  <nav aria-label="Capital Humano">
-    <p class="nav-kicker sidebar-workspace-kicker">CAPITAL HUMANO</p>
+  <nav aria-label="Capital Humano"
+       x-data="{ hcGroup: '{{ _hc_group }}', navStaffing: {{ 'true' if _hc_group == 'staffing' else 'false' }}, navSeguimiento: {{ 'true' if _hc_group == 'seguimiento' else 'false' }}, navCartelera: {{ 'true' if _hc_group == 'cartelera' else 'false' }} }"
+       x-init="document.querySelector('.module-content')?.addEventListener('scroll', () => { navStaffing = hcGroup === 'staffing'; navSeguimiento = hcGroup === 'seguimiento'; navCartelera = hcGroup === 'cartelera' }, { passive: true })">
+    {#- STAFFING y SEGUIMIENTO solo con Capital Humano (`hc_full`, indefinido = Capital Humano: así lo pasan las demás pantallas). Quien entra
+        al workspace solo por moderación de Comunidad ve únicamente CARTELERA VIRTUAL › Gestión. -#}
+    {% set _hc_nav = hc_full is not defined or hc_full %}
+    {% if _hc_nav %}
+    <button type="button" class="nav-toggle sidebar-workspace-kicker" data-nav-group="staffing" @click="navStaffing=!navStaffing" :aria-expanded="navStaffing">
+      <span class="nav-kicker">STAFFING</span><span class="nav-toggle-sign" x-text="navStaffing?'−':'+'">{{ '−' if _hc_group == 'staffing' else '+' }}</span>
+    </button>
+    <div x-show="navStaffing" x-transition.opacity{% if _hc_group != 'staffing' %} style="display:none"{% endif %}>
     {# Landing "Inicio" retirado por ahora (owner): el workspace arranca en
        Candidatos, que pasa a ser la primera entrada (01). #}
     <a href="/cchh/candidatos" class="module-link {% if active_page == 'perfiles' %}is-active{% endif %}">
@@ -52,15 +67,33 @@
     <a href="/cchh/onboarding" class="module-link {% if active_page == 'onboarding' %}is-active{% endif %}">
       <span>04</span><strong>Onboarding</strong>
     </a>
+    </div>
+    {# SEGUIMIENTO — registro de avisos e indicadores del proceso de selección, separado de la operación diaria de STAFFING. #}
+    <button type="button" class="nav-toggle nav-toggle--appendix" data-nav-group="seguimiento" @click="navSeguimiento=!navSeguimiento" :aria-expanded="navSeguimiento">
+      <span class="nav-kicker nav-kicker--appendix">SEGUIMIENTO</span><span class="nav-toggle-sign" x-text="navSeguimiento?'−':'+'">{{ '−' if _hc_group == 'seguimiento' else '+' }}</span>
+    </button>
+    <div x-show="navSeguimiento" x-transition.opacity{% if _hc_group != 'seguimiento' %} style="display:none"{% endif %}>
     {# Avisos — capability real del workspace, tomada de la app de referencia (tab "Avisos" -> /publicaciones; el H1 de la página es «Publicaciones», MISMO criterio de doble
        nombre que Candidatos / Base de CVs): registro histórico de los avisos publicados (ver publicacion_repository.py). `active_page == 'publicaciones'` lo pasa el router. #}
     <a href="/cchh/publicaciones" class="module-link {% if active_page == 'publicaciones' %}is-active{% endif %}">
-      <span>05</span><strong>Avisos</strong>
+      <span>01</span><strong>Avisos</strong>
     </a>
     {# Indicadores — capability real del workspace, tomada de la app de referencia (tab "Indicadores" -> /metricas; el H1 es «Indicadores»): tiempos de cobertura y contratación, conversión,
        fuentes y perfiles más entrevistados (ver human_capital_indicators.py). `active_page == 'indicadores'` lo pasa el router. #}
     <a href="/cchh/indicadores" class="module-link {% if active_page == 'indicadores' %}is-active{% endif %}">
-      <span>06</span><strong>Indicadores</strong>
+      <span>02</span><strong>Indicadores</strong>
     </a>
+    </div>
+    {% endif %}
+    {# CARTELERA VIRTUAL — entrada PREPARATORIA: la página solo anuncia la sección (sin persistencia, integraciones ni permisos nuevos); la
+       capacidad administrativa diferenciada se define aparte (decisión F1). `active_page == 'cartelera'` lo pasa el router. #}
+    <button type="button" class="nav-toggle nav-toggle--appendix" data-nav-group="cartelera" @click="navCartelera=!navCartelera" :aria-expanded="navCartelera">
+      <span class="nav-kicker nav-kicker--appendix">CARTELERA VIRTUAL</span><span class="nav-toggle-sign" x-text="navCartelera?'−':'+'">{{ '−' if _hc_group == 'cartelera' else '+' }}</span>
+    </button>
+    <div x-show="navCartelera" x-transition.opacity{% if _hc_group != 'cartelera' %} style="display:none"{% endif %}>
+    <a href="{{ '/cchh/cartelera' if _hc_nav else '/cchh/cartelera/comunidad' }}" class="module-link {% if active_page == 'cartelera' %}is-active{% endif %}">
+      <span>01</span><strong>Gestión</strong>
+    </a>
+    </div>
   </nav>
 </aside>

@@ -29,9 +29,10 @@ OPERATIONS_APP_SUBTITLE = _env("DANWOR_OPERATIONS_APP_SUBTITLE", "Analítica y g
 COMMERCIAL_APP_TITLE    = _env("DANWOR_COMMERCIAL_APP_TITLE", "Gestión Comercial · CRM Danwor")
 COMMERCIAL_APP_SUBTITLE = _env("DANWOR_COMMERCIAL_APP_SUBTITLE", "Gestión y analítica comercial | Danwor Transversal")
 
-# App identity — workspace Capital Humano: MISMO componente de banner y MISMA forma que los de Operaciones/Comercial (título «Vertical · Área», subtítulo «Qué hace | Danwor Transversal»). A diferencia de aquéllos
-# NO se lee del entorno: es una constante del código, así que el cambio no exige tocar la configuración del despliegue.
-HUMAN_CAPITAL_APP_TITLE    = "Capital Humano · Selección e Incorporación"
+# App identity — workspace Capital Humano: MISMO componente de banner que Operaciones/Comercial. El título es solo la vertical («Capital Humano»):
+# la vertical agrupa dos áreas (STAFFING y CARTELERA VIRTUAL, grupos del nav izquierdo), así que el banner ya no nombra una de ellas. El subtítulo
+# corporativo se conserva. A diferencia de aquéllos NO se lee del entorno: es una constante del código (el cambio no exige tocar el despliegue).
+HUMAN_CAPITAL_APP_TITLE    = "Capital Humano"
 HUMAN_CAPITAL_APP_SUBTITLE = "Talento en acción | Danwor Transversal"
 
 # Paths
@@ -209,6 +210,9 @@ NOTIFICATIONS_SENDER        = os.getenv("NOTIFICATIONS_SENDER", "").strip()
 NOTIFICATIONS_OPERATIONS_RECIPIENTS = os.getenv("NOTIFICATIONS_OPERATIONS_RECIPIENTS", "").strip()
 NOTIFICATIONS_ARQ_RECIPIENTS        = os.getenv("NOTIFICATIONS_ARQ_RECIPIENTS", "").strip()     # Arquitectura e Innovación
 NOTIFICATIONS_HC_RECIPIENTS         = os.getenv("NOTIFICATIONS_HC_RECIPIENTS", "").strip()      # Capital Humano: reservado, ningún evento todavía
+# Cartelera Virtual: destinatarios del aviso «nueva edición publicada» (típicamente la lista de distribución de colaboradores). Es configuración
+# de DESTINATARIOS del correo, no de autorización. Vacío = el evento queda registrado como «sin destinatarios» y no se envía nada.
+NOTIFICATIONS_CARTELERA_RECIPIENTS  = os.getenv("NOTIFICATIONS_CARTELERA_RECIPIENTS", "").strip()
 # URL pública del Hub para los enlaces de los correos (p. ej. https://hub.danwor.com). Opcional: sin ella se usa el origen YA validado (mismo origen)
 # del POST que originó el evento. Recomendada en producción.
 NOTIFICATIONS_HUB_BASE_URL  = os.getenv("NOTIFICATIONS_HUB_BASE_URL", "").strip().rstrip("/")
@@ -437,6 +441,11 @@ HC_CV_INBOX_PARENT_NAME = "Perfiles"
 # (Comercial → Presentaciones: puede editar CUALQUIER instancia, sin importar quién la creó, siempre dentro de la autorización de Comercial; ver
 # webapp.services.commercial_presentations.can_edit_presentation_user). Los seeds/templates institucionales NO se editan desde la UI con esta capacidad: se gobiernan por código/deploy.
 CONTENT_OWNER = _env("CONTENT_OWNER", "")
+# Moderación de COMUNIDAD (Cartelera Virtual): MISMO patrón que CONTENT_OWNER — allowlist EXPLÍCITA, fail-closed (ausente/vacío/"ALL" = nadie
+# modera), sin bypass de APP_OWNER. Pregunta ORTOGONAL a Capital Humano: moderar Comunidad NO da acceso a la vertical CCHH y estar en
+# HUMAN_CAPITAL_ALLOWED_USERS NO da moderación. Habilita retirar y eliminar publicaciones ajenas, fijar, aprobar/rechazar, retirar comentarios y
+# resolver reportes (ver webapp.services.cartelera_social). Ejemplo: COMMUNITY_OWNER=joconnor,mperez
+COMMUNITY_OWNER = _env("COMMUNITY_OWNER", "")
 # Usage Metrics como capacidad de HUB (owner ticket "HUB METRICS — CENTRALIZE
 # ACCESS AND ENABLE BY VERTICAL"): DOS preguntas independientes — "¿puedo
 # entrar al vertical?" (ALLOWED_USERS/OPERATIONS_ALLOWED_USERS/

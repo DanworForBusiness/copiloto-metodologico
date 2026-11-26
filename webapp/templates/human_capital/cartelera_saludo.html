@@ -1,0 +1,196 @@
+{#- PREPARAR SALUDO — editor del saludo de cumpleaños de una persona para un año. MISMO workspace que el editor de carteleras (patrón de
+    Presentaciones): barra de trabajo del Hub + la tarjeta REAL del portal (`cartelera/portal.html`, página «saludo») en un lienzo con la
+    MISMA capa de edición inline (`cartelera_canvas.js`): título y mensaje sobre la tarjeta, enlace en su panel. «Vista del colaborador»
+    la muestra sin controles. Publicación inmediata o programada (por defecto, el día del cumpleaños a las 9) con las mismas reglas que las
+    ediciones; lo ven los colaboradores solo si la persona sigue autorizada y visible. No envía correos. -#}
+{% extends "base.html" %}
+{% from "partials/platform_topbar.html" import platform_topbar %}
+{% set tones = {'none': 'grey', 'draft': 'grey', 'scheduled': 'violet', 'published': 'green', 'withdrawn': 'amber'} %}
+{% set labels = {'none': 'Sin preparar', 'draft': 'Borrador', 'scheduled': 'Programado', 'published': 'Publicado', 'withdrawn': 'Retirado'} %}
+{% set date_label = greet_date.day ~ ' de ' ~ (svc.MONTHS[greet_date.month - 1] | lower) %}
+{% block title %}Saludo · {{ birthday.name }} · Cartelera Virtual · Capital Humano · Danwor{% endblock %}
+{% block head_styles %}<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}"><link rel="stylesheet" href="{{ url_for('static', path='operations_solicitudes.css') }}?v={{ static_version }}"><link rel="stylesheet" href="{{ url_for('static', path='cartelera.css') }}?v={{ static_version }}">{% endblock %}
+{% macro icon(name) -%}
+<svg viewBox="0 0 24 24" aria-hidden="true">{% if name == 'trash' %}<path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/>{% elif name == 'panel' %}<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/>{% endif %}</svg>
+{%- endmacro %}
+
+{% block body %}
+<div x-data="copilotLayout('human-capital')" x-init="init()" class="app-shell no-copilot ct-workspace">
+  {% set _identity_html %}<iframe src="/brand/dancing/{{ pack }}?title={{ config.HUMAN_CAPITAL_APP_TITLE | urlencode }}&subtitle={{ config.HUMAN_CAPITAL_APP_SUBTITLE | urlencode }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
+  {% call platform_topbar(current_workspace, available_workspaces, current_workspace.home_url, _identity_html, "Menú") %}{% endcall %}
+
+  <main id="content" class="module-content">
+    <script type="application/json" id="ct-boot">{{ {'revision': greeting.revision if greeting else none, 'base': '/cchh/cartelera/cumpleanos/' ~ birthday.id ~ '/saludo', 'year': year, 'volver': volver, 'exists': greeting is not none} | tojson }}</script>
+    <div id="hc-cartelera-panel" class="ct-ws" x-data="greetingEditor(JSON.parse(document.getElementById('ct-boot').textContent))" x-init="boot()"
+         @beforeunload.window="if (dirty) { $event.preventDefault(); $event.returnValue = true }"
+         @keydown.window.ctrl.s.prevent="save()" @keydown.window.meta.s.prevent="save()">
+
+      <header class="catalog-actionbar cartelera-wsheader ct-ws__header">
+        <a class="catalog-back" href="{{ back_url }}" @click="leave($event)">← Volver a Cumpleaños</a>
+        <div class="cartelera-wsheader__id">
+          <span class="cartelera-wsheader__eyebrow">Saludo · {{ date_label }}</span>
+          <h1 class="cartelera-wsheader__title">{{ birthday.name }}</h1>
+          <span class="dashboard-status-badge solicitudes-status-badge solicitudes-status-badge--{{ tones[state] }}">{{ labels[state] }}</span>
+        </div>
+        <nav class="experience-tabs ct-ws__modes" aria-label="Modo">
+          <button type="button" :class="mode === 'edit' && 'is-active'" @click="mode = 'edit'">Editar</button>
+          <button type="button" :class="mode === 'view' && 'is-active'" @click="showView()">Vista del colaborador</button>
+        </nav>
+        <span class="ct-ws__devices">
+          <button type="button" class="table-action-btn chart-tooltip-anchor" :class="side && 'is-active'" @click="side = !side" aria-label="Publicación e historial">{{ icon('panel') }}<span class="chart-tooltip" aria-hidden="true"><p>Publicación e historial</p></span></button>
+        </span>
+        <div class="catalog-actionbar__actions cartelera-wsheader__actions">
+          <span class="field-hint cartelera-wsheader__saved" role="status" x-show="!dirty && msg" x-text="msg"></span>
+          <span class="status-badge status-badge--tentativo" x-show="dirty" x-cloak>Sin guardar</span>
+          <button type="button" class="btn-secondary" x-show="dirty" x-cloak @click="discard()">Descartar</button>
+          <button type="button" class="btn-primary" @click="save()" :disabled="saving || !dirty" x-text="saving ? 'Guardando…' : (exists ? 'Guardar' : 'Guardar saludo')"></button>
+        </div>
+      </header>
+
+      <div class="ct-ws__notices">
+        {% if ok %}<div class="callout callout--success callout--feedback" role="status" x-data="{ on: true }" x-show="on" x-init="setTimeout(() => on = false, 6000)"><div class="callout__body field-hint"><p>{{ ok }}</p></div></div>{% endif %}
+        {% if error %}<div class="callout callout--warn callout--feedback" role="alert"><div class="callout__body field-hint"><p>{{ error }}</p></div></div>{% endif %}
+        <div class="callout callout--warn callout--feedback" role="alert" x-show="err" x-cloak><div class="callout__body field-hint"><p x-text="err"></p></div></div>
+      </div>
+
+      <div class="ct-ws__body" :class="side && 'has-side'">
+        <div class="ct-ws__stage">
+          <iframe class="ct-ws__frame" x-ref="edit" x-show="mode === 'edit'" src="/cchh/cartelera/cumpleanos/{{ birthday.id }}/saludo/lienzo?anio={{ year }}" title="Saludo para {{ birthday.name }}"></iframe>
+          <iframe class="ct-ws__frame" x-ref="view" x-show="mode === 'view'" x-cloak title="Vista del colaborador" @load="quietView()"></iframe>
+          <div class="ct-ws__loading" x-show="loading" x-cloak><span class="field-hint" x-text="loading"></span></div>
+        </div>
+
+        <aside class="ct-ws__side" x-show="side" x-cloak>
+          <section class="dashboard-section cartelera-panel">
+            <div class="dashboard-section__head cartelera-panel__head"><span class="dashboard-section__title">Publicación</span>
+              <span class="dashboard-status-badge solicitudes-status-badge solicitudes-status-badge--{{ tones[state] }}">{{ labels[state] }}</span></div>
+            <div class="dashboard-section__body">
+              {% if state == 'none' %}<p class="field-hint">Te proponemos un texto para el saludo. Ajustalo sobre la tarjeta y guardalo; después lo publicás o lo programás para el {{ date_label }}.</p>
+              {% elif state == 'scheduled' %}<p class="field-hint">Se publica el <strong>{{ svc.fmt_local(greeting.publish_at) }}</strong> (hora de Buenos Aires).</p>
+              {% elif state == 'published' %}<p class="field-hint">Publicado: se ve desde «Cumple hoy» en el Inicio y desde el calendario de Novedades. Lo que guardes se ve de inmediato.</p>
+              {% elif state == 'withdrawn' %}<p class="field-hint">Retirado: no se muestra. Podés volver a publicarlo o programarlo.</p>
+              {% else %}<p class="field-hint">Borrador: solo lo ve Capital Humano.</p>{% endif %}
+              <p class="field-hint" x-show="dirty" x-cloak>Tus cambios sin guardar se guardan antes de publicar o programar.</p>
+              <form method="post" action="/cchh/cartelera/cumpleanos/{{ birthday.id }}/saludo/estado?anio={{ year }}{{ '&volver=' ~ volver | urlencode if volver }}" x-ref="stateForm" class="cartelera-publish">
+                <input type="hidden" name="action" x-ref="stateAction"><input type="hidden" name="revision" :value="revision || 0">
+                {% if state != 'published' %}
+                <button type="button" class="btn-primary" @click="stateAction('publish')">Publicar ahora</button>
+                <div class="cartelera-publish__schedule">
+                  <label for="ct-when" class="field-hint">{{ 'Cambiar la fecha programada' if state == 'scheduled' else 'O programalo (hora de Buenos Aires)' }}</label>
+                  <input id="ct-when" type="datetime-local" name="when" x-ref="when" min="{{ min_schedule }}" value="{{ svc.to_local_input(greeting.publish_at) if state == 'scheduled' else (suggested if suggested > min_schedule else '') }}">
+                  <button type="button" class="btn-secondary" @click="stateAction('schedule')">{{ 'Reprogramar' if state == 'scheduled' else 'Programar' }}</button>
+                </div>
+                {% endif %}
+                {% if state == 'scheduled' %}<button type="button" class="btn-secondary" @click="stateAction('unschedule')">Cancelar programación</button>{% endif %}
+                {% if state == 'published' %}<a class="btn-secondary" href="/cartelera/saludos/{{ gid }}" target="_blank" rel="noopener">Ver en la Cartelera ↗</a>
+                <button type="button" class="btn-secondary" @click="stateAction('withdraw')">Retirar</button>{% endif %}
+              </form>
+              <p class="cartelera-pending cartelera-pending--inline cartelera-publish__mail">Sin envío de correo: el saludo se ve en la Cartelera</p>
+              {% if state in ('draft', 'withdrawn') %}
+              <div class="cartelera-publish__danger"><button type="button" class="table-action-btn table-action-btn--text table-action-btn--danger" @click="stateAction('delete')">{{ icon('trash') }} Eliminar saludo</button></div>
+              {% endif %}
+            </div>
+          </section>
+          {% if greeting %}
+          <details class="dashboard-section cartelera-panel">
+            <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Historial</span>
+              <span class="dashboard-section__count">{{ (greeting.history or []) | length }}</span></summary>
+            <div class="dashboard-section__body">
+              <ol class="cartelera-history">{% for h in (greeting.history or [])|reverse %}
+                <li><span class="cartelera-history__when">{{ svc.fmt_local(h.at) }}</span><span>{{ h.action }}{% if h.count and h.count > 1 %} <span class="field-hint">({{ h.count }} guardados)</span>{% endif %}</span><em>{{ h.actor }}</em></li>
+              {% endfor %}</ol>
+            </div>
+          </details>
+          {% endif %}
+          <p class="field-hint ct-ws__help">Solo se guardan nombre, día y mes. La imagen o flyer se suma cuando se habilite la integración documental de SharePoint.</p>
+        </aside>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+function greetingEditor(boot) {
+  return {
+    revision: boot.revision, exists: boot.exists, saved: null, dirty: false, saving: false, msg: "", err: "", loading: "Preparando el saludo…",
+    mode: "edit", side: window.innerWidth >= 1280, canvas: null,
+    boot() {
+      const self = this;
+      window.ctHost = {                                                                 // MISMO puente que el editor de carteleras
+        canvasReady(c) { self.canvas = c; self.loading = ""; self.saved = JSON.stringify(c.serialize()); self.dirty = !self.exists; c.onChange(() => self.changed()); },
+        confirm(opts) { return self.ask(opts); },
+        save() { return self.save(); },
+      };
+      this.$watch("mode", m => { if (m === "edit") this.err = ""; });
+    },
+    changed() { this.dirty = !this.exists || JSON.stringify(this.canvas.serialize()) !== this.saved; },
+    ask(opts) { return typeof dwConfirm === "function" ? dwConfirm(opts) : Promise.resolve(window.confirm(opts.message)); },
+    async showView() {
+      this.mode = "view"; this.err = ""; this.loading = "Preparando la vista del colaborador…";
+      try {
+        const r = await fetch(`${boot.base}/vista-previa?anio=${boot.year}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(this.canvas.serialize()) });
+        if (!r.ok) throw new Error("No se pudo preparar la vista del colaborador.");
+        this.$refs.view.srcdoc = await r.text();
+      } catch (e) { this.err = e.message; }
+      finally { this.loading = ""; }
+    },
+    quietView() {
+      const doc = this.$refs.view.contentDocument; if (!doc || !doc.body) return;
+      doc.addEventListener("click", ev => { const a = ev.target.closest && ev.target.closest("a[href]"); if (a) ev.preventDefault(); });
+    },
+    async save() {
+      if (this.saving || !this.dirty || !this.canvas) return !this.dirty;
+      if (this.canvas.invalidLinks().length) { this.err = "El enlace tiene que empezar con https://."; this.mode = "edit"; this.$nextTick(() => this.canvas.revealError()); return false; }
+      this.saving = true; this.err = "";
+      try {
+        const r = await fetch(`${boot.base}/contenido?anio=${boot.year}`, { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ revision: this.revision, ...this.canvas.serialize() }) });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) { this.err = j.error || "No se pudo guardar el saludo."; return false; }
+        const first = !this.exists;
+        this.revision = j.revision; this.exists = true; this.saved = JSON.stringify(this.canvas.serialize()); this.dirty = false;
+        this.msg = "Guardado " + (j.updated ? j.updated.slice(-5) : "");
+        if (first) { location.assign(`${boot.base}?anio=${boot.year}${boot.volver ? "&volver=" + encodeURIComponent(boot.volver) : ""}&ok=${encodeURIComponent("Saludo guardado como borrador.")}`); }
+        return true;
+      } catch (e) { this.err = "No se pudo conectar con el Hub. Tus cambios siguen en pantalla."; return false; }
+      finally { this.saving = false; }
+    },
+    async discard() {
+      if (!(await this.ask({ title: "Descartar cambios", message: "Se pierden los cambios que todavía no guardaste en el saludo.", confirmLabel: "Descartar" }))) return;
+      this.dirty = false; location.reload();
+    },
+    async leave(ev) {
+      if (!this.dirty) return;
+      ev.preventDefault();
+      const href = ev.currentTarget.getAttribute("href");
+      if (await this.ask({ title: "Salir sin guardar", message: this.exists ? "Tenés cambios sin guardar en el saludo." : "El saludo todavía no se guardó.", confirmLabel: "Salir", okClass: "btn-primary" })) { this.dirty = false; location.assign(href); }
+    },
+    async stateAction(action) {
+      const asks = {
+        publish: { title: "Publicar el saludo", message: "El saludo pasa a verse en la Cartelera: desde «Cumple hoy» en el Inicio y desde el calendario de Novedades.", confirmLabel: "Publicar", okClass: "btn-primary" },
+        unschedule: { title: "Cancelar programación", message: "El saludo vuelve a borrador y no se publica en la fecha prevista.", confirmLabel: "Cancelar programación", cancelLabel: "Volver" },
+        withdraw: { title: "Retirar el saludo", message: "Los colaboradores dejan de verlo. Podés volver a publicarlo.", confirmLabel: "Retirar" },
+        delete: { title: "Eliminar saludo", message: "Se elimina el saludo preparado. No se puede deshacer.", confirmLabel: "Eliminar" },
+      };
+      if (action === "schedule") {
+        const when = this.$refs.when && this.$refs.when.value;
+        if (!when) { this.err = "Elegí la fecha y hora de publicación."; return; }
+        if (new Date(when) <= new Date()) { this.err = "La fecha programada ya pasó: usá «Publicar ahora»."; return; }
+      } else if (!(await this.ask(asks[action]))) return;
+      if (action !== "delete" && this.dirty) {
+        const wasNew = !this.exists;
+        if (wasNew) {                                                                    // primer guardado sin redirigir: se publica en el mismo paso
+          const r = await fetch(`${boot.base}/contenido?anio=${boot.year}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ revision: null, ...this.canvas.serialize() }) });
+          const j = await r.json().catch(() => ({}));
+          if (!r.ok) { this.err = j.error || "No se pudo guardar el saludo."; return; }
+          this.revision = j.revision; this.exists = true;
+        } else if (!(await this.save())) return;
+      }
+      this.dirty = false;
+      this.$refs.stateAction.value = action;
+      this.$nextTick(() => this.$refs.stateForm.submit());
+    },
+  };
+}
+</script>
+{% endblock %}
