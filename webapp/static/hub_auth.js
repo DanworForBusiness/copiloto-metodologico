@@ -398,6 +398,12 @@
     return delegatedWriteToken(() => "Sites.ReadWrite.All", opts, "solicitudes_write", true);
   };
 
+  // Cartelera Virtual → Cumpleaños: el registro persiste en el Excel de SharePoint. MISMO scope delegado que Solicitudes (ya consentido): el Hub
+  // escribe solo donde quien opera tiene permiso de edición. Lo piden únicamente los formularios de escritura de Cumpleaños (con gesto).
+  window.dwCarteleraWriteToken = function (opts) {
+    return delegatedWriteToken(() => "Sites.ReadWrite.All", opts, "cartelera_write", true);
+  };
+
   // Capital Humano — Compartir perfiles: token DELEGADO para buscar
   // destinatarios en el directorio corporativo (`/users?$search`). Pide el
   // scope ADICIONAL `hc_directory_search_scope` (mínimo `User.ReadBasic.All`),

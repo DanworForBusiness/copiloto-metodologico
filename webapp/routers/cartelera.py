@@ -19,6 +19,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from core.content_registry import DEFAULT_PACK
 from webapp import human_capital_access, same_origin_guard, workspaces
 from webapp.services import auth_service, cartelera_repository as repo, cartelera_service as svc, cartelera_social as social
+from webapp.services import cartelera_birthdays_source as bd_source
 from webapp.services.activity_catalog import AREA_CCHH, EVENT_PAGE_VIEW, SCOPE_HUMAN_CAPITAL
 from webapp.services.activity_service import log_activity
 from webapp.templating import templates
@@ -78,16 +79,6 @@ def portal_audience_ok(user: dict | None) -> bool:
     return bool(user) and (PORTAL_LAUNCHED or human_capital_access.is_human_capital_workspace_member(user))
 
 
-def portal_link_visible(available_workspaces) -> bool:
-    """Decisión de PRESENTACIÓN del acceso a la Cartelera en el topbar compartido: la MISMA regla que `portal_audience_ok`, evaluada sobre los
-    workspaces que el servidor ya resolvió para la persona (`workspaces.available_workspaces(user)` incluye Capital Humano exactamente cuando
-    `is_human_capital_workspace_member(user)`). El topbar solo consume el resultado: no conoce verticales ni reglas de autorización."""
-    return PORTAL_LAUNCHED or workspaces.HUMAN_CAPITAL in (available_workspaces or ())
-
-
-templates.env.globals["cartelera_portal_link"] = portal_link_visible
-
-
 def _reader(request: Request):
     user = auth_service.session_user(request)
     if not user:
@@ -108,7 +99,7 @@ def _shell(request: Request, user: dict, tab: str, **extra) -> dict:
     hc = human_capital_access.is_human_capital_authorized_user(user)
     return {"current_workspace": workspaces.HUMAN_CAPITAL, "hc_full": hc, "available_workspaces": workspaces.available_workspaces(user),
             "pack": DEFAULT_PACK, "user": user, "active_page": "cartelera", "tabs": _tabs_for(user), "tab": tab, "svc": svc,
-            "ok": request.query_params.get("ok", ""), "error": request.query_params.get("error", ""), **extra}
+            "ok": request.query_params.get("ok", ""), "error": request.query_params.get("error", ""), "bd_source_on": bd_source.ENABLED, **extra}
 
 
 def _back(path: str, *, ok: str = "", error: str = "") -> RedirectResponse:
@@ -118,6 +109,8 @@ def _back(path: str, *, ok: str = "", error: str = "") -> RedirectResponse:
 
 
 def _storage_message(exc: Exception) -> str:
+    if isinstance(exc, svc.CarteleraValidationError):
+        return str(exc)
     if isinstance(exc, repo.CarteleraConcurrentModificationError):
         return str(exc) or "El contenido cambió mientras editabas. Recargá antes de guardar."
     if isinstance(exc, (repo.CarteleraStorageError, repo.CarteleraRemoteOutcomeUnknownError)):
@@ -341,7 +334,29 @@ def birthdays_page(request: Request, q: str = "", mes: str = "", autorizacion: s
     return templates.TemplateResponse(request=request, name="human_capital/cartelera_cumpleanos.html", headers=_NO_STORE, context=_shell(
         request, user, "cumpleanos", birthdays=pager["items"], pager=pager, filtered=pager["total"], total=len(all_rows),
         sort_cols=_birthday_sort_state({**params, **sizing}, orden, direction),
-        greetings=greetings, upcoming=svc.upcoming_birthdays(30), months=svc.MONTHS, q=q, mes=mes, autorizacion=autorizacion))
+        greetings=greetings, upcoming=svc.upcoming_birthdays(30), months=svc.MONTHS, q=q, mes=mes, autorizacion=autorizacion,
+        sp_status=bd_source.status() if bd_source.ENABLED else None,
+        bd_emails=bd_source.emails() if bd_source.ENABLED else {}, email_required=svc._email_required()))
+
+
+@router.post(f"{BASE}/cumpleanos/fuente", response_class=HTMLResponse, include_in_schema=False)
+def birthdays_source_refresh(request: Request, graph_token: str = Form(""), force: str = Form(""), reload: str = Form("1")):
+    """Lee el Excel de SharePoint con el token DELEGADO de quien abre Gestión (inyectado por `data-dw-graph-token`, MISMO hook que la
+    actualización de Catálogos CCHH). Si el contenido cambió, recarga la página; si no, devuelve el estado de la fuente."""
+    user = _admin_write(request)
+    if not bd_source.ENABLED:
+        raise HTTPException(404, "Fuente no habilitada")
+    error, headers = None, dict(_NO_STORE)
+    try:
+        result = bd_source.refresh(graph_token, actor=_actor(user), force=force == "1")
+        if result["changed"] and reload != "0":
+            headers["HX-Refresh"] = "true"
+    except bd_source.SourceError as exc:
+        error = {"kind": exc.kind, "message": str(exc), "detail": exc.detail}
+    except _ERRORS as exc:
+        error = {"kind": "storage", "message": _storage_message(exc), "detail": ""}
+    return templates.TemplateResponse(request=request, name="human_capital/_cartelera_bd_source.html", headers=headers, context={
+        "request": request, "sp_status": bd_source.status(), "sp_error": error, "svc": svc})
 
 
 def _volver_qs(volver: str) -> str:
@@ -366,12 +381,13 @@ def _birthdays_return(volver: str) -> str:
 
 
 @router.post(f"{BASE}/cumpleanos", include_in_schema=False)
-def birthday_save(request: Request, birthday_id: str = Form(""), revision: str = Form(""), name: str = Form(""), day: str = Form(""),
-                  month: str = Form(""), authorized: str = Form(""), volver: str = Form("")):
+def birthday_save(request: Request, birthday_id: str = Form(""), revision: str = Form(""), first_name: str = Form(""), last_name: str = Form(""),
+                  email: str = Form(""), day: str = Form(""), month: str = Form(""), authorized: str = Form(""), volver: str = Form(""),
+                  write_token: str = Form("")):
     user = _admin_write(request)
     try:
-        svc.save_birthday(birthday_id or None, int(revision) if revision else None, name=name, day=day, month=month,
-                          authorized=authorized == "1", actor=_actor(user))
+        svc.save_birthday(birthday_id or None, int(revision) if revision else None, first_name=first_name, last_name=last_name, email=email,
+                          day=day, month=month, authorized=authorized == "1", actor=_actor(user), write_token=write_token)
     except repo.CarteleraNotFoundError:
         raise HTTPException(404, "No existe") from None
     except _ERRORS as exc:
@@ -385,7 +401,7 @@ def birthday_import_page(request: Request):
     if redirect:
         return redirect
     return templates.TemplateResponse(request=request, name="human_capital/cartelera_cumpleanos_importar.html", headers=_NO_STORE, context=_shell(
-        request, user, "cumpleanos", rows=None, bulk="", volver=_volver_qs(request.query_params.get("volver", "")),
+        request, user, "cumpleanos", rows=None, bulk="", import_format=svc.import_format(), volver=_volver_qs(request.query_params.get("volver", "")),
         back_url=_birthdays_return(request.query_params.get("volver", ""))))
 
 
@@ -403,7 +419,7 @@ async def birthday_import_preview(request: Request):
     rows = svc.preview_birthday_import(text)
     volver = str(form.get("volver") or "")
     return templates.TemplateResponse(request=request, name="human_capital/cartelera_cumpleanos_importar.html", headers=_NO_STORE, context=_shell(
-        request, user, "cumpleanos", rows=rows, bulk=text, volver=_volver_qs(volver), back_url=_birthdays_return(volver)))
+        request, user, "cumpleanos", rows=rows, bulk=text, import_format=svc.import_format(), volver=_volver_qs(volver), back_url=_birthdays_return(volver)))
 
 
 @router.post(f"{BASE}/cumpleanos/importar", include_in_schema=False)
@@ -412,19 +428,24 @@ async def birthday_import(request: Request):
     form = await request.form()
     lines = [str(v) for v in form.getlist("line")]
     try:
-        created, rejected = svc.import_birthdays(chr(10).join(lines), _actor(user), authorized=form.get("authorized") == "1")
+        created, rejected = svc.import_birthdays(chr(10).join(lines), _actor(user), authorized=form.get("authorized") == "1",
+                                                 write_token=str(form.get("write_token") or ""))
     except _ERRORS as exc:
-        return _back(_birthdays_return(str(form.get("volver") or "")), error=_storage_message(exc))
+        # Sin confirmación de la persistencia: se vuelve a la vista previa con las MISMAS líneas para reintentar sin recargarlas.
+        volver = str(form.get("volver") or "")
+        return templates.TemplateResponse(request=request, name="human_capital/cartelera_cumpleanos_importar.html", headers=_NO_STORE, context=_shell(
+            request, user, "cumpleanos", rows=svc.preview_birthday_import(chr(10).join(lines)), bulk=chr(10).join(lines),
+            import_format=svc.import_format(), volver=_volver_qs(volver), back_url=_birthdays_return(volver), error=_storage_message(exc)))
     message = f"{created} cumpleaños importado{'' if created == 1 else 's'}."
     return _back(_birthdays_return(str(form.get("volver") or "")), ok=message, error=f"{len(rejected)} líneas no se pudieron importar." if rejected else "")
 
 
 @router.post(f"{BASE}/cumpleanos/{{birthday_id}}/eliminar", include_in_schema=False)
-def birthday_delete(request: Request, birthday_id: str, volver: str = Form("")):
-    _admin_write(request)
+def birthday_delete(request: Request, birthday_id: str, volver: str = Form(""), write_token: str = Form("")):
+    user = _admin_write(request)
     try:
         greetings = [f"greeting:{g['id']}" for g in repo.list_all("greetings") if g.get("birthday_id") == birthday_id]
-        svc.delete_birthday(birthday_id)
+        svc.delete_birthday(birthday_id, write_token=write_token, actor=_actor(user))
         social.purge_targets(greetings)
     except repo.CarteleraNotFoundError:
         raise HTTPException(404, "No existe") from None

@@ -22,7 +22,10 @@
 {%- from 'cartelera/_social.html' import social_block with context -%}
 {%- macro ic(name, cls='') -%}<svg class="svg {{ cls }}" viewBox="0 0 24 24" aria-hidden="true"><path d="{{ ICONS.get(name, ICONS['star']) }}"/></svg>{%- endmacro -%}
 <!doctype html>
-<html lang="es" data-theme="{{ 'dark' if request.cookies.get('dw-content-theme') == 'dark' else 'light' }}">
+{#- Identidad visual CLARA homologada, siempre: el portal NO hereda la preferencia de contenido del Hub (cookie `dw-content-theme`, que solo
+    llega cuando se abre desde el Hub y no desde el wrapper institucional de danwor.com). Vale igual para Inicio, Novedades, Comunidad, Nosotros,
+    saludos y la vista del colaborador del editor (misma plantilla). La preferencia del Hub no se toca. -#}
+<html lang="es" data-theme="light">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Cartelera Virtual · {{ {'inicio': 'Inicio', 'novedades': 'Novedades', 'nosotros': 'Nosotros', 'comunidad': 'Comunidad', 'saludo': 'Cumpleaños'}.get(page, 'Inicio') }} | Danwor</title>
@@ -94,7 +97,8 @@
 {%- endmacro %}
 {% macro link_panel(it, label=True) -%}{% if not layout_mode %}
   <div class="ct-ed ct-linkpanel" contenteditable="false" hidden>
-    <label class="f">Enlace <span class="h">empieza con https://{% if label %} · el texto del botón se edita sobre la cartelera{% endif %}</span><input type="url" data-ct-link value="{{ it.link or '' }}" placeholder="https://"></label>
+    <label class="f">Enlace <span class="h">empieza con https://</span><input type="url" data-ct-link value="{{ it.link or '' }}" placeholder="https://"></label>
+    {% if label %}<label class="f">Texto del botón <span class="h">opcional · si queda vacío se muestra el enlace</span><input type="text" data-ct-link-label value="{{ it.link_label or '' }}" maxlength="80"></label>{% endif %}
     <span class="ct-linkerr" hidden>Tiene que empezar con https://</span>
   </div>
 {% endif %}{%- endmacro %}

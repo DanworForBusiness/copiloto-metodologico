@@ -1,0 +1,18 @@
+{#- Estado de la FUENTE de cumpleaños (Excel de SharePoint, solo lectura). Se renderiza dentro de Gestión → Cumpleaños y como respuesta
+    del refresh (`POST /cchh/cartelera/cumpleanos/fuente`). Con la fuente sana no muestra nada: solo los problemas que hay que poder
+    identificar (autorización de Microsoft, permisos, estructura del Excel). Primitivos del Hub: `callout--feedback` y la recuperación
+    compartida de la autorización de Microsoft (`partials/graph_auth_recovery.html`); el token delegado lo inyecta el hook transversal de
+    `hub_auth.js` (la plantilla nunca lo lleva). -#}
+{% from "partials/graph_auth_recovery.html" import graph_auth_recovery %}
+{% set st = sp_status or {} %}
+{% set err = sp_error or (st.last_error if st else none) %}
+{% if err and err.kind == 'auth_required' %}
+  {{ graph_auth_recovery('/cchh/cartelera/cumpleanos/fuente', '#ct-bd-source', message='Para leer los cumpleaños desde el Excel de SharePoint, autorizá el acceso a Microsoft en esta pestaña.') }}
+{% elif err %}
+  <div class="callout callout--warn callout--feedback" role="alert"><div class="callout__body field-hint">
+    <p><strong>No se pudo leer el Excel de SharePoint.</strong> {{ err.message }}{% if st.loaded %} Se muestra la última lectura válida.{% endif %}</p>
+    {% if err.detail %}<p>Detalle técnico: {{ err.detail }}</p>{% endif %}
+  </div></div>
+{% elif not st.loaded %}
+  <p class="field-hint">Leyendo los cumpleaños desde el Excel de SharePoint…</p>
+{% endif %}

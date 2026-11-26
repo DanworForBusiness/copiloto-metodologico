@@ -12,15 +12,16 @@
 {% set st_labels = {'valid': 'Válida', 'duplicate': 'Ya cargado', 'invalid': 'Con error'} %}
 {% if rows is none %}
 <form class="hc-profile-form cartelera-import" method="post" action="/cchh/cartelera/cumpleanos/importar/vista-previa" enctype="multipart/form-data"><input type="hidden" name="volver" value="{{ volver }}">
-  <div class="feedback-field feedback-field--wide"><label for="bd-bulk">Lista (una persona por línea: <code>Nombre Apellido;DD/MM</code>)</label>
-    <textarea id="bd-bulk" name="bulk" rows="8" placeholder="María Pérez;14/03&#10;Juan Gómez;02/11">{{ bulk }}</textarea></div>
+  <div class="feedback-field feedback-field--wide"><label for="bd-bulk">Lista (una persona por línea: <code>{{ import_format }}</code>)</label>
+    {% set _ex = ';maria.perez@danwor.com' if 'Email' in import_format else '' %}{% set _ex2 = ';juan.gomez@danwor.com' if 'Email' in import_format else '' %}
+    <textarea id="bd-bulk" name="bulk" rows="8" placeholder="María;Pérez;14/03{{ _ex }}&#10;Juan;Gómez;02/11{{ _ex2 }}">{{ bulk }}</textarea></div>
   <div class="feedback-field feedback-field--wide"><label for="bd-file">O un archivo CSV / TXT con el mismo formato (opcional)</label>
     <input id="bd-file" name="file" type="file" accept=".csv,.txt,text/csv,text/plain"></div>
   <div class="hc-profile-form__actions"><button type="submit" class="btn-primary">Ver vista previa</button></div>
 </form>
 {% else %}
 {% set valid = rows | selectattr('status', 'equalto', 'valid') | list %}
-<form class="hc-profile-form hc-profile-form--plain" method="post" action="/cchh/cartelera/cumpleanos/importar"><input type="hidden" name="volver" value="{{ volver }}">
+<form class="hc-profile-form hc-profile-form--plain" method="post" action="/cchh/cartelera/cumpleanos/importar" data-ct-busy="Importando los cumpleaños…"><input type="hidden" name="volver" value="{{ volver }}"><input type="hidden" name="write_token" data-ct-write-token>
   <div class="dashboard-sections">
     <details class="dashboard-section" open>
       <summary class="dashboard-section__head">
@@ -55,4 +56,5 @@
   </div>
 </form>
 {% endif %}
+{% include "human_capital/_cartelera_write_token.html" %}
 {% endblock %}

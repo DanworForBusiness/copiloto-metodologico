@@ -323,6 +323,9 @@ def _seed_runtime(keep: bool) -> Path:
     print(f"[harness] {len(publicaciones_raw)} publicaciones sembradas bajo {RUNTIME_DIR / 'human-capital' / 'publicaciones'}")
 
     # Cartelera Virtual: ediciones, cumpleaños, institucional y accesos de EJEMPLO + catálogo ficticio de proyectos de Operaciones (sin Graph).
+    # Arnés DEMO (sin MSAL): los cumpleaños siguen saliendo de la semilla local, no del Excel de SharePoint (que exige token delegado).
+    from webapp.services import cartelera_birthdays_source
+    cartelera_birthdays_source.ENABLED = False
     from tools import cartelera_harness_seed
     cartelera_harness_seed.seed()
     cartelera_harness_seed.patch_projects()

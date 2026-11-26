@@ -240,6 +240,7 @@
   "POST /cchh/cartelera/comunidad/publicaciones/{post_id}/{action}",
   "POST /cchh/cartelera/comunidad/reportes/{report_id}/{action}",
   "POST /cchh/cartelera/cumpleanos",
+  "POST /cchh/cartelera/cumpleanos/fuente",
   "POST /cchh/cartelera/cumpleanos/importar",
   "POST /cchh/cartelera/cumpleanos/importar/vista-previa",
   "POST /cchh/cartelera/cumpleanos/{birthday_id}/eliminar",

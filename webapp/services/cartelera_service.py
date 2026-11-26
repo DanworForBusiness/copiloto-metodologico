@@ -432,12 +432,29 @@ def _consolidate(b: dict) -> dict:
         return {**clean, **fields}
 
 
+# PERSISTENCIA del registro: con `cartelera_birthdays_source.ENABLED` es el Excel de SharePoint (lectura y escritura); si no, el repositorio
+# interno. Las reglas funcionales (validaciones, publicabilidad, saludos) son las MISMAS: solo cambia dónde se persiste. Las funciones de
+# escritura reciben `write_token` (credencial delegada de escritura del usuario; el repositorio interno lo ignora).
+# Los registros internos (`birthdays/`) no se borran mientras se homologa la nueva fuente.
+
+
+def _sharepoint() -> bool:
+    from webapp.services import cartelera_birthdays_source as sp
+    return sp.ENABLED
+
+
 def get_birthday(birthday_id: str) -> dict | None:
+    if _sharepoint():
+        from webapp.services import cartelera_birthdays_source as sp
+        return sp.get(birthday_id)
     b = repo.get("birthdays", birthday_id)
     return _consolidate(b) if b else None
 
 
 def list_birthdays() -> list[dict]:
+    if _sharepoint():
+        from webapp.services import cartelera_birthdays_source as sp
+        return sp.rows()
     rows = [_consolidate(b) for b in repo.list_all("birthdays")]
     return sorted(rows, key=lambda b: (int(b.get("month", 0)), int(b.get("day", 0)), b.get("name", "").lower()))
 
@@ -455,13 +472,34 @@ def _valid_day_month(day, month) -> tuple[int, int]:
     return d, m
 
 
-def save_birthday(birthday_id: str | None, revision: int | None, *, name: str, day, month, authorized: bool, actor: str) -> dict:
+def _email_required() -> bool:
+    if not _sharepoint():
+        return False
+    from webapp.services import cartelera_birthdays_source as sp
+    return sp.email_required()
+
+
+def save_birthday(birthday_id: str | None, revision: int | None, *, day, month, authorized: bool, actor: str, name: str = "",
+                  first_name: str = "", last_name: str = "", email: str = "", write_token: str = "") -> dict:
+    """Alta/edición. Nombre y Apellido son campos propios (la UX los muestra concatenados); `name` solo para cargas internas heredadas.
+    Con un registro que se identifica por Email, el correo corporativo es obligatorio en el alta y nunca cambia en la edición."""
+    first, last = _text(first_name, limit=80), _text(last_name, limit=80)
+    if first or last:
+        if not first:
+            raise CarteleraValidationError("Completá el nombre.")
+        if not last:
+            raise CarteleraValidationError("Completá el apellido.")
+        name = f"{first} {last}"
     name = _text(name, limit=120)
     if not name:
         raise CarteleraValidationError("Completá el nombre.")
     d, m = _valid_day_month(day, month)
+    if _sharepoint():
+        from webapp.services import cartelera_birthdays_source as sp
+        return sp.save(birthday_id, revision, first_name=first or name, last_name=last, day=d, month=m, authorized=bool(authorized),
+                       token=write_token, actor=actor, email=(email or "").strip().lower())
     current = get_birthday(birthday_id) if birthday_id else None
-    fields = {"name": name, "day": d, "month": m, "authorized": bool(authorized)}
+    fields = {"name": name, "first_name": first, "last_name": last, "day": d, "month": m, "authorized": bool(authorized)}
     if not current or bool(current.get("authorized")) != bool(authorized):
         entry = {"value": bool(authorized), "by": actor, "at": repo.now_iso()}
         fields["authorization"] = entry
@@ -469,29 +507,68 @@ def save_birthday(birthday_id: str | None, revision: int | None, *, name: str, d
     return repo.save("birthdays", birthday_id or uuid.uuid4().hex, fields, expected_revision=revision if current else None)
 
 
-def import_birthdays(text: str, actor: str, *, authorized: bool) -> tuple[int, list[str]]:
-    """Carga masiva: una persona por línea, «Nombre Apellido;DD/MM» (también coma o tabulación). Devuelve (creados, líneas rechazadas)."""
-    created, rejected = 0, []
+IMPORT_FORMAT = "Nombre;Apellido;DD/MM"
+
+
+def import_format() -> str:
+    return IMPORT_FORMAT + (";Email" if _email_required() else "")
+
+
+def _import_line(raw: str, email_required: bool) -> dict:
+    """Una línea de la carga masiva: «Nombre;Apellido;DD/MM» (+ «;Email» si el registro se identifica por correo). También coma o
+    tabulación. Nombre y apellido van cada uno en su campo: nunca se infiere la separación."""
+    parts = [p.strip() for p in re.split(r"[;\t]|,(?=\s*\S)", raw)]
+    expected = 4 if email_required else 3
+    if len(parts) != expected or not re.match(r"^\d{1,2}[/\-.]\d{1,2}$", parts[2] or ""):
+        return {"error": f"Formato esperado: {IMPORT_FORMAT}{';Email' if email_required else ''}"}
+    first, last = parts[0][:80], parts[1][:80]
+    if not first or not last:
+        return {"error": "Falta el nombre o el apellido", "name": f"{first} {last}".strip()}
+    try:
+        d, mo = _valid_day_month(*re.split(r"[/\-.]", parts[2]))
+    except CarteleraValidationError:
+        return {"error": "Día o mes inválido", "name": f"{first} {last}"}
+    email = parts[3].lower() if email_required else ""
+    if email_required:
+        from webapp.services import cartelera_birthdays_source as sp
+        if not sp.valid_email(email):
+            return {"error": "Correo corporativo inválido", "name": f"{first} {last}"}
+    return {"first_name": first, "last_name": last, "name": f"{first} {last}", "day": d, "month": mo, "email": email}
+
+
+def _import_key(item: dict, email_required: bool):
+    return item["email"] if email_required else (item["name"].lower(), item["day"], item["month"])
+
+
+def import_birthdays(text: str, actor: str, *, authorized: bool, write_token: str = "") -> tuple[int, list[str]]:
+    """Carga masiva confirmada: una persona por línea (ver `_import_line`). Devuelve (creados, líneas rechazadas)."""
+    by_email = _email_required()
+    created, rejected, pending = 0, [], []
     existing = {(b.get("name", "").lower(), b.get("day"), b.get("month")) for b in list_birthdays()}
+    if by_email:
+        from webapp.services import cartelera_birthdays_source as sp
+        existing = set(sp.emails().values())
     for line in (text or "").splitlines():
         line = line.strip()
         if not line:
             continue
-        m = re.match(r"^(.+?)[;,\t]\s*(\d{1,2})[/\-.](\d{1,2})\s*$", line)
-        if not m:
+        item = _import_line(line, by_email)
+        if "error" in item:
             rejected.append(line)
             continue
-        try:
-            d, mo = _valid_day_month(m.group(2), m.group(3))
-        except CarteleraValidationError:
-            rejected.append(line)
+        key = _import_key(item, by_email)
+        if key in existing:
             continue
-        name = m.group(1).strip()
-        if (name.lower(), d, mo) in existing:
+        existing.add(key)
+        if _sharepoint():
+            pending.append({**item, "authorized": bool(authorized)})
             continue
-        save_birthday(None, None, name=name, day=d, month=mo, authorized=authorized, actor=actor)
-        existing.add((name.lower(), d, mo))
+        save_birthday(None, None, first_name=item["first_name"], last_name=item["last_name"], day=item["day"], month=item["month"],
+                      authorized=authorized, actor=actor)
         created += 1
+    if pending:                                                           # Excel: todas las filas nuevas en UNA escritura
+        from webapp.services import cartelera_birthdays_source as sp
+        created += sp.add_many(pending, token=write_token, actor=actor)
     return created, rejected
 
 
@@ -515,26 +592,24 @@ def filter_birthdays(*, q: str = "", month: str = "", authorized: str = "") -> l
 def preview_birthday_import(text: str) -> list[dict]:
     """Vista previa de la carga masiva (mismo flujo que la carga masiva de CVs: previsualizar, elegir, confirmar). Una fila por línea con
     estado `valid` · `duplicate` (ya cargado) · `invalid` y su mensaje. Nunca escribe."""
+    by_email = _email_required()
     existing = {(b.get("name", "").lower(), int(b.get("day", 0)), int(b.get("month", 0))) for b in list_birthdays()}
+    if by_email:
+        from webapp.services import cartelera_birthdays_source as sp
+        existing = set(sp.emails().values())
     seen, rows = set(), []
     for n, line in enumerate((text or "").splitlines(), start=1):
         raw = line.strip()
         if not raw:
             continue
-        m = re.match(r"^(.+?)[;,\t]\s*(\d{1,2})[/\-.](\d{1,2})\s*$", raw)
-        if not m:
-            rows.append({"line": n, "raw": raw, "status": "invalid", "message": "Formato esperado: Nombre Apellido;DD/MM"})
+        item = _import_line(raw, by_email)
+        if "error" in item:
+            rows.append({"line": n, "raw": raw, "name": item.get("name", ""), "status": "invalid", "message": item["error"]})
             continue
-        name = m.group(1).strip()[:120]
-        try:
-            d, mo = _valid_day_month(m.group(2), m.group(3))
-        except CarteleraValidationError:
-            rows.append({"line": n, "raw": raw, "name": name, "status": "invalid", "message": "Día o mes inválido"})
-            continue
-        key = (name.lower(), d, mo)
+        key = _import_key(item, by_email)
         status, message = ("duplicate", "Ya está cargado") if key in existing or key in seen else ("valid", "Se incorpora")
         seen.add(key)
-        rows.append({"line": n, "raw": raw, "name": name, "day": d, "month": mo, "status": status, "message": message})
+        rows.append({"line": n, "raw": raw, "name": item["name"], "day": item["day"], "month": item["month"], "status": status, "message": message})
     return rows
 
 
@@ -693,9 +768,13 @@ def greeting_state(birthday_id: str, year: int, revision: int, action: str, when
     raise CarteleraValidationError("Acción desconocida.")
 
 
-def delete_birthday(birthday_id: str) -> None:
+def delete_birthday(birthday_id: str, *, write_token: str = "", actor: str = "") -> None:
     """Elimina el cumpleaños y sus saludos (no quedan saludos huérfanos)."""
-    repo.delete("birthdays", birthday_id)
+    if _sharepoint():
+        from webapp.services import cartelera_birthdays_source as sp
+        sp.delete(birthday_id, token=write_token, actor=actor)
+    else:
+        repo.delete("birthdays", birthday_id)
     for g in repo.list_all("greetings"):
         if g.get("birthday_id") == birthday_id:
             repo.delete("greetings", g["id"])

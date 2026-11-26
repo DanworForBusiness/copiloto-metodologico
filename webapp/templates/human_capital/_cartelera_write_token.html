@@ -1,0 +1,63 @@
+{#- Envío de formularios de escritura de Cartelera cuya persistencia puede ser remota (hoy: Cumpleaños en el Excel de SharePoint).
+    Al enviar un formulario con `[data-ct-write-token]`:
+      1. valida los campos (validación nativa) y, si es un form con confirmación del Hub (`data-dw-confirm-form`), espera la confirmación;
+      2. cierra el diálogo que lo contiene, guarda la posición de pantalla y muestra el preloader del Hub (`.section-analysis-loading` dentro
+         del aviso flotante transversal `.dw-feedback-toast` + `.callout--feedback`), bloqueando cualquier otro envío mientras tanto;
+      3. pide la credencial DELEGADA de escritura a `hub_auth.js` (`dwCarteleraWriteToken`, el MISMO `Sites.ReadWrite.All` que ya usa
+         Operaciones → Solicitudes; con gesto puede pedir la autorización) y envía. El preloader queda hasta que llega la respuesta:
+         con confirmación de la persistencia se muestra el aviso habitual; si no, el error (y la vista recupera lo ingresado).
+    No hay actualización optimista: lo que se ve después es lo que la persistencia confirmó. Sin fuente remota el servidor ignora el campo. -#}
+<div class="dw-feedback-toast" data-ct-busy-box aria-live="polite"></div>
+<div class="dw-feedback-toast" data-dw-auto-dismiss data-dw-auto-dismiss-fade data-ct-result-box></div>
+<script>
+(() => {
+  const uiState = window.sessionStorage, SCROLL = "ct-write-scroll";
+  const scroller = () => { const m = document.querySelector(".module-content"); return m && m.scrollHeight > m.clientHeight ? m : document.scrollingElement; };
+  let busy = false;
+  const showBusy = copy => {
+    const box = document.querySelector("[data-ct-busy-box]");
+    if (!box) return;
+    box.innerHTML = '<div class="callout callout--info callout--feedback" role="status"><div class="callout__body field-hint"><p class="section-analysis-loading">'
+      + '<span class="section-analysis-spinner" aria-hidden="true"></span><span class="section-analysis-loading-copy"></span></p></div></div>';
+    box.querySelector(".section-analysis-loading-copy").textContent = copy || "Guardando…";
+  };
+  document.addEventListener("submit", async e => {
+    const form = e.target, field = form.querySelector && form.querySelector("[data-ct-write-token]");
+    if (!field) return;
+    if (form.matches("[data-dw-confirm-form]") && form.dataset.dwConfirmed !== "1") return;   // primero la confirmación del Hub
+    if (form.dataset.ctTokenReady === "1") { form.dataset.ctTokenReady = ""; return; }      // segundo envío: ya lleva el token
+    e.preventDefault(); e.stopImmediatePropagation();
+    if (busy) return;                                                                        // nada de envíos duplicados
+    if (form.reportValidity && !form.reportValidity()) return;
+    busy = true;
+    const confirmed = form.dataset.dwConfirmed;
+    try { uiState.setItem(SCROLL, JSON.stringify({ path: location.pathname, y: scroller().scrollTop })); } catch (err) {}
+    const dialog = form.closest("dialog");
+    if (dialog && dialog.open) dialog.close();
+    showBusy(form.dataset.ctBusy);
+    let value = "";
+    try { value = window.dwCarteleraWriteToken ? (await window.dwCarteleraWriteToken({ interactive: true })) || "" : ""; } catch (err) { value = ""; }
+    field.value = value;
+    form.dataset.ctTokenReady = "1";
+    if (confirmed) form.dataset.dwConfirmed = confirmed;
+    if (form.requestSubmit) form.requestSubmit(); else form.submit();
+  }, true);
+  try {                                                                                      // vuelve a donde estaba (mismos filtros, orden y página por URL)
+    const saved = JSON.parse(uiState.getItem(SCROLL) || "null");
+    if (saved) {
+      uiState.removeItem(SCROLL);
+      if (saved.path === location.pathname) {
+        const go = () => setTimeout(() => {
+          // Con la pantalla en su lugar, el aviso habitual (confirmación o error) quedaría fuera de vista: se muestra en el aviso
+          // flotante transversal del Hub (`.dw-feedback-toast` + `data-dw-auto-dismiss`), el mismo de «Actualizar catálogos». Se mueve
+          // ANTES de restaurar la posición, para que el contenido quede exactamente donde estaba.
+          const notice = document.querySelector("#hc-cartelera-panel > .callout--feedback"), box = document.querySelector("[data-ct-result-box]");
+          if (+saved.y > 0 && notice && box) box.appendChild(notice);
+          scroller().scrollTop = +saved.y || 0;
+        }, 60);
+        if (document.readyState === "complete") go(); else window.addEventListener("load", go, { once: true });
+      }
+    }
+  } catch (err) {}
+})();
+</script>
