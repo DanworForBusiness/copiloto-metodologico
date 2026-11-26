@@ -37,10 +37,10 @@
       <a href="{{ urls.novedades }}"{% if page == 'novedades' %} aria-current="page"{% endif %}>{{ ic('board') }}Novedades</a>
       <a href="{{ urls.nosotros }}"{% if page == 'nosotros' %} aria-current="page"{% endif %}>{{ ic('star') }}Nosotros</a>
     </nav>
-    <div class="hdr-tools">
+    {% if not presenting %}<div class="hdr-tools">
       {% if can_manage %}<a class="hdr-link" href="/cchh/cartelera">Gestionar</a>{% endif %}
       <a class="hdr-link" href="/onedanwor">Volver al Hub</a>
-    </div>
+    </div>{% endif %}
   </div>
 </header>
 {% if preview and not edit_mode %}<div class="preview-bar">{{ preview_note ~ ' · ' if preview_note else 'Vista previa de Capital Humano · ' }}{{ svc.STATE_LABELS[svc.effective_state(edition)] }} — los colaboradores {{ 'ya la ven' if svc.is_visible(edition) else 'todavía no la ven' }}.</div>{% endif %}

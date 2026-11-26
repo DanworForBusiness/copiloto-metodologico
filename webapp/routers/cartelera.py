@@ -422,6 +422,7 @@ def _render_portal(request: Request, page: str, *, edition: dict | None = None, 
     user = user or auth_service.session_user(request)
     ctx = {"page": page, "svc": svc, "user": user, "preview": preview, "preview_note": preview_note, "edit_mode": edit_mode,
            "urls": _portal_urls(edition, "general" if edit_mode else context),
+           "presenting": context in ("edition", "preview") and not edit_mode,         # Presentar: sin «Gestionar» ni «Volver al Hub»
            "edition": edition, "links": svc.site_links(),
            "editions": svc.visible_editions(), "inst": svc.institutional(), "today_month": svc.month_key(),
            "today_day": svc.now_utc().astimezone(svc.BUSINESS_TZ).day,
