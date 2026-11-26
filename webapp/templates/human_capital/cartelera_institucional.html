@@ -141,7 +141,7 @@
   }
   function openDialog(title, html, okLabel, apply) {
     dlg.querySelector("#in-dialog-title").textContent = title; fields.innerHTML = html; errBox.hidden = true;
-    dlg.querySelector("[data-in-ok]").textContent = okLabel || "Guardar"; onOk = apply; dlg.showModal();
+    const okBtn = dlg.querySelector("[data-in-ok]"); okBtn.textContent = okLabel || "Guardar"; okBtn.disabled = false; onOk = apply; dlg.showModal();
     const first = fields.querySelector("input,textarea,select"); if (first) first.focus();
   }
   const field = (id, label, value, type = "text", extra = "") => type === "textarea"
@@ -167,27 +167,34 @@
   //    de la Cartelera; el servidor valida y genera las copias de consumo. Nada se confirma hasta «Guardar fotos». ──
   function photosDialog(a) {
     let photos = (a.photos || []).map(p => ({ ...p })), cover = a.cover || (photos[0] || {}).id || "", busy = false;
+    const initial = JSON.stringify({ photos: photos.map(p => p.id), cover });
+    // Selector de archivos = el del Hub (`.feedback-field input[type="file"]`, tools.css; selección múltiple) + aclaración con `.dashboard-empty__hint`.
     openDialog(`Fotos · ${a.title}`,
       `<div class="ct-photos" data-ph-grid></div>
-       <div class="feedback-field"><label for="ph-files">Agregar fotos</label><input id="ph-files" type="file" accept="image/jpeg,image/png,image/webp" multiple>
-       <span class="field-hint">JPG, PNG o WebP · hasta 10 MB cada una. Elegí la portada con «Portada».</span></div>
-       <p class="field-hint" data-ph-status aria-live="polite"></p>`,
+       <p class="dashboard-empty__hint" data-ph-cover-hint hidden>Elegí la portada del álbum con «Portada».</p>
+       <div class="feedback-field ct-ph-upload"><label for="ph-files">Agregar fotos</label><input id="ph-files" type="file" accept="image/jpeg,image/png,image/webp" multiple>
+       <p class="dashboard-empty__hint">JPG, PNG o WebP · hasta 10 MB cada una · podés elegir varias a la vez.</p></div>
+       <p class="dashboard-empty__hint" data-ph-status aria-live="polite"></p>`,
       "Guardar fotos",
       () => { if (busy) throw new Error("Esperá a que terminen de subirse las fotos."); a.photos = photos; a.cover = cover; return "Fotos del álbum actualizadas."; });
     const grid = fields.querySelector("[data-ph-grid]"), status = fields.querySelector("[data-ph-status]"), ok = dlg.querySelector("[data-in-ok]");
+    const hint = fields.querySelector("[data-ph-cover-hint]");
+    const pending = () => JSON.stringify({ photos: photos.map(p => p.id), cover }) !== initial;
+    const sync = () => { ok.disabled = busy || !pending(); hint.hidden = !photos.length; };   // «Guardar fotos» solo con cambios
     const draw = () => {
       if (!photos.some(p => p.id === cover)) cover = (photos[0] || {}).id || "";
       grid.innerHTML = photos.length ? photos.map(p => `<figure class="ct-ph${p.id === cover ? " is-cover" : ""}"><img src="/cartelera/media/${esc(p.id)}/thumb" alt="">
           <figcaption><label><input type="radio" name="ph-cover" value="${esc(p.id)}"${p.id === cover ? " checked" : ""}> Portada</label>
           <button type="button" class="table-action-btn table-action-btn--danger" data-ph-del="${esc(p.id)}" aria-label="Quitar foto">{{ ico('trash') | replace('\n', '') }}</button></figcaption></figure>`).join("")
-        : `<p class="muted" style="margin:0">Todavía no hay fotos en este álbum.</p>`;
+        : `<div class="dashboard-empty ct-photos__empty"><span class="dashboard-empty__label">Sin fotos</span><p>Todavía no hay fotos en este álbum. Agregalas con «Agregar fotos»; la primera queda como portada.</p></div>`;
+      sync();
     };
     draw();
     grid.addEventListener("change", e => { if (e.target.name === "ph-cover") { cover = e.target.value; draw(); } });
     grid.addEventListener("click", e => { const del = e.target.closest("[data-ph-del]"); if (del) { photos = photos.filter(p => p.id !== del.dataset.phDel); draw(); } });
     fields.querySelector("#ph-files").addEventListener("change", async e => {
       const files = [...e.target.files]; if (!files.length) return;
-      busy = true; ok.disabled = true; errBox.hidden = true;
+      busy = true; sync(); errBox.hidden = true;
       const token = window.dwCarteleraWriteToken ? (await window.dwCarteleraWriteToken({ interactive: true })) || "" : "";
       const errors = [];
       for (let k = 0; k < files.length; k++) {
@@ -201,7 +208,7 @@
           draw();
         } catch (err) { errors.push(`${files[k].name}: ${err.message}`); }
       }
-      busy = false; ok.disabled = false; e.target.value = "";
+      busy = false; sync(); e.target.value = "";
       status.textContent = errors.length ? "" : `${files.length} foto${files.length === 1 ? "" : "s"} lista${files.length === 1 ? "" : "s"} para guardar.`;
       if (errors.length) { errBox.textContent = errors.join(" · "); errBox.hidden = false; }
     });
