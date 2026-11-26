@@ -10,8 +10,9 @@ Decisiones ratificadas que gobiernan este módulo (ver `_handoffs/CARTELERA_VIRT
   - F8  el proyecto del mes se identifica desde las fuentes gobernadas de Operaciones (id + nombre de proyecto y cliente); el texto editorial
         es libre. No se guardan datos comerciales, contractuales ni financieros.
   - F4  cumpleaños propios de la Cartelera: día y mes (nunca el año), autorización de publicación y ocultamiento.
-  - F5  recursos documentales (imágenes, flyers, galería, organigrama): SharePoint es la fuente de verdad. Hasta verificar el acceso a la carpeta
-        NO se simula esa integración: los campos de recursos se muestran como pendientes.
+  - F5  recursos documentales (imágenes, flyers, fotos de la galería): SharePoint es la fuente de verdad. Hasta verificar el acceso a la carpeta
+        NO se simula esa integración: los campos de recursos se muestran como pendientes. El ORGANIGRAMA no es un documento: como en la app
+        original, es contenido estructurado (cajas Persona / Área / Puesto que dependen unas de otras) que Capital Humano administra acá.
 """
 from __future__ import annotations
 
@@ -709,8 +710,72 @@ DEFAULT_INSTITUTIONAL = {
                      "alcanzar logros extraordinarios."),
     "values": ORIGINAL_VALUES,
     "links": [{"label": "Sitio web", "url": "https://www.danwor.com/"}, {"label": "LinkedIn", "url": "https://www.linkedin.com/company/danwor/"}],
+    "org": [                                                                           # organigrama base de la app original (DEFAULT_ORG)
+        {"id": "ceo", "parent": "", "kind": "persona", "name": "Brian Jawor", "title": "CEO"},
+        {"id": "vp", "parent": "", "kind": "persona", "name": "Gastón Jordan", "title": "VP"},
+        {"id": "cp", "parent": "ceo", "kind": "area", "name": "", "title": "Client Partner"},
+        {"id": "ops", "parent": "ceo", "kind": "area", "name": "", "title": "Operaciones"},
+        {"id": "sdm", "parent": "ops", "kind": "puesto", "name": "", "title": "SDM"},
+        {"id": "pm", "parent": "sdm", "kind": "puesto", "name": "", "title": "PM"},
+        {"id": "cons", "parent": "pm", "kind": "puesto", "name": "", "title": "Consultores"},
+        {"id": "pmo", "parent": "sdm", "kind": "puesto", "name": "", "title": "PMO"},
+        {"id": "ch", "parent": "ceo", "kind": "area", "name": "", "title": "Capital Humano"},
+        {"id": "hrbp", "parent": "ch", "kind": "puesto", "name": "", "title": "HRBP Partner"},
+        {"id": "af", "parent": "ceo", "kind": "area", "name": "", "title": "Admin. y finanzas"},
+        {"id": "cont", "parent": "af", "kind": "puesto", "name": "", "title": "Contador Sr."},
+        {"id": "adm", "parent": "af", "kind": "puesto", "name": "", "title": "Administrativa"},
+        {"id": "pv", "parent": "ceo", "kind": "area", "name": "", "title": "Pre-Venta"},
+        {"id": "mkt", "parent": "ceo", "kind": "area", "name": "", "title": "Marketing"},
+        {"id": "mc", "parent": "ceo", "kind": "area", "name": "", "title": "Manager Comercial"},
+        {"id": "ae", "parent": "mc", "kind": "puesto", "name": "", "title": "Account Executive"},
+        {"id": "ei", "parent": "vp", "kind": "area", "name": "", "title": "Estrategia e Innovación"},
+    ],
     "albums": [], "org_chart_note": "",
 }
+ORG_KINDS = (("persona", "Persona"), ("area", "Área"), ("puesto", "Puesto"))
+MAX_ORG_NODES = 120
+
+
+def clean_org(nodes: list[dict]) -> list[dict]:
+    """Mismas reglas que la app original: tipo válido, ninguna caja vacía, «depende de» una caja existente (o de Danwor) y sin ciclos."""
+    if len(nodes) > MAX_ORG_NODES:
+        raise CarteleraValidationError(f"El organigrama admite hasta {MAX_ORG_NODES} cajas.")
+    out, ids = [], set()
+    for n in nodes:
+        nid = re.sub(r"[^A-Za-z0-9_-]", "", str(n.get("id") or ""))[:24] or uuid.uuid4().hex[:10]
+        while nid in ids:
+            nid = uuid.uuid4().hex[:10]
+        kind = n.get("kind") if n.get("kind") in dict(ORG_KINDS) else "puesto"
+        title, name = _text(n.get("title"), limit=80), (_text(n.get("name"), limit=80) if kind == "persona" else "")
+        if not (title or name):
+            raise CarteleraValidationError("Hay cajas vacías en el organigrama: completalas o quitalas.")
+        ids.add(nid)
+        out.append({"id": nid, "parent": str(n.get("parent") or ""), "kind": kind, "name": name, "title": title})
+    by = {n["id"]: n for n in out}
+    for n in out:
+        if n["parent"] not in by:
+            n["parent"] = ""
+        seen, cur = {n["id"]}, n["parent"]                                             # sin ciclos: subir hasta Danwor
+        while cur:
+            if cur in seen:
+                raise CarteleraValidationError("Una caja no puede depender de sí misma ni de las que dependen de ella.")
+            seen.add(cur)
+            cur = by[cur]["parent"]
+    return out
+
+
+def org_tree(nodes: list[dict]) -> list[dict]:
+    """Árbol para dibujar (raíces en el orden guardado, hijos en el orden guardado), como `orgChartHtml` de la app original."""
+    ids = {n["id"] for n in nodes}
+    kids = lambda pid: [n for n in nodes if (n.get("parent") or "") == pid]                       # noqa: E731
+    def build(n, seen):
+        if n["id"] in seen:
+            return None
+        seen.add(n["id"])
+        return {**n, "children": [c for c in (build(k, seen) for k in kids(n["id"])) if c]}
+    seen: set = set()
+    roots = [n for n in nodes if not n.get("parent") or n["parent"] not in ids]
+    return [t for t in (build(r, seen) for r in roots) if t]
 _HTTPS = re.compile(r"^https://[^\s<>\"]+$")
 
 
@@ -719,7 +784,8 @@ def institutional() -> dict:
 
 
 def save_institutional(revision: int | None, *, mission: str, vision: str, values: list[dict], albums: list[dict], actor: str,
-                       intro: str | None = None, values_intro: str | None = None, links: list[dict] | None = None) -> dict:
+                       intro: str | None = None, values_intro: str | None = None, links: list[dict] | None = None,
+                       org: list[dict] | None = None) -> dict:
     clean_values = [{"title": _text(v.get("title"), limit=80), "text": _text(v.get("text"), limit=1200)}
                     for v in values if (v.get("title") or "").strip() or (v.get("text") or "").strip()]
     clean_albums = []
@@ -746,6 +812,8 @@ def save_institutional(revision: int | None, *, mission: str, vision: str, value
                 raise CarteleraValidationError("Cada enlace institucional necesita un nombre y una dirección https://")
             clean_links.append({"label": label, "url": url})
         fields["links"] = clean_links
+    if org is not None:
+        fields["org"] = clean_org(org)
     return repo.save("settings", "institutional", fields, expected_revision=revision if current else None)
 
 

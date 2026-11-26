@@ -18,7 +18,7 @@
         <div class="feedback-field feedback-field--compact" style="align-self:end"><button type="button" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" @click="m.links.splice(i, 1); dirty = true" aria-label="Quitar enlace"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Quitar enlace</p></span></button></div>
       </div>
     </template>
-    <button type="button" class="cartelera-mini-btn" x-show="m.links.length < 4" @click="m.links.push({label: '', url: ''}); dirty = true">+ Agregar enlace</button>
+    <div><button type="button" class="btn-secondary" x-show="m.links.length < 4" @click="m.links.push({label: '', url: ''}); dirty = true">+ Agregar enlace</button></div>
   </div></details>
 
   <details class="dashboard-section" open><summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Valores</span></summary><div class="dashboard-section__body">
@@ -35,11 +35,11 @@
           <button type="button" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" @click="m.values.splice(i, 1); dirty = true" aria-label="Quitar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Quitar</p></span></button></span></div>
       </div>
     </template>
-    <button type="button" class="cartelera-mini-btn" @click="m.values.push({title: '', text: ''}); dirty = true">+ Agregar valor</button>
+    <div><button type="button" class="btn-secondary" @click="m.values.push({title: '', text: ''}); dirty = true">+ Agregar valor</button></div>
   </div></details>
 
   <details class="dashboard-section" open><summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Galería</span></summary><div class="dashboard-section__body">
-    <p class="cartelera-pending" data-pending="sharepoint">Las fotos de cada álbum se suben a la carpeta SharePoint de Cartelera Virtual: disponible cuando se habilite la integración documental (acceso en verificación). Mientras tanto podés preparar los álbumes.</p>
+    <p class="cartelera-pending" data-pending="sharepoint">Las fotos de cada álbum se suben a la carpeta SharePoint de Cartelera Virtual: disponible cuando se habilite la integración documental (acceso en verificación). Mientras tanto podés preparar los álbumes; en Nosotros solo se muestran los que tienen al menos una foto.</p>
     <template x-for="(a, i) in m.albums" :key="a.id || i">
       <div class="cartelera-item">
         <div class="hc-profile-section__grid hc-profile-section__grid--fluid">
@@ -51,11 +51,33 @@
           <button type="button" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" @click="m.albums.splice(i, 1); dirty = true" aria-label="Quitar álbum"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Quitar álbum</p></span></button></div>
       </div>
     </template>
-    <button type="button" class="cartelera-mini-btn" @click="m.albums.push({id: Math.random().toString(36).slice(2, 14), title: '', date: '', description: ''}); dirty = true">+ Nuevo álbum</button>
+    <div><button type="button" class="btn-secondary" @click="m.albums.push({id: Math.random().toString(36).slice(2, 14), title: '', date: '', description: ''}); dirty = true">+ Nuevo álbum</button></div>
   </div></details>
 
-  <details class="dashboard-section" open><summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Organigrama</span></summary><div class="dashboard-section__body">
-    <p class="cartelera-pending" data-pending="sharepoint">Representación documental gobernada por Capital Humano (imagen o PDF en la carpeta SharePoint de Cartelera Virtual): disponible cuando se habilite la integración documental.</p>
+  <details class="dashboard-section" open><summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Organigrama</span>
+    <span class="dashboard-section__count" x-text="m.org.length"></span></summary><div class="dashboard-section__body">
+    <p class="field-hint">Lo ven todos en Nosotros. <b>Persona</b> muestra nombre y cargo; <b>Área</b> se ve en amarillo y <b>Puesto</b> en gris. «Depende de» define dónde cuelga cada caja.</p>
+    <div class="matrix-scroll"><table class="dashboard-table ct-org-table">
+      <thead><tr><th class="left">Tipo</th><th class="left">Área, puesto o cargo</th><th class="left">Nombre</th><th class="left">Depende de</th><th class="center">Acciones</th></tr></thead>
+      <tbody>
+        <template x-for="r in orgRows()" :key="r.n.id">
+          <tr>
+            <td class="left"><div :style="`padding-left:${r.depth * 18}px`"><select x-model="r.n.kind" @change="dirty=true" aria-label="Tipo">{% for v, l in org_kinds %}<option value="{{ v }}">{{ l }}</option>{% endfor %}</select></div></td>
+            <td class="left"><input type="text" maxlength="80" x-model="r.n.title" @input="dirty=true" :placeholder="r.n.kind === 'persona' ? 'Cargo (CEO, VP…)' : 'Nombre del área o puesto'" aria-label="Área, puesto o cargo"></td>
+            <td class="left"><input type="text" maxlength="80" x-model="r.n.name" @input="dirty=true" x-show="r.n.kind === 'persona'" placeholder="Nombre y apellido" aria-label="Nombre"></td>
+            <td class="left"><select x-model="r.n.parent" @change="dirty=true" aria-label="Depende de"><option value="">Danwor</option>
+              <template x-for="o in orgParents(r.n)" :key="o.id"><option :value="o.id" x-text="orgLabel(o)" :selected="o.id === r.n.parent"></option></template></select></td>
+            <td class="center"><div class="dw-row-actions">
+              <button type="button" class="table-action-btn chart-tooltip-anchor" @click="orgMove(r.n, -1)" aria-label="Mover a la izquierda"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Mover a la izquierda</p></span></button>
+              <button type="button" class="table-action-btn chart-tooltip-anchor" @click="orgMove(r.n, 1)" aria-label="Mover a la derecha"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Mover a la derecha</p></span></button>
+              <button type="button" class="table-action-btn chart-tooltip-anchor" @click="orgAdd(r.n.id)" aria-label="Agregar una caja que dependa de esta"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Agregar una caja que dependa de esta</p></span></button>
+              <button type="button" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" @click="orgRemove(r.n)" aria-label="Quitar caja"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Quitar caja (lo que depende de ella sube un nivel)</p></span></button>
+            </div></td>
+          </tr>
+        </template>
+      </tbody></table></div>
+    <div class="row" style="gap:8px;margin-top:10px"><button type="button" class="btn-secondary" @click="orgAdd('')">+ Nueva caja principal</button>
+      <a href="/cartelera/nosotros" class="btn-secondary" target="_blank" rel="noopener">Ver en Nosotros ↗</a></div>
   </div></details>
 
   <div class="cartelera-sticky-save">
@@ -66,9 +88,29 @@
 <script>
 function carteleraInstitutional(m, revision) {
   m.values = m.values || []; m.albums = m.albums || []; m.links = m.links || []; m.intro = m.intro || ""; m.values_intro = m.values_intro || "";
+  m.org = (m.org || []).map(n => ({ id: n.id, parent: n.parent || "", kind: n.kind || "puesto", name: n.name || "", title: n.title || "" }));
   return {
     m, revision, dirty: false, saving: false, msg: "", err: "",
     move(a, i, d) { const j = i + d; if (j < 0 || j >= a.length) return; [a[i], a[j]] = [a[j], a[i]]; this.dirty = true; },
+    // ── organigrama: mismas operaciones que la administración de la app original ──
+    orgExists(id) { return this.m.org.some(n => n.id === id); },
+    orgRows() {
+      const N = this.m.org, out = [], seen = new Set();
+      const walk = (n, depth) => { if (seen.has(n.id)) return; seen.add(n.id); out.push({ n, depth }); N.filter(m => m.parent === n.id).forEach(c => walk(c, depth + 1)); };
+      N.filter(n => !n.parent || !this.orgExists(n.parent)).forEach(n => walk(n, 0));
+      return out;
+    },
+    orgDesc(id) { const out = new Set([id]); let grew = true; while (grew) { grew = false; this.m.org.forEach(n => { if (out.has(n.parent) && !out.has(n.id)) { out.add(n.id); grew = true; } }); } return out; },
+    orgParents(n) { const bad = this.orgDesc(n.id); return this.m.org.filter(o => !bad.has(o.id)); },
+    orgLabel(o) { return (o.kind === "persona" && o.name) ? o.name : (o.title || "Sin nombre"); },
+    orgAdd(parent) { this.m.org.push({ id: "o" + Math.random().toString(36).slice(2, 10), parent, kind: parent ? "puesto" : "persona", name: "", title: "" }); this.dirty = true; },
+    orgRemove(n) { const N = this.m.org; N.forEach(x => { if (x.parent === n.id) x.parent = n.parent || ""; }); N.splice(N.indexOf(n), 1); this.dirty = true; },
+    orgMove(n, d) {
+      const N = this.m.org, root = x => !x.parent || !this.orgExists(x.parent);
+      const sib = N.filter(x => (x.parent || "") === (n.parent || "") || (root(x) && root(n)));
+      const o = sib[sib.indexOf(n) + d]; if (!o) return;
+      const i = N.indexOf(n), j = N.indexOf(o); [N[i], N[j]] = [N[j], N[i]]; this.dirty = true;
+    },
     async save() {
       this.saving = true; this.msg = ""; this.err = "";
       try {

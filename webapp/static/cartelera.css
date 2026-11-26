@@ -10,10 +10,6 @@
 .content-theme-dark #hc-cartelera-panel textarea { color: #e4e4ec; }
 #hc-cartelera-panel textarea { resize: vertical; line-height: 1.45; }
 #hc-cartelera-panel .feedback-field label { display: block; margin-bottom: 4px; }
-.cartelera-mini-btn { padding: 4px 10px; border: 1px solid rgba(128,128,128,.35); border-radius: 999px; background: transparent; color: inherit; font: 600 .72rem var(--sans); cursor: pointer; white-space: nowrap; }
-.cartelera-mini-btn:hover:not(:disabled) { border-color: var(--gold); color: var(--gold); }
-.cartelera-mini-btn:disabled { opacity: .35; cursor: default; }
-.cartelera-mini-btn--danger:hover:not(:disabled) { border-color: #c0392b; color: #c0392b; }
 .cartelera-tabs { margin: 0 0 18px; }
 .cartelera-tabs a { flex: 0 0 auto; padding: 12px 16px; border-bottom: 2px solid transparent; color: var(--soft); font: 600 .72rem var(--sans); text-decoration: none; white-space: nowrap; }
 .cartelera-tabs a:hover { color: var(--content-ink, var(--ink)); }
@@ -250,3 +246,10 @@ a.ct-space:hover { border-color: var(--ct-gold); }
 .ct-mod-table td { white-space: normal; overflow-wrap: anywhere; vertical-align: top; }
 .ct-mod-table td:last-child { white-space: nowrap; }
 
+
+/* Organigrama en «Nosotros y galería»: misma tabla del Hub; los controles ocupan la celda */
+.ct-org-table select, .ct-org-table input { width: 100%; min-width: 0; }
+.ct-org-table th:nth-child(1) { width: 17%; } .ct-org-table th:nth-child(2) { width: 27%; } .ct-org-table th:nth-child(3) { width: 21%; }
+.ct-org-table th:nth-child(4) { width: 20%; } .ct-org-table th:nth-child(5) { width: 150px; }
+.ct-org-table td:last-child { white-space: nowrap; }
+.ct-org-table td:first-child > div { display: flex; }

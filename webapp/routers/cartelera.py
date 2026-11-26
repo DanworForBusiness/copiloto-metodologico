@@ -27,6 +27,9 @@ router = APIRouter()
 _log = logging.getLogger("danwor.cartelera")
 BASE = "/cchh/cartelera"
 _NO_STORE = {"Cache-Control": "no-store"}
+# Logo institucional del encabezado del portal: el MISMO activo que Danwor Academy y Comercial › Presentaciones muestran a pantalla completa
+# (wordmark blanco para fondo oscuro), referenciado en su ubicación original vía `/pack-assets`. No se copia ni se genera otra variante.
+BRAND_LOGO_URL = f"/pack-assets/{DEFAULT_PACK}/academy/assets/img/danwor-logo.png"
 TABS = (("ediciones", "Ediciones", BASE), ("cumpleanos", "Cumpleaños", f"{BASE}/cumpleanos"),
         ("institucional", "Nosotros y galería", f"{BASE}/institucional"), ("accesos", "Accesos directos", f"{BASE}/accesos"),
         ("comunidad", "Comunidad", f"{BASE}/comunidad"))
@@ -455,7 +458,8 @@ def institutional_page(request: Request):
         return redirect
     data = svc.institutional()
     return templates.TemplateResponse(request=request, name="human_capital/cartelera_institucional.html", headers=_NO_STORE, context=_shell(
-        request, user, "institucional", data=data, model_json=json.dumps({k: data.get(k) for k in ("intro", "mission", "vision", "values_intro", "values", "links", "albums")}, ensure_ascii=False)))
+        request, user, "institucional", data=data, model_json=json.dumps({k: data.get(k) for k in ("intro", "mission", "vision", "values_intro", "values", "links", "org", "albums")}, ensure_ascii=False),
+        org_kinds=svc.ORG_KINDS))
 
 
 @router.post(f"{BASE}/institucional", include_in_schema=False)
@@ -467,7 +471,8 @@ async def institutional_save(request: Request):
         saved = svc.save_institutional(int(revision) if revision not in (None, "") else None, mission=body.get("mission", ""),
                                        vision=body.get("vision", ""), values=list(body.get("values") or []),
                                        albums=list(body.get("albums") or []), actor=_actor(user), intro=body.get("intro", ""),
-                                       values_intro=body.get("values_intro", ""), links=list(body.get("links") or []))
+                                       values_intro=body.get("values_intro", ""), links=list(body.get("links") or []),
+                                       org=list(body["org"]) if isinstance(body.get("org"), list) else None)
     except repo.CarteleraConcurrentModificationError as exc:
         return JSONResponse({"error": str(exc)}, status_code=409, headers=_NO_STORE)
     except (svc.CarteleraValidationError, ValueError, TypeError) as exc:
@@ -580,8 +585,8 @@ def _render_portal(request: Request, page: str, *, edition: dict | None = None, 
            "urls": _portal_urls(edition, "general" if edit_mode else context),
            # Vista del colaborador del editor: experiencia limpia, sin ningún control administrativo.
            "clean_view": clean_view,
-           "edition": edition, "links": svc.site_links(),
-           "editions": svc.visible_editions(), "inst": svc.institutional(), "today_month": svc.month_key(),
+           "edition": edition, "links": svc.site_links(), "brand_logo_url": BRAND_LOGO_URL,
+           "editions": svc.visible_editions(), "inst": svc.institutional(), "org_tree": svc.org_tree, "today_month": svc.month_key(),
            "today_day": svc.now_utc().astimezone(svc.BUSINESS_TZ).day,
            "upcoming": svc.upcoming_birthdays(7), "can_manage": human_capital_access.is_human_capital_authorized_user(user),
            "live_greetings": svc.live_greetings(svc.now_utc().astimezone(svc.BUSINESS_TZ).year),

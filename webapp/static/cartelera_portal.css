@@ -156,6 +156,10 @@ label.f span.h{font-weight:400;color:var(--muted);font-size:12px}
 .og-persona span{padding:6px 12px;font-weight:700;letter-spacing:.03em}
 .og-logo{padding:0 0 2px}
 .og-logo img{height:46px;width:auto;max-width:none;display:block}
+/* Raíz del organigrama en el Hub: el logo institucional ÚNICO (wordmark blanco, el del encabezado) necesita fondo oscuro; la app original usaba
+   una variante oscura embebida que el Hub no duplica. */
+.og-logo--hub{background:var(--hdr);border-radius:12px;padding:8px 14px}
+.og-logo--hub img{height:30px}
 .og-row{border-top:1px solid var(--line);padding-top:8px}
 .mv-hero h1{max-width:none}
 .mv-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}

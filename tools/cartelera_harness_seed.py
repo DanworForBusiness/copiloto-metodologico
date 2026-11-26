@@ -89,10 +89,14 @@ def seed() -> None:
     svc.greeting_state(b["id"], year, g["revision"], "schedule", when, actor)
     greet("Carla Prueba")
 
-    base = svc.DEFAULT_INSTITUTIONAL                                                   # piso: contenido institucional de la app original
+    base = svc.DEFAULT_INSTITUTIONAL                                                   # contenido institucional REAL de la app original (no DEMO)
     svc.save_institutional(None, mission=base["mission"], vision=base["vision"], values=base["values"], intro=base["intro"],
                            values_intro=base["values_intro"], links=base["links"],
-                           albums=[{"title": "Fiesta de fin de año", "date": f"{today.year - 1}-12-15", "description": "Álbum de ejemplo"}], actor=actor)
+                           org=base["org"],
+                           # DEMO (no es contenido institucional): un álbum preparado SIN fotos —las fotos llegan con la integración documental—, así que
+                           # Nosotros muestra, como la app original sin fotos, «Todavía no hay álbumes.».
+                           albums=[{"title": "Fiesta de fin de año (DEMO)", "date": f"{today.year - 1}-12-15", "description": "Álbum DEMO para la homologación local"}],
+                           actor=actor)
     svc.save_links(None, [{"title": "Política de licencias", "group": "Políticas", "url": "https://www.danwor.com/"},
                           {"title": "Solicitud de vacaciones", "group": "Formularios", "url": "https://www.danwor.com/"},
                           {"title": "Beneficios corporativos", "group": "Beneficios", "url": "https://www.danwor.com/"}], actor)

@@ -41,7 +41,7 @@
 <body{% if social_on %} data-social-me="{{ me }}"{% endif %}{% if edit_mode %} class="ct-editing{{ ' ct-layout' if layout_mode else '' }}"{% endif %}>
 <header class="top">
   <div class="wrap">
-    <a class="brand" href="{{ urls.inicio }}" aria-label="Danwor, inicio"><img src="{{ url_for('static', path='cartelera/logo-danwor.png') }}" alt="Danwor" class="brand-logo"></a>
+    <a class="brand" href="{{ urls.inicio }}" aria-label="Danwor, inicio"><img src="{{ brand_logo_url }}" alt="Danwor" class="brand-logo"></a>
     <nav class="main" aria-label="Secciones"{% if edit_mode %} data-ct-pages{% endif %}>
       <a href="{{ urls.inicio }}"{% if page == 'inicio' %} aria-current="page"{% endif %}>{{ ic('home') }}Inicio</a>
       <a href="{{ urls.novedades }}"{% if page == 'novedades' %} aria-current="page"{% endif %}>{{ ic('board') }}Novedades</a>
@@ -379,18 +379,26 @@
     {% if inst.values_intro %}<p class="muted" style="margin:0;max-width:80ch">{{ inst.values_intro }}</p>{% endif %}
     <div class="val-grid">{% for v in inst['values'] %}<div class="card pad val"><h3><span class="val-n">{{ '%02d' | format(loop.index) }}</span>{{ v.title }}</h3><p>{{ v.text }}</p></div>{% endfor %}</div>
   </section>{% endif %}
-  {#- Organigrama y galería: secciones del original, siempre presentes. Sus recursos son documentales (F5, SharePoint): hasta habilitar esa
-      integración se muestran como en preparación, sin simularla ni ofrecer acciones administrativas en la presentación. -#}
+  {#- Organigrama y galería: MISMO marcado que `orgChartHtml` y `galleryHtml` de la app original (clases `.org`, `.og-*`, `.gal-*` de
+      cartelera_portal.css), sin los accesos de administración. El organigrama es contenido estructurado de «Nosotros y galería»; en su raíz va
+      el logo institucional del Hub (mismo activo que el encabezado) sobre una placa oscura. Las fotos de la galería son documentales (F5):
+      hasta la integración, ningún álbum tiene fotos y, como en la original, se ve «Todavía no hay álbumes.». -#}
+  {%- macro og_node(n) -%}
+    {%- if n.kind == 'persona' -%}<div class="og-node og-persona"><b>{{ n.name or 'Nombre' }}</b><span>{{ n.title }}</span></div>
+    {%- else -%}<div class="og-node og-{{ 'area' if n.kind == 'area' else 'puesto' }}">{{ n.title }}</div>{%- endif -%}
+  {%- endmacro -%}
+  {%- macro og_li(n) -%}<li>{{ og_node(n) }}{% if n.children %}<ul>{% for c in n.children %}{{ og_li(c) }}{% endfor %}</ul>{% endif %}</li>{%- endmacro -%}
+  {% set tree = org_tree(inst.org or []) %}
   <section class="stack" style="gap:12px">
-    <div><span class="eyebrow">Organigrama</span><h2 style="margin:4px 0 0">Nuestro equipo</h2></div>
-    <div class="card pad"><div class="empty">{{ ic('users', 'lg') }}<p style="margin:6px 0 0">El organigrama se publica desde la carpeta documental de Capital Humano y estará disponible muy pronto.</p></div></div>
+    <div class="row" style="justify-content:space-between;margin-top:8px"><div><span class="eyebrow">Organigrama</span><h2 style="margin:4px 0 0">Nuestro equipo</h2></div></div>
+    <div class="card pad"><div class="org-scroll"><ul class="org"><li><div class="og-logo og-logo--hub"><img src="{{ brand_logo_url }}" alt="Danwor"></div>{% if tree %}<ul>{% for n in tree %}{{ og_li(n) }}{% endfor %}</ul>{% endif %}</li></ul></div></div>
   </section>
+  {% set photo_albums = (inst.albums or []) | selectattr('photos') | list %}
   <section class="stack" style="gap:12px">
-    <div><span class="eyebrow">Galería</span><h2 style="margin:4px 0 0">Nuestros momentos</h2></div>
-    {% if inst.albums %}<div class="gal-grid">{% for a in inst.albums %}<div class="gal-album" style="cursor:default;display:grid;place-items:center;color:var(--muted)">{{ ic('image', 'lg') }}<span class="gal-cap"><b>{{ a.title }}</b><span>{{ a.date }} · fotos en preparación</span></span></div>{% endfor %}</div>
+    <div class="row" style="justify-content:space-between;margin-top:8px"><div><span class="eyebrow">Galería</span><h2 style="margin:4px 0 0">Nuestros momentos</h2></div></div>
+    {% if photo_albums %}<div class="gal-grid">{% for a in photo_albums %}<div class="gal-album"><span class="gal-cap"><b>{{ a.title or 'Álbum' }}</b><span>{{ a.date }}</span></span></div>{% endfor %}</div>
     {% else %}<div class="card pad"><div class="empty">Todavía no hay álbumes.</div></div>{% endif %}
   </section>
-
 </div>
 {{ page_close() }}{% endif %}
 </main>
