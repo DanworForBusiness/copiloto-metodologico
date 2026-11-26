@@ -162,10 +162,12 @@
         muestra las filas que entran completas (sin scroll interno); sin JS se ven todas. -#}
     {% set hb = svc.home_birthdays(edition.id if edition else none) %}{% set mname = svc.MONTHS[hb.month - 1] | lower %}
     {% set rest = hb.upcoming if hb.mode != 'past' else hb.month_list %}
+    {#- Un solo título cuando no hay cumpleaños hoy: el encabezado pasa a ser el de la lista. -#}
+    {% set rest_title = 'Cumpleaños de ' ~ mname if hb.mode == 'past' else 'Próximos cumpleaños' %}
     <div class="card pad bday-tile" data-bfit>
-      <div class="row" style="justify-content:space-between"><span class="eyebrow">Cumpleaños</span>{% if edition %}<a href="{{ urls.edition }}#sec-cumpleanos" class="muted" style="font-size:12px">Ver calendario</a>{% endif %}</div>
+      <div class="row" style="justify-content:space-between"><span class="eyebrow">{{ rest_title if rest and not hb.today else 'Cumpleaños' }}</span>{% if edition %}<a href="{{ urls.edition }}#sec-cumpleanos" class="muted" style="font-size:12px">Ver calendario</a>{% endif %}</div>
       {% for b in hb.today %}<div class="bday-today" data-brow><span class="avatar" style="background:var(--gold)">{{ ic('cake') }}</span><div style="flex:1;min-width:0"><b>{{ b.name }}</b><div class="muted" style="font-size:12px">Cumple hoy</div></div>{% set gid = b.id ~ '-' ~ this_year %}{% if gid in live_greetings and not edit_mode %}<a class="btn sm" href="/cartelera/saludos/{{ gid }}#saludar">Saludar</a>{% endif %}</div>{% endfor %}
-      {% if rest %}<div class="bday-group" data-bgroup><div class="eyebrow bday-sub">{{ 'Cumpleaños de ' ~ mname if hb.mode == 'past' else 'Próximos cumpleaños' }}</div>
+      {% if rest %}<div class="bday-group" data-bgroup>{% if hb.today %}<div class="eyebrow bday-sub">{{ rest_title }}</div>{% endif %}
         {% for b in rest %}<div class="row bday-next" data-brow><span>{{ b.name }}</span><span class="muted">{{ b.day }} de {{ mname }}</span></div>{% endfor %}</div>
       {% elif not hb.today %}<p class="muted bday-empty">{{ 'Sin cumpleaños en ' ~ mname ~ '.' if hb.mode == 'past' else ('No hay próximos cumpleaños este mes.' if hb.mode == 'current' else 'No hay cumpleaños en ' ~ mname ~ '.') }}</p>{% endif %}
     </div>
