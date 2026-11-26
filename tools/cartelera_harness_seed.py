@@ -113,7 +113,7 @@ def seed_social() -> None:
     # La semilla corre ANTES de que el harness sume las identidades a Capital Humano y a COMMUNITY_OWNER: solo acá se fijan los roles.
     from unittest import mock
     with mock.patch.object(social, "is_moderator", lambda u: bool(u) and u.get("sub") == mod["sub"]), \
-            mock.patch.object(social, "can_publish_official", lambda u: bool(u) and u.get("sub") in (ch["sub"], mod["sub"])):
+            mock.patch.object(social, "can_publish_official", lambda u: bool(u) and u.get("sub") == ch["sub"]):
         _seed_social_content(svc, repo, social, ch, mod, lucia, martin)
     print("[harness] Comunidad sembrada: 9 publicaciones (oficial fijada por la moderación, encuesta, pendiente, retirada, programada), comentarios, reacciones, votos y un reporte")
 

@@ -93,9 +93,10 @@ def is_moderator(user: dict | None) -> bool:
 
 
 def can_publish_official(user: dict | None) -> bool:
-    """Comunicaciones oficiales (categorías no habilitadas para colaboradores, marca oficial y programación): Capital Humano —su voz
-    institucional, con su autorización existente— y la moderación de Comunidad."""
-    return bool(user) and (human_capital_access.is_human_capital_authorized_user(user) or is_moderator(user))
+    """Comunicación INSTITUCIONAL (marca oficial «Capital Humano», categorías no habilitadas para colaboradores y programación): EXCLUSIVA de
+    Capital Humano, con el predicado existente de la vertical (`HUMAN_CAPITAL_ALLOWED_USERS`). Moderar Comunidad (COMMUNITY_OWNER) NO la
+    habilita: moderación y voz institucional son independientes. La autoría real queda siempre en `author`/`author_name` (auditoría)."""
+    return bool(user) and human_capital_access.is_human_capital_authorized_user(user)
 
 
 def _hid(value: str) -> str:
@@ -241,14 +242,16 @@ def _clean_poll(raw) -> dict | None:
 
 
 def save_post(user: dict, data: dict, post_id: str | None = None) -> dict:
-    """Roles resueltos ACÁ (servidor): oficial/programación para Capital Humano o moderación; fijar y publicar sin aprobación, solo
-    moderación. Editar, solo la autoría."""
+    """Roles resueltos ACÁ (servidor): oficial/programación, solo Capital Humano; fijar (lo oficial) y publicar sin aprobación, solo
+    moderación. Editar, solo la autoría. La autoría real se conserva aunque se presente como Capital Humano."""
     mod, official_ok = is_moderator(user), can_publish_official(user)
     cat = CATEGORY_BY_ID.get(str(data.get("category") or ""))
     if not cat:
         raise SocialError("Elegí una categoría.")
     if not cat["collab"] and not official_ok:
-        raise SocialForbidden("Esa categoría es solo para comunicaciones oficiales.")
+        raise SocialForbidden("Esa categoría es solo para comunicaciones oficiales de Capital Humano.")
+    if data.get("official") and not official_ok:                                       # crear o convertir en oficial: solo Capital Humano
+        raise SocialForbidden("Solo Capital Humano publica comunicaciones oficiales.")
     title, body = _text(data.get("title"), 140), _text(data.get("body"), 4000)
     if not (title or body):
         raise SocialError("Escribí un título o un mensaje.")
@@ -261,7 +264,7 @@ def save_post(user: dict, data: dict, post_id: str | None = None) -> dict:
     fields = {"category": cat["id"], "title": title, "body": body, "mentions": mention_ids(body), "link": link or None,
               "link_label": _text(data.get("link_label"), 120) if link else "", "poll": poll,
               "consent": True if cat["id"] == "personales" else None}
-    if official_ok:                                                                    # opciones oficiales (Capital Humano o moderación)
+    if official_ok:                                                                    # opciones oficiales: solo Capital Humano
         fields["official"] = bool(data.get("official"))
         when = str(data.get("publish_at") or "").strip()
         fields["publish_at"] = svc.local_input_to_utc(when).isoformat() if when else None

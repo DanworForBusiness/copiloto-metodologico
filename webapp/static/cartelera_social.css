@@ -62,3 +62,6 @@
   .ct-rx-picker { gap: 4px; padding: 5px 7px; }
 }
 @media (prefers-reduced-motion: reduce) { .ct-rx-picker, .ct-rx-opt { transition: none; } }
+
+/* Saludo de cumpleaños: el campo para saludar va arriba y siempre a la vista; la acción no se parte en dos líneas */
+.ct-greet .cinput .btn { white-space: nowrap; }

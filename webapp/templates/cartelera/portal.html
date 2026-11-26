@@ -143,7 +143,7 @@
     <div class="card pad stack" style="gap:6px">
       <div class="row" style="justify-content:space-between"><span class="eyebrow">Cumpleaños</span>{% if edition %}<a href="{{ urls.edition }}#sec-cumpleanos" class="muted" style="font-size:12px">Ver calendario</a>{% endif %}</div>
       {% set todays = upcoming | selectattr('offset', 'equalto', 0) | list %}
-      {% if todays %}{% for b in todays %}<div class="bday-today"><span class="avatar" style="background:var(--gold)">{{ ic('cake') }}</span><div style="flex:1"><b>{{ b.name }}</b><div class="muted" style="font-size:12px">Cumple hoy</div></div>{% set gid = b.id ~ '-' ~ this_year %}{% if gid in live_greetings and not edit_mode %}<a class="btn sm" href="/cartelera/saludos/{{ gid }}">Saludar</a>{% endif %}</div>{% endfor %}
+      {% if todays %}{% for b in todays %}<div class="bday-today"><span class="avatar" style="background:var(--gold)">{{ ic('cake') }}</span><div style="flex:1"><b>{{ b.name }}</b><div class="muted" style="font-size:12px">Cumple hoy</div></div>{% set gid = b.id ~ '-' ~ this_year %}{% if gid in live_greetings and not edit_mode %}<a class="btn sm" href="/cartelera/saludos/{{ gid }}#saludar">Saludar</a>{% endif %}</div>{% endfor %}
       {% else %}<p class="muted" style="margin:6px 0">Hoy no hay cumpleaños cargados.</p>{% endif %}
       {% set week = upcoming | rejectattr('offset', 'equalto', 0) | list %}
       {% if week %}<div class="eyebrow" style="margin-top:8px">Próximos 7 días</div>

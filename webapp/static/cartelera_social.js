@@ -237,7 +237,11 @@
         const fresh = await refresh(block, commentsOpen(block));
         const main = fresh && $(".ct-rx-main", fresh); if (main && el.classList.contains("ct-rx-opt")) main.focus();
       }
-      else if (a === "togglecmt") { const c = $("[data-sx-comments]", block); c.hidden = !c.hidden; if (!c.hidden) $("[data-sx-input]", block).focus(); }
+      else if (a === "togglecmt") {                                                 // en un saludo el campo está siempre a la vista: solo lo enfoca
+        const c = $("[data-sx-comments]", block);
+        if (block.dataset.ctx !== "greeting") c.hidden = !c.hidden;
+        if (!c.hidden) $("[data-sx-input]", block).focus();
+      }
       else if (a === "reply") {
         const c = $("[data-sx-comments]", block); c.hidden = false; block.dataset.parent = el.dataset.id;
         const r = $("[data-sx-replying]", block); r.hidden = false; $("b", r).textContent = el.dataset.name;
@@ -300,6 +304,8 @@
   if ("scrollRestoration" in history) history.scrollRestoration = "manual";
   const arrive = () => {
     const y = sessionStorage.getItem("ct-scroll"); if (y) { sessionStorage.removeItem("ct-scroll"); window.scrollTo(0, Number(y)); return; }
+    const greet = location.hash === "#saludar" && $('[data-ctx="greeting"] [data-sx-input]');   // «Saludar» desde Inicio: directo al campo
+    if (greet) { greet.scrollIntoView({ block: "center" }); greet.focus({ preventScroll: true }); return; }
     const el = location.hash.length > 1 && document.getElementById(location.hash.slice(1));
     if (el) { el.scrollIntoView({ block: "center" }); el.style.outline = "2px solid var(--gold)"; setTimeout(() => { el.style.outline = ""; }, 1800); }
   };

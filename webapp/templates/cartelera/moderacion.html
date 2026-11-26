@@ -24,7 +24,8 @@
     colapsables, `.dashboard-table`, acciones SVG con tooltip y confirmación `dw-confirm`. Mismas capacidades que «Moderación» de la app
     original (pendientes, reportes, programadas, registro) más las retiradas recientes; la regla vive en `cartelera_social`. -#}
 {% macro icon(name) -%}<svg viewBox="0 0 24 24" aria-hidden="true">{% if name == 'check' %}<path d="m5 12 5 5 9-10"/>{% elif name == 'x' %}<path d="M6 6l12 12"/><path d="M18 6 6 18"/>{% elif name == 'shield' %}<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/>{% elif name == 'out' %}<path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 14v6H4V6h6"/>{% elif name == 'done' %}<circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/>{% endif %}</svg>{%- endmacro %}
-{% macro who(p) %}{{ 'Capital Humano' if p.official else names.get(p.author, p.author_name or 'Colaborador/a') }}{% endmacro %}
+{#- Lo oficial se presenta como Capital Humano, pero la moderación ve SIEMPRE la autoría real (auditoría). -#}
+{% macro who(p) %}{% set real = names.get(p.author, p.author_name or p.author or 'Colaborador/a') %}{% if p.official %}Capital Humano<div class="field-hint">por {{ real }}</div>{% else %}{{ real }}{% endif %}{% endmacro %}
 
 <div class="activity-kpi-grid">
   <div class="activity-kpi"><span class="activity-kpi__value">{{ kpis.posts }}</span><span class="activity-kpi__label">Publicaciones · 30 días</span></div>
@@ -78,8 +79,8 @@
     <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Programadas</span>
       <span class="dashboard-section__count">{{ scheduled | length }}</span></summary>
     <div class="dashboard-section__body">
-      {% if scheduled %}<table class="dashboard-table ct-mod-table"><thead><tr><th class="left">Se publica</th><th class="left">Publicación</th><th class="left">Categoría</th></tr></thead>
-        <tbody>{% for p in scheduled %}<tr><td class="left">{{ svc.fmt_local(p.publish_at) }}</td><td class="left"><strong>{{ p.title or '(sin título)' }}</strong></td><td class="left">{{ categories[p.category].name }}</td></tr>{% endfor %}</tbody></table>
+      {% if scheduled %}<table class="dashboard-table ct-mod-table"><thead><tr><th class="left">Se publica</th><th class="left">Publicación</th><th class="left">Autor</th><th class="left">Categoría</th></tr></thead>
+        <tbody>{% for p in scheduled %}<tr><td class="left">{{ svc.fmt_local(p.publish_at) }}</td><td class="left"><strong>{{ p.title or '(sin título)' }}</strong></td><td class="left">{{ who(p) }}</td><td class="left">{{ categories[p.category].name }}</td></tr>{% endfor %}</tbody></table>
       {% else %}<p class="field-hint">No hay publicaciones programadas.</p>{% endif %}
     </div>
   </details>
