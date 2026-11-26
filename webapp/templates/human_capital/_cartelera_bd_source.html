@@ -1,7 +1,8 @@
 {#- Estado de la FUENTE de cumpleaños (Excel de SharePoint, solo lectura). Se renderiza dentro de Gestión → Cumpleaños y como respuesta
-    del refresh (`POST /cchh/cartelera/cumpleanos/fuente`). Primitivos del Hub: `callout--feedback`, `btn-secondary`, la recuperación
-    compartida de la autorización de Microsoft (`partials/graph_auth_recovery.html`); el token delegado lo inyecta el hook
-    transversal de `hub_auth.js` (la plantilla nunca lo lleva). -#}
+    del refresh (`POST /cchh/cartelera/cumpleanos/fuente`). Con la fuente sana no muestra nada: solo los problemas que hay que poder
+    identificar (autorización de Microsoft, permisos, estructura del Excel). Primitivos del Hub: `callout--feedback` y la recuperación
+    compartida de la autorización de Microsoft (`partials/graph_auth_recovery.html`); el token delegado lo inyecta el hook transversal de
+    `hub_auth.js` (la plantilla nunca lo lleva). -#}
 {% from "partials/graph_auth_recovery.html" import graph_auth_recovery %}
 {% set st = sp_status or {} %}
 {% set err = sp_error or (st.last_error if st else none) %}
@@ -12,14 +13,6 @@
     <p><strong>No se pudo leer el Excel de SharePoint.</strong> {{ err.message }}{% if st.loaded %} Se muestra la última lectura válida.{% endif %}</p>
     {% if err.detail %}<p>Detalle técnico: {{ err.detail }}</p>{% endif %}
   </div></div>
-{% endif %}
-{% if st.loaded %}
-  <p class="field-hint">
-    Fuente: Excel de SharePoint{% if st.source.name %} «{{ st.source.name }}»{% endif %} (solo lectura) · {{ st.count }} persona{{ '' if st.count == 1 else 's' }},
-    {{ st.authorized }} con autorización de publicación · leído {{ svc.fmt_local(st.refreshed_at) }} · comprobado {{ svc.fmt_local(st.checked_at) }}
-    {%- if st.source.last_modified %} · última modificación del Excel {{ svc.fmt_local(st.source.last_modified) }}{% if st.source.last_modified_by %} ({{ st.source.last_modified_by }}){% endif %}{% endif %}
-  </p>
-  {% for w in st.warnings %}<p class="field-hint">⚠ {{ w }}</p>{% endfor %}
-{% elif not err %}
+{% elif not st.loaded %}
   <p class="field-hint">Leyendo los cumpleaños desde el Excel de SharePoint…</p>
 {% endif %}

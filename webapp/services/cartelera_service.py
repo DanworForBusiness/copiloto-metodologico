@@ -436,7 +436,7 @@ def _consolidate(b: dict) -> dict:
 # solo lectura). Este es el ÚNICO punto de lectura: Gestión, próximos, Inicio, calendario, panel de Comunidad y saludos lo consumen.
 # Los registros locales (`birthdays/`) no se borran: quedan sin uso hasta homologar la nueva fuente.
 SHAREPOINT_READ_ONLY = ("Los cumpleaños se administran en el Excel de SharePoint (Cartelera Virtual → Cumpleaños). Hacé el cambio ahí y "
-                        "actualizá desde SharePoint.")
+                        "tocá «Actualizar».")
 
 
 def _sharepoint() -> bool:

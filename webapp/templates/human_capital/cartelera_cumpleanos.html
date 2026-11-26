@@ -8,7 +8,7 @@
   {% if sp_status is not none %}
   {#- Fuente SharePoint (solo lectura): el alta, la edición, la carga masiva y la eliminación se hacen en el Excel. -#}
   <button type="button" class="btn-secondary" data-dw-graph-token hx-post="/cchh/cartelera/cumpleanos/fuente" hx-vals='{"force": "1"}'
-          hx-target="#ct-bd-source" hx-swap="innerHTML">Actualizar desde SharePoint</button>
+          hx-target="#ct-bd-source" hx-swap="innerHTML" hx-disabled-elt="this">Actualizar</button>
   {% if sp_status.source and sp_status.source.web_url %}<a href="{{ sp_status.source.web_url }}" class="btn-primary" target="_blank" rel="noopener">Abrir el Excel ↗</a>{% endif %}
   {% else %}
   <a href="/cchh/cartelera/cumpleanos/importar{{ '?' ~ _volver if _volver }}" class="btn-secondary">Carga masiva</a>
