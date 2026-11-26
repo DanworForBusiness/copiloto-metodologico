@@ -177,3 +177,27 @@ def test_items_can_sit_beside_the_previous_one_in_sections_without_full_width(ed
     assert next(s for s in copy["sections"] if s["key"] == "comunicados")["items"][1].get("beside") is True
     draft = svc.draft_edition(cur, title="P", subtitle="", sections=[{"key": "comunicados", "items": items}])
     assert next(s for s in draft["sections"] if s["key"] == "comunicados")["items"][1].get("beside") is True
+
+
+def test_fallback_preview_sends_human_capital_to_the_latest_edition_in_preparation_only_without_a_published_one(editions):
+    """`/cartelera?fallback=preview` (iframe institucional): con edición vigente, normal; sin vigente, Capital Humano → vista previa de la
+    edición en preparación más reciente (Novedades); otros usuarios y la ruta sin el parámetro, comportamiento de siempre."""
+    from webapp.routers import cartelera as router
+    cur, nxt, prv = editions
+    cchh = session_client(CCHH_EMAIL)
+    assert cchh.get("/cartelera?fallback=preview", follow_redirects=False).status_code == 200                   # hay vigente: normal
+    repo.save("editions", cur, {"state": "draft", "published_at": None}, expected_revision=repo.get("editions", cur)["revision"])
+    r = cchh.get("/cartelera?fallback=preview", follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == f"/cchh/cartelera/ediciones/{nxt}/vista-previa?pagina=novedades"
+    assert cchh.get("/cartelera", follow_redirects=False).status_code == 200                                    # sin el parámetro: igual que hoy
+    router_launched = router.PORTAL_LAUNCHED
+    try:
+        router.PORTAL_LAUNCHED = True
+        ops = session_client(OPS_A)                                                                              # sin Capital Humano
+        r = ops.get("/cartelera?fallback=preview", follow_redirects=False)
+        assert r.status_code == 200 and "vista-previa" not in r.text
+    finally:
+        router.PORTAL_LAUNCHED = router_launched
+    repo.save("editions", prv, {"state": "published", "published_at": svc.now_utc().isoformat()},
+              expected_revision=repo.get("editions", prv)["revision"])
+    assert cchh.get("/cartelera?fallback=preview", follow_redirects=False).status_code == 200                   # vigente anterior: normal
