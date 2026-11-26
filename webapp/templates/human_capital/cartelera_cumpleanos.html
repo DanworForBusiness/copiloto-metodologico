@@ -6,6 +6,10 @@
 {% endblock %}
 {% block cartelera_body %}
 {% set vis_tones = {'visible': 'green', 'hidden': 'grey', 'unauthorized': 'amber'} %}
+{% set g_tones = {'none': 'grey', 'draft': 'grey', 'scheduled': 'violet', 'published': 'green', 'withdrawn': 'amber'} %}
+{% set g_labels = {'none': 'Sin preparar', 'draft': 'Borrador', 'scheduled': 'Programado', 'published': 'Publicado', 'withdrawn': 'Retirado'} %}
+{% macro cake() %}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21h16"/><path d="M5 21v-7h14v7"/><path d="M8 14v-3M12 14v-3M16 14v-3"/><path d="M12 7a1.5 1.5 0 0 0 0-3"/></svg>{% endmacro %}
+{% macro greeting_href(b, g) %}/cchh/cartelera/cumpleanos/{{ b.id }}/saludo?anio={{ g.year }}{% endmacro %}
 
 <div class="dashboard-sections" data-dashboard-key="cchh-cartelera-cumpleanos">
   {# Próximos 30 días: MISMO primitivo de tarjeta `.activity-kpi` del Hub (fecha como valor, cuándo como rótulo); hoy lleva el acento institucional. #}
@@ -16,6 +20,7 @@
       <span class="dashboard-section__count">Próximos 30 días · {{ upcoming | length }}</span>
     </summary>
     <div class="dashboard-section__body">
+      <p class="field-hint cartelera-bday-lead">Una sola carga alimenta el calendario de Novedades y el «Cumple hoy» del Inicio. «Preparar saludo» arma la tarjeta de celebración de la persona sobre su diseño final: la ajustás, la publicás o la programás para su día.</p>
       {% if upcoming %}
       <div class="activity-kpi-grid cartelera-bday-tiles">
         {% for b in upcoming[:12] %}
@@ -23,6 +28,8 @@
           <span class="activity-kpi__value">{{ '%02d' | format(b.day) }}/{{ '%02d' | format(b.month) }}</span>
           <span class="activity-kpi__label">{{ 'Hoy' if b.offset == 0 else ('Mañana' if b.offset == 1 else 'En ' ~ b.offset ~ ' días') }}</span>
           <span class="activity-kpi__hint">{{ b.name }}</span>
+          {% set g = greetings[b.id] %}
+          <a class="cartelera-greet-cta{{ ' is-done' if g.state in ('scheduled', 'published') else '' }}" href="{{ greeting_href(b, g) }}">{{ cake() }}<span>{% if g.state == 'none' %}Preparar saludo{% elif g.state == 'published' %}Saludo publicado{% elif g.state == 'scheduled' %}Programado · {{ svc.fmt_local(g.greeting.publish_at)[:5] }} {{ svc.fmt_local(g.greeting.publish_at)[-5:] }}{% else %}Continuar saludo{% endif %}</span></a>
         </div>
         {% endfor %}
       </div>
@@ -54,6 +61,13 @@
         {% for key, label in svc.VISIBILITY_LABELS.items() %}<option value="{{ key }}"{% if visibilidad == key %} selected{% endif %}>{{ label }}</option>{% endfor %}
       </select>
     </div>
+    <div class="feedback-field feedback-field--compact">
+      <label for="bd-f-saludo">Saludo</label>
+      <select id="bd-f-saludo" name="saludo" hx-get="/cchh/cartelera/cumpleanos" hx-target="#ct-birthdays-panel" hx-select="#ct-birthdays-panel" hx-swap="outerHTML" hx-include="closest form" hx-push-url="true" hx-trigger="change">
+        <option value="">Todos</option>
+        {% for key, item in greeting_filters.items() %}<option value="{{ key }}"{% if saludo == key %} selected{% endif %}>{{ item[0] }}</option>{% endfor %}
+      </select>
+    </div>
     <button type="button" class="whatsnew-filter__clear" hx-get="/cchh/cartelera/cumpleanos" hx-target="#ct-birthdays-panel" hx-select="#ct-birthdays-panel" hx-swap="outerHTML" hx-push-url="true">✕ Limpiar</button>
   </form>
 
@@ -68,8 +82,8 @@
         {% if birthdays %}
         <div class="matrix-scroll">
           <table class="dashboard-table">
-            <colgroup><col style="width:9%"><col style="width:29%"><col style="width:24%"><col style="width:13%"><col style="width:13%"><col style="width:150px"></colgroup>
-            <thead><tr><th class="left">Fecha</th><th class="left">Nombre</th><th class="left">Autorización</th><th class="left">Ocultamiento</th><th class="left">Visibilidad</th><th class="center">Acciones</th></tr></thead>
+            <colgroup><col style="width:8%"><col style="width:24%"><col style="width:20%"><col style="width:10%"><col style="width:11%"><col style="width:15%"><col style="width:180px"></colgroup>
+            <thead><tr><th class="left">Fecha</th><th class="left">Nombre</th><th class="left">Autorización</th><th class="left">Ocultamiento</th><th class="left">Visibilidad</th><th class="left">Saludo</th><th class="center">Acciones</th></tr></thead>
             <tbody>
             {% for b in birthdays %}{% set vis = svc.birthday_visibility(b) %}
               <tr>
@@ -79,8 +93,13 @@
                   {% if b.authorized and b.authorization %}<div class="field-hint">{{ b.authorization.by }} · {{ svc.fmt_local(b.authorization.at, with_time=False) }}</div>{% endif %}</td>
                 <td class="left">{{ 'Oculto' if b.hidden else '—' }}</td>
                 <td class="left"><span class="dashboard-status-badge solicitudes-status-badge solicitudes-status-badge--{{ vis_tones[vis] }}">{{ 'Visible' if vis == 'visible' else 'No visible' }}</span></td>
+                {% set g = greetings[b.id] %}
+                <td class="left">{% if g.can_prepare %}<span class="dashboard-status-badge solicitudes-status-badge solicitudes-status-badge--{{ g_tones[g.state] }}">{{ g_labels[g.state] }}</span>
+                  <div class="field-hint">{{ '%02d' | format(g.date.day) }}/{{ '%02d' | format(g.date.month) }}/{{ g.year }}</div>{% else %}<span class="field-hint">—</span>{% endif %}</td>
                 <td class="center">
                   <div class="dw-row-actions">
+                    {% if g.can_prepare %}<a href="{{ greeting_href(b, g) }}" class="table-action-btn chart-tooltip-anchor" aria-label="{{ 'Preparar' if g.state == 'none' else 'Abrir' }} el saludo de {{ b.name }}">{{ cake() }}<span class="chart-tooltip" aria-hidden="true"><p>{{ 'Preparar saludo' if g.state == 'none' else 'Abrir saludo' }}</p></span></a>
+                    {% else %}<span class="table-action-btn chart-tooltip-anchor is-disabled" aria-disabled="true" tabindex="0" aria-label="Preparar saludo no disponible">{{ cake() }}<span class="chart-tooltip" aria-hidden="true"><p>Para preparar el saludo, la persona tiene que estar autorizada y visible.</p></span></span>{% endif %}
                     <button type="button" class="table-action-btn chart-tooltip-anchor" data-bd-edit data-bd-id="{{ b.id }}" data-bd-rev="{{ b.revision }}" data-bd-name="{{ b.name }}" data-bd-day="{{ b.day }}" data-bd-month="{{ b.month }}" data-bd-auth="{{ '1' if b.authorized else '' }}" aria-label="Editar a {{ b.name }}">
                       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
                       <span class="chart-tooltip" aria-hidden="true"><p>Editar</p></span>

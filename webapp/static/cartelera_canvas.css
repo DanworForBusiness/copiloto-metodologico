@@ -76,3 +76,12 @@ button.ct-kind:hover { filter: brightness(.95); outline: 1px dashed var(--gold);
 .ct-layout .linkcard .ct-ro:empty::before { content: attr(data-ph); }
 .ct-layout .cat-sec.ct-is-hidden { min-height: 64px; }
 .ct-layout .cat-sec.ct-is-hidden::after { content: "Soltá acá un contenido para mostrar esta sección"; display: block; padding: 14px; border: 1px dashed var(--muted); border-radius: 10px; color: var(--muted); font-size: 13px; text-align: center; }
+
+/* Saludo de cumpleaños: la portada oscura del Inicio es la tarjeta editable */
+.ct-editing .hero-main[data-ct-item] { position: relative; }
+.ct-editing .hero-main[data-ct-item]:hover, .ct-editing .hero-main[data-ct-item]:focus-within { box-shadow: 0 0 0 2px var(--gold); }
+.hero-main[data-ct-item]:hover > .ct-item-tools, .hero-main[data-ct-item]:focus-within > .ct-item-tools { opacity: 1; transform: none; }
+.hero-main[data-ct-item] > .ct-item-tools { top: 10px; right: 10px; z-index: 4; }
+.hero-main .ct-edit[data-multi] { white-space: pre-wrap; }
+.hero-main .ct-linkpanel { position: relative; z-index: 2; margin-top: 10px; color: var(--text); }
+.hero-main.ct-has-error { box-shadow: 0 0 0 2px var(--crit, #c0392b); }

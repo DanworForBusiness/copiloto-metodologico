@@ -7,6 +7,7 @@ concurrencia optimista por `revision`) — NO un mecanismo nuevo. `human-capital
 Colecciones (`human-capital/cartelera/<colección>/<id>.json`):
   - `editions`   — una por mes; id = «YYYY-MM».
   - `birthdays`  — una por persona (uuid).
+  - `greetings`  — saludo de cumpleaños de una persona para un año; id = «<id de cumpleaños>-<año>».
   - `settings`   — documentos únicos: `institutional` (misión, visión, valores, galería, organigrama) y `site` (accesos directos).
 
 Los RECURSOS documentales (imágenes, flyers, organigrama) NO viven acá: su fuente de verdad es la carpeta SharePoint de Cartelera Virtual
@@ -30,7 +31,7 @@ from core import remote_store
 _logger = logging.getLogger("danwor.human_capital")
 
 SCHEMA_VERSION = 1
-COLLECTIONS = ("editions", "birthdays", "settings")
+COLLECTIONS = ("editions", "birthdays", "settings", "greetings")
 _ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 _RESTORE_WAIT_TIMEOUT_S = 15.0
 _write_lock = threading.RLock()

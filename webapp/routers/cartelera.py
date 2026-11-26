@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import uuid
 
 from fastapi import APIRouter, Form, HTTPException, Request
@@ -74,7 +75,7 @@ def _shell(request: Request, user: dict, tab: str, **extra) -> dict:
 def _back(path: str, *, ok: str = "", error: str = "") -> RedirectResponse:
     from urllib.parse import urlencode
     query = urlencode({k: v for k, v in (("ok", ok), ("error", error)) if v})
-    return RedirectResponse(f"{path}{'?' + query if query else ''}", status_code=303)
+    return RedirectResponse(f"{path}{('&' if '?' in path else '?') + query if query else ''}", status_code=303)
 
 
 def _storage_message(exc: Exception) -> str:
@@ -253,16 +254,24 @@ def project_options(request: Request, graph_token: str = Form("")):
 
 # ── gestión: cumpleaños ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 @router.get(f"{BASE}/cumpleanos", response_class=HTMLResponse, include_in_schema=False)
-def birthdays_page(request: Request, q: str = "", mes: str = "", visibilidad: str = ""):
+def birthdays_page(request: Request, q: str = "", mes: str = "", visibilidad: str = "", saludo: str = ""):
     user, redirect = _admin(request)
     if redirect:
         return redirect
     visibilidad = visibilidad if visibilidad in svc.VISIBILITY_LABELS else ""
     mes = mes if mes.isdigit() and 1 <= int(mes) <= 12 else ""
     all_rows = svc.list_birthdays()
+    greetings = {b["id"]: svc.greeting_status(b) for b in all_rows}                  # saludo del PRÓXIMO cumpleaños de cada persona
+    saludo = saludo if saludo in GREETING_FILTERS else ""
+    rows = [b for b in svc.filter_birthdays(q=q, month=mes, visibility=visibilidad)
+            if not saludo or (greetings[b["id"]]["state"] in GREETING_FILTERS[saludo][1] and greetings[b["id"]]["can_prepare"])]
     return templates.TemplateResponse(request=request, name="human_capital/cartelera_cumpleanos.html", headers=_NO_STORE, context=_shell(
-        request, user, "cumpleanos", birthdays=svc.filter_birthdays(q=q, month=mes, visibility=visibilidad), total=len(all_rows),
-        upcoming=svc.upcoming_birthdays(30), months=svc.MONTHS, q=q, mes=mes, visibilidad=visibilidad))
+        request, user, "cumpleanos", birthdays=rows, total=len(all_rows), greetings=greetings, greeting_filters=GREETING_FILTERS,
+        upcoming=svc.upcoming_birthdays(30), months=svc.MONTHS, q=q, mes=mes, visibilidad=visibilidad, saludo=saludo))
+
+
+GREETING_FILTERS = {"pendiente": ("Sin preparar", ("none",)), "borrador": ("Borrador", ("draft", "withdrawn")),
+                    "programado": ("Programado", ("scheduled",)), "publicado": ("Publicado", ("published",))}
 
 
 @router.post(f"{BASE}/cumpleanos", include_in_schema=False)
@@ -324,7 +333,7 @@ def birthday_action(request: Request, birthday_id: str, action: str, revision: i
         if action in ("ocultar", "mostrar"):
             svc.set_birthday_hidden(birthday_id, revision, action == "ocultar", _actor(user))
         elif action == "eliminar":
-            repo.delete("birthdays", birthday_id)
+            svc.delete_birthday(birthday_id)
         else:
             raise HTTPException(400, "Acción desconocida")
     except repo.CarteleraNotFoundError:
@@ -332,6 +341,93 @@ def birthday_action(request: Request, birthday_id: str, action: str, revision: i
     except _ERRORS as exc:
         return _back(f"{BASE}/cumpleanos", error=_storage_message(exc))
     return _back(f"{BASE}/cumpleanos", ok="Cambio guardado.")
+
+
+# ── gestión: saludos de cumpleaños («Preparar saludo») ─────────────────────────────────────────────────────────────────────────────
+def _greeting_target(request: Request, birthday_id: str) -> tuple[dict, int]:
+    b = repo.get("birthdays", birthday_id)
+    if b is None:
+        raise HTTPException(404, "El cumpleaños no existe")
+    raw = request.query_params.get("anio", "")
+    year = int(raw) if raw.isdigit() and 2000 <= int(raw) <= 2100 else svc.next_birthday(b).year
+    return b, year
+
+
+@router.get(f"{BASE}/cumpleanos/{{birthday_id}}/saludo", response_class=HTMLResponse, include_in_schema=False)
+def greeting_editor(request: Request, birthday_id: str):
+    """Editor del saludo: MISMO workspace y MISMA capa de edición inline que el editor de carteleras, sobre la tarjeta real del portal."""
+    user, redirect = _admin(request)
+    if redirect:
+        return redirect
+    b, year = _greeting_target(request, birthday_id)
+    if svc.birthday_visibility(b) != "visible":
+        return _back(f"{BASE}/cumpleanos", error="Para preparar el saludo, " + b["name"] + " tiene que tener la autorización registrada y no estar oculta.")
+    g = svc.get_greeting(svc.greeting_id(birthday_id, year))
+    when = svc.birthday_date(b, year)
+    return templates.TemplateResponse(request=request, name="human_capital/cartelera_saludo.html", headers=_NO_STORE, context=_shell(
+        request, user, "cumpleanos", birthday=b, year=year, greeting=g, greet_date=when, state=svc.effective_state(g) if g else "none",
+        gid=svc.greeting_id(birthday_id, year), suggested=f"{when.isoformat()}T09:00",
+        min_schedule=svc.to_local_input(svc.now_utc().isoformat())))
+
+
+@router.get(f"{BASE}/cumpleanos/{{birthday_id}}/saludo/lienzo", response_class=HTMLResponse, include_in_schema=False)
+def greeting_canvas(request: Request, birthday_id: str):
+    user, redirect = _admin(request)
+    if redirect:
+        return redirect
+    b, year = _greeting_target(request, birthday_id)
+    return _render_portal(request, "saludo", user=user, preview=True, edit_mode=True, greeting=svc.draft_greeting(b, year), birthday=b,
+                          greet_date=svc.birthday_date(b, year))
+
+
+@router.post(f"{BASE}/cumpleanos/{{birthday_id}}/saludo/vista-previa", response_class=HTMLResponse, include_in_schema=False)
+async def greeting_live_preview(request: Request, birthday_id: str):
+    """Vista del colaborador del saludo con lo que está en pantalla (sin persistir)."""
+    _admin_write(request)
+    b, year = _greeting_target(request, birthday_id)
+    try:
+        body = await request.json()
+    except ValueError:
+        body = {}
+    return _render_portal(request, "saludo", preview=True, clean_view=True, context="preview", greeting=svc.draft_greeting(b, year, body),
+                          birthday=b, greet_date=svc.birthday_date(b, year), preview_note="Vista del colaborador · incluye los cambios sin guardar")
+
+
+@router.post(f"{BASE}/cumpleanos/{{birthday_id}}/saludo/contenido", include_in_schema=False)
+async def greeting_save(request: Request, birthday_id: str):
+    user = _admin_write(request)
+    b, year = _greeting_target(request, birthday_id)
+    try:
+        body = await request.json()
+        rev = body.get("revision")
+        saved = svc.save_greeting(birthday_id, year, int(rev) if rev not in (None, "") else None, body, _actor(user))
+    except repo.CarteleraConcurrentModificationError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=409, headers=_NO_STORE)
+    except (svc.CarteleraValidationError, ValueError, TypeError) as exc:
+        return JSONResponse({"error": str(exc) or "Datos inválidos."}, status_code=422, headers=_NO_STORE)
+    except (repo.CarteleraStorageError, repo.CarteleraRemoteOutcomeUnknownError) as exc:
+        return JSONResponse({"error": str(exc)}, status_code=503, headers=_NO_STORE)
+    return JSONResponse({"ok": True, "revision": saved["revision"], "updated": svc.fmt_local(saved["updated_at"])}, headers=_NO_STORE)
+
+
+@router.post(f"{BASE}/cumpleanos/{{birthday_id}}/saludo/estado", include_in_schema=False)
+def greeting_state(request: Request, birthday_id: str, action: str = Form(""), revision: int = Form(0), when: str = Form("")):
+    user = _admin_write(request)
+    b, year = _greeting_target(request, birthday_id)
+    path = f"{BASE}/cumpleanos/{birthday_id}/saludo?anio={year}"
+    try:
+        saved = svc.greeting_state(birthday_id, year, revision, action, when, _actor(user))
+    except repo.CarteleraNotFoundError:
+        raise HTTPException(404, "El saludo no existe") from None
+    except _ERRORS as exc:
+        return _back(path, error=str(exc) if isinstance(exc, svc.CarteleraValidationError) else _storage_message(exc))
+    messages = {"publish": "Saludo publicado: ya lo ven los colaboradores.", "unschedule": "Programación cancelada: el saludo vuelve a borrador.",
+                "withdraw": "Saludo retirado de la Cartelera.", "delete": "Saludo eliminado."}
+    if action == "delete":
+        return _back(f"{BASE}/cumpleanos", ok=messages["delete"])
+    if action == "schedule":
+        return _back(path, ok="Saludo programado para el " + svc.fmt_local(saved["publish_at"]) + " (hora de Buenos Aires).")
+    return _back(path, ok=messages.get(action, "Cambio guardado."))
 
 
 # ── gestión: institucional, galería y accesos ─────────────────────────────────────────────────────────────────────────────────────
@@ -391,9 +487,11 @@ def _calendar(month_key: str) -> dict:
     """Grilla lunes→domingo del mes con los cumpleaños publicables (solo día y mes)."""
     import calendar
     year, month = int(month_key[:4]), int(month_key[5:7])
-    by_day: dict[int, list[str]] = {}
+    by_day: dict[int, list[dict]] = {}
+    live = svc.live_greetings(year)
     for b in svc.birthdays_of_month(month):
-        by_day.setdefault(int(b["day"]), []).append(b["name"])
+        gid = svc.greeting_id(b["id"], year)
+        by_day.setdefault(int(b["day"]), []).append({"name": b["name"], "greeting": gid if gid in live else ""})
     weeks = calendar.Calendar(firstweekday=0).monthdayscalendar(year, month)
     return {"weeks": weeks, "by_day": by_day, "count": sum(len(v) for v in by_day.values())}
 
@@ -430,7 +528,7 @@ def _selected_edition(request: Request) -> dict | None:
 
 def _render_portal(request: Request, page: str, *, edition: dict | None = None, preview: bool = False, user: dict | None = None,
                    preview_note: str = "", edit_mode: bool = False, context: str = "general", layout_mode: bool = False,
-                   clean_view: bool = False):
+                   clean_view: bool = False, **extra):
     user = user or auth_service.session_user(request)
     ctx = {"page": page, "svc": svc, "user": user, "preview": preview, "preview_note": preview_note, "edit_mode": edit_mode,
            "layout_mode": bool(edit_mode and layout_mode),
@@ -442,7 +540,9 @@ def _render_portal(request: Request, page: str, *, edition: dict | None = None, 
            "edition": edition, "links": svc.site_links(),
            "editions": svc.visible_editions(), "inst": svc.institutional(), "today_month": svc.month_key(),
            "today_day": svc.now_utc().astimezone(svc.BUSINESS_TZ).day,
-           "upcoming": svc.upcoming_birthdays(7), "can_manage": human_capital_access.is_human_capital_authorized_user(user)}
+           "upcoming": svc.upcoming_birthdays(7), "can_manage": human_capital_access.is_human_capital_authorized_user(user),
+           "live_greetings": svc.live_greetings(svc.now_utc().astimezone(svc.BUSINESS_TZ).year),
+           "this_year": svc.now_utc().astimezone(svc.BUSINESS_TZ).year, **extra}
     if edition is not None:
         ctx["calendar"] = _calendar(edition["id"])
     if not preview:
@@ -474,6 +574,19 @@ def portal_edition(request: Request, month: str = ""):
             raise HTTPException(404, "Esta edición no está publicada")
         edition = candidate
     return _render_portal(request, "novedades", edition=edition, user=user, context="edition" if month else "general")
+
+
+@router.get("/cartelera/saludos/{gid}", response_class=HTMLResponse, include_in_schema=False)
+def portal_greeting(request: Request, gid: str):
+    """Saludo de cumpleaños publicado. Solo si está publicado (o su programación venció) y la persona sigue autorizada y visible."""
+    user, redirect = _reader(request)
+    if redirect:
+        return redirect
+    g = svc.get_greeting(gid) if re.fullmatch(r"[A-Za-z0-9_-]{1,64}", gid or "") else None
+    if not svc.greeting_visible(g):
+        raise HTTPException(404, "Este saludo no está publicado")
+    b = repo.get("birthdays", g["birthday_id"])
+    return _render_portal(request, "saludo", user=user, greeting=g, birthday=b, greet_date=svc.birthday_date(b, g["year"]))
 
 
 @router.get("/cartelera/nosotros", response_class=HTMLResponse, include_in_schema=False)

@@ -32,6 +32,8 @@
   }
   function sections() { return $$("[data-ct-sec]", canvas); }
   function serialize() {
+    const greet = $("[data-ct-greeting] [data-ct-item]");
+    if (greet) { const it = readItem(greet, "general"); delete it.id; return it; }
     return {
       title: text($('.cart-banner [data-ct-f="title"]')), subtitle: text($('.cart-banner [data-ct-f="subtitle"]')),
       sections: sections().map(sec => ({ key: sec.dataset.ctSec, wide: sec.dataset.ctKind === "general" && sec.classList.contains("wide"),
@@ -55,12 +57,7 @@
         const up = $('[data-ct-act="up"]', it), down = $('[data-ct-act="down"]', it);
         if (up) up.disabled = ii === 0;
         if (down) down.disabled = ii === items.length - 1;
-        const link = (it.dataset.link || "").trim(), bad = !!link && !HTTPS.test(link);
-        it.classList.toggle("ct-has-error", bad);
-        const err = $(".ct-linkerr", it); if (err) err.hidden = !bad;
-        const card = $("[data-ct-linkcard]", it); if (card) card.hidden = !link;
-        const lbl = $('[data-ct-f="link_label"]', it); if (lbl) lbl.dataset.ph = link || "Ver más";
-        const btn = $('[data-ct-act="link"]', it); if (btn) btn.classList.toggle("is-on", !!link);
+        refreshLink(it);
       });
       const hidden = kind !== "birthdays" && !(kind === "links" && $(".links", sec)) && !items.some(it => filled(it, kind));
       sec.classList.toggle("ct-is-hidden", hidden);
@@ -74,6 +71,7 @@
     // chips de navegación: mismo orden que las secciones; las ocultas, atenuadas
     const nav = $("[data-ct-nav]");
     if (nav) secs.forEach(sec => { const chip = $('[data-ct-chip="' + sec.dataset.ctSec + '"]', nav); if (chip) { nav.appendChild(chip); chip.classList.toggle("ct-is-hidden", sec.classList.contains("ct-is-hidden")); } });
+    $$("[data-ct-greeting] [data-ct-item]").forEach(refreshLink);
     renderFeatured();
     const title = text($('.cart-banner [data-ct-f="title"]')), sub = text($('.cart-banner [data-ct-f="subtitle"]'));
     $$('[data-ct-echo="title"]').forEach(el => { el.textContent = title || "Novedades, bienestar, aprendizaje, cumpleaños y accesos directos."; });
@@ -84,6 +82,14 @@
       row.replaceChildren(...techs.map(t => { const c = document.createElement("span"); c.className = "chip"; c.style.cursor = "default"; c.textContent = t; return c; }));
       row.hidden = !techs.length;
     });
+  }
+  function refreshLink(it) {
+    const link = (it.dataset.link || "").trim(), bad = !!link && !HTTPS.test(link);
+    it.classList.toggle("ct-has-error", bad);
+    const err = $(".ct-linkerr", it); if (err) err.hidden = !bad;
+    const card = $("[data-ct-linkcard]", it); if (card) card.hidden = !link;
+    const lbl = $('[data-ct-f="link_label"]', it); if (lbl) lbl.dataset.ph = link || "Ver más";
+    const btn = $('[data-ct-act="link"]', it); if (btn) btn.classList.toggle("is-on", !!link);
   }
   function changed() { refresh(); listeners.forEach(fn => { try { fn(); } catch (e) {} }); }
 
@@ -279,7 +285,7 @@
 
   // ── arranque ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────
   function init() {
-    canvas = $("[data-ct-canvas]");
+    canvas = $("[data-ct-canvas]") || $("[data-ct-greeting]");
     if (!canvas) return;
     wireText(document);
     wireDrag();

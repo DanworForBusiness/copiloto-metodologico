@@ -152,7 +152,7 @@ a.ct-space:hover { border-color: var(--ct-gold); }
 @media (max-width: 640px) { .ct-cal { display: none; } .ct-bday-list { display: block; } .ct-top__row { gap: 10px; padding: 10px 0; } .ct-nav { order: 3; width: 100%; overflow-x: auto; } .ct-top__tools { margin-left: auto; } }
 
 /* Próximos cumpleaños: tiles `.activity-kpi` del Hub con acento NEUTRO (sin la paleta por posición de los KPIs) y el dorado institucional para hoy. */
-.cartelera-bday-tiles { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); margin-bottom: 0; }
+.cartelera-bday-tiles { grid-template-columns: repeat(auto-fill, minmax(196px, 1fr)); margin-bottom: 0; }
 .cartelera-bday-tiles .activity-kpi { --kpi-accent: rgba(128,128,128,.45); }
 .cartelera-bday-tiles .activity-kpi.is-today { --kpi-accent: var(--gold); background: rgba(231,176,8,.08); }
 .cartelera-bday-tiles .activity-kpi__label { color: var(--soft); }
@@ -237,3 +237,11 @@ a.ct-space:hover { border-color: var(--ct-gold); }
 .ct-ws__side > .dashboard-section { margin: 0; }
 .ct-ws__help { margin: 0; font-size: .74rem; }
 @media (max-width: 980px) { .ct-ws__body.has-side { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; } .ct-ws__side { max-height: 45vh; border-left: 0; border-top: 1px solid var(--content-line, rgba(128,128,128,.24)); } }
+
+/* Cumpleaños: el saludo de cada próximo cumpleaños, dentro de su tarjeta `.activity-kpi` */
+.cartelera-bday-lead { margin: 0 0 12px; }
+.cartelera-greet-cta { white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; color: var(--gold); font: 600 .72rem var(--sans); text-decoration: none; }
+.cartelera-greet-cta svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.cartelera-greet-cta:hover { text-decoration: underline; }
+.cartelera-greet-cta.is-done { color: var(--soft); }
+.table-action-btn.is-disabled { opacity: .35; cursor: default; }

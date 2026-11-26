@@ -68,11 +68,25 @@ def seed() -> None:
     today = now.astimezone(svc.BUSINESS_TZ).date()
     people = [("Ana Ejemplo", 0, True, False), ("Bruno Muestra", 2, True, False), ("Carla Prueba", 5, True, False), ("Diego Demo", 11, True, False),
               ("Elena Ficticia", 16, True, False), ("Federico Sin Autorización", 3, False, False), ("Gabriela Oculta", 1, True, True)]
+    by_name = {}
     for name, offset, authorized, hidden in people:
         day = today + timedelta(days=offset)
         saved = svc.save_birthday(None, None, name=name, day=day.day, month=day.month, authorized=authorized, actor=actor)
+        by_name[name] = saved
         if hidden:
             svc.set_birthday_hidden(saved["id"], saved["revision"], True, actor)
+
+    # Saludos («Preparar saludo»): publicado para quien cumple hoy, programado para su día a las 9 y otro en borrador; el resto, sin preparar.
+    def greet(name, body=None):
+        b = by_name[name]
+        data = {**svc.greeting_defaults(b), **({"body": body} if body else {})}
+        return b, svc.next_birthday(b).year, svc.save_greeting(b["id"], svc.next_birthday(b).year, None, data, actor)
+    b, year, g = greet("Ana Ejemplo", "¡Feliz cumpleaños, Ana! Gracias por tu energía y tu compromiso de todos los días. Que lo disfrutes mucho.\nTodo el equipo de Danwor te saluda.")
+    svc.greeting_state(b["id"], year, g["revision"], "publish", "", actor)
+    b, year, g = greet("Bruno Muestra")
+    when = svc.next_birthday(b).isoformat() + "T09:00"
+    svc.greeting_state(b["id"], year, g["revision"], "schedule", when, actor)
+    greet("Carla Prueba")
 
     svc.save_institutional(None, mission="Satisfacer las necesidades analíticas del mercado generando valor adicional para nuestros clientes (texto de ejemplo).",
                            vision="Ser reconocidos por el bienestar de nuestros colaboradores y la calidad de nuestros servicios (texto de ejemplo).",
@@ -82,4 +96,4 @@ def seed() -> None:
     svc.save_links(None, [{"title": "Política de licencias", "group": "Políticas", "url": "https://www.danwor.com/"},
                           {"title": "Solicitud de vacaciones", "group": "Formularios", "url": "https://www.danwor.com/"},
                           {"title": "Beneficios corporativos", "group": "Beneficios", "url": "https://www.danwor.com/"}], actor)
-    print("[harness] Cartelera Virtual sembrada: 3 ediciones (publicada, anterior y programada), 7 cumpleaños, institucional y accesos directos")
+    print("[harness] Cartelera Virtual sembrada: 3 ediciones (publicada, anterior y programada), 7 cumpleaños (3 saludos: publicado, programado y borrador), institucional y accesos directos")

@@ -526,6 +526,150 @@ def upcoming_birthdays(days: int = 7, today: date | None = None) -> list[dict]:
     return sorted(out, key=lambda b: b["offset"])
 
 
+# ── saludos de cumpleaños («Preparar saludo») ───────────────────────────────────────────────────────────────────────────────────────
+# En la app original, «Preparar saludo» abría el editor de una publicación de Comunidad con el título y el mensaje ya armados, para adjuntar
+# el flyer y publicar (o programar); el saludo quedaba vinculado al cumpleaños de ESE año y el calendario y el Inicio llevaban a él.
+# Acá el saludo es un activo propio de la Cartelera (Comunidad todavía no existe): una tarjeta con la identidad del portal, editable sobre su
+# representación, con publicación inmediata o programada. Mismas reglas que las ediciones: la visibilidad la resuelve SIEMPRE el servidor
+# (`effective_state` + persona autorizada y visible). No envía correos: la original tampoco lo hacía (el mail personal era externo).
+GREETING_FIELDS = ("title", "body", "link", "link_label")
+
+
+def greeting_id(birthday_id: str, year: int) -> str:
+    return f"{birthday_id}-{int(year)}"
+
+
+def birthday_date(b: dict, year: int) -> date:
+    d, m = int(b["day"]), int(b["month"])
+    try:
+        return date(year, m, d)
+    except ValueError:                                                    # 29/02 en un año no bisiesto: se saluda el 28/02
+        return date(year, m, 28)
+
+
+def next_birthday(b: dict, today: date | None = None) -> date:
+    """Próxima fecha de cumpleaños (hoy incluido)."""
+    today = today or now_utc().astimezone(BUSINESS_TZ).date()
+    this_year = birthday_date(b, today.year)
+    return this_year if this_year >= today else birthday_date(b, today.year + 1)
+
+
+def greeting_defaults(b: dict) -> dict:
+    name = b.get("name") or ""
+    first = name.split(" ")[0]
+    return {"title": f"¡Feliz cumpleaños, {first}!", "link": "", "link_label": "",
+            "body": f"¡Feliz cumpleaños, {name}! Que tengas un gran día. Todo el equipo de Danwor te saluda."}
+
+
+def get_greeting(gid: str) -> dict | None:
+    return repo.get("greetings", gid)
+
+
+def greeting_visible(g: dict | None, now: datetime | None = None) -> bool:
+    """Lo ven los colaboradores: publicado (o programado vencido) Y la persona sigue autorizada y visible."""
+    if not g or not is_visible(g, now):
+        return False
+    b = repo.get("birthdays", g.get("birthday_id", ""))
+    return bool(b and birthday_visibility(b) == "visible")
+
+
+def greeting_status(b: dict, today: date | None = None) -> dict:
+    """Estado del saludo para el PRÓXIMO cumpleaños de la persona (lo que muestra la gestión)."""
+    when = next_birthday(b, today)
+    g = get_greeting(greeting_id(b["id"], when.year))
+    state = effective_state(g) if g else "none"
+    return {"id": greeting_id(b["id"], when.year), "year": when.year, "date": when, "state": state, "greeting": g,
+            "can_prepare": birthday_visibility(b) == "visible"}
+
+
+def live_greetings(year: int) -> set:
+    """Ids de saludos visibles para colaboradores de un año (para enlazarlos desde el calendario y el Inicio)."""
+    return {g["id"] for g in repo.list_all("greetings") if g.get("year") == int(year) and greeting_visible(g)}
+
+
+def greeting_birthday(birthday_id: str) -> dict:
+    """Cumpleaños para preparar o publicar su saludo: tiene que existir y estar autorizado y visible."""
+    b = repo.get("birthdays", birthday_id)
+    if b is None:
+        raise repo.CarteleraNotFoundError(birthday_id)
+    if birthday_visibility(b) != "visible":
+        raise CarteleraValidationError("Para preparar el saludo, " + (b.get("name") or "la persona")
+                                       + " tiene que tener la autorización registrada y no estar oculta.")
+    return b
+
+
+def _clean_greeting(data: dict) -> dict:
+    fields = {"title": _text(data.get("title"), limit=160), "body": _text(data.get("body"), limit=1500),
+              "link": _url(data.get("link")), "link_label": _text(data.get("link_label"), limit=120)}
+    if not fields["link"]:
+        fields["link_label"] = ""
+    return fields
+
+
+def draft_greeting(b: dict, year: int, data: dict | None = None) -> dict:
+    """Saludo tal como se dibuja: el guardado o, si todavía no existe, el texto propuesto (sin persistir). Con `data`, el borrador en
+    pantalla (sin validar: se escapa al renderizar; nunca se persiste por esta vía)."""
+    g = get_greeting(greeting_id(b["id"], year))
+    base = g or {"id": greeting_id(b["id"], year), "birthday_id": b["id"], "year": int(year), "state": "draft", **greeting_defaults(b)}
+    if data is not None:
+        base = {**base, **{k: str(data.get(k) or "")[:1500] for k in GREETING_FIELDS}}
+    return base
+
+
+def save_greeting(birthday_id: str, year: int, revision, data: dict, actor: str) -> dict:
+    b = greeting_birthday(birthday_id)
+    gid = greeting_id(birthday_id, year)
+    current = get_greeting(gid)
+    fields = {**_clean_greeting(data), "birthday_id": birthday_id, "year": int(year)}
+    if not fields["title"]:
+        raise CarteleraValidationError("El saludo necesita un título.")
+    if current is None:
+        fields.update({"state": "draft", "publish_at": None, "published_at": None,
+                       "history": _history(None, actor, "Preparó el saludo de " + (b.get("name") or ""))})
+        return repo.save("greetings", gid, fields, expected_revision=None)
+    fields["history"] = _history(current, actor, EDIT_ACTION)
+    return repo.save("greetings", gid, fields, expected_revision=revision)
+
+
+def greeting_state(birthday_id: str, year: int, revision: int, action: str, when_local: str, actor: str):
+    """publish · schedule · unschedule · withdraw · delete — mismas reglas que las ediciones."""
+    gid = greeting_id(birthday_id, year)
+    g = get_greeting(gid)
+    if g is None:
+        raise repo.CarteleraNotFoundError(gid)
+    if action == "delete":
+        if effective_state(g) == "published":
+            raise CarteleraValidationError("Un saludo publicado no se elimina: primero retiralo.")
+        repo.delete("greetings", gid)
+        return None
+    if action in ("publish", "schedule"):
+        greeting_birthday(birthday_id)
+    if action == "publish":
+        at = repo.now_iso()
+        return repo.save("greetings", gid, {"state": "published", "publish_at": at, "published_at": at,
+                                            "history": _history(g, actor, "Publicó el saludo")}, expected_revision=revision)
+    if action == "schedule":
+        when = local_input_to_utc(when_local)
+        if when <= now_utc():
+            raise CarteleraValidationError("La fecha programada ya pasó: usá «Publicar ahora».")
+        return repo.save("greetings", gid, {"state": "scheduled", "publish_at": when.isoformat(), "published_at": None,
+                                            "history": _history(g, actor, "Programó el saludo para el " + fmt_local(when))},
+                         expected_revision=revision)
+    if action in ("unschedule", "withdraw"):
+        state, label = ("withdrawn", "Retiró el saludo") if action == "withdraw" else ("draft", "Canceló la programación del saludo")
+        return repo.save("greetings", gid, {"state": state, "publish_at": None, "history": _history(g, actor, label)},
+                         expected_revision=revision)
+    raise CarteleraValidationError("Acción desconocida.")
+
+
+def delete_birthday(birthday_id: str) -> None:
+    """Elimina el cumpleaños y sus saludos (no quedan saludos huérfanos)."""
+    repo.delete("birthdays", birthday_id)
+    for g in repo.list_all("greetings"):
+        if g.get("birthday_id") == birthday_id:
+            repo.delete("greetings", g["id"])
+
+
 # ── contenido institucional y accesos ─────────────────────────────────────────────────────────────────────────────────────────────
 DEFAULT_INSTITUTIONAL = {"mission": "", "vision": "", "values": [], "albums": [], "org_chart_note": ""}
 
