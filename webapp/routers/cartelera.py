@@ -337,6 +337,17 @@ def birthdays_page(request: Request, q: str = "", mes: str = "", autorizacion: s
         greetings=greetings, upcoming=svc.upcoming_birthdays(30), months=svc.MONTHS, q=q, mes=mes, autorizacion=autorizacion))
 
 
+def _volver_qs(volver: str) -> str:
+    """El estado de Cumpleaños (`volver`) ya saneado por `_birthdays_return`, como query string ("" si no hay)."""
+    return _birthdays_return(volver).partition("?")[2]
+
+
+def _volver_param(volver: str, sep: str) -> str:
+    from urllib.parse import quote
+    qs = _volver_qs(volver)
+    return f"{sep}volver={quote(qs, safe='')}" if qs else ""
+
+
 def _birthdays_return(volver: str) -> str:
     """Vuelve a la vista de Cumpleaños con los MISMOS filtros, orden y página (`q`, `mes`, `autorizacion`, `orden`, `dir`, `page`,
     `page_size`); cualquier otra cosa se descarta. Si la página quedó fuera de rango (p. ej. tras eliminar), `paginate` la acota."""
@@ -367,7 +378,8 @@ def birthday_import_page(request: Request):
     if redirect:
         return redirect
     return templates.TemplateResponse(request=request, name="human_capital/cartelera_cumpleanos_importar.html", headers=_NO_STORE, context=_shell(
-        request, user, "cumpleanos", rows=None, bulk=""))
+        request, user, "cumpleanos", rows=None, bulk="", volver=_volver_qs(request.query_params.get("volver", "")),
+        back_url=_birthdays_return(request.query_params.get("volver", ""))))
 
 
 @router.post(f"{BASE}/cumpleanos/importar/vista-previa", response_class=HTMLResponse, include_in_schema=False)
@@ -379,11 +391,12 @@ async def birthday_import_preview(request: Request):
     if upload is not None and getattr(upload, "filename", ""):
         raw = await upload.read()
         if len(raw) > 512 * 1024:
-            return _back(f"{BASE}/cumpleanos/importar", error="El archivo supera 512 KB.")
+            return _back(f"{BASE}/cumpleanos/importar" + _volver_param(str(form.get("volver") or ""), "?"), error="El archivo supera 512 KB.")
         text = raw.decode("utf-8-sig", errors="replace")
     rows = svc.preview_birthday_import(text)
+    volver = str(form.get("volver") or "")
     return templates.TemplateResponse(request=request, name="human_capital/cartelera_cumpleanos_importar.html", headers=_NO_STORE, context=_shell(
-        request, user, "cumpleanos", rows=rows, bulk=text))
+        request, user, "cumpleanos", rows=rows, bulk=text, volver=_volver_qs(volver), back_url=_birthdays_return(volver)))
 
 
 @router.post(f"{BASE}/cumpleanos/importar", include_in_schema=False)
@@ -394,9 +407,9 @@ async def birthday_import(request: Request):
     try:
         created, rejected = svc.import_birthdays(chr(10).join(lines), _actor(user), authorized=form.get("authorized") == "1")
     except _ERRORS as exc:
-        return _back(f"{BASE}/cumpleanos", error=_storage_message(exc))
+        return _back(_birthdays_return(str(form.get("volver") or "")), error=_storage_message(exc))
     message = f"{created} cumpleaños importado{'' if created == 1 else 's'}."
-    return _back(f"{BASE}/cumpleanos", ok=message, error=f"{len(rejected)} líneas no se pudieron importar." if rejected else "")
+    return _back(_birthdays_return(str(form.get("volver") or "")), ok=message, error=f"{len(rejected)} líneas no se pudieron importar." if rejected else "")
 
 
 @router.post(f"{BASE}/cumpleanos/{{birthday_id}}/eliminar", include_in_schema=False)
@@ -431,12 +444,13 @@ def greeting_editor(request: Request, birthday_id: str):
         return redirect
     b, year = _greeting_target(request, birthday_id)
     if not svc.is_publishable(b):
-        return _back(f"{BASE}/cumpleanos", error="Para preparar el saludo, " + b["name"] + " tiene que tener la autorización de publicación.")
+        return _back(_birthdays_return(request.query_params.get("volver", "")), error="Para preparar el saludo, " + b["name"] + " tiene que tener la autorización de publicación.")
     g = svc.get_greeting(svc.greeting_id(birthday_id, year))
+    volver = request.query_params.get("volver", "")
     when = svc.birthday_date(b, year)
     return templates.TemplateResponse(request=request, name="human_capital/cartelera_saludo.html", headers=_NO_STORE, context=_shell(
         request, user, "cumpleanos", birthday=b, year=year, greeting=g, greet_date=when, state=svc.effective_state(g) if g else "none",
-        gid=svc.greeting_id(birthday_id, year), suggested=f"{when.isoformat()}T09:00",
+        gid=svc.greeting_id(birthday_id, year), suggested=f"{when.isoformat()}T09:00", volver=_volver_qs(volver), back_url=_birthdays_return(volver),
         min_schedule=svc.to_local_input(svc.now_utc().isoformat())))
 
 
@@ -484,7 +498,8 @@ async def greeting_save(request: Request, birthday_id: str):
 def greeting_state(request: Request, birthday_id: str, action: str = Form(""), revision: int = Form(0), when: str = Form("")):
     user = _admin_write(request)
     b, year = _greeting_target(request, birthday_id)
-    path = f"{BASE}/cumpleanos/{birthday_id}/saludo?anio={year}"
+    volver = request.query_params.get("volver", "")
+    path = f"{BASE}/cumpleanos/{birthday_id}/saludo?anio={year}" + _volver_param(volver, "&")
     try:
         saved = svc.greeting_state(birthday_id, year, revision, action, when, _actor(user))
         if action == "delete":
@@ -496,7 +511,7 @@ def greeting_state(request: Request, birthday_id: str, action: str = Form(""), r
     messages = {"publish": "Saludo publicado: ya lo ven los colaboradores.", "unschedule": "Programación cancelada: el saludo vuelve a borrador.",
                 "withdraw": "Saludo retirado de la Cartelera.", "delete": "Saludo eliminado."}
     if action == "delete":
-        return _back(f"{BASE}/cumpleanos", ok=messages["delete"])
+        return _back(_birthdays_return(volver), ok=messages["delete"])
     if action == "schedule":
         return _back(path, ok="Saludo programado para el " + svc.fmt_local(saved["publish_at"]) + " (hora de Buenos Aires).")
     return _back(path, ok=messages.get(action, "Cambio guardado."))

@@ -2,15 +2,17 @@
 {% from "human_capital/_cartelera_table.html" import dw_table %}
 {% from "partials/pager.html" import render_pager %}
 {% block page_title %}Cumpleaños{% endblock %}
+{#- Estado de la vista (filtros, orden, página) para que las subpantallas vuelvan al mismo lugar (`_birthdays_return`). -#}
+{% set _volver = ('volver=' ~ request.url.query | urlencode) if request.url.query else '' %}
 {% block hero_actions %}
-  <a href="/cchh/cartelera/cumpleanos/importar" class="btn-secondary">Carga masiva</a>
+  <a href="/cchh/cartelera/cumpleanos/importar{{ '?' ~ _volver if _volver }}" class="btn-secondary">Carga masiva</a>
   <button type="button" class="btn-primary" data-bd-new>+ Nuevo cumpleaños</button>
 {% endblock %}
 {% block cartelera_body %}
 {#- Modelo: nombre, día, mes y AUTORIZACIÓN DE PUBLICACIÓN (único atributo de publicación). Autorizado ⇒ aparece en la Cartelera. -#}
 {% set g_labels = {'none': 'Preparar saludo', 'draft': 'Saludo en borrador', 'scheduled': 'Saludo programado', 'published': 'Saludo publicado', 'withdrawn': 'Saludo retirado'} %}
 {% macro cake() %}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21h16"/><path d="M5 21v-7h14v7"/><path d="M8 14v-3M12 14v-3M16 14v-3"/><path d="M12 7a1.5 1.5 0 0 0 0-3"/></svg>{% endmacro %}
-{% macro greeting_href(b, g) %}/cchh/cartelera/cumpleanos/{{ b.id }}/saludo?anio={{ g.year }}{% endmacro %}
+{% macro greeting_href(b, g) %}/cchh/cartelera/cumpleanos/{{ b.id }}/saludo?anio={{ g.year }}{{ '&' ~ _volver if _volver }}{% endmacro %}
 {#- Datos para el MISMO diálogo de edición que abre el lápiz de la tabla (y ahora también cada tarjeta de próximos). -#}
 {% macro edit_data(b) %}data-bd-edit data-bd-id="{{ b.id }}" data-bd-rev="{{ b.revision }}" data-bd-name="{{ b.name }}" data-bd-day="{{ b.day }}" data-bd-month="{{ b.month }}" data-bd-auth="{{ '1' if b.authorized else '' }}"{% endmacro %}
 

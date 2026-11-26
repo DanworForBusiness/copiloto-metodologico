@@ -17,6 +17,9 @@
   {{ sidebar_resize_handle() }}
 
   <main id="content" class="module-content">
+    {#- Subpantallas que reemplazan el contenido (p. ej. Carga masiva): «← Volver» = primitivo transversal del Hub (`.catalog-back`, tools.css),
+        MISMO que Staffing → Candidatos → Carga masiva. -#}
+    {% block cartelera_back %}{% endblock %}
     {% block cartelera_header %}
     <section class="module-hero hc-profiles-hero">
       <div class="hc-profiles-hero-text">

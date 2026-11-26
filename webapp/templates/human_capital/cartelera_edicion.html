@@ -28,7 +28,7 @@
 
       <header class="catalog-actionbar cartelera-wsheader ct-ws__header">
         {% if back_to_portal %}<a class="catalog-back" href="{{ back_to_portal }}" @click="leave($event)">← Volver a la cartelera</a>{% endif %}
-        <a class="catalog-back" href="/cchh/cartelera" @click="leave($event)">{{ '· Ediciones' if back_to_portal else '← Ediciones' }}</a>
+        <a class="catalog-back" href="/cchh/cartelera" @click="leave($event)">{{ '· Ediciones' if back_to_portal else '← Volver a Ediciones' }}</a>
         <div class="cartelera-wsheader__id">
           <span class="cartelera-wsheader__eyebrow">{{ 'Cartelera · ordenando' if editor_mode == 'ordenar' else 'Cartelera · editando' }}</span>
           <h1 class="cartelera-wsheader__title">{{ month_name }}</h1>

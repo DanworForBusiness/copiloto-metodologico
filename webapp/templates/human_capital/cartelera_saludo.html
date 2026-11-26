@@ -20,13 +20,13 @@
   {% call platform_topbar(current_workspace, available_workspaces, current_workspace.home_url, _identity_html, "Menú") %}{% endcall %}
 
   <main id="content" class="module-content">
-    <script type="application/json" id="ct-boot">{{ {'revision': greeting.revision if greeting else none, 'base': '/cchh/cartelera/cumpleanos/' ~ birthday.id ~ '/saludo', 'year': year, 'exists': greeting is not none} | tojson }}</script>
+    <script type="application/json" id="ct-boot">{{ {'revision': greeting.revision if greeting else none, 'base': '/cchh/cartelera/cumpleanos/' ~ birthday.id ~ '/saludo', 'year': year, 'volver': volver, 'exists': greeting is not none} | tojson }}</script>
     <div id="hc-cartelera-panel" class="ct-ws" x-data="greetingEditor(JSON.parse(document.getElementById('ct-boot').textContent))" x-init="boot()"
          @beforeunload.window="if (dirty) { $event.preventDefault(); $event.returnValue = true }"
          @keydown.window.ctrl.s.prevent="save()" @keydown.window.meta.s.prevent="save()">
 
       <header class="catalog-actionbar cartelera-wsheader ct-ws__header">
-        <a class="catalog-back" href="/cchh/cartelera/cumpleanos" @click="leave($event)">← Cumpleaños</a>
+        <a class="catalog-back" href="{{ back_url }}" @click="leave($event)">← Volver a Cumpleaños</a>
         <div class="cartelera-wsheader__id">
           <span class="cartelera-wsheader__eyebrow">Saludo · {{ date_label }}</span>
           <h1 class="cartelera-wsheader__title">{{ birthday.name }}</h1>
@@ -73,7 +73,7 @@
               {% elif state == 'withdrawn' %}<p class="field-hint">Retirado: no se muestra. Podés volver a publicarlo o programarlo.</p>
               {% else %}<p class="field-hint">Borrador: solo lo ve Capital Humano.</p>{% endif %}
               <p class="field-hint" x-show="dirty" x-cloak>Tus cambios sin guardar se guardan antes de publicar o programar.</p>
-              <form method="post" action="/cchh/cartelera/cumpleanos/{{ birthday.id }}/saludo/estado?anio={{ year }}" x-ref="stateForm" class="cartelera-publish">
+              <form method="post" action="/cchh/cartelera/cumpleanos/{{ birthday.id }}/saludo/estado?anio={{ year }}{{ '&volver=' ~ volver | urlencode if volver }}" x-ref="stateForm" class="cartelera-publish">
                 <input type="hidden" name="action" x-ref="stateAction"><input type="hidden" name="revision" :value="revision || 0">
                 {% if state != 'published' %}
                 <button type="button" class="btn-primary" @click="stateAction('publish')">Publicar ahora</button>
@@ -152,7 +152,7 @@ function greetingEditor(boot) {
         const first = !this.exists;
         this.revision = j.revision; this.exists = true; this.saved = JSON.stringify(this.canvas.serialize()); this.dirty = false;
         this.msg = "Guardado " + (j.updated ? j.updated.slice(-5) : "");
-        if (first) { location.assign(`${boot.base}?anio=${boot.year}&ok=${encodeURIComponent("Saludo guardado como borrador.")}`); }
+        if (first) { location.assign(`${boot.base}?anio=${boot.year}${boot.volver ? "&volver=" + encodeURIComponent(boot.volver) : ""}&ok=${encodeURIComponent("Saludo guardado como borrador.")}`); }
         return true;
       } catch (e) { this.err = "No se pudo conectar con el Hub. Tus cambios siguen en pantalla."; return false; }
       finally { this.saving = false; }
