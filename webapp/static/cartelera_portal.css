@@ -183,7 +183,7 @@ label.f span.h{font-weight:400;color:var(--muted);font-size:12px}
 .val-n{font-weight:800;color:var(--gold);margin-right:8px}
 .val h3{margin:0;text-transform:uppercase;letter-spacing:.04em;font-size:15px}
 .val p{margin:0;font-size:13.5px}
-.space .ic{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;background:var(--gold);color:#1C1C1C}
+.space .ic,.bday-head .ic{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;background:var(--gold);color:#1C1C1C}
 .home-grid{display:grid;grid-template-columns:1.6fr 1fr;gap:20px;margin-top:20px}
 .mini-post{display:grid;gap:4px;padding:12px 0;border-top:1px solid var(--line)}
 .mini-post:first-child{border-top:0}
@@ -375,3 +375,33 @@ a.chip{text-decoration:none}
 .cat-sec.duo>*{grid-column:1/-1}
 .cat-sec.duo>.item.pos-left,.cat-sec.duo>.item.pos-right{grid-column:auto}
 @media (max-width:760px){.cat-sec.duo{grid-template-columns:minmax(0,1fr)}.cat-sec.duo>.item.pos-left,.cat-sec.duo>.item.pos-right{grid-column:1/-1}}
+/* Tile de cumpleaños de Inicio (cartelera_bdays.js): con JS (`.bday-tile--fit`) toma el alto del tile de bienvenida (contain:size + piso),
+   alinea desde arriba y muestra solo las filas que entran completas; sin scroll interno. Sin JS se ve todo, como antes. */
+.bday-tile{display:flex;flex-direction:column;gap:6px;min-width:0}
+.bday-tile [hidden]{display:none!important}
+.bday-tile--fit{contain:size;min-height:240px;overflow:hidden}
+.bday-sub{margin-top:8px}
+.bday-next{justify-content:space-between;flex-wrap:nowrap;font-size:13px;padding:4px 0}
+.bday-next>span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bday-next>span:last-child{flex:none}
+.bday-empty{margin:6px 0}
+@media (max-width:760px){.bday-tile--fit{contain:none;min-height:0;overflow:visible}}  /* apilado: sin alto de referencia, crece con un tope de filas (JS) */
+.bday-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}  /* mismo ícono que los tiles .space */
+.bday-title{margin:2px 0 2px}
+/* Enlaces textuales secundarios (Ver calendario, Ir a Novedades…): mismo tratamiento que el enlace del Hub «¿Falta una sección? Sugerí
+   una →» (tools.css `.tool-suggest__box > summary` / `.tool-suggest__link a`): token gold, peso 600, ~.78rem, sin subrayado permanente,
+   flecha al 75 % y subrayado solo en hover. Con la tipografía del portal (sin importar hojas del Hub). Prueba visual reversible. */
+.text-link{color:var(--gold);font-weight:600;font-size:12px;text-decoration:none;white-space:nowrap}
+.text-link span{opacity:.75}
+.text-link:hover{text-decoration:underline;text-underline-offset:2px}
+/* Secciones de Novedades lado a lado: la grilla ya estira ambas al alto de la fila; acá el ÚLTIMO contenido de cada sección crece hasta
+   el borde inferior y la barra de interacción (Me gusta, Comentar, contadores) baja al pie, así los tiles terminan alineados. Una sección
+   sola en su fila, con ancho completo, en dos columnas (.duo) o apilada (celular) conserva su alto natural: no hay nada que estirar.
+   Solo CSS (se recalcula al instante en el editor, al mover, ordenar o cambiar el ancho); sin alturas fijas ni datos en el modelo. */
+.cat-sec:not(.wide):not(.duo){display:flex;flex-direction:column}
+.cat-sec:not(.wide):not(.duo)>.item:last-of-type{flex:1 1 auto}
+/* Cualquier tile de Novedades que comparta fila con otro (dos columnas `.duo`, grilla de Proyectos o secciones lado a lado) ya mide lo
+   mismo por la grilla; como columna flex, su botonera (.ct-social) baja al pie y el contenido editorial queda arriba. Sin fila compartida
+   no hay espacio extra: alto natural. */
+.cat-sec .item{display:flex;flex-direction:column}
+.cat-sec .item>.ct-social{margin-top:auto}

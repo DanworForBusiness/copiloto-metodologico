@@ -6,7 +6,7 @@
 {%- set ICONS = {
   'home': 'M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z', 'board': 'M4 4h16v12H4zM8 20h8M12 16v4', 'wall': 'M4 5h16M4 12h16M4 19h10',
   'megaphone': 'M3 10v4h4l7 4V6L7 10zM17 9a4 4 0 0 1 0 6', 'heart': 'M12 20s-7-4.5-7-10a4 4 0 0 1 7-2.5A4 4 0 0 1 19 10c0 5.5-7 10-7 10z',
-  'bulb': 'M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9V16h7v-2.1A6 6 0 0 0 12 3z', 'cake': 'M4 21h16M5 21v-7h14v7M8 14V11M12 14V11M16 14V11M12 7a1.5 1.5 0 0 0 0-3',
+  'bulb': 'M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9V16h7v-2.1A6 6 0 0 0 12 3z', 'cake': 'M3 21h18M5 21v-6a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v6M5 17.2c1.4 0 1.4 1 2.8 1s1.4-1 2.8-1 1.4 1 2.8 1 1.4-1 2.8-1 1.4 1 2.8 1M12 13V9M12 6.6c1-.8 1.5-1.7 1.5-2.5S13 2.6 12 1.5c-1 1.1-1.5 1.9-1.5 2.6s.5 1.7 1.5 2.5z',
   'gift': 'M4 10h16v4H4zM6 14v7h12v-7M12 10v11M12 10c-2 0-4-1-4-3s3-2 4 3c1-5 4-5 4-3s-2 3-4 3',
   'star': 'M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z',
   'rocket': 'M5 15c-1 1-1.5 4-1.5 4s3-.5 4-1.5M9 15l-2-2c1.5-5 6-9 11-9 0 5-4 9.5-9 11zM14 9.5a1 1 0 1 0 0-.01',
@@ -157,15 +157,23 @@
         {% if not edit_mode %}<a class="btn" style="background:transparent;color:#F5F5F3;border-color:#5A5A5B" href="/cartelera/comunidad?publicar=1">{{ ic('plus') }}Publicar en Comunidad</a>{% endif %}
       </div>
     </div>
-    <div class="card pad stack" style="gap:6px">
-      <div class="row" style="justify-content:space-between"><span class="eyebrow">Cumpleaños</span>{% if edition %}<a href="{{ urls.edition }}#sec-cumpleanos" class="muted" style="font-size:12px">Ver calendario</a>{% endif %}</div>
-      {% set todays = upcoming | selectattr('offset', 'equalto', 0) | list %}
-      {% if todays %}{% for b in todays %}<div class="bday-today"><span class="avatar" style="background:var(--gold)">{{ ic('cake') }}</span><div style="flex:1"><b>{{ b.name }}</b><div class="muted" style="font-size:12px">Cumple hoy</div></div>{% set gid = b.id ~ '-' ~ this_year %}{% if gid in live_greetings and not edit_mode %}<a class="btn sm" href="/cartelera/saludos/{{ gid }}#saludar">Saludar</a>{% endif %}</div>{% endfor %}
-      {% else %}<p class="muted" style="margin:6px 0">Hoy no tenemos cumpleaños.</p>{% endif %}
-      {% set week = upcoming | rejectattr('offset', 'equalto', 0) | list %}
-      {% if week %}<div class="eyebrow" style="margin-top:8px">Próximos 7 días</div>
-        {% for b in week[:4] %}<div class="row" style="justify-content:space-between;font-size:13px;padding:4px 0"><span>{{ b.name }}</span><span class="muted">{{ b.day }} de {{ svc.MONTHS[b.month - 1] | lower }}</span></div>{% endfor %}{% endif %}
+    {#- Tile de cumpleaños: composición dinámica del MES de la edición (svc.home_birthdays). Hoy (con Saludar) solo si hay; el resto del
+        alto, para los próximos del mes (o, en una edición histórica, los del mes). `cartelera_bdays.js` toma el alto del tile de bienvenida y
+        muestra las filas que entran completas (sin scroll interno); sin JS se ven todas. -#}
+    {% set hb = svc.home_birthdays(edition.id if edition else none) %}{% set mname = svc.MONTHS[hb.month - 1] | lower %}
+    {% set rest = hb.upcoming if hb.mode != 'past' else hb.month_list %}
+    {#- Un solo título cuando no hay cumpleaños hoy: el encabezado pasa a ser el de la lista. -#}
+    {% set rest_title = 'Cumpleaños de ' ~ mname if hb.mode == 'past' else 'Próximos cumpleaños' %}
+    <div class="card pad bday-tile" data-bfit>
+      {#- Encabezado con la estructura de los tiles de Inicio (`.space`): ícono en el cuadrado dorado + título; «Ver calendario» a la derecha. -#}
+      <div class="bday-head"><span class="ic">{{ ic('cake', 'lg') }}</span>{% if edition %}<a href="{{ urls.edition }}#sec-cumpleanos" class="text-link">Ver calendario <span aria-hidden="true">→</span></a>{% endif %}</div>
+      <h2 class="bday-title">{{ 'Cumpleaños de hoy' if hb.today else (rest_title if rest else 'Cumpleaños') }}</h2>
+      {% for b in hb.today %}<div class="bday-today" data-brow><span class="avatar" style="background:var(--gold)">{{ ic('cake') }}</span><div style="flex:1;min-width:0"><b>{{ b.name }}</b><div class="muted" style="font-size:12px">Cumple hoy</div></div>{% set gid = b.id ~ '-' ~ this_year %}{% if gid in live_greetings and not edit_mode %}<a class="btn sm" href="/cartelera/saludos/{{ gid }}#saludar">Saludar</a>{% endif %}</div>{% endfor %}
+      {% if rest %}<div class="bday-group" data-bgroup>{% if hb.today %}<div class="eyebrow bday-sub">{{ rest_title }}</div>{% endif %}
+        {% for b in rest %}<div class="row bday-next" data-brow><span>{{ b.name }}</span><span class="muted">{{ b.day }} de {{ mname }}</span></div>{% endfor %}</div>
+      {% elif not hb.today %}<p class="muted bday-empty">{{ 'Sin cumpleaños en ' ~ mname ~ '.' if hb.mode == 'past' else ('No hay próximos cumpleaños este mes.' if hb.mode == 'current' else 'No hay cumpleaños en ' ~ mname ~ '.') }}</p>{% endif %}
     </div>
+    {% if hb.today or rest %}<script defer src="{{ url_for('static', path='cartelera_bdays.js') }}?v={{ static_version }}"></script>{% endif %}
   </section>
 
   <section class="spaces">
@@ -176,7 +184,7 @@
 
   <section class="home-grid">
     <div class="card pad">
-      <div class="row" style="justify-content:space-between;margin-bottom:6px"><h2>Destacado</h2>{% if edition %}<a href="{{ urls.edition }}" class="muted" style="font-size:12px">Ir a Novedades</a>{% endif %}</div>
+      <div class="row" style="justify-content:space-between;margin-bottom:6px"><h2>Destacado</h2>{% if edition %}<a href="{{ urls.edition }}" class="text-link">Ir a Novedades <span aria-hidden="true">→</span></a>{% endif %}</div>
       {% if edit_mode %}<div data-ct-featured>{% endif %}{% set ns = namespace(n=0) %}
       {% if edition %}{% for sec in edition.sections if svc.SECTION_BY_KEY[sec.key].kind in ('general', 'projects') %}{% for it in sec['items'] %}{% if ns.n < 6 %}{% set ns.n = ns.n + 1 %}
         <div class="mini-post"><div class="row" style="gap:6px"><span class="tag cat">{{ svc.SECTION_BY_KEY[sec.key].title }}</span></div>
@@ -299,7 +307,7 @@
       <span class="eyebrow">Cumpleaños</span>
       <div class="bday-today"><span class="avatar" style="background:var(--gold)">{{ ic('cake') }}</span><div style="flex:1"><b>{{ birthday.name }}</b><div class="muted" style="font-size:12px">{{ greet_date.day }} de {{ svc.MONTHS[greet_date.month - 1] | lower }}</div></div></div>
       <p class="muted" style="margin:6px 0 0;font-size:13px">¡Sumate al saludo de todo el equipo de Danwor!</p>
-      {% if not edit_mode %}<a href="{{ urls.edition }}#sec-cumpleanos" class="muted" style="font-size:12px">Ver el calendario del mes</a>{% endif %}
+      {% if not edit_mode %}<a href="{{ urls.edition }}#sec-cumpleanos" class="text-link">Ver el calendario del mes <span aria-hidden="true">→</span></a>{% endif %}
     </div>
   </section>
   {% if social_on %}<div class="card pad">{{ social_block('greeting:' ~ g.id) }}</div>{% endif %}

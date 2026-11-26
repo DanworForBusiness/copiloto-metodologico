@@ -188,7 +188,7 @@ def test_fallback_preview_sends_human_capital_to_the_latest_edition_in_preparati
     assert cchh.get("/cartelera?fallback=preview", follow_redirects=False).status_code == 200                   # hay vigente: normal
     repo.save("editions", cur, {"state": "draft", "published_at": None}, expected_revision=repo.get("editions", cur)["revision"])
     r = cchh.get("/cartelera?fallback=preview", follow_redirects=False)
-    assert r.status_code == 303 and r.headers["location"] == f"/cchh/cartelera/ediciones/{nxt}/vista-previa?pagina=novedades"
+    assert r.status_code == 303 and r.headers["location"] == f"/cchh/cartelera/ediciones/{nxt}/vista-previa?pagina=inicio"
     assert cchh.get("/cartelera", follow_redirects=False).status_code == 200                                    # sin el parámetro: igual que hoy
     router_launched = router.PORTAL_LAUNCHED
     try:
@@ -201,3 +201,21 @@ def test_fallback_preview_sends_human_capital_to_the_latest_edition_in_preparati
     repo.save("editions", prv, {"state": "published", "published_at": svc.now_utc().isoformat()},
               expected_revision=repo.get("editions", prv)["revision"])
     assert cchh.get("/cartelera?fallback=preview", follow_redirects=False).status_code == 200                   # vigente anterior: normal
+
+
+def test_home_birthdays_tile_uses_the_month_of_the_edition_without_past_dates(monkeypatch):
+    """Tile de cumpleaños de Inicio: mes en curso = hoy + días posteriores (nunca pasados); futuro = todo el mes; histórico = todo el mes
+    rotulado como del mes; orden cronológico."""
+    from datetime import date
+    people = [{"id": "a", "name": "Ana", "day": 26, "month": 11}, {"id": "b", "name": "Beto", "day": 3, "month": 11},
+              {"id": "c", "name": "Ceci", "day": 30, "month": 11}, {"id": "d", "name": "Dani", "day": 28, "month": 11},
+              {"id": "e", "name": "Eva", "day": 5, "month": 12}, {"id": "f", "name": "Fede", "day": 9, "month": 10}]
+    monkeypatch.setattr(svc, "public_birthdays", lambda: people)
+    today = date(2026, 11, 26)
+    cur = svc.home_birthdays("2026-11", today)
+    assert cur["mode"] == "current" and [b["name"] for b in cur["today"]] == ["Ana"] and [b["name"] for b in cur["upcoming"]] == ["Dani", "Ceci"]
+    fut = svc.home_birthdays("2026-12", today)
+    assert fut["mode"] == "future" and [b["name"] for b in fut["upcoming"]] == ["Eva"] and not fut["today"]
+    past = svc.home_birthdays("2026-10", today)
+    assert past["mode"] == "past" and [b["name"] for b in past["month_list"]] == ["Fede"] and not past["upcoming"]
+    assert svc.home_birthdays(None, today)["mode"] == "current"

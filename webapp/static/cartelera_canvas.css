@@ -100,3 +100,7 @@ button.ct-kind:hover { filter: brightness(.95); outline: 1px dashed var(--gold);
 .cat-sec.duo .ct-items > .item.pos-left, .cat-sec.duo .ct-items > .item.pos-right { grid-column: auto; }
 .ct-item-tools .ct-ed-btn[hidden] { display: none; }
 @media (max-width: 760px) { .cat-sec.duo .ct-items { grid-template-columns: minmax(0, 1fr); } .cat-sec.duo .ct-items > .item.pos-left, .cat-sec.duo .ct-items > .item.pos-right { grid-column: 1 / -1; } }
+
+/* Editor: misma igualación de alturas que el portal, sobre el contenedor de contenidos del lienzo. */
+.cat-sec:not(.wide):not(.duo) > .ct-items:not(:empty) { flex: 1 1 auto; display: flex; flex-direction: column; }
+.cat-sec:not(.wide):not(.duo) > .ct-items > .item:last-of-type { flex: 1 1 auto; }

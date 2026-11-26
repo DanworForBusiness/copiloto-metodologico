@@ -49,7 +49,7 @@
 
   <details class="dashboard-section" data-section-id="valores" data-persist-collapse open>
     <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Valores</span>
-      <span class="dashboard-section__count">{{ (data['values'] or []) | length }}</span></summary>
+      {% set nv = (data['values'] or []) | length %}<span class="dashboard-section__count">{{ nv }} valor{{ '' if nv == 1 else 'es' }}</span></summary>
     <div class="dashboard-section__body">
       {{ text_field('values_intro', 'Introducción', 3) }}
       <div class="ct-inst-subhead"><h3>Valores {{ help_tip("Se numeran en este orden (01, 02…).") }}</h3><button type="button" class="btn-secondary" data-in-value-new>+ Nuevo valor</button></div>

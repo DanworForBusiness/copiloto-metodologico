@@ -262,6 +262,9 @@ a.ct-space:hover { border-color: var(--ct-gold); }
 .ct-inst-subhead { display: flex; align-items: center; gap: 12px; margin: 18px 0 10px; flex-wrap: wrap; }
 .ct-inst-subhead h3 { margin: 0; font-size: .95rem; }
 .ct-inst-subhead > .btn-secondary { margin-left: auto; }
+/* (i) de los subtítulos (Valores, Enlaces del encabezado…): están pegados al borde izquierdo de la card, que recorta lo que sobresale;
+   el tooltip compartido (centrado, min 200px) se cortaba. Abre hacia adentro desde el ícono — mismo criterio que `.cp-wsheader` en Comercial. */
+.ct-inst-subhead .chart-tooltip { left: 0; transform: none; }
 /* Organigrama editable sobre el propio árbol: misma jerarquía y códigos de color que Nosotros (Área amarilla, Puesto gris, Persona con
    nombre y cargo), en un esquema vertical de líneas guía que entra en el ancho de la gestión. Las acciones de cada caja aparecen al pasar. */
 .ct-orgtree { padding: 4px 0; }

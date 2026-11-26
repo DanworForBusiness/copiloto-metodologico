@@ -42,7 +42,7 @@
         </button>
         <span class="chart-tooltip"><p>{{ _bd_help }}</p></span>
       </span>
-      <span class="dashboard-section__count">Próximos 30 días · {{ upcoming | length }}</span>
+      <span class="dashboard-section__count">Próximos 30 días · {{ upcoming | length }} cumpleaños</span>
     </summary>
     <div class="dashboard-section__body">
       {% if upcoming %}
@@ -98,7 +98,7 @@
       <summary class="dashboard-section__head">
         <span class="dashboard-section__caret"></span>
         <span class="dashboard-section__title">Cumpleaños</span>
-        <span class="dashboard-section__count">{% if filtered != total %}{{ filtered }} de {% endif %}{{ total }} persona{{ '' if total == 1 else 's' }}{% if pager.total_pages > 1 %} · {{ pager.range_start }}–{{ pager.range_end }}{% endif %}</span>
+        <span class="dashboard-section__count">{% if filtered != total %}{{ filtered }} de {% endif %}{{ total }} colaborador{{ '' if total == 1 else 'es' }}{% if pager.total_pages > 1 %} · {{ pager.range_start }}–{{ pager.range_end }}{% endif %}</span>
       </summary>
       <div class="dashboard-section__body">
         {% if birthdays %}
@@ -117,7 +117,7 @@
                       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
                       <span class="chart-tooltip" aria-hidden="true"><p>Editar</p></span>
                     </button>
-                    {% if g.can_prepare %}<a href="{{ greeting_href(b, g) }}" class="table-action-btn chart-tooltip-anchor" aria-label="{{ g_labels[g.state] }} de {{ b.name }}">{{ cake() }}<span class="chart-tooltip" aria-hidden="true"><p>{{ g_labels[g.state] }} · {{ '%02d' | format(g.date.day) }}/{{ '%02d' | format(g.date.month) }}/{{ g.year }}</p></span></a>
+                    {% if g.can_prepare %}<a href="{{ greeting_href(b, g) }}" class="table-action-btn chart-tooltip-anchor" aria-label="{{ g_labels[g.state] }} de {{ b.name }}">{{ cake() }}<span class="chart-tooltip" aria-hidden="true"><p>{{ g_labels[g.state] }}</p></span></a>
                     {% else %}<span class="table-action-btn chart-tooltip-anchor is-disabled" aria-disabled="true" tabindex="0" aria-label="Preparar saludo no disponible">{{ cake() }}<span class="chart-tooltip" aria-hidden="true"><p>Para preparar el saludo, la persona tiene que tener la autorización de publicación.</p></span></span>{% endif %}
                     <form method="post" action="/cchh/cartelera/cumpleanos/{{ b.id }}/eliminar" class="dw-row-actions__form" data-ct-busy="Eliminando el cumpleaños…"
                           data-dw-confirm-form data-dw-confirm-title="Eliminar cumpleaños" data-dw-confirm-message="¿Eliminar a {{ b.name }} del calendario? También se eliminan sus saludos. Esta acción no se puede deshacer." data-dw-confirm-ok="Eliminar">
