@@ -34,6 +34,22 @@ SCANNED = make_blank_pdf()
 LUCIA = make_pdf(["Lucía Gómez", "lucia.gomez@mail.com", "Cel 11 6666 1111"])
 PII = ["Juan", "Pérez", "Perez", "juan.perez", "gmail", "5555", "María", "Fernández", "maria.fernandez", "4444", "Pablo", "Ruiz", "pablo.ruiz", "pruiz", "Lucía", "lucia.gomez", "6666",
        "CV Juan Perez Gomez", "Maria Fernandez.docx", "copia.pdf", "pablo.pdf", "cv.pdf"]
+# Valores generados en cada corrida que pueden contener por azar un fragmento de la lista (p. ej. «4444»): el run_id (hora + sufijo
+# aleatorio `token_hex(2)`) y las marcas de tiempo ISO (con microsegundos). Se quitan ANTES de buscar datos personales, así la verificación
+# sigue siendo estricta con el contenido y deja de fallar al azar.
+_VOLATILE = re.compile(r"ch-\d{8}T\d{6}Z-[a-z0-9]{4}|\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?")
+
+
+def pii_in(text: str) -> list[str]:
+    """Fragmentos de datos personales presentes en `text`, sin contar run_ids ni marcas de tiempo."""
+    clean = _VOLATILE.sub(" ", text)
+    return [p for p in PII if p in clean]
+
+
+def test_pii_check_ignores_run_ids_and_timestamps_but_still_catches_personal_data():
+    """Regresión del falso positivo intermitente: un run_id o una marca de tiempo con «4444» no es un dato personal."""
+    assert pii_in("lote ch-20261126T144444Z-4444 · creado 2026-11-26T18:06:52.744449+00:00") == []
+    assert pii_in("ch-20261126T120000Z-ab12 WhatsApp +54 11 4444 5678") == ["4444"]
 
 
 def qx(data: bytes) -> str:
@@ -210,7 +226,7 @@ def test_report_has_counts_rates_and_a_scale_estimate_and_no_personal_data(sp):
     assert r["reconciliation"]["strong_existing"] == 1 and r["reconciliation"]["probable_existing"] == 1 and r["reconciliation"]["same_person_in_run"] == 2
     assert r["scale_estimate"]["unique_contents"] == 7 and set(r["staging"]) >= {"state", "retention_until", "expired"}
     blob = json.dumps(r, ensure_ascii=False)
-    assert not [p for p in PII if p in blob]
+    assert not pii_in(blob)
 
 
 # ═══════════════════ idempotencia y reanudación ═══════════════════
@@ -349,7 +365,7 @@ def test_logs_run_json_audit_and_report_never_contain_personal_data_but_staging_
         pilot.process_run(run["run_id"], TOKEN, sleep=lambda s: None)
     base = home / "human-capital" / "import-history" / run["run_id"]
     for leak_free in (caplog.text, (base / "run.json").read_text(encoding="utf-8"), "".join(p.read_text(encoding="utf-8") for p in (base / "audit").glob("*.json"))):
-        assert not [p for p in PII if p in leak_free], [p for p in PII if p in leak_free]
+        assert not pii_in(leak_free), pii_in(leak_free)
         assert TOKEN not in leak_free and "SECRET" not in leak_free and "SECRETSHARELINK" not in leak_free
     staging = "".join(p.read_text(encoding="utf-8") for p in (base / "staging").glob("*.json"))
     assert "juan.perez@gmail.com" in staging and "Pérez" in staging                                               # control positivo: lo personal vive SOLO en el área temporal
@@ -408,7 +424,7 @@ def test_discard_requires_the_exact_phrase_removes_only_staging_keeps_audit_and_
     assert mf.staging_files_present(rid) == 7
     st = pilot.discard_staging(rid, confirm=pilot.discard_phrase(rid), actor=OWNER)
     assert st["state"] == "DISCARDED" and st["files_removed"] == 7 and st["discarded_by"] == OWNER and mf.staging_files_present(rid) == 0
-    assert not [p for p in PII if p in "".join(f.read_text(encoding="utf-8") for f in (home / "human-capital" / "import-history" / rid).rglob("*.json"))]       # ya no queda ningún dato personal en el lote
+    assert not pii_in("".join(f.read_text(encoding="utf-8") for f in (home / "human-capital" / "import-history" / rid).rglob("*.json")))       # ya no queda ningún dato personal en el lote
     after = tree_bytes(home, "human-capital", "import-history", rid, "audit")
     assert set(after) == set(audit_before) and all(json.loads(v)["events"][-1]["event"] == "STAGING_DISCARDED" for v in after.values())
     final = pilot.run_report(rid)
@@ -524,10 +540,10 @@ def test_start_and_process_through_the_routes_render_counts_only_and_report_resu
     started = post_start(owner, sample_size="10")
     assert started.status_code == 200 and "data-pilot-created" in started.text and TOKEN not in started.text and world.downloads == []
     rid = run_id_from(started.text)
-    assert "Procesar muestra (7 pendientes)" in started.text and 'data-dw-graph-token' in started.text and not [p for p in PII if p in started.text]
+    assert "Procesar muestra (7 pendientes)" in started.text and 'data-dw-graph-token' in started.text and not pii_in(started.text)
     done = owner.post(f"{BASE}/{rid}/procesar", data={"graph_token": TOKEN})
     assert done.status_code == 200 and "Procesados 7 · con error 0 · pendientes 0" in done.text and 'data-run-state="DONE"' in done.text
-    assert "data-pilot-reasons" in done.text and "DUP_EXISTING_STRONG" in done.text and "data-pilot-scale" in done.text and not [p for p in PII if p in done.text]
+    assert "data-pilot-reasons" in done.text and "DUP_EXISTING_STRONG" in done.text and "data-pilot-scale" in done.text and not pii_in(done.text)
     again = owner.post(f"{BASE}/{rid}/procesar", data={"graph_token": TOKEN})
     assert "Procesados 0" in again.text and len(world.downloads) == 7 and "Procesar muestra" not in again.text           # idempotente: sin pendientes no hay botón
     assert 'data-error-kind="missing_token"' in owner.post(f"{BASE}/{rid}/procesar", data={"graph_token": ""}).text
@@ -562,5 +578,5 @@ def test_discard_route_requires_the_confirmation_and_removes_personal_data_from_
     ok = owner.post(f"{BASE}/{rid}/descartar", data={"confirm": pilot.discard_phrase(rid)})
     assert "data-pilot-discarded" in ok.text and mf.staging_files_present(rid) == 0 and "eliminados" in ok.text
     after = owner.get(f"{BASE}/{rid}").text
-    assert not [p for p in PII if p in after] and "data-pilot-discard-form" not in after and "<strong>eliminados</strong>" in after
+    assert not pii_in(after) and "data-pilot-discard-form" not in after and "<strong>eliminados</strong>" in after
     assert owner.post(f"{BASE}/ch-20200101T000000Z/descartar", data={"confirm": "x"}).status_code == 404
