@@ -339,3 +339,19 @@
 }
 .dw-invite-close:hover { color: var(--gold); border-color: var(--gold); }
 .content-theme-light .dw-invite-panel { background: #fff; }
+
+/* Perfil del usuario (hub_profile.js): MISMO desplegable que el selector de espacios (`.workspace-switch`/`.workspace-switch-menu`) y el
+   botón redondo del topbar; el avatar es transversal (`.dw-avatar`: foto efectiva o iniciales). */
+.dw-profile-slot { display: contents; }
+.dw-avatar { display: inline-grid; place-items: center; flex: none; border-radius: 50%; overflow: hidden; background: var(--gold); color: #0c0c0d; font-weight: 700; line-height: 1; }
+.dw-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.dw-avatar--sm { width: 26px; height: 26px; font-size: .62rem; }
+.dw-avatar--lg { width: 56px; height: 56px; font-size: 1rem; }
+.dw-profile-btn { padding: 0; overflow: hidden; }
+.dw-profile-menu { min-width: 280px; gap: 8px; padding: 12px; }
+.dw-profile-id { display: flex; align-items: center; gap: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.dw-profile-id div { display: grid; gap: 2px; min-width: 0; }
+.dw-profile-id b { color: var(--ink); font-size: .84rem; }
+.dw-profile-id span, .dw-profile-id small { color: var(--soft); font-size: .72rem; overflow: hidden; text-overflow: ellipsis; }
+.dw-profile-menu .btn-secondary { width: 100%; }
+.dw-profile-menu .dashboard-empty__hint, .dw-profile-menu .feedback-error { margin: 0; }

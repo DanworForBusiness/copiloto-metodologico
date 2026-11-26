@@ -168,7 +168,10 @@ PERSIST_PATHS     = [p.strip() for p in _env(
     "operations/timenotes,"
     # Solicitudes de actualización del Assessment gobernado (governed-update-request/v1): registro AUTORITATIVO de solicitudes y revisiones
     # (no es telemetría). DEPLOYMENT: si DO define `SPACES_PERSIST_PATHS` explícito, SUMAR "governed-update-requests".
-    "governed-update-requests"
+    "governed-update-requests,"
+    # Perfiles del Hub (transversal): fotos de avatar personalizadas y corporativas (`user-profiles/`, recuperación BAJO DEMANDA: el
+    # arranque no las baja). DEPLOYMENT: si DO define `SPACES_PERSIST_PATHS` explícito, SUMAR "user-profiles".
+    "user-profiles"
 ).split(",") if p.strip()]
 # ── Modo de persistencia (DANWOR_PERSISTENCE) ────────────────────────────────────────────────────────────────────────────
 # Las credenciales SPACES_* dicen qué está DISPONIBLE, no qué está AUTORIZADO: tenerlas en un `.env` local NO debe habilitar restore/sync/escrituras contra el
