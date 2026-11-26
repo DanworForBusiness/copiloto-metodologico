@@ -12,7 +12,7 @@
 {% macro row_actions(e, st) -%}
   {% set label = svc.month_label(e.id) %}
   <div class="dw-row-actions">
-    <a href="{{ '/cartelera/novedades/' ~ e.id if st == 'published' else '/cchh/cartelera/ediciones/' ~ e.id ~ '/vista-previa' }}" target="_blank" rel="noopener" class="table-action-btn chart-tooltip-anchor" aria-label="Presentar la edición de {{ label }} en una pestaña nueva">
+    <a href="{{ '/cartelera?edicion=' ~ e.id if st == 'published' else '/cchh/cartelera/ediciones/' ~ e.id ~ '/vista-previa' }}" target="_blank" rel="noopener" class="table-action-btn chart-tooltip-anchor" aria-label="Presentar la edición de {{ label }} en una pestaña nueva">
       <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/><path d="m10 8 5 3-5 3Z"/></svg>
       <span class="chart-tooltip" aria-hidden="true"><p>{{ 'Presentar' if st == 'published' else 'Vista previa' }}</p></span>
     </a>

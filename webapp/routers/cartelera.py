@@ -195,7 +195,7 @@ def edition_preview(request: Request, month: str):
     if redirect:
         return redirect
     edition = _edition_or_404(month)
-    return _render_portal(request, "novedades", edition=edition, preview=True)
+    return _render_portal(request, _canvas_page(request, "inicio"), edition=edition, preview=True, context="preview")
 
 
 @router.post(f"{BASE}/ediciones/{{month}}/vista-previa", response_class=HTMLResponse, include_in_schema=False)
@@ -388,10 +388,40 @@ def _calendar(month_key: str) -> dict:
     return {"weeks": weeks, "by_day": by_day, "count": sum(len(v) for v in by_day.values())}
 
 
+def _portal_urls(edition: dict | None, context: str) -> dict:
+    """Destinos de la navegación del portal según el CONTEXTO en que se abrió:
+      - "general"  (acceso transversal / Ver portal): Inicio y Novedades siguen a la edición vigente;
+      - "edition"  (Presentar una edición publicada, vigente o histórica): toda la navegación conserva ESA edición (`?edicion=AAAA-MM`);
+      - "preview"  (Presentar/Vista previa administrativa de un borrador o programada): se queda dentro de la vista previa de gestión.
+    El lienzo del editor usa siempre "general": su navegación la resuelve el propio lienzo sin salir del editor."""
+    month = edition["id"] if edition else ""
+    if context == "preview" and month:
+        base = f"{BASE}/ediciones/{month}/vista-previa"
+        return {"inicio": f"{base}?pagina=inicio", "novedades": f"{base}?pagina=novedades", "nosotros": f"{base}?pagina=nosotros",
+                "edition": f"{base}?pagina=novedades"}
+    if context == "edition" and month:
+        return {"inicio": f"/cartelera?edicion={month}", "novedades": f"/cartelera/novedades/{month}",
+                "nosotros": f"/cartelera/nosotros?edicion={month}", "edition": f"/cartelera/novedades/{month}"}
+    return {"inicio": "/cartelera", "novedades": "/cartelera/novedades", "nosotros": "/cartelera/nosotros",
+            "edition": f"/cartelera/novedades/{month}" if month else "/cartelera/novedades"}
+
+
+def _selected_edition(request: Request) -> dict | None:
+    """Edición elegida con `?edicion=AAAA-MM` (Presentar). Mismas reglas que un enlace directo: solo publicadas; si no, 404."""
+    month = request.query_params.get("edicion", "")
+    if not month:
+        return None
+    candidate = svc.get_edition(month)
+    if candidate is None or not svc.is_visible(candidate):
+        raise HTTPException(404, "Esta edición no está publicada")
+    return candidate
+
+
 def _render_portal(request: Request, page: str, *, edition: dict | None = None, preview: bool = False, user: dict | None = None,
-                   preview_note: str = "", edit_mode: bool = False):
+                   preview_note: str = "", edit_mode: bool = False, context: str = "general"):
     user = user or auth_service.session_user(request)
     ctx = {"page": page, "svc": svc, "user": user, "preview": preview, "preview_note": preview_note, "edit_mode": edit_mode,
+           "urls": _portal_urls(edition, "general" if edit_mode else context),
            "edition": edition, "links": svc.site_links(),
            "editions": svc.visible_editions(), "inst": svc.institutional(), "today_month": svc.month_key(),
            "today_day": svc.now_utc().astimezone(svc.BUSINESS_TZ).day,
@@ -409,7 +439,8 @@ def portal_home(request: Request):
     user, redirect = _reader(request)
     if redirect:
         return redirect
-    return _render_portal(request, "inicio", edition=svc.current_edition(), user=user)
+    selected = _selected_edition(request)
+    return _render_portal(request, "inicio", edition=selected or svc.current_edition(), user=user, context="edition" if selected else "general")
 
 
 @router.get("/cartelera/novedades", response_class=HTMLResponse, include_in_schema=False)
@@ -424,7 +455,7 @@ def portal_edition(request: Request, month: str = ""):
         if candidate is None or not svc.is_visible(candidate):
             raise HTTPException(404, "Esta edición no está publicada")
         edition = candidate
-    return _render_portal(request, "novedades", edition=edition, user=user)
+    return _render_portal(request, "novedades", edition=edition, user=user, context="edition" if month else "general")
 
 
 @router.get("/cartelera/nosotros", response_class=HTMLResponse, include_in_schema=False)
@@ -432,4 +463,5 @@ def portal_about(request: Request):
     user, redirect = _reader(request)
     if redirect:
         return redirect
-    return _render_portal(request, "nosotros", user=user)
+    selected = _selected_edition(request)
+    return _render_portal(request, "nosotros", edition=selected, user=user, context="edition" if selected else "general")
