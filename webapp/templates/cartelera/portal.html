@@ -299,7 +299,7 @@
       </div>
     </div>
     <div class="row" style="gap:6px">
-      {% if p.pinned and st == 'published' %}<span class="tag off">{{ ic('pin') }}Fijado</span>{% endif %}
+      {% if p.pinned and st != 'removed' %}<span class="tag off">{{ ic('pin') }}Fijado</span>{% endif %}
       {% if p.official %}<span class="tag off">Oficial</span>{% endif %}
       <span class="tag cat">{{ cat.name }}</span>
       {% if st == 'pending' %}<span class="tag pend">{{ ic('clock') }}Pendiente de aprobación</span>{% endif %}

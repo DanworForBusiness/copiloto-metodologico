@@ -266,7 +266,12 @@
         const msg = { aprobar: "¿Aprobar y publicar esta publicación?", rechazar: "¿Rechazar esta publicación?", retirar: "¿Retirar esta publicación? Deja de verse para los colaboradores." }[el.dataset.action];
         if (await confirmBox(msg, { aprobar: "Aprobar", rechazar: "Rechazar", retirar: "Retirar" }[el.dataset.action])) { await api(`/cartelera/comunidad/publicaciones/${el.dataset.id}/moderar`, { action: el.dataset.action }); keep(); location.reload(); }
       }
-      else if (a === "pin") { await api(`/cartelera/comunidad/publicaciones/${el.dataset.id}/moderar`, { action: "fijar" }); keep(); location.reload(); }
+      else if (a === "pin") {                                                        // la publicación cambia de lugar en el muro: se la sigue y se la resalta
+        const pinned = el.getAttribute("aria-label") === "Fijar arriba";
+        await api(`/cartelera/comunidad/publicaciones/${el.dataset.id}/moderar`, { action: "fijar" });
+        sessionStorage.setItem("ct-toast", pinned ? "Publicación fijada arriba." : "Publicación desfijada.");
+        location.hash = "post-" + el.dataset.id; location.reload();
+      }
       else if (a === "notif") await openNotif();
       else if (a === "savenotif") { await api("/cartelera/social/notificaciones", { notif: { mentions: $("#np-mentions").checked, replies: $("#np-replies").checked, official: $("#np-official").checked } }); closeModal(); toast("Preferencias guardadas."); }
     } catch (err) { toast(err.message); el.disabled = false; }
@@ -275,10 +280,13 @@
 
   // ── llegada: aviso pendiente, scroll conservado, publicación enfocada, publicador abierto ──
   const t = sessionStorage.getItem("ct-toast"); if (t) { sessionStorage.removeItem("ct-toast"); toast(t); }
-  const y = sessionStorage.getItem("ct-scroll"); if (y) { sessionStorage.removeItem("ct-scroll"); window.scrollTo(0, Number(y)); }
-  if (location.hash.length > 1) {
-    const el = document.getElementById(location.hash.slice(1));
+  // Tras recargar, la posición la decide el portal (no el navegador): la guardada o la publicación del ancla, cuando todo cargó.
+  if ("scrollRestoration" in history) history.scrollRestoration = "manual";
+  const arrive = () => {
+    const y = sessionStorage.getItem("ct-scroll"); if (y) { sessionStorage.removeItem("ct-scroll"); window.scrollTo(0, Number(y)); return; }
+    const el = location.hash.length > 1 && document.getElementById(location.hash.slice(1));
     if (el) { el.scrollIntoView({ block: "center" }); el.style.outline = "2px solid var(--gold)"; setTimeout(() => { el.style.outline = ""; }, 1800); }
-  }
+  };
+  if (document.readyState === "complete") arrive(); else window.addEventListener("load", arrive, { once: true });
   if (new URLSearchParams(location.search).get("publicar") === "1" && $("#ct-composer-tpl")) openComposer(null);
 })();
