@@ -1,6 +1,6 @@
 /* Cartelera Virtual — portal de colaboradores. Hoja de estilos ORIGINAL de la app de Capital Humano (app-cartelera, public/app.html),
    trasladada sin cambios para honrar su propuesta visual hasta que se acuerde su homologación con el Hub. Solo se agregan, al final, los
-   enlaces de encabezado propios del Hub (Gestionar / Volver al Hub) y la nota de vista previa. */
+   herramientas de encabezado del portal (notificaciones) y la nota de vista previa. */
 /* Respaldo de Montserrat mientras llega la fuente web (`display=swap`). La pila original nombraba "Metropolis" en segundo lugar: si esa familia
    está instalada solo en parte (p. ej. únicamente Metropolis-ExtraBold), el primer render pinta TODO en extra-negrita hasta el swap. El respaldo
    es Arial local ajustado a las métricas de Montserrat (ancho, ascendente y descendente): mismos pesos reales y mismo tamaño, sin saltos. */

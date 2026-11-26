@@ -77,6 +77,16 @@ def is_human_capital_authorized_user(user: dict | None) -> bool:
     return auth_service.is_authorized(email) and auth_service.is_human_capital_user(email)
 
 
+def is_human_capital_workspace_member(user: dict | None) -> bool:
+    """ADMISIÓN al workspace (selector de workspaces y su shell), NUNCA autorización de una solución: Capital Humano autorizado
+    (`is_human_capital_authorized_user`) O moderación de Comunidad (`COMMUNITY_OWNER`). Cada solución sigue exigiendo su propio predicado:
+    Staffing, Seguimiento, gestión editorial, CVs y remuneraciones → `is_human_capital_authorized_user` (sin cambios); Gestión de cartelera ›
+    Comunidad → moderación. Ninguna ruta debe usar ESTE predicado como guarda."""
+    if not user:
+        return False
+    return is_human_capital_authorized_user(user) or auth_service.is_community_moderator(str(user.get("sub") or "").strip().lower())
+
+
 def can_view_sensitive_data(user: dict | None) -> bool:
     """POLÍTICA ÚNICA de datos sensibles de Capital Humano (hoy: «Remuneración pretendida»): True solo si `user` (claims de sesión validados por el SERVIDOR, nunca algo que mande el
     navegador) está autenticado, tiene admisión a Capital Humano Y figura en `HC_SENSITIVE_DATA_ALLOWED_USERS`. Sin sesión, con la variable ausente/vacía, o fuera de la lista ⇒ False.

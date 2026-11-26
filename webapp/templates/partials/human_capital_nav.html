@@ -34,6 +34,10 @@
   <nav aria-label="Capital Humano"
        x-data="{ hcGroup: '{{ _hc_group }}', navStaffing: {{ 'true' if _hc_group == 'staffing' else 'false' }}, navSeguimiento: {{ 'true' if _hc_group == 'seguimiento' else 'false' }}, navCartelera: {{ 'true' if _hc_group == 'cartelera' else 'false' }} }"
        x-init="document.querySelector('.module-content')?.addEventListener('scroll', () => { navStaffing = hcGroup === 'staffing'; navSeguimiento = hcGroup === 'seguimiento'; navCartelera = hcGroup === 'cartelera' }, { passive: true })">
+    {#- STAFFING y SEGUIMIENTO solo con Capital Humano (`hc_full`, indefinido = Capital Humano: así lo pasan las demás pantallas). Quien entra
+        al workspace solo por moderación de Comunidad ve únicamente CARTELERA VIRTUAL › Gestión. -#}
+    {% set _hc_nav = hc_full is not defined or hc_full %}
+    {% if _hc_nav %}
     <button type="button" class="nav-toggle sidebar-workspace-kicker" data-nav-group="staffing" @click="navStaffing=!navStaffing" :aria-expanded="navStaffing">
       <span class="nav-kicker">STAFFING</span><span class="nav-toggle-sign" x-text="navStaffing?'−':'+'">{{ '−' if _hc_group == 'staffing' else '+' }}</span>
     </button>
@@ -80,13 +84,14 @@
       <span>02</span><strong>Indicadores</strong>
     </a>
     </div>
+    {% endif %}
     {# CARTELERA VIRTUAL — entrada PREPARATORIA: la página solo anuncia la sección (sin persistencia, integraciones ni permisos nuevos); la
        capacidad administrativa diferenciada se define aparte (decisión F1). `active_page == 'cartelera'` lo pasa el router. #}
     <button type="button" class="nav-toggle nav-toggle--appendix" data-nav-group="cartelera" @click="navCartelera=!navCartelera" :aria-expanded="navCartelera">
       <span class="nav-kicker nav-kicker--appendix">CARTELERA VIRTUAL</span><span class="nav-toggle-sign" x-text="navCartelera?'−':'+'">{{ '−' if _hc_group == 'cartelera' else '+' }}</span>
     </button>
     <div x-show="navCartelera" x-transition.opacity{% if _hc_group != 'cartelera' %} style="display:none"{% endif %}>
-    <a href="/cchh/cartelera" class="module-link {% if active_page == 'cartelera' %}is-active{% endif %}">
+    <a href="{{ '/cchh/cartelera' if _hc_nav else '/cchh/cartelera/comunidad' }}" class="module-link {% if active_page == 'cartelera' %}is-active{% endif %}">
       <span>01</span><strong>Gestión</strong>
     </a>
     </div>

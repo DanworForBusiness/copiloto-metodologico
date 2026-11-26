@@ -106,7 +106,8 @@ HUMAN_CAPITAL = Workspace(
     label="Capital Humano",
     subtitle="Selección e Incorporación",
     home_url="/cchh",
-    is_authorized=human_capital_access.is_human_capital_authorized_user,
+    # Admisión al workspace (selector): Capital Humano O moderación de Comunidad. La autorización de cada solución la resuelve cada ruta.
+    is_authorized=human_capital_access.is_human_capital_workspace_member,
 )
 
 _ALL_WORKSPACES: tuple[Workspace, ...] = (COPILOT, OPERATIONS, COMMERCIAL, HUMAN_CAPITAL)

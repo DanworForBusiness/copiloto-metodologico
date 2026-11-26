@@ -89,7 +89,7 @@ def is_moderator(user: dict | None) -> bool:
     """Moderación de Comunidad: admisión al Hub + allowlist EXPLÍCITA `COMMUNITY_OWNER` (fail-closed, sin bypass de APP_OWNER). Independiente
     de Capital Humano en los dos sentidos."""
     email = uid(user)
-    return bool(email) and auth_service.is_authorized(email) and auth_service.is_community_owner_user(email)
+    return bool(email) and auth_service.is_community_moderator(email)
 
 
 def can_publish_official(user: dict | None) -> bool:
@@ -242,8 +242,9 @@ def _clean_poll(raw) -> dict | None:
 
 
 def save_post(user: dict, data: dict, post_id: str | None = None) -> dict:
-    """Roles resueltos ACÁ (servidor): oficial/programación, solo Capital Humano; fijar (lo oficial) y publicar sin aprobación, solo
-    moderación. Editar, solo la autoría. La autoría real se conserva aunque se presente como Capital Humano."""
+    """Roles resueltos ACÁ (servidor): oficial/programación, solo Capital Humano. La aprobación previa depende SOLO de la categoría, para
+    cualquier autoría (también la moderación: sin excepciones por pertenecer a COMMUNITY_OWNER). Fijar, solo desde la moderación. Editar,
+    solo la autoría. La autoría real se conserva aunque se presente como Capital Humano."""
     mod, official_ok = is_moderator(user), can_publish_official(user)
     cat = CATEGORY_BY_ID.get(str(data.get("category") or ""))
     if not cat:
@@ -278,10 +279,10 @@ def save_post(user: dict, data: dict, post_id: str | None = None) -> dict:
             raise SocialForbidden("Solo podés editar tus publicaciones.")
         if not official_ok:                                                            # nunca se escalan privilegios editando
             fields.update({"official": False, "pinned": False, "publish_at": current.get("publish_at")})
-        # Corrección del discovery: un colaborador que edita en una categoría con aprobación vuelve a la cola de moderación.
-        if not mod and cat["approval"]:
+        # Corrección del discovery: cualquier edición en una categoría con aprobación vuelve a la cola de moderación.
+        if cat["approval"]:
             fields["status"] = "pending"
-        elif current.get("status") == "pending" and not cat["approval"] and not mod:
+        elif current.get("status") == "pending":
             fields["status"] = "published"
         fields["edited_at"] = _iso()
         if (current.get("poll") or {}).get("options") != (poll or {}).get("options"):
@@ -291,7 +292,7 @@ def save_post(user: dict, data: dict, post_id: str | None = None) -> dict:
             _modlog_system("Volvió a moderación por edición", title or body[:60])
         return saved
     fields.update({"author": uid(user), "author_name": uname(user),
-                   "status": "pending" if cat["approval"] and not mod else "published"})
+                   "status": "pending" if cat["approval"] else "published"})
     fields.setdefault("official", False)
     fields.setdefault("pinned", False)
     fields.setdefault("publish_at", None)
@@ -323,8 +324,8 @@ def moderate_post(user: dict, post_id: str, action: str, reason: str = "") -> di
     p = get_post(post_id)
     if not p:
         raise SocialNotFound(post_id)
-    if action in ("rechazar", "retirar") and p.get("author") == uid(user):
-        raise SocialError("Lo propio no se retira: editalo o eliminalo.")
+    if action in ("aprobar", "rechazar", "retirar") and p.get("author") == uid(user):            # nadie se aprueba ni se retira a sí mismo
+        raise SocialError("Lo propio no se aprueba ni se retira: lo revisa otra persona de la moderación, o editalo o eliminalo.")
     label = p.get("title") or (p.get("body") or "")[:60]
     if action == "aprobar" and p.get("status") == "pending":
         saved = repo.save("posts", post_id, {"status": "published", "approved_at": _iso(), "approved_by": uname(user)}, expected_revision=p["revision"])

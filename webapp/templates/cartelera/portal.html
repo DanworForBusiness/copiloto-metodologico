@@ -48,10 +48,9 @@
       <a href="/cartelera/comunidad"{% if page == 'comunidad' %} aria-current="page"{% endif %}>{{ ic('wall') }}Comunidad</a>
       <a href="{{ urls.nosotros }}"{% if page == 'nosotros' %} aria-current="page"{% endif %}>{{ ic('star') }}Nosotros</a>
     </nav>
-    {% if hdr_tools or social_on %}<div class="hdr-tools">
+    {% if social_on %}<div class="hdr-tools">
       {% if social_on %}<button type="button" class="icon-btn" data-sx="notif" aria-label="Notificaciones{{ ', ' ~ notif_unseen ~ ' nuevas' if notif_unseen }}">{{ ic('bell') }}{% if notif_unseen %}<span class="badge-dot">{{ '9+' if notif_unseen > 9 else notif_unseen }}</span>{% endif %}</button>{% endif %}
-      {#- Presentación limpia: ningún control administrativo (gestión editorial y moderación viven en Gestión de cartelera). -#}
-      {% if hdr_tools %}<a class="hdr-link" href="/onedanwor">Volver al Hub</a>{% endif %}
+      {#- Presentación limpia en CUALQUIER recorrido (consumo, Presentar, edición): sin controles administrativos ni «Volver al Hub». -#}
     </div>{% endif %}
   </div>
 </header>
@@ -343,7 +342,7 @@
 {# Publicador (alta y edición): el modal de la app original. Imágenes y adjuntos: integración documental (F5) pendiente. #}
 <template id="ct-composer-tpl">
   <div class="modal-h"><h2 data-cp-title>Nueva publicación</h2><button type="button" class="icon-btn" data-sx="close" aria-label="Cerrar">{{ ic('x') }}</button></div>
-  <label class="f">Categoría<select id="cp-cat">{% for c in social_categories if c.collab or can_publish_official %}<option value="{{ c.id }}">{{ c.name }}{{ ' (requiere aprobación)' if c.approval and not social_skip_approval else '' }}</option>{% endfor %}</select></label>
+  <label class="f">Categoría<select id="cp-cat">{% for c in social_categories if c.collab or can_publish_official %}<option value="{{ c.id }}">{{ c.name }}{{ ' (requiere aprobación)' if c.approval else '' }}</option>{% endfor %}</select></label>
   <label class="f">Título<input type="text" id="cp-title" maxlength="140" placeholder="Ej.: ¡Felicitaciones al equipo de BI!"></label>
   <label class="f">Mensaje <span class="h">Escribí @ para mencionar a alguien de Danwor.</span><textarea id="cp-body" data-mention rows="5"></textarea></label>
   <div class="grid2">

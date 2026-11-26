@@ -222,6 +222,12 @@ def is_community_owner_user(email: str) -> bool:
     return email in _community_owner_set()
 
 
+def is_community_moderator(email: str) -> bool:
+    """Moderación de Comunidad EFECTIVA: admisión base al Hub + `COMMUNITY_OWNER`. Única regla, compartida por la moderación
+    (`cartelera_social.is_moderator`) y la admisión al workspace de Capital Humano (`human_capital_access`)."""
+    return is_authorized(email) and is_community_owner_user(email)
+
+
 def is_content_owner_user(email: str) -> bool:
     """True si `email` (o su alias compacto `usuario@` + `AUTH_DEFAULT_DOMAIN`)
     está EXPLÍCITAMENTE en `CONTENT_OWNER`. Deliberadamente ORTOGONAL a

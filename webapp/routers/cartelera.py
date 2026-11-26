@@ -46,6 +46,8 @@ def _admin(request: Request):
     user = auth_service.session_user(request)
     if not user:
         return None, workspaces.platform_login_redirect(request)
+    if request.url.path.rstrip("/") == BASE and not human_capital_access.is_human_capital_authorized_user(user) and social.is_moderator(user):
+        return None, RedirectResponse(f"{BASE}/comunidad", status_code=303)                # «Gestión» de quien solo modera: su pestaña
     if not human_capital_access.is_human_capital_authorized(request):
         raise HTTPException(403, "No autorizado para Capital Humano")
     return user, None
@@ -76,9 +78,9 @@ def _actor(user: dict) -> str:
 
 
 def _shell(request: Request, user: dict, tab: str, **extra) -> dict:
-    # Sin Capital Humano (solo moderación): mismo layout de Gestión de cartelera, pero sin la navegación ni el workspace de la vertical.
+    # Mismo workspace para todos los admitidos; `hc_full` (Capital Humano) decide qué soluciones muestra la navegación.
     hc = human_capital_access.is_human_capital_authorized_user(user)
-    return {"current_workspace": workspaces.HUMAN_CAPITAL if hc else None, "hc_shell": hc, "available_workspaces": workspaces.available_workspaces(user),
+    return {"current_workspace": workspaces.HUMAN_CAPITAL, "hc_full": hc, "available_workspaces": workspaces.available_workspaces(user),
             "pack": DEFAULT_PACK, "user": user, "active_page": "cartelera", "tabs": _tabs_for(user), "tab": tab, "svc": svc,
             "ok": request.query_params.get("ok", ""), "error": request.query_params.get("error", ""), **extra}
 
@@ -546,10 +548,9 @@ def _social_context(user: dict | None, ctx: dict, *, social_on: bool) -> dict:
     Targets de la página: contenidos de la edición mostrada, el saludo y las publicaciones de Comunidad."""
     # Roles de Comunidad resueltos en el servidor y ORTOGONALES a Capital Humano (`can_manage` sigue siendo solo la gestión editorial).
     # Consumo IGUAL para cualquier permiso administrativo: el portal se dibuja siempre como colaborador (sin vista de moderación: nada retirado
-    # a la vista ni resultados anticipados). Solo cambian capacidades de PARTICIPACIÓN: comunicación oficial (Capital Humano) y publicar sin
-    # aprobación previa (moderación), ambas validadas otra vez en el servidor.
-    out = {"social_on": social_on, "social": {}, "social_skip_approval": social.is_moderator(user),
-           "can_publish_official": social.can_publish_official(user), "social_reactions": social.REACTIONS, "social_when": social.fmt_when,
+    # a la vista ni resultados anticipados). Única capacidad de PARTICIPACIÓN que varía: comunicación oficial (Capital Humano), validada otra
+    # vez en el servidor. La aprobación previa depende solo de la categoría.
+    out = {"social_on": social_on, "social": {}, "can_publish_official": social.can_publish_official(user), "social_reactions": social.REACTIONS, "social_when": social.fmt_when,
            "me": social.uid(user or {}), "me_name": social.uname(user or {}), "notif_unseen": 0, "social_names": {},
            "community_count": sum(1 for p in social.list_posts() if social.post_state(p) == "published"),
            "social_categories": social.CATEGORIES, "social_categories_by_id": social.CATEGORY_BY_ID, "social_post_state": social.post_state,
@@ -576,8 +577,6 @@ def _render_portal(request: Request, page: str, *, edition: dict | None = None, 
     ctx = {"page": page, "svc": svc, "user": user, "preview": preview, "preview_note": preview_note, "edit_mode": edit_mode,
            "layout_mode": bool(edit_mode and layout_mode),
            "urls": _portal_urls(edition, "general" if edit_mode else context),
-           # «Gestionar» / «Volver al Hub» solo en el acceso general; nunca al presentar o mirar una edición elegida, ni en el editor.
-           "hdr_tools": context == "general" and not edit_mode,
            # Vista del colaborador del editor: experiencia limpia, sin ningún control administrativo.
            "clean_view": clean_view,
            "edition": edition, "links": svc.site_links(),

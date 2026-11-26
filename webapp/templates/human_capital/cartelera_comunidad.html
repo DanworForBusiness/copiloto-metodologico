@@ -27,11 +27,11 @@
         <tbody>{% for p in pending %}<tr>
           <td class="left">{{ svc.fmt_local(p.updated_at or p.created_at) }}</td><td class="left">{{ who(p) }}</td><td class="left">{{ categories[p.category].name }}</td>
           <td class="left"><strong>{{ p.title or '(sin título)' }}</strong><div class="field-hint">{{ social.editable_text(p.body, names)[:140] }}</div>{% if p.edited_at %}<div class="field-hint">Editada después de enviarse: vuelve a revisión.</div>{% endif %}</td>
-          <td class="center"><div class="dw-row-actions">
+          <td class="center"><div class="dw-row-actions">{% if p.author != me %}
             <form method="post" action="/cchh/cartelera/comunidad/publicaciones/{{ p.id }}/aprobar" class="dw-row-actions__form" data-dw-confirm-form data-dw-confirm-title="Aprobar publicación" data-dw-confirm-message="¿Aprobar y publicar «{{ p.title or 'esta publicación' }}» en Comunidad?" data-dw-confirm-ok="Aprobar">
               <button type="submit" class="table-action-btn chart-tooltip-anchor" aria-label="Aprobar">{{ icon('check') }}<span class="chart-tooltip" aria-hidden="true"><p>Aprobar</p></span></button></form>
             <button type="button" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" data-mod-reason="/cchh/cartelera/comunidad/publicaciones/{{ p.id }}/rechazar" data-mod-heading="Rechazar publicación" data-mod-ok="Rechazar" data-mod-msg="«{{ p.title or 'Esta publicación' }}» no se publica. La autoría recibe un aviso con el motivo." aria-label="Rechazar">{{ icon('x') }}<span class="chart-tooltip" aria-hidden="true"><p>Rechazar</p></span></button>
-          </div></td></tr>{% endfor %}</tbody></table></div>
+          {% else %}<span class="field-hint">La revisa otra persona de la moderación</span>{% endif %}</div></td></tr>{% endfor %}</tbody></table></div>
       {% else %}<div class="dashboard-empty"><span class="dashboard-empty__label">Sin pendientes</span><p>No hay publicaciones esperando aprobación.</p></div>{% endif %}
     </div>
   </details>
