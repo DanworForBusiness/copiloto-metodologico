@@ -74,11 +74,18 @@ def _admin_write(request: Request) -> dict:
 PORTAL_LAUNCHED = False
 
 
-templates.env.globals["cartelera_portal_open"] = PORTAL_LAUNCHED
-
-
 def portal_audience_ok(user: dict | None) -> bool:
     return bool(user) and (PORTAL_LAUNCHED or human_capital_access.is_human_capital_workspace_member(user))
+
+
+def portal_link_visible(available_workspaces) -> bool:
+    """Decisión de PRESENTACIÓN del acceso a la Cartelera en el topbar compartido: la MISMA regla que `portal_audience_ok`, evaluada sobre los
+    workspaces que el servidor ya resolvió para la persona (`workspaces.available_workspaces(user)` incluye Capital Humano exactamente cuando
+    `is_human_capital_workspace_member(user)`). El topbar solo consume el resultado: no conoce verticales ni reglas de autorización."""
+    return PORTAL_LAUNCHED or workspaces.HUMAN_CAPITAL in (available_workspaces or ())
+
+
+templates.env.globals["cartelera_portal_link"] = portal_link_visible
 
 
 def _reader(request: Request):
