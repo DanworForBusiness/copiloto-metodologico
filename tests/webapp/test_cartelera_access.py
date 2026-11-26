@@ -85,3 +85,13 @@ def test_the_portal_always_uses_its_light_identity_whatever_the_hub_content_them
                 cchh.cookies.set("dw-content-theme", theme)
             html = cchh.get(path).text
             assert '<html lang="es" data-theme="light">' in html, (path, theme)
+
+
+def test_home_quick_links_carry_every_configured_link_for_client_side_search_and_paging(editions):
+    """Accesos rápidos de Inicio: sin tope fijo de 4 — el HTML trae TODOS los accesos (orden de Gestión) y el script de búsqueda/paginación."""
+    svc.save_links(None, [{"title": f"Acceso {n:02d}", "group": "Grupo", "url": "https://www.danwor.com/"} for n in range(1, 13)], actor="t")
+    html = session_client(CCHH_EMAIL).get("/cartelera").text
+    card = html[html.index("data-qlinks"):html.index("data-qlinks-pager")]
+    assert [f"Acceso {n:02d}" for n in range(1, 13)] == [t for t in (f"Acceso {n:02d}" for n in range(1, 13)) if t in card]
+    assert card.index("Acceso 01") < card.index("Acceso 12")
+    assert "data-qlinks-q" in card and "cartelera_quicklinks.js" in html

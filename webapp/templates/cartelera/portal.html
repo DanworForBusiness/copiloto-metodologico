@@ -171,7 +171,15 @@
       {% if ns.n == 0 %}<div class="empty">Todavía no hay novedades publicadas.</div>{% endif %}{% if edit_mode %}</div>{% endif %}
     </div>
     <div class="stack">
-      <div class="card pad stack" style="gap:10px"><span class="eyebrow">Accesos rápidos</span>{% if links %}<div class="links">{{ links_html(links[:4]) }}</div>{% else %}<p class="muted" style="margin:0">Sin accesos cargados.</p>{% endif %}</div>
+      {#- Accesos rápidos: TODOS los accesos de «Accesos directos» (orden de Gestión) en el HTML; `cartelera_quicklinks.js` filtra (nombre y grupo,
+          sin mayúsculas ni acentos) y pagina del lado del cliente con tantos botones como entren en el alto de la fila (lo fija «Destacado»:
+          la tarjeta no aporta altura propia, ver `.qlinks`). Paginador = markup/estética de `.activity-pager` del Hub. Sin JS: se ven todos. -#}
+      <div class="card pad qlinks"{% if links %} data-qlinks{% endif %}><span class="eyebrow">Accesos rápidos</span>{% if links %}
+        <div class="searchbox qlinks-search">{{ ic('search') }}<label for="qlinksQ" style="position:absolute;left:-9999px">Buscar accesos</label><input type="search" id="qlinksQ" autocomplete="off" placeholder="Buscar por nombre o grupo…" data-qlinks-q><button type="button" class="qlinks-clear" data-qlinks-clear hidden aria-label="Limpiar búsqueda" title="Limpiar búsqueda">{{ ic('x') }}</button></div>
+        <div class="links" data-qlinks-list>{{ links_html(links) }}</div>
+        <div class="empty qlinks-empty" data-qlinks-empty hidden>Sin accesos que coincidan con la búsqueda.</div>
+        <nav class="activity-pager qlinks-pager" data-qlinks-pager aria-label="Páginas de accesos rápidos" hidden></nav>
+        <script defer src="{{ url_for('static', path='cartelera_quicklinks.js') }}?v={{ static_version }}"></script>{% else %}<p class="muted" style="margin:0">Sin accesos cargados.</p>{% endif %}</div>
     </div>
   </section>
 </div>

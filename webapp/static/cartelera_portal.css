@@ -225,6 +225,30 @@ label.f span.h{font-weight:400;color:var(--muted);font-size:12px}
 .lnk:hover{border-color:var(--gold)}
 .lnk small{display:block;font-weight:500;color:var(--muted);font-size:11px}
 .lnk .ic{width:30px;height:30px;border-radius:8px;background:var(--surface-2);display:grid;place-items:center;flex:none}
+/* Accesos rápidos de Inicio (cartelera_quicklinks.js). Con JS (`.qlinks--fit`) la tarjeta NO aporta altura a la fila: `contain:size` la hace
+   ocupar el alto que fija «Destacado» (con un piso), así la cantidad total de accesos nunca la estira ni genera scroll interno; el script
+   muestra tantos botones como entran y pagina el resto. Sin JS se ven todos, como antes. Botones: mismos `.lnk`, con nombre/grupo en una
+   línea para que todos midan igual. Paginador: markup y estética de `.activity-pager` del Hub (tools.css), con los tokens del portal. */
+.qlinks{display:flex;flex-direction:column;gap:10px;min-width:0}
+.qlinks [hidden]{display:none!important}
+.qlinks--fit{contain:size;min-height:360px;overflow:hidden}
+.qlinks--fit .links{flex:1 1 0;min-height:0;overflow:hidden;align-content:start}
+.qlinks--fit .lnk > span{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.qlinks--fit .lnk small{overflow:hidden;text-overflow:ellipsis}
+.qlinks .qlinks-search{flex:none;min-width:0}
+.qlinks .qlinks-search input{padding-right:36px}
+.qlinks-search input::-webkit-search-cancel-button{-webkit-appearance:none;appearance:none;display:none}
+.qlinks-clear{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:26px;height:26px;display:grid;place-items:center;border:0;border-radius:6px;background:transparent;color:var(--muted);cursor:pointer}
+.qlinks-clear:hover{color:var(--text);background:var(--surface-2)}
+.qlinks-empty{flex:1 1 0;min-height:0;padding:24px 8px}
+.qlinks-pager{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:auto;padding-top:12px;border-top:1px solid var(--line)}
+.qlinks-pager .activity-pager__btn,.qlinks-pager .activity-pager__page{display:inline-flex;align-items:center;justify-content:center;min-width:30px;height:30px;padding:0 8px;border:1px solid rgba(128,128,128,.32);border-radius:6px;background:transparent;color:var(--text);font-family:inherit;font-weight:600;font-size:12px;line-height:1;cursor:pointer;box-sizing:border-box}
+.qlinks-pager .activity-pager__btn:disabled{opacity:.35;cursor:default}
+.qlinks-pager .activity-pager__btn:not(:disabled):hover,.qlinks-pager .activity-pager__page:not(.is-active):hover{border-color:var(--gold);color:var(--gold-ink)}
+.qlinks-pager .activity-pager__page.is-active{border-color:var(--gold);background:var(--gold-soft);color:var(--gold-ink);cursor:default}
+.qlinks-pager .activity-pager__ellipsis{padding:0 2px;color:var(--muted);font-size:12px}
+.qlinks-pager__range{margin-left:auto;color:var(--muted);font-size:12px;font-weight:600;white-space:nowrap}
+@media (max-width:760px){.qlinks--fit{min-height:420px}}
 
 /* Muro */
 .wall>*{min-width:0}
