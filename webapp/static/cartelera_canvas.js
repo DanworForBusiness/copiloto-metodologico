@@ -169,6 +169,16 @@
       inp.dataset.ctWired = "1";
       inp.addEventListener("input", () => { inp.closest("[data-ct-item]").dataset.link = inp.value.trim(); changed(); });
     });
+    // Texto del botón: el campo del panel «Enlace» y el texto editable sobre la tarjeta son el MISMO dato (`link_label`), sincronizados.
+    // Está disponible desde que se agrega un enlace nuevo (antes solo se podía editar sobre una tarjeta ya existente).
+    $$("[data-ct-link-label]", root).forEach(inp => {
+      if (inp.dataset.ctWired) return;
+      inp.dataset.ctWired = "1";
+      const inline = () => $('[data-ct-f="link_label"]', inp.closest("[data-ct-item]"));
+      inp.addEventListener("input", () => { const el = inline(); if (el) el.textContent = inp.value; changed(); });
+      const el = inline();
+      if (el) el.addEventListener("input", () => { inp.value = el.textContent; });
+    });
   }
 
   // ── acciones ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────

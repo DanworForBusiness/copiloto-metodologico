@@ -97,7 +97,8 @@
 {%- endmacro %}
 {% macro link_panel(it, label=True) -%}{% if not layout_mode %}
   <div class="ct-ed ct-linkpanel" contenteditable="false" hidden>
-    <label class="f">Enlace <span class="h">empieza con https://{% if label %} · el texto del botón se edita sobre la cartelera{% endif %}</span><input type="url" data-ct-link value="{{ it.link or '' }}" placeholder="https://"></label>
+    <label class="f">Enlace <span class="h">empieza con https://</span><input type="url" data-ct-link value="{{ it.link or '' }}" placeholder="https://"></label>
+    {% if label %}<label class="f">Texto del botón <span class="h">opcional · si queda vacío se muestra el enlace</span><input type="text" data-ct-link-label value="{{ it.link_label or '' }}" maxlength="80"></label>{% endif %}
     <span class="ct-linkerr" hidden>Tiene que empezar con https://</span>
   </div>
 {% endif %}{%- endmacro %}
