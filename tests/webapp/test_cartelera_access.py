@@ -95,3 +95,28 @@ def test_home_quick_links_carry_every_configured_link_for_client_side_search_and
     assert [f"Acceso {n:02d}" for n in range(1, 13)] == [t for t in (f"Acceso {n:02d}" for n in range(1, 13)) if t in card]
     assert card.index("Acceso 01") < card.index("Acceso 12")
     assert "data-qlinks-q" in card and "cartelera_quicklinks.js" in html
+
+
+def test_home_texts_are_editorial_content_of_each_edition_with_defaults_copy_and_drafts(editions):
+    """Bienvenida y bajadas de Comunidad/Nosotros: viven en la edición (`home`), con predeterminados; se copian; el borrador y la vista previa
+    los respetan; sin `home` en el pedido (modo Ordenar) se conservan los guardados. El tile Novedades sigue siendo el título de portada."""
+    cur, _, _ = editions
+    cchh = session_client(CCHH_EMAIL)
+    html = cchh.get("/cartelera").text
+    assert "Esto es lo que está pasando en Danwor." in html and "Nuestra misión, visión y valores." in html
+    assert "celebraciones, reconocimientos, proyectos e ideas." in html and "data-ct-home" not in html
+    rev = repo.get("editions", cur)["revision"]
+    home = {"welcome": "Bienvenidos a noviembre.", "community": "logros del equipo.", "about": "Quiénes somos.", "otro": "x"}
+    saved = svc.save_content(cur, rev, title="Portada", subtitle="", sections=[], actor="t", home=home)
+    assert saved["home"] == {"welcome": "Bienvenidos a noviembre.", "community": "logros del equipo.", "about": "Quiénes somos."}
+    saved = svc.save_content(cur, saved["revision"], title="Portada", subtitle="", sections=[], actor="t")     # sin `home`: se conserva
+    assert saved["home"]["welcome"] == "Bienvenidos a noviembre."
+    html = cchh.get("/cartelera").text
+    assert "Hola, " in html and "Bienvenidos a noviembre." in html and "Esto es lo que está pasando" not in html
+    assert "logros del equipo." in html and "Quiénes somos." in html and "Portada" in html
+    assert svc.home_text({"home": {"welcome": "  "}}, "welcome") == "Esto es lo que está pasando en Danwor."      # vacío ⇒ predeterminado
+    copy = svc.copy_edition(cur, "2031-01", actor="t")
+    assert copy["home"]["about"] == "Quiénes somos." and copy["title"] == "Portada"
+    draft = svc.draft_edition(cur, title="Portada", subtitle="", sections=[], home={"welcome": "Borrador local"})
+    assert draft["home"]["welcome"] == "Borrador local" and draft["home"]["about"] == "Quiénes somos."
+    assert svc.preview_edition(cur, title="Portada", subtitle="", sections=[], home={"about": "Vista previa"})["home"]["about"] == "Vista previa"

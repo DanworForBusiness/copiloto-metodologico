@@ -98,8 +98,12 @@ label.f span.h{font-weight:400;color:var(--muted);font-size:12px}
 .hero{display:grid;grid-template-columns:1.4fr 1fr;gap:20px}
 .hero-main{background:var(--ink);color:#F5F5F3;border-radius:16px;padding:28px;display:grid;gap:14px;position:relative;overflow:hidden}
 .hero-main::after{content:"";position:absolute;right:-60px;bottom:-60px;width:220px;height:220px;border-radius:50%;border:28px solid var(--gold);opacity:.9}
-.hero-main h1{max-width:20ch;position:relative;z-index:1}
-.hero-main p{color:#CFCFCC;max-width:46ch;margin:0;position:relative;z-index:1}
+/* Mensaje y bajada editables: nunca entran en la franja del anillo dorado (visible 160px a la derecha); en escritorio el tope sigue siendo
+   20ch/46ch, así que la proporción no cambia; con textos largos o tiles angostos el texto baja de línea en lugar de pisar el anillo. */
+.hero-main h1{max-width:min(20ch,calc(100% - 150px));position:relative;z-index:1;overflow-wrap:anywhere}
+.hero-main p{color:#CFCFCC;max-width:min(46ch,calc(100% - 150px));margin:0;position:relative;z-index:1;overflow-wrap:anywhere}
+.space{min-width:0}
+.space .muted{overflow-wrap:anywhere}
 .spaces{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:20px}
 .space{display:grid;gap:8px;padding:22px;border-radius:16px;text-decoration:none;color:var(--text);background:var(--surface);border:1px solid var(--line);transition:transform .15s}
 .space:hover{transform:translateY(-2px);border-color:var(--gold)}

@@ -202,6 +202,23 @@ def create_edition(month: str, actor: str, *, copy_previous: bool) -> dict:
     return repo.save("editions", month, fields, expected_revision=None)
 
 
+# Textos editoriales de Inicio que NO salen de Novedades (el del tile Novedades es el título de portada): mensaje que acompaña al saludo del
+# tile de bienvenida y bajadas de los tiles Comunidad y Nosotros. Viven en `edition["home"]`; ausentes o vacíos ⇒ estos predeterminados.
+HOME_DEFAULTS = {"welcome": "Esto es lo que está pasando en Danwor.",
+                 "community": "celebraciones, reconocimientos, proyectos e ideas.",
+                 "about": "Nuestra misión, visión y valores."}
+HOME_LIMIT = 160
+
+
+def home_text(edition: dict | None, key: str) -> str:
+    return str(((edition or {}).get("home") or {}).get(key) or "").strip() or HOME_DEFAULTS[key]
+
+
+def _clean_home(home, clip=None) -> dict:
+    clip = clip or (lambda v: _text(v, limit=HOME_LIMIT))
+    return {k: clip(home.get(k)) for k in HOME_DEFAULTS if isinstance(home, dict) and k in home}
+
+
 def copy_edition(source_month: str, month: str, actor: str) -> dict:
     """Copia una edición como BORRADOR nuevo del mes `month`: conserva portada y contenidos (ítems y proyectos con ids nuevos, orden y ancho),
     nunca el estado de publicación, la programación, el aviso enviado ni el historial de la original."""
@@ -217,6 +234,7 @@ def copy_edition(source_month: str, month: str, actor: str) -> dict:
                 for s in source["sections"]]
     fields = {"month": month, "title": source.get("title", ""), "subtitle": source.get("subtitle", ""), "state": "draft",
               "publish_at": None, "published_at": None, "sections": sections, "copied_from": source_month,
+              "home": dict(source.get("home") or {}),
               "history": _history(None, actor, f"Creó la edición como copia de {month_label(source_month)}")}
     return repo.save("editions", month, fields, expected_revision=None)
 
@@ -249,16 +267,16 @@ def _items_from_form(kind: str, rows: list[dict]) -> list[dict]:
     return items
 
 
-def save_content(month: str, revision: int, *, title: str, subtitle: str, sections: list[dict], actor: str) -> dict:
-    """Guarda portada y secciones (orden, ancho e ítems). No cambia el estado de publicación."""
+def save_content(month: str, revision: int, *, title: str, subtitle: str, sections: list[dict], actor: str, home: dict | None = None) -> dict:
+    """Guarda portada, textos de Inicio (`home`, si vienen) y secciones (orden, ancho e ítems). No cambia el estado de publicación."""
     edition = get_edition(month)
     if edition is None:
         raise repo.CarteleraNotFoundError(month)
-    fields = {**_clean_content(title, subtitle, sections), "history": _history(edition, actor, EDIT_ACTION)}
+    fields = {**_clean_content(title, subtitle, sections, home, edition), "history": _history(edition, actor, EDIT_ACTION)}
     return repo.save("editions", month, fields, expected_revision=revision)
 
 
-def _clean_content(title: str, subtitle: str, sections: list[dict]) -> dict:
+def _clean_content(title: str, subtitle: str, sections: list[dict], home: dict | None = None, edition: dict | None = None) -> dict:
     clean = []
     for sec in sections:
         meta = SECTION_BY_KEY.get(sec.get("key"))
@@ -266,10 +284,13 @@ def _clean_content(title: str, subtitle: str, sections: list[dict]) -> dict:
             continue
         items = [] if meta["kind"] == "birthdays" else _items_from_form(meta["kind"], sec.get("items") or [])
         clean.append({"key": meta["key"], "wide": bool(sec.get("wide")) and meta["kind"] == "general", "items": items})
-    return {"title": _text(title, limit=160), "subtitle": _text(subtitle, limit=300), "sections": normalize_sections(clean)}
+    out = {"title": _text(title, limit=160), "subtitle": _text(subtitle, limit=300), "sections": normalize_sections(clean)}
+    if home is not None:                                                    # sin `home` (p. ej. modo Ordenar) se conserva el guardado
+        out["home"] = {**((edition or {}).get("home") or {}), **_clean_home(home)}
+    return out
 
 
-def draft_edition(month: str, *, title: str, subtitle: str, sections: list[dict]) -> dict:
+def draft_edition(month: str, *, title: str, subtitle: str, sections: list[dict], home: dict | None = None) -> dict:
     """Edición con el borrador del lienzo SIN validar (para volver a dibujarlo en modo edición, p. ej. al recuperar cambios locales): los
     textos se recortan y se escapan al renderizar; los enlaces inválidos se conservan para que el editor los marque. Nunca se persiste."""
     edition = get_edition(month)
@@ -286,16 +307,19 @@ def draft_edition(month: str, *, title: str, subtitle: str, sections: list[dict]
             {**{k: clip(row.get(k)) for k in fields}, "id": clip(row.get("id"), 24) or uuid.uuid4().hex[:12]}
             for row in (sec.get("items") or []) if isinstance(row, dict)]
         clean.append({"key": meta["key"], "wide": bool(sec.get("wide")) and meta["kind"] == "general", "items": items})
-    return {**edition, "title": clip(title, 160), "subtitle": clip(subtitle, 300), "sections": normalize_sections(clean)}
+    draft = {**edition, "title": clip(title, 160), "subtitle": clip(subtitle, 300), "sections": normalize_sections(clean)}
+    if home is not None:
+        draft["home"] = {**(edition.get("home") or {}), **_clean_home(home, lambda v: clip(v, HOME_LIMIT))}
+    return draft
 
 
-def preview_edition(month: str, *, title: str, subtitle: str, sections: list[dict]) -> dict:
+def preview_edition(month: str, *, title: str, subtitle: str, sections: list[dict], home: dict | None = None) -> dict:
     """Edición tal como quedaría con el contenido EN PANTALLA del editor (sin guardar): MISMA validación que `save_content`, nada se persiste.
     Conserva estado y fechas de la guardada: la vista previa nunca cambia qué ven los colaboradores."""
     edition = get_edition(month)
     if edition is None:
         raise repo.CarteleraNotFoundError(month)
-    return {**edition, **_clean_content(title, subtitle, sections)}
+    return {**edition, **_clean_content(title, subtitle, sections, home, edition)}
 
 
 def publish_now(month: str, revision: int, actor: str) -> dict:

@@ -68,6 +68,12 @@
     {% if social_on and it.id %}{{ social_block('item:' ~ it.id, True) }}{% endif %}
   </article>
 {%- endmacro %}
+{#- Textos de Inicio editables en el lienzo (mismo `.ct-edit` de la portada): `data-ct-home` los serializa en `home`. Sin edición, texto plano. -#}
+{% macro home_edit(key, ph) -%}
+  {%- if edition and edit_mode and not layout_mode -%}<span class="ct-edit" contenteditable="plaintext-only" spellcheck="true" data-ct-home="{{ key }}" data-ph="{{ ph }}">{{ svc.home_text(edition, key) }}</span>
+  {%- else -%}{{ svc.home_text(edition, key) }}{%- endif -%}
+{%- endmacro %}
+
 {% macro links_html(items) -%}
   {% for l in items %}<a class="lnk" href="{{ l.url }}" target="_blank" rel="noopener"><span class="ic">{{ ic('link') }}</span><span style="min-width:0">{{ l.title }}<small>{{ l.group }}</small></span></a>{% endfor %}
 {%- endmacro %}
@@ -135,7 +141,8 @@
   <section class="hero">
     <div class="hero-main">
       <span class="eyebrow" style="color:var(--gold)">{{ svc.month_label(edition.id) if edition else svc.month_label(today_month) }}</span>
-      <h1>{% if first_name %}Hola, {{ first_name }}. {% endif %}Esto es lo que está pasando en Danwor.</h1>
+      {#- Saludo dinámico (identidad de la sesión) + mensaje editorial de la edición (`home.welcome`, predeterminado en svc.HOME_DEFAULTS). -#}
+      <h1>{% if first_name %}Hola, {{ first_name }}. {% endif %}{{ home_edit('welcome', 'Mensaje de bienvenida') }}</h1>
       <p>{% if edition and edit_mode and not layout_mode %}<span class="ct-edit" contenteditable="plaintext-only" spellcheck="true" data-ct-mirror="title" data-ph="Título de portada">{{ edition.title }}</span><span data-ct-sep{% if not edition.subtitle %} hidden{% endif %}> — </span><span class="ct-edit" contenteditable="plaintext-only" spellcheck="true" data-ct-mirror="subtitle" data-ph="Bajada (opcional)">{{ edition.subtitle }}</span>{% elif edition %}{{ edition.title }}{% if edition.subtitle %} — {{ edition.subtitle }}{% endif %}{% else %}Consultá las novedades del mes, encontrá información útil y celebrá con tus compañeros.{% endif %}</p>
       <div class="row" style="position:relative;z-index:1">
         <a class="btn primary" href="{{ urls.edition }}">{{ ic('board') }}Ver las novedades</a>
@@ -154,9 +161,9 @@
   </section>
 
   <section class="spaces">
-    <a class="space" href="{{ urls.edition }}"><span class="ic">{{ ic('board', 'lg') }}</span><h2>Novedades de {{ (svc.month_label(edition.id) if edition else svc.month_label(today_month)).split(' ')[0] | lower }}</h2><span class="muted"{% if edit_mode %} data-ct-echo="title"{% endif %}>{{ edition.title if edition and edition.title else 'Novedades, bienestar, aprendizaje, cumpleaños y accesos directos.' }}</span></a>
-    <a class="space" href="/cartelera/comunidad"><span class="ic">{{ ic('wall', 'lg') }}</span><h2>Comunidad Danwor</h2><span class="muted">{{ community_count ~ (' publicación' if community_count == 1 else ' publicaciones') ~ ' · ' if community_count else '' }}celebraciones, reconocimientos, proyectos e ideas.</span></a>
-    <a class="space" href="{{ urls.nosotros }}"><span class="ic">{{ ic('star', 'lg') }}</span><h2>Nosotros</h2><span class="muted">Nuestra misión, visión y valores.</span></a>
+    <a class="space" href="{{ urls.edition }}"{% if edit_mode %} draggable="false"{% endif %}><span class="ic">{{ ic('board', 'lg') }}</span><h2>Novedades de {{ (svc.month_label(edition.id) if edition else svc.month_label(today_month)).split(' ')[0] | lower }}</h2><span class="muted">{% if edition and edit_mode and not layout_mode %}<span class="ct-edit" contenteditable="plaintext-only" spellcheck="true" data-ct-mirror="title" data-ph="Título de portada">{{ edition.title }}</span>{% else %}<span{% if edit_mode %} data-ct-echo="title"{% endif %}>{{ edition.title if edition and edition.title else 'Novedades, bienestar, aprendizaje, cumpleaños y accesos directos.' }}</span>{% endif %}</span></a>
+    <a class="space" href="/cartelera/comunidad"{% if edit_mode %} draggable="false"{% endif %}><span class="ic">{{ ic('wall', 'lg') }}</span><h2>Comunidad Danwor</h2><span class="muted">{{ community_count ~ (' publicación' if community_count == 1 else ' publicaciones') ~ ' · ' if community_count else '' }}{{ home_edit('community', 'Bajada de Comunidad') }}</span></a>
+    <a class="space" href="{{ urls.nosotros }}"{% if edit_mode %} draggable="false"{% endif %}><span class="ic">{{ ic('star', 'lg') }}</span><h2>Nosotros</h2><span class="muted">{{ home_edit('about', 'Bajada de Nosotros') }}</span></a>
   </section>
 
   <section class="home-grid">

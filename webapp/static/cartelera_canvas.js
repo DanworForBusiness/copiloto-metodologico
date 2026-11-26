@@ -34,8 +34,13 @@
   function serialize() {
     const greet = $("[data-ct-greeting] [data-ct-item]");
     if (greet) { const it = readItem(greet, "general"); delete it.id; return it; }
+    // Textos de Inicio que no salen de Novedades (bienvenida, bajadas de Comunidad y Nosotros): solo si el lienzo los muestra editables
+    // (en modo Ordenar no viajan y el servidor conserva los guardados).
+    const homeEls = $$("[data-ct-home]"), home = {};
+    homeEls.forEach(el => { home[el.dataset.ctHome] = text(el); });
     return {
       title: text($('.cart-banner [data-ct-f="title"]')), subtitle: text($('.cart-banner [data-ct-f="subtitle"]')),
+      ...(homeEls.length ? { home } : {}),
       sections: sections().map(sec => ({ key: sec.dataset.ctSec, wide: sec.dataset.ctKind === "general" && sec.classList.contains("wide"),
         items: $$("[data-ct-item]", sec).map(it => readItem(it, sec.dataset.ctKind)) })),
     };
@@ -144,7 +149,7 @@
 
   // ── textos: texto plano, Enter solo donde corresponde, sin navegación ───────────────────────────────────────────────────────────
   function wireText(root) {
-    $$("[data-ct-f], [data-ct-mirror]", root).forEach(el => {
+    $$("[data-ct-f], [data-ct-mirror], [data-ct-home]", root).forEach(el => {
       if (el.dataset.ctWired) return;
       el.dataset.ctWired = "1";
       el.addEventListener("keydown", ev => {
@@ -313,6 +318,7 @@
       const a = ev.target.closest && ev.target.closest("a[href]");
       if (a) {                                                                        // el lienzo no sale del editor: recorre sus páginas
         ev.preventDefault();
+        if (ev.target.closest(".ct-edit")) return;                                    // texto editable dentro de un tile: se edita, no se navega
         const href = a.getAttribute("href") || "", hash = href.includes("#") ? href.slice(href.indexOf("#") + 1) : "";
         const pg = href.startsWith("#") ? null : pageOf(href);
         if (pg) showPage(pg, hash ? document.getElementById(hash) : null);
