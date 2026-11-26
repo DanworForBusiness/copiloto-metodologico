@@ -235,8 +235,9 @@
         () => { N().forEach(x => { if (x.parent === n.id) x.parent = n.parent || ""; }); N().splice(N().indexOf(n), 1); }, "Organigrama actualizado.");
     }
   });
-  const y = sessionStorage.getItem("ct-inst-scroll");                     // vuelve a donde estaba (el scroll del Hub es el del contenido)
-  if (y) { sessionStorage.removeItem("ct-inst-scroll"); const go = () => setTimeout(() => { scroller().scrollTop = +y; }, 60);
+  const uiState = window.sessionStorage;                                   // estado de UI (posición de scroll), NUNCA una credencial
+  const y = uiState.getItem("ct-inst-scroll");                     // vuelve a donde estaba (el scroll del Hub es el del contenido)
+  if (y) { uiState.removeItem("ct-inst-scroll"); const go = () => setTimeout(() => { scroller().scrollTop = +y; }, 60);
     if (document.readyState === "complete") go(); else window.addEventListener("load", go, { once: true }); }
 })();
 </script>

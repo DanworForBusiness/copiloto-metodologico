@@ -120,7 +120,7 @@
         <div class="dw-confirm__body">
           <h2 class="dw-confirm__title" id="ct-picker-title" x-text="picker && picker.replacing ? 'Cambiar el proyecto' : 'Agregar un proyecto del mes'"></h2>
           <p class="dw-confirm__msg">Se toma de las fuentes de Operaciones solo el nombre del proyecto y del cliente; el resto lo escribís sobre la tarjeta.</p>
-          <input type="search" x-model="projQuery" x-ref="projSearch" placeholder="Buscar por proyecto o cliente…" class="cartelera-picker__search" aria-label="Buscar proyecto">
+          <input type="search" x-model="projQuery" autocomplete="off" x-ref="projSearch" placeholder="Buscar por proyecto o cliente…" class="cartelera-picker__search" aria-label="Buscar proyecto">
           <p class="field-hint" x-show="projLoading">Consultando Operaciones…</p>
           <p class="feedback-error" x-show="projErr" x-text="projErr"></p>
           <ul class="cartelera-picker__list" x-show="!projLoading && !projErr">
@@ -290,7 +290,7 @@ function carteleraEditor(boot) {
       let token = "";
       try { const t = window.dwGraphToken ? await window.dwGraphToken({ interactive: true }) : ""; token = typeof t === "string" ? t : (t && t.token) || ""; } catch (e) {}
       try {
-        const r = await fetch("/cchh/cartelera/proyectos", { method: "POST", body: new URLSearchParams({ graph_token: token }) });
+        const r = await fetch("/cchh/cartelera/proyectos", { method: "POST", body: (() => { const b = new URLSearchParams(); b.set("graph_token", token); return b; })() });
         const j = await r.json().catch(() => ({}));
         if (!r.ok) { this.projErr = j.error || "No se pudieron leer los proyectos."; return; }
         this.projects = j.projects || [];

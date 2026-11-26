@@ -327,7 +327,7 @@
       <div class="card composer-cta"><span class="avatar" aria-hidden="true">{{ ((me_name.split() | map('first') | list)[:2] | join('') | upper) or '?' }}</span><button type="button" class="fake" data-sx="compose">Compartí un logro, un agradecimiento o una idea…</button><button type="button" class="btn primary" data-sx="compose">{{ ic('plus') }}Publicar</button></div>
       <form class="toolbar" method="get">
         <input type="hidden" name="cat" value="{{ wall_filter.cat }}">
-        <div class="searchbox">{{ ic('search') }}<label for="wallQ" style="position:absolute;left:-9999px">Buscar</label><input type="search" id="wallQ" name="q" placeholder="Buscar publicaciones, personas, temas…" value="{{ wall_filter.q }}"></div>
+        <div class="searchbox">{{ ic('search') }}<label for="wallQ" style="position:absolute;left:-9999px">Buscar</label><input type="search" id="wallQ" name="q" autocomplete="off" placeholder="Buscar publicaciones, personas, temas…" value="{{ wall_filter.q }}"></div>
         <label for="wallType" style="position:absolute;left:-9999px">Tipo</label><select id="wallType" name="tipo" style="width:auto" onchange="this.form.submit()">{% for v, l in social_wall_types %}<option value="{{ v }}"{% if wall_filter.tipo == v %} selected{% endif %}>{{ l }}</option>{% endfor %}</select>
         <label for="wallFrom" style="position:absolute;left:-9999px">Desde</label><input type="date" id="wallFrom" name="desde" value="{{ wall_filter.desde }}" style="width:auto" title="Desde fecha" onchange="this.form.submit()">
       </form>
