@@ -35,14 +35,17 @@ from webapp.services import cartelera_repository as repo
 SHARE_URL = "https://danwor.sharepoint.com/:x:/s/Comunicaciones/IQBnA5KC9-pTRIdekOHH_WUOAXZIAyjF-fqEmKSoIhXPHMc?e=BV6Jfl"
 # Identidad estable resuelta (driveId, itemId). Vacía hasta acreditarla con el primer acceso real; con ella se lee por identidad y no
 # por enlace (un enlace de uso compartido puede revocarse).
-DRIVE_ID = ""
-ITEM_ID = ""
+# Acreditada en la primera lectura real (2026-11-26): «Comunicaciones / CCHH HUB / Cartelera virtual / Cumpleaños / Cumpleaños.xlsx»
+# (mismo drive que el resto de Capital Humano).
+DRIVE_ID = "b!kEfGZTP5uUaCP45K1X5psX3at7lnj6lGvidfF2OUcYoNrL5xTaXaRIqFJOVKAjrE"
+ITEM_ID = "01ULA425LHAOJIF57KKNCIOXUQ4HD72ZIO"
 
 # Interruptor de la fuente (constante de código, no de entorno). El arnés visual DEMO lo apaga explícitamente.
 ENABLED = True
 
 DOC = ("settings", "birthdays-sharepoint")
 GRAPH = "https://graph.microsoft.com/v1.0"
+PARSER_VERSION = 2                     # cambia ⇒ se reprocesa el Excel aunque su cTag no haya cambiado
 MIN_CHECK_SECONDS = 20                 # dos aperturas seguidas no consultan Graph dos veces
 MAX_BYTES = 5 * 1024 * 1024
 _lock = threading.Lock()
@@ -147,7 +150,7 @@ ROLES = {
     "month": ["mes", "mes de nacimiento", "mes cumpleanos"],
     "email": ["email", "e mail", "mail", "correo", "correo electronico", "usuario", "upn"],
     "employee_id": ["legajo", "id empleado", "numero de empleado", "nro de legajo", "n de legajo", "codigo de empleado", "id colaborador"],
-    "consent": ["autoriza publicacion", "autorizacion de publicacion", "autoriza", "autorizacion", "autorizado", "consentimiento",
+    "consent": ["autorizo", "autorizo publicacion", "autoriza publicacion", "autorizacion de publicacion", "autoriza", "autorizacion", "autorizado", "consentimiento",
                 "publicar", "publicacion", "mostrar en cartelera", "mostrar"],
 }
 _YES = {"si", "s", "yes", "y", "true", "verdadero", "x", "1", "autorizado", "autoriza", "ok", "publicar"}
@@ -295,6 +298,14 @@ def parse_workbook(xlsx: bytes) -> dict:
     if skipped:
         warnings.append(f"{skipped} fila{'s' if skipped != 1 else ''} sin nombre o con fecha inválida no se incorporaron.")
     structure = {"sheets": sheets, "used_sheet": sheet, "roles": {k: headers[v] for k, v in roles.items()}}
+    if "consent" in roles:                                                # cómo se interpretó cada valor de la autorización (sin nombres)
+        counts: dict[str, int] = {}
+        for r in body:
+            raw = cell(r, "consent")
+            label = "(vacío)" if raw in (None, "") else str(raw).strip()[:40]
+            counts[label] = counts.get(label, 0) + 1
+        structure["consent_values"] = [{"value": k, "count": v, "authorized": _norm(k) in _YES or k is True}
+                                       for k, v in sorted(counts.items(), key=lambda kv: -kv[1])][:20]
     return {"rows": out, "warnings": warnings[:60], "identity_basis": basis,
             "consent_column": headers[roles["consent"]] if "consent" in roles else None, "structure": structure}
 
@@ -337,7 +348,7 @@ def refresh(graph_token: str, *, actor: str, force: bool = False) -> dict:
                       "last_modified": meta.get("lastModifiedDateTime"),
                       "last_modified_by": ((meta.get("lastModifiedBy") or {}).get("user") or {}).get("displayName"),
                       "path": (meta.get("parentReference") or {}).get("path")}
-            if not force and snap.get("refreshed_at") and src.get("ctag") and src.get("ctag") == source["ctag"]:
+            if not force and snap.get("refreshed_at") and src.get("ctag") and src.get("ctag") == source["ctag"]                     and snap.get("parser_version") == PARSER_VERSION:
                 _save({"checked_at": repo.now_iso(), "source": source, "last_error": None})
                 return {"changed": False, "checked": True}
             xlsx = _get_bytes(f"{GRAPH}/drives/{source['drive_id']}/items/{source['item_id']}/content", graph_token)
@@ -348,5 +359,6 @@ def refresh(graph_token: str, *, actor: str, force: bool = False) -> dict:
         now = repo.now_iso()
         changed = [(r["id"], r["name"], r["day"], r["month"], r["authorized"]) for r in parsed["rows"]] != \
                   [(r["id"], r["name"], r["day"], r["month"], r["authorized"]) for r in snap.get("rows") or []]
-        _save({**parsed, "source": source, "refreshed_at": now, "checked_at": now, "refreshed_by": actor, "last_error": None})
+        _save({**parsed, "source": source, "refreshed_at": now, "checked_at": now, "refreshed_by": actor, "last_error": None,
+               "parser_version": PARSER_VERSION})
         return {"changed": changed, "checked": True}

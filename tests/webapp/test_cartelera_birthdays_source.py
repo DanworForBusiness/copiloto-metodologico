@@ -30,6 +30,8 @@ def _runtime(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "BASE_DIR", tmp_path)
     monkeypatch.setattr(sp, "ENABLED", True)
     monkeypatch.setattr(sp, "MIN_CHECK_SECONDS", 0)
+    monkeypatch.setattr(sp, "DRIVE_ID", "")                                  # el flujo de resolución por enlace se prueba sin la identidad fijada
+    monkeypatch.setattr(sp, "ITEM_ID", "")
 
 
 class FakeGraph:
