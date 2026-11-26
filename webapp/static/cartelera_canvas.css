@@ -66,3 +66,13 @@ button.ct-kind:hover { filter: brightness(.95); outline: 1px dashed var(--gold);
 .ct-editing [data-ct-goto] { cursor: pointer; }
 .ct-editing [data-ct-goto]:hover { text-decoration: underline; text-decoration-color: var(--gold); }
 .ct-editing [data-ct-page] > .ct-note:first-child, .ct-editing [data-ct-page] > .stack > .ct-note:first-child { margin-bottom: 4px; }
+/* Modo ORDENAR (botón de Novedades): la misma capa, limitada a la composición. Los textos se ven como en el portal (no editables);
+   solo quedan el arrastre, subir/bajar y «Ancho completo / Poner al costado». La barra es la `.arr-bar` de la app original. */
+.ct-layout .arr-bar { margin-bottom: 4px; }
+.ct-layout .arr-bar svg { width: 20px; height: 20px; flex: none; color: var(--gold-ink); }
+.ct-layout .item[data-ct-item] { cursor: grab; }
+.ct-layout .item > h3.ct-ro:empty, .ct-layout .item > p.ct-ro:empty, .ct-layout .thanks.ct-ro:empty, .ct-layout .ct-techline { display: none; }
+.ct-layout .pmeta:has(> .ct-ro:empty) { display: none; }
+.ct-layout .linkcard .ct-ro:empty::before { content: attr(data-ph); }
+.ct-layout .cat-sec.ct-is-hidden { min-height: 64px; }
+.ct-layout .cat-sec.ct-is-hidden::after { content: "Soltá acá un contenido para mostrar esta sección"; display: block; padding: 14px; border: 1px dashed var(--muted); border-radius: 10px; color: var(--muted); font-size: 13px; text-align: center; }

@@ -21,32 +21,38 @@
   {% call platform_topbar(current_workspace, available_workspaces, current_workspace.home_url, _identity_html, "Menú") %}{% endcall %}
 
   <main id="content" class="module-content">
-    <script type="application/json" id="ct-boot">{{ {'revision': edition.revision, 'month': edition.id, 'label': month_name} | tojson }}</script>
+    <script type="application/json" id="ct-boot">{{ {'revision': edition.revision, 'month': edition.id, 'label': month_name, 'page': canvas_page, 'layout': editor_mode == 'ordenar', 'back': back_to_portal} | tojson }}</script>
     <div id="hc-cartelera-panel" class="ct-ws" x-data="carteleraEditor(JSON.parse(document.getElementById('ct-boot').textContent))" x-init="boot()"
          @beforeunload.window="if (dirty) { $event.preventDefault(); $event.returnValue = true }"
          @keydown.window.ctrl.s.prevent="save()" @keydown.window.meta.s.prevent="save()">
 
       <header class="catalog-actionbar cartelera-wsheader ct-ws__header">
-        <a class="catalog-back" href="/cchh/cartelera" @click="leave($event)">← Ediciones</a>
+        {% if back_to_portal %}<a class="catalog-back" href="{{ back_to_portal }}" @click="leave($event)">← Volver a la cartelera</a>{% endif %}
+        <a class="catalog-back" href="/cchh/cartelera" @click="leave($event)">{{ '· Ediciones' if back_to_portal else '← Ediciones' }}</a>
         <div class="cartelera-wsheader__id">
-          <span class="cartelera-wsheader__eyebrow">Cartelera · editando</span>
+          <span class="cartelera-wsheader__eyebrow">{{ 'Cartelera · ordenando' if editor_mode == 'ordenar' else 'Cartelera · editando' }}</span>
           <h1 class="cartelera-wsheader__title">{{ month_name }}</h1>
           <span class="dashboard-status-badge solicitudes-status-badge solicitudes-status-badge--{{ tones[state] }}">{{ svc.STATE_LABELS[state] }}</span>
         </div>
-        <nav class="experience-tabs ct-ws__modes" aria-label="Modo">
+        {% if editor_mode != 'ordenar' %}<nav class="experience-tabs ct-ws__modes" aria-label="Modo">
           <button type="button" :class="mode === 'edit' && 'is-active'" @click="mode = 'edit'">Editar</button>
           <button type="button" :class="mode === 'view' && 'is-active'" @click="showView()">Vista del colaborador</button>
-        </nav>
+        </nav>{% endif %}
         <span class="ct-ws__devices">
           <button type="button" class="table-action-btn chart-tooltip-anchor" :class="device === 'desktop' && 'is-active'" :aria-pressed="device === 'desktop'" @click="device = 'desktop'" aria-label="Escritorio">{{ icon('desktop') }}<span class="chart-tooltip" aria-hidden="true"><p>Escritorio</p></span></button>
           <button type="button" class="table-action-btn chart-tooltip-anchor" :class="device === 'phone' && 'is-active'" :aria-pressed="device === 'phone'" @click="device = 'phone'" aria-label="Celular">{{ icon('phone') }}<span class="chart-tooltip" aria-hidden="true"><p>Celular</p></span></button>
-          <button type="button" class="table-action-btn chart-tooltip-anchor" :class="side && 'is-active'" :aria-pressed="side" @click="side = !side" aria-label="Publicación e historial">{{ icon('panel') }}<span class="chart-tooltip" aria-hidden="true"><p>Publicación e historial</p></span></button>
+          <button type="button" class="table-action-btn chart-tooltip-anchor" x-show="!layout" :class="side && 'is-active'" :aria-pressed="side" @click="side = !side" aria-label="Publicación e historial">{{ icon('panel') }}<span class="chart-tooltip" aria-hidden="true"><p>Publicación e historial</p></span></button>
         </span>
         <div class="catalog-actionbar__actions cartelera-wsheader__actions">
           <span class="field-hint cartelera-wsheader__saved" role="status" x-show="!dirty && msg" x-text="msg"></span>
           <span class="status-badge status-badge--tentativo" x-show="dirty" x-cloak>Sin guardar</span>
+          {% if editor_mode == 'ordenar' %}
+          <button type="button" class="btn-secondary" @click="cancelLayout()">Cancelar</button>
+          <button type="button" class="btn-primary" @click="saveLayout()" :disabled="saving || !dirty" x-text="saving ? 'Guardando…' : 'Guardar orden'"></button>
+          {% else %}
           <button type="button" class="btn-secondary" x-show="dirty" x-cloak @click="discard()">Descartar</button>
           <button type="button" class="btn-primary" @click="save()" :disabled="saving || !dirty" x-text="saving ? 'Guardando…' : 'Guardar'"></button>
+          {% endif %}
         </div>
       </header>
 
@@ -62,7 +68,7 @@
 
       <div class="ct-ws__body" :class="side && 'has-side'">
         <div class="ct-ws__stage" :class="device === 'phone' && 'is-phone'">
-          <iframe class="ct-ws__frame" x-ref="edit" x-show="mode === 'edit'" src="/cchh/cartelera/ediciones/{{ edition.id }}/lienzo" title="Edición de {{ month_name }}"></iframe>
+          <iframe class="ct-ws__frame" x-ref="edit" x-show="mode === 'edit'" src="/cchh/cartelera/ediciones/{{ edition.id }}/lienzo?pagina={{ canvas_page }}{{ '&modo=ordenar' if editor_mode == 'ordenar' else '' }}" title="Edición de {{ month_name }}"></iframe>
           <iframe class="ct-ws__frame" x-ref="view" x-show="mode === 'view'" x-cloak title="Vista del colaborador" @load="quietView()"></iframe>
           <div class="ct-ws__loading" x-show="loading" x-cloak><span class="field-hint" x-text="loading"></span></div>
         </div>
@@ -140,7 +146,7 @@ function carteleraEditor(boot) {
   };
   return {
     revision: boot.revision, month: boot.month, saved: null, dirty: false, saving: false, msg: "", err: "", loading: "Preparando la cartelera…",
-    mode: "edit", page: "inicio", device: "desktop", side: window.innerWidth >= 1280, recovery: null, canvas: null, phase: "load", t: null,
+    mode: "edit", page: boot.page || "inicio", layout: !!boot.layout, device: "desktop", side: !boot.layout && window.innerWidth >= 1280, recovery: null, canvas: null, phase: "load", t: null,
     projects: null, projLoading: false, projErr: "", projQuery: "", picker: null,
 
     boot() {
@@ -161,7 +167,7 @@ function carteleraEditor(boot) {
       if (this.phase === "load" || this.phase === "discard") {
         this.saved = now; this.dirty = false;
         if (this.phase === "load") {
-          const draft = store.get();
+          const draft = this.layout ? null : store.get();             // Ordenar no ofrece ni pisa borradores del editor completo
           if (draft && draft.revision === this.revision && draft.payload && JSON.stringify(draft.payload) !== now) {
             this.recovery = { ...draft, when: new Date(draft.at).toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" }) };
           } else if (draft) store.clear();
@@ -176,6 +182,7 @@ function carteleraEditor(boot) {
       const p = this.payload(); if (!p) return;
       this.dirty = JSON.stringify(p) !== this.saved;
       clearTimeout(this.t);
+      if (this.layout) return;
       this.t = setTimeout(() => { if (this.dirty) store.set({ revision: this.revision, at: Date.now(), payload: this.payload() }); else if (!this.recovery) store.clear(); }, 400);
     },
     async renderInto(frame, payload, edit) {
@@ -190,8 +197,15 @@ function carteleraEditor(boot) {
     dropRecovery() { this.recovery = null; store.clear(); },
     reloadCanvas() {
       const f = this.$refs.edit; this.loading = "Preparando la cartelera…"; this.phase = "discard";
-      f.removeAttribute("srcdoc"); f.src = `/cchh/cartelera/ediciones/${this.month}/lienzo?pagina=${this.page}&t=${Date.now()}`;
+      f.removeAttribute("srcdoc"); f.src = `/cchh/cartelera/ediciones/${this.month}/lienzo?pagina=${this.page}${this.layout ? "&modo=ordenar" : ""}&t=${Date.now()}`;
     },
+    // ── modo Ordenar (botón de Novedades): mismo guardado; al terminar vuelve a la cartelera de origen ──
+    exitLayout() { this.dirty = false; location.assign(boot.back || "/cchh/cartelera"); },
+    async cancelLayout() {
+      if (this.dirty && !(await this.ask({ title: "Cancelar el orden", message: "Se descartan los cambios de orden y ancho que todavía no guardaste.", confirmLabel: "Descartar" }))) return;
+      this.exitLayout();
+    },
+    async saveLayout() { if (await this.save()) this.exitLayout(); },
     async discard() {
       if (!(await this.ask({ title: "Descartar cambios", message: "Se pierden los cambios que todavía no guardaste en esta edición.", confirmLabel: "Descartar" }))) return;
       store.clear(); this.recovery = null; this.mode = "edit"; this.reloadCanvas();

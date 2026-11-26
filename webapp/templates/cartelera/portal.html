@@ -14,7 +14,7 @@
   'link': 'M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1',
   'out': 'M14 4h6v6M20 4l-9 9M18 14v6H4V6h6', 'check': 'M5 12l5 5 9-10', 'image': 'M4 5h16v14H4zM4 16l5-5 4 4 2-2 5 5M15 9.5a1 1 0 1 0 0-.01',
   'move': 'M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3', 'up': 'M12 19V5M5 12l7-7 7 7', 'down': 'M12 5v14M19 12l-7 7-7-7',
-  'plus': 'M12 5v14M5 12h14', 'trash': 'M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6', 'swap': 'M7 7h11l-3-3M17 17H6l3 3'} -%}
+  'plus': 'M12 5v14M5 12h14', 'trash': 'M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6', 'swap': 'M7 7h11l-3-3M17 17H6l3 3', 'edit': 'M4 20h4L19 9l-4-4L4 16zM14 6l4 4'} -%}
 {%- set SECTION_ICON = {'comunicados': 'megaphone', 'proyectos': 'rocket', 'bienestar': 'heart', 'aprendizaje': 'bulb', 'cumpleanos': 'cake', 'otros': 'star', 'beneficios': 'gift'} -%}
 {%- macro ic(name, cls='') -%}<svg class="svg {{ cls }}" viewBox="0 0 24 24" aria-hidden="true"><path d="{{ ICONS.get(name, ICONS['star']) }}"/></svg>{%- endmacro -%}
 <!doctype html>
@@ -28,7 +28,7 @@
 <link rel="stylesheet" href="{{ url_for('static', path='cartelera_portal.css') }}?v={{ static_version }}">
 {% if edit_mode %}<link rel="stylesheet" href="{{ url_for('static', path='cartelera_canvas.css') }}?v={{ static_version }}"><script defer src="{{ url_for('static', path='cartelera_canvas.js') }}?v={{ static_version }}"></script>{% endif %}
 </head>
-<body{% if edit_mode %} class="ct-editing"{% endif %}>
+<body{% if edit_mode %} class="ct-editing{{ ' ct-layout' if layout_mode else '' }}"{% endif %}>
 <header class="top">
   <div class="wrap">
     <a class="brand" href="{{ urls.inicio }}" aria-label="Danwor, inicio"><img src="{{ url_for('static', path='cartelera/logo-danwor.png') }}" alt="Danwor" class="brand-logo"></a>
@@ -37,7 +37,7 @@
       <a href="{{ urls.novedades }}"{% if page == 'novedades' %} aria-current="page"{% endif %}>{{ ic('board') }}Novedades</a>
       <a href="{{ urls.nosotros }}"{% if page == 'nosotros' %} aria-current="page"{% endif %}>{{ ic('star') }}Nosotros</a>
     </nav>
-    {% if not presenting %}<div class="hdr-tools">
+    {% if not presenting and not edit_mode %}<div class="hdr-tools">
       {% if can_manage %}<a class="hdr-link" href="/cchh/cartelera">Gestionar</a>{% endif %}
       <a class="hdr-link" href="/onedanwor">Volver al Hub</a>
     </div>{% endif %}
@@ -69,7 +69,7 @@
     <div class="hero-main">
       <span class="eyebrow" style="color:var(--gold)">{{ svc.month_label(edition.id) if edition else svc.month_label(today_month) }}</span>
       <h1>{% if first_name %}Hola, {{ first_name }}. {% endif %}Esto es lo que está pasando en Danwor.</h1>
-      <p>{% if edition and edit_mode %}<span class="ct-edit" contenteditable="plaintext-only" spellcheck="true" data-ct-mirror="title" data-ph="Título de portada">{{ edition.title }}</span><span data-ct-sep{% if not edition.subtitle %} hidden{% endif %}> — </span><span class="ct-edit" contenteditable="plaintext-only" spellcheck="true" data-ct-mirror="subtitle" data-ph="Bajada (opcional)">{{ edition.subtitle }}</span>{% elif edition %}{{ edition.title }}{% if edition.subtitle %} — {{ edition.subtitle }}{% endif %}{% else %}Consultá las novedades del mes, encontrá información útil y celebrá con tus compañeros.{% endif %}</p>
+      <p>{% if edition and edit_mode and not layout_mode %}<span class="ct-edit" contenteditable="plaintext-only" spellcheck="true" data-ct-mirror="title" data-ph="Título de portada">{{ edition.title }}</span><span data-ct-sep{% if not edition.subtitle %} hidden{% endif %}> — </span><span class="ct-edit" contenteditable="plaintext-only" spellcheck="true" data-ct-mirror="subtitle" data-ph="Bajada (opcional)">{{ edition.subtitle }}</span>{% elif edition %}{{ edition.title }}{% if edition.subtitle %} — {{ edition.subtitle }}{% endif %}{% else %}Consultá las novedades del mes, encontrá información útil y celebrá con tus compañeros.{% endif %}</p>
       <div class="row" style="position:relative;z-index:1">
         <a class="btn primary" href="{{ urls.edition }}">{{ ic('board') }}Ver las novedades</a>
       </div>
@@ -117,26 +117,27 @@
 {% set E = edit_mode %}
 {% macro ed_btn(act, icon_name, label, extra='') -%}<button type="button" class="icon-btn ct-ed-btn" data-ct-act="{{ act }}" title="{{ label }}" aria-label="{{ label }}" {{ extra }}>{{ ic(icon_name) }}</button>{%- endmacro %}
 {% macro ed_text(field, value, tag='span', ph='', multi=False, cls='') -%}
-  {%- if edit_mode -%}<{{ tag }} class="ct-edit {{ cls }}" contenteditable="plaintext-only" spellcheck="true" data-ct-f="{{ field }}" data-ph="{{ ph }}"{% if multi %} data-multi{% endif %}>{{ value or '' }}</{{ tag }}>
+  {%- if edit_mode and layout_mode -%}<{{ tag }} class="ct-ro {{ cls }}" data-ct-f="{{ field }}" data-ph="{{ ph }}">{{ value or '' }}</{{ tag }}>
+  {%- elif edit_mode -%}<{{ tag }} class="ct-edit {{ cls }}" contenteditable="plaintext-only" spellcheck="true" data-ct-f="{{ field }}" data-ph="{{ ph }}"{% if multi %} data-multi{% endif %}>{{ value or '' }}</{{ tag }}>
   {%- elif value -%}<{{ tag }}{% if cls %} class="{{ cls }}"{% endif %}>{{ value }}</{{ tag }}>{%- endif -%}
 {%- endmacro %}
 {% macro item_tools(kind) -%}
   <div class="ct-ed ct-item-tools" contenteditable="false">
     <span class="grip" draggable="true" data-ct-grip="item" title="Arrastrar para ordenar (también a otra sección)">{{ ic('move') }}</span>
     {{ ed_btn('up', 'up', 'Subir') }}{{ ed_btn('down', 'down', 'Bajar') }}
-    {{ ed_btn('link', 'link', 'Enlace') }}
+    {% if not layout_mode %}{{ ed_btn('link', 'link', 'Enlace') }}
     {% if kind == 'projects' %}{{ ed_btn('swap', 'swap', 'Cambiar el proyecto de Operaciones') }}{% endif %}
     {{ ed_btn('', 'image', 'Imagen: disponible con la integración documental de SharePoint', 'disabled') }}
-    {{ ed_btn('del', 'trash', 'Quitar') }}
+    {{ ed_btn('del', 'trash', 'Quitar') }}{% endif %}
   </div>
   <span class="tag off ct-ed ct-feat" contenteditable="false" hidden>{{ ic('star') }}Destacado en Inicio</span>
 {%- endmacro %}
-{% macro link_panel(it, label=True) -%}
+{% macro link_panel(it, label=True) -%}{% if not layout_mode %}
   <div class="ct-ed ct-linkpanel" contenteditable="false" hidden>
     <label class="f">Enlace <span class="h">empieza con https://{% if label %} · el texto del botón se edita sobre la cartelera{% endif %}</span><input type="url" data-ct-link value="{{ it.link or '' }}" placeholder="https://"></label>
     <span class="ct-linkerr" hidden>Tiene que empezar con https://</span>
   </div>
-{%- endmacro %}
+{% endif %}{%- endmacro %}
 {% macro general_item(it) -%}
   {% if edit_mode %}
   <article class="item" data-ct-item data-id="{{ it.id }}" data-link="{{ it.link or '' }}">
@@ -151,7 +152,7 @@
 {% macro project_item(it) -%}
   <article class="item proj"{% if edit_mode %}  data-ct-item data-id="{{ it.id }}" data-link="{{ it.link or '' }}" data-project-id="{{ it.project_id }}" data-kind="{{ 'fin' if it.kind == 'fin' else 'inicio' }}"{% endif %}>
     {% if edit_mode %}{{ item_tools('projects') }}{% endif %}
-    <div class="row" style="gap:6px">{% if edit_mode %}<button type="button" class="tag {{ 'done' if it.kind == 'fin' else 'off' }} ct-ed ct-kind" contenteditable="false" data-ct-act="kind" title="Cambiar entre nuevo y finalizado">{{ ic('check' if it.kind == 'fin' else 'rocket') }}<span>{{ 'Proyecto finalizado' if it.kind == 'fin' else 'Nuevo proyecto' }}</span></button>{% else %}<span class="tag {{ 'done' if it.kind == 'fin' else 'off' }}">{{ ic('check' if it.kind == 'fin' else 'rocket') }}{{ 'Proyecto finalizado' if it.kind == 'fin' else 'Nuevo proyecto' }}</span>{% endif %}</div>
+    <div class="row" style="gap:6px">{% if edit_mode and not layout_mode %}<button type="button" class="tag {{ 'done' if it.kind == 'fin' else 'off' }} ct-ed ct-kind" contenteditable="false" data-ct-act="kind" title="Cambiar entre nuevo y finalizado">{{ ic('check' if it.kind == 'fin' else 'rocket') }}<span>{{ 'Proyecto finalizado' if it.kind == 'fin' else 'Nuevo proyecto' }}</span></button>{% else %}<span class="tag {{ 'done' if it.kind == 'fin' else 'off' }}">{{ ic('check' if it.kind == 'fin' else 'rocket') }}{{ 'Proyecto finalizado' if it.kind == 'fin' else 'Nuevo proyecto' }}</span>{% endif %}</div>
     <div class="pmeta"><span class="eyebrow">Cliente</span><h3{% if edit_mode %} data-ct-ro="client_name"{% endif %}>{{ it.client_name or '—' }}</h3></div>
     <div class="pmeta"><span class="eyebrow">Proyecto</span><b{% if edit_mode %} data-ct-ro="project_name"{% endif %}>{{ it.project_name }}</b></div>
     {% if it.service or edit_mode %}<div class="pmeta"><span class="eyebrow">Tipo de servicio</span>{{ ed_text('service', it.service, 'b', 'Ej.: Implementación SAP Datasphere') }}</div>{% endif %}
@@ -169,13 +170,21 @@
     <div class="card empty">Capital Humano todavía no publicó las novedades de este mes.</div>
   {% else %}
     <div class="row" style="justify-content:space-between;margin-bottom:16px"><div><span class="eyebrow">Novedades del mes</span><h1>{{ svc.month_label(edition.id) }}</h1></div>
-      {% if editions | length > 1 and not preview %}<div class="row"><label for="cartMonthSel" style="position:absolute;left:-9999px">Mes</label>
-        <select id="cartMonthSel" style="width:auto" onchange="location.href='/cartelera/novedades/' + this.value">{% for e in editions %}<option value="{{ e.id }}"{% if e.id == edition.id %} selected{% endif %}>{{ svc.month_label(e.id) }}</option>{% endfor %}</select></div>{% endif %}
+      {% set manage_here = can_manage and not preview and not presenting and not edit_mode %}
+      {% if (editions | length > 1 and not preview) or manage_here %}<div class="row">
+        {% if editions | length > 1 and not preview %}<label for="cartMonthSel" style="position:absolute;left:-9999px">Mes</label>
+        <select id="cartMonthSel" style="width:auto" onchange="location.href='/cartelera/novedades/' + this.value">{% for e in editions %}<option value="{{ e.id }}"{% if e.id == edition.id %} selected{% endif %}>{{ svc.month_label(e.id) }}</option>{% endfor %}</select>{% endif %}
+        {#- Acciones contextuales de la app original, SOLO para gestión de Capital Humano (lo decide el servidor: `can_manage`): abren el MISMO
+            editor inline del Hub sobre ESTA edición, posicionado en Novedades; «Ordenar» limita la capa a la composición. #}
+        {% if manage_here %}<a class="btn" href="/cchh/cartelera/ediciones/{{ edition.id }}?pagina=novedades&amp;modo=ordenar&amp;origen=portal">{{ ic('move') }}Ordenar</a>
+        <a class="btn" href="/cchh/cartelera/ediciones/{{ edition.id }}?pagina=novedades&amp;origen=portal">{{ ic('edit') }}Editar novedades</a>{% endif %}
+      </div>{% endif %}
     </div>
+    {% if E and layout_mode %}<div class="arr-bar ct-ed" contenteditable="false">{{ ic('move') }}<span><b>Modo ordenar.</b> Arrastrá las secciones para cambiarlas de lugar y los contenidos para darles más o menos prioridad (también entre secciones). Con <b>Poner al costado</b> o <b>Ancho completo</b> decidís si una sección comparte fila con otra. Guardá o cancelá desde la barra superior.</span></div>{% endif %}
     <section class="cart-banner"><div class="txt"><span class="eyebrow">{{ svc.month_label(edition.id) }}{{ ' · borrador' if preview and not E and not svc.is_visible(edition) else '' }}</span>
       {% if E %}{{ ed_text('title', edition.title, 'h1', 'Título de portada') }}{{ ed_text('subtitle', edition.subtitle, 'p', 'Bajada (opcional)') }}
       {% else %}<h1>{{ edition.title or ('Novedades de ' ~ svc.month_label(edition.id)) }}</h1>{% if edition.subtitle %}<p>{{ edition.subtitle }}</p>{% endif %}{% endif %}</div>
-      {% if E %}<div class="ct-ed ct-banner-tools" contenteditable="false"><button type="button" class="btn sm" disabled title="Disponible con la integración documental de SharePoint">{{ ic('image') }}Imagen de portada · pendiente</button></div>{% endif %}
+      {% if E and not layout_mode %}<div class="ct-ed ct-banner-tools" contenteditable="false"><button type="button" class="btn sm" disabled title="Disponible con la integración documental de SharePoint">{{ ic('image') }}Imagen de portada · pendiente</button></div>{% endif %}
     </section>
     <nav class="cart-nav" aria-label="Secciones de Novedades"{% if E %} data-ct-nav{% endif %}>
       {% for sec in edition.sections %}{% set meta = svc.SECTION_BY_KEY[sec.key] %}{% if E or sec['items'] or meta.kind == 'birthdays' or (meta.kind == 'links' and links) %}<a class="chip" href="#sec-{{ sec.key }}"{% if E %} data-ct-chip="{{ sec.key }}"{% endif %}>{{ ic(SECTION_ICON.get(sec.key, 'star')) }}{{ meta.title }}</a>{% endif %}{% endfor %}
@@ -206,9 +215,9 @@
           <p class="muted" style="font-size:12px;margin:10px 0 0">{{ calendar.count }} cumpleaños en {{ svc.MONTHS[edition.id[5:7] | int - 1] | lower }}.</p></div>
         {% elif meta.kind == 'projects' %}
           <div class="proj-grid"{% if E %} data-ct-items{% endif %}>{% for it in sec['items'] %}{{ project_item(it) }}{% endfor %}</div>
-          {% if E %}<button type="button" class="drop-empty ct-ed ct-add" contenteditable="false" data-ct-act="addproj">{{ ic('plus') }}Agregar proyecto desde Operaciones</button>{% endif %}
+          {% if E and not layout_mode %}<button type="button" class="drop-empty ct-ed ct-add" contenteditable="false" data-ct-act="addproj">{{ ic('plus') }}Agregar proyecto desde Operaciones</button>{% endif %}
         {% else %}
-          {% if E %}<div class="ct-items" data-ct-items>{% endif %}{% for it in sec['items'] %}{{ general_item(it) }}{% endfor %}{% if E %}</div>
+          {% if E %}<div class="ct-items" data-ct-items>{% endif %}{% for it in sec['items'] %}{{ general_item(it) }}{% endfor %}{% if E %}</div>{% endif %}{% if E and not layout_mode %}
           <button type="button" class="drop-empty ct-ed ct-add" contenteditable="false" data-ct-act="add">{{ ic('plus') }}Agregar contenido</button>{% endif %}
           {% if meta.kind == 'links' %}
             {% if links %}<div class="links">{{ links_html(links) }}</div>{% endif %}
