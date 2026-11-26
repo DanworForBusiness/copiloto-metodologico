@@ -166,7 +166,7 @@
     {% set rest_title = 'Cumpleaños de ' ~ mname if hb.mode == 'past' else 'Próximos cumpleaños' %}
     <div class="card pad bday-tile" data-bfit>
       {#- Encabezado con la estructura de los tiles de Inicio (`.space`): ícono en el cuadrado dorado + título; «Ver calendario» a la derecha. -#}
-      <div class="bday-head"><span class="ic">{{ ic('cake', 'lg') }}</span>{% if edition %}<a href="{{ urls.edition }}#sec-cumpleanos" class="muted" style="font-size:12px">Ver calendario</a>{% endif %}</div>
+      <div class="bday-head"><span class="ic">{{ ic('cake', 'lg') }}</span>{% if edition %}<a href="{{ urls.edition }}#sec-cumpleanos" class="text-link">Ver calendario <span aria-hidden="true">→</span></a>{% endif %}</div>
       <h2 class="bday-title">{{ 'Cumpleaños de hoy' if hb.today else (rest_title if rest else 'Cumpleaños') }}</h2>
       {% for b in hb.today %}<div class="bday-today" data-brow><span class="avatar" style="background:var(--gold)">{{ ic('cake') }}</span><div style="flex:1;min-width:0"><b>{{ b.name }}</b><div class="muted" style="font-size:12px">Cumple hoy</div></div>{% set gid = b.id ~ '-' ~ this_year %}{% if gid in live_greetings and not edit_mode %}<a class="btn sm" href="/cartelera/saludos/{{ gid }}#saludar">Saludar</a>{% endif %}</div>{% endfor %}
       {% if rest %}<div class="bday-group" data-bgroup>{% if hb.today %}<div class="eyebrow bday-sub">{{ rest_title }}</div>{% endif %}
@@ -184,7 +184,7 @@
 
   <section class="home-grid">
     <div class="card pad">
-      <div class="row" style="justify-content:space-between;margin-bottom:6px"><h2>Destacado</h2>{% if edition %}<a href="{{ urls.edition }}" class="muted" style="font-size:12px">Ir a Novedades</a>{% endif %}</div>
+      <div class="row" style="justify-content:space-between;margin-bottom:6px"><h2>Destacado</h2>{% if edition %}<a href="{{ urls.edition }}" class="text-link">Ir a Novedades <span aria-hidden="true">→</span></a>{% endif %}</div>
       {% if edit_mode %}<div data-ct-featured>{% endif %}{% set ns = namespace(n=0) %}
       {% if edition %}{% for sec in edition.sections if svc.SECTION_BY_KEY[sec.key].kind in ('general', 'projects') %}{% for it in sec['items'] %}{% if ns.n < 6 %}{% set ns.n = ns.n + 1 %}
         <div class="mini-post"><div class="row" style="gap:6px"><span class="tag cat">{{ svc.SECTION_BY_KEY[sec.key].title }}</span></div>
@@ -307,7 +307,7 @@
       <span class="eyebrow">Cumpleaños</span>
       <div class="bday-today"><span class="avatar" style="background:var(--gold)">{{ ic('cake') }}</span><div style="flex:1"><b>{{ birthday.name }}</b><div class="muted" style="font-size:12px">{{ greet_date.day }} de {{ svc.MONTHS[greet_date.month - 1] | lower }}</div></div></div>
       <p class="muted" style="margin:6px 0 0;font-size:13px">¡Sumate al saludo de todo el equipo de Danwor!</p>
-      {% if not edit_mode %}<a href="{{ urls.edition }}#sec-cumpleanos" class="muted" style="font-size:12px">Ver el calendario del mes</a>{% endif %}
+      {% if not edit_mode %}<a href="{{ urls.edition }}#sec-cumpleanos" class="text-link">Ver el calendario del mes <span aria-hidden="true">→</span></a>{% endif %}
     </div>
   </section>
   {% if social_on %}<div class="card pad">{{ social_block('greeting:' ~ g.id) }}</div>{% endif %}

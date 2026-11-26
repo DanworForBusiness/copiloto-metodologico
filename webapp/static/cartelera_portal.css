@@ -388,3 +388,9 @@ a.chip{text-decoration:none}
 @media (max-width:760px){.bday-tile--fit{contain:none;min-height:0;overflow:visible}}  /* apilado: sin alto de referencia, crece con un tope de filas (JS) */
 .bday-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}  /* mismo ícono que los tiles .space */
 .bday-title{margin:2px 0 2px}
+/* Enlaces textuales secundarios (Ver calendario, Ir a Novedades…): mismo tratamiento que el enlace del Hub «¿Falta una sección? Sugerí
+   una →» (tools.css `.tool-suggest__box > summary` / `.tool-suggest__link a`): token gold, peso 600, ~.78rem, sin subrayado permanente,
+   flecha al 75 % y subrayado solo en hover. Con la tipografía del portal (sin importar hojas del Hub). Prueba visual reversible. */
+.text-link{color:var(--gold);font-weight:600;font-size:12px;text-decoration:none;white-space:nowrap}
+.text-link span{opacity:.75}
+.text-link:hover{text-decoration:underline;text-underline-offset:2px}
