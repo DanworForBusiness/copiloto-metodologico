@@ -230,10 +230,13 @@
       </div>{% endif %}
     </div>
     {% if E and layout_mode %}<div class="arr-bar ct-ed" contenteditable="false">{{ ic('move') }}<span><b>Modo ordenar.</b> Arrastrá las secciones para cambiarlas de lugar y los contenidos para darles más o menos prioridad (también entre secciones). Con <b>Poner al costado</b> o <b>Ancho completo</b> decidís si una sección comparte fila con otra. Guardá o cancelá desde la barra superior.</span></div>{% endif %}
-    <section class="cart-banner"><div class="txt"><span class="eyebrow">{{ svc.month_label(edition.id) }}{{ ' · borrador' if preview and not E and not svc.is_visible(edition) else '' }}</span>
+    {#- Portada de la edición: MISMO servicio multimedia que los contenidos (carga, validación, persistencia y ruta autorizada); ocupa la
+        columna de imagen que el diseño original ya tenía en `.cart-banner`. -#}
+    <section class="cart-banner"{% if E %} data-ct-cover="{{ edition.cover_image or '' }}"{% endif %}><div class="txt"><span class="eyebrow">{{ svc.month_label(edition.id) }}{{ ' · borrador' if preview and not E and not svc.is_visible(edition) else '' }}</span>
       {% if E %}{{ ed_text('title', edition.title, 'h1', 'Título de portada') }}{{ ed_text('subtitle', edition.subtitle, 'p', 'Bajada (opcional)') }}
       {% else %}<h1>{{ edition.title or ('Novedades de ' ~ svc.month_label(edition.id)) }}</h1>{% if edition.subtitle %}<p>{{ edition.subtitle }}</p>{% endif %}{% endif %}</div>
-      {% if E and not layout_mode %}<div class="ct-ed ct-banner-tools" contenteditable="false"><button type="button" class="btn sm" disabled title="Disponible con la integración documental de SharePoint">{{ ic('image') }}Imagen de portada · pendiente</button></div>{% endif %}
+      {% if edition.cover_image or E %}<img class="cart-cover" data-ct-cover-img src="{{ '/cartelera/media/' ~ edition.cover_image ~ '/display' if edition.cover_image else '' }}" alt=""{% if not edition.cover_image %} hidden{% endif %}>{% endif %}
+      {% if E and not layout_mode %}<div class="ct-ed ct-banner-tools" contenteditable="false"><button type="button" class="btn sm" data-ct-act="cover">{{ ic('image') }}<span data-ct-cover-label>{{ 'Cambiar portada' if edition.cover_image else 'Imagen de portada' }}</span></button><button type="button" class="btn sm" data-ct-act="uncover"{% if not edition.cover_image %} hidden{% endif %}>{{ ic('trash') }}Quitar</button></div>{% endif %}
     </section>
     <nav class="cart-nav" aria-label="Secciones de Novedades"{% if E %} data-ct-nav{% endif %}>
       {% for sec in edition.sections %}{% set meta = svc.SECTION_BY_KEY[sec.key] %}{% if E or sec['items'] or meta.kind == 'birthdays' or (meta.kind == 'links' and links) %}<a class="chip" href="#sec-{{ sec.key }}" title="{{ meta.title }}"{% if E %} data-ct-chip="{{ sec.key }}"{% endif %}>{{ ic(SECTION_ICON.get(sec.key, 'star')) }}<span class="chip-t">{{ meta.title }}</span></a>{% endif %}{% endfor %}

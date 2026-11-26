@@ -105,3 +105,22 @@ def test_album_photos_survive_editing_album_attributes(no_sharepoint):
     svc.save_institutional(svc.institutional()["revision"], mission="M", vision="V", values=[], actor="t",
                            albums=[{**alb, "title": "Fiesta 2026", "description": "Nueva descripción"}])
     assert svc.institutional()["albums"][0]["photos"] == alb["photos"]
+
+
+
+def test_edition_cover_uses_the_same_media_service_and_access_rules(editions, no_sharepoint, monkeypatch):  # noqa: F811
+    from webapp.routers import cartelera as router
+    monkeypatch.setattr(router, "PORTAL_LAUNCHED", True)
+    cur, nxt, _ = editions
+    cchh, ops = session_client(CCHH_EMAIL), session_client(OPS_A)
+    mid = cchh.post("/cchh/cartelera/media", headers=ORIGIN, data={"scope": "novedades", "context": nxt},
+                    files={"file": ("portada.png", _png(1400, 500), "image/png")}).json()["id"]
+    saved = svc.save_content(nxt, repo.get("editions", nxt)["revision"], title="F", subtitle="", sections=[], actor="t", cover=mid)
+    assert saved["cover_image"] == mid and ops.get(f"/cartelera/media/{mid}/display").status_code == 404     # programada: no
+    saved = svc.save_content(nxt, saved["revision"], title="F", subtitle="", sections=[], actor="t")
+    assert saved["cover_image"] == mid                                                         # sin `cover` en el pedido: se conserva
+    svc.save_content(cur, repo.get("editions", cur)["revision"], title="P", subtitle="", sections=[], actor="t", cover=mid)
+    assert ops.get(f"/cartelera/media/{mid}/display").status_code == 200                       # publicada: visible
+    assert f'/cartelera/media/{mid}/display' in ops.get(f"/cartelera/novedades/{cur}").text
+    assert svc.copy_edition(cur, "2031-04", actor="t")["cover_image"] == mid
+    assert svc.save_content(cur, repo.get("editions", cur)["revision"], title="P", subtitle="", sections=[], actor="t", cover="")["cover_image"] == ""

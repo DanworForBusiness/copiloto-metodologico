@@ -45,6 +45,8 @@ _ID = re.compile(r"^[0-9a-f]{32}$")
 _lock = threading.Lock()
 
 Image.MAX_IMAGE_PIXELS = MAX_PIXELS
+MEDIA_REL = "human-capital/cartelera/media"
+remote_store.register_lazy_dir(MEDIA_REL)      # el arranque no baja el histórico multimedia: cada archivo se recupera al pedirlo
 
 
 class MediaError(ValueError):
@@ -56,18 +58,15 @@ def valid_id(media_id: str) -> bool:
 
 
 def _dir(media_id: str) -> Path:
-    return config.BASE_DIR / "human-capital" / "cartelera" / "media" / media_id
+    return config.BASE_DIR / MEDIA_REL / media_id
 
 
 def meta(media_id: str) -> dict | None:
     if not valid_id(media_id):
         return None
     p = _dir(media_id) / "meta.json"
-    if not p.exists():
-        data = remote_store.read_object_bytes(p) if remote_store.enabled() else None
-        if not data:
-            return None
-        remote_store.write_through(p, data)                                       # rehidrata la copia local
+    if not p.exists() and not remote_store.fetch_lazy(p):                         # bajo demanda desde Spaces (sin resubir)
+        return None
     try:
         return json.loads(p.read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -79,11 +78,8 @@ def variant_bytes(media_id: str, variant: str) -> tuple[bytes, str] | None:
     if variant not in ("display", "thumb") or not valid_id(media_id):
         return None
     p = _dir(media_id) / f"{variant}.webp"
-    if not p.exists():
-        data = remote_store.read_object_bytes(p) if remote_store.enabled() else None
-        if not data:
-            return None
-        remote_store.write_through(p, data)
+    if not p.exists() and not remote_store.fetch_lazy(p):
+        return None
     return p.read_bytes(), "image/webp"
 
 

@@ -415,3 +415,4 @@ a.chip{text-decoration:none}
 .cp-img img{display:block;max-width:100%;max-height:260px;height:auto;object-fit:contain;border-radius:8px}
 .cp-img[hidden],[data-cp-imgadd][hidden]{display:none}
 .cp-img.is-uploading img{opacity:.45}
+.cart-banner img[hidden]{display:none}

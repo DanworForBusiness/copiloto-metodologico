@@ -319,7 +319,8 @@ def copy_edition(source_month: str, month: str, actor: str) -> dict:
     fields = {"month": month, "title": source.get("title", ""), "subtitle": source.get("subtitle", ""), "state": "draft",
               "publish_at": None, "published_at": None, "sections": sections, "copied_from": source_month,
               "home": dict(source.get("home") or {}),
-              "about": json.loads(json.dumps(source.get("about") or {})),          # solo personalizaciones: lo demás sigue heredándose
+              "about": json.loads(json.dumps(source.get("about") or {})),
+              "cover_image": source.get("cover_image") or "",                       # misma imagen (referencia compartida, no se duplica)          # solo personalizaciones: lo demás sigue heredándose
               "history": _history(None, actor, f"Creó la edición como copia de {month_label(source_month)}")}
     return repo.save("editions", month, fields, expected_revision=None)
 
@@ -356,17 +357,17 @@ def _items_from_form(kind: str, rows: list[dict]) -> list[dict]:
 
 
 def save_content(month: str, revision: int, *, title: str, subtitle: str, sections: list[dict], actor: str, home: dict | None = None,
-                 about: dict | None = None) -> dict:
+                 about: dict | None = None, cover: str | None = None) -> dict:
     """Guarda portada, textos de Inicio (`home`, si vienen) y secciones (orden, ancho e ítems). No cambia el estado de publicación."""
     edition = get_edition(month)
     if edition is None:
         raise repo.CarteleraNotFoundError(month)
-    fields = {**_clean_content(title, subtitle, sections, home, edition, about), "history": _history(edition, actor, EDIT_ACTION)}
+    fields = {**_clean_content(title, subtitle, sections, home, edition, about, cover), "history": _history(edition, actor, EDIT_ACTION)}
     return repo.save("editions", month, fields, expected_revision=revision)
 
 
 def _clean_content(title: str, subtitle: str, sections: list[dict], home: dict | None = None, edition: dict | None = None,
-                   about: dict | None = None) -> dict:
+                   about: dict | None = None, cover: str | None = None) -> dict:
     clean = []
     for sec in sections:
         meta = SECTION_BY_KEY.get(sec.get("key"))
@@ -379,11 +380,13 @@ def _clean_content(title: str, subtitle: str, sections: list[dict], home: dict |
         out["home"] = {**((edition or {}).get("home") or {}), **_clean_home(home)}
     if about is not None:                                                   # el lienzo envía TODAS las personalizaciones vigentes de Nosotros
         out["about"] = _clean_about(about)
+    if cover is not None:                                                   # imagen de portada (servicio multimedia); "" = sin portada
+        out["cover_image"] = media_ref(cover)
     return out
 
 
 def draft_edition(month: str, *, title: str, subtitle: str, sections: list[dict], home: dict | None = None,
-                  about: dict | None = None) -> dict:
+                  about: dict | None = None, cover: str | None = None) -> dict:
     """Edición con el borrador del lienzo SIN validar (para volver a dibujarlo en modo edición, p. ej. al recuperar cambios locales): los
     textos se recortan y se escapan al renderizar; los enlaces inválidos se conservan para que el editor los marque. Nunca se persiste."""
     edition = get_edition(month)
@@ -406,17 +409,19 @@ def draft_edition(month: str, *, title: str, subtitle: str, sections: list[dict]
         draft["home"] = {**(edition.get("home") or {}), **_clean_home(home, lambda v: clip(v, HOME_LIMIT))}
     if about is not None:
         draft["about"] = _clean_about(about, lambda v, n: clip(v, n))
+    if cover is not None:
+        draft["cover_image"] = media_ref(cover)
     return draft
 
 
 def preview_edition(month: str, *, title: str, subtitle: str, sections: list[dict], home: dict | None = None,
-                    about: dict | None = None) -> dict:
+                    about: dict | None = None, cover: str | None = None) -> dict:
     """Edición tal como quedaría con el contenido EN PANTALLA del editor (sin guardar): MISMA validación que `save_content`, nada se persiste.
     Conserva estado y fechas de la guardada: la vista previa nunca cambia qué ven los colaboradores."""
     edition = get_edition(month)
     if edition is None:
         raise repo.CarteleraNotFoundError(month)
-    return {**edition, **_clean_content(title, subtitle, sections, home, edition, about)}
+    return {**edition, **_clean_content(title, subtitle, sections, home, edition, about, cover)}
 
 
 def publish_now(month: str, revision: int, actor: str) -> dict:

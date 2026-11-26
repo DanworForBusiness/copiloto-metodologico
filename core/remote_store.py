@@ -169,6 +169,53 @@ def _key(rel_posix: str) -> str:
     return f"{prefix}/{rel_posix}" if prefix else rel_posix
 
 
+# Directorios BAJO DEMANDA (relativos a BASE_DIR): siguen persistiéndose como siempre (write_through/push_path/mirror_up), pero el
+# restore del arranque NO los descarga; se recuperan archivo por archivo con `fetch_lazy` cuando alguien los pide. Pensado para binarios que
+# crecen con el uso (imágenes de Cartelera): sin esto, cada reinicio bajaría todo el histórico multimedia al disco efímero.
+_lazy_dirs: set[str] = set()
+
+
+def register_lazy_dir(rel_posix: str) -> None:
+    _lazy_dirs.add(rel_posix.strip("/"))
+
+
+def _is_lazy(dest: Path) -> bool:
+    base = config.BASE_DIR
+    for rel in _lazy_dirs:
+        try:
+            dest.relative_to(base / rel)
+            return True
+        except ValueError:
+            continue
+    return False
+
+
+def fetch_lazy(local_path: str | Path) -> bool:
+    """Recupera UN objeto persistido que el restore no bajó (directorio bajo demanda). Escribe atómico y siembra la firma para que
+    `mirror_up` no lo vuelva a subir. True si quedó en disco; False si no existe remotamente o no se pudo leer (nunca lanza)."""
+    path = Path(local_path)
+    try:
+        data = read_object_bytes(path)
+    except Exception as exc:  # noqa: BLE001 — persistencia deshabilitada o lectura irresoluble: el llamador responde «no disponible»
+        log.info("remote_store.fetch_lazy: %s no disponible: %s", path.name, exc)
+        return False
+    if data is None:
+        return False
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.lazy")
+    tmp.write_bytes(data)
+    os.replace(tmp, path)
+    resolved = path.resolve()
+    for name, local in _persist_dirs():
+        try:
+            rel = resolved.relative_to(local.resolve()).as_posix()
+        except ValueError:
+            continue
+        _signatures[f"{_key(name)}/{rel}"] = _sig(path)                  # ya ES la copia remota: mirror_up no la resube
+        break
+    return True
+
+
 def _persist_dirs() -> list[tuple[str, Path]]:
     """(nombre-lógico, ruta-local) por cada directorio a persistir. El catálogo
     respeta DANWOR_CATALOG_DIR si está definido; el resto cuelga de BASE_DIR."""
@@ -280,6 +327,8 @@ def restore(overwrite: bool = False) -> int:
                     sub = key[len(root_key) + 1:]
                     if not sub or key.endswith("/"):
                         continue  # marcador de carpeta
+                    if _lazy_dirs and _is_lazy(local / sub):
+                        continue  # directorio bajo demanda: se recupera con fetch_lazy cuando se pide
                     jobs.append((key, local / sub, obj.get("Size"), obj.get("ETag")))
         except Exception as exc:
             listing_failed = True
