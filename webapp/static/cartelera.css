@@ -239,7 +239,6 @@ a.ct-space:hover { border-color: var(--ct-gold); }
 @media (max-width: 980px) { .ct-ws__body.has-side { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; } .ct-ws__side { max-height: 45vh; border-left: 0; border-top: 1px solid var(--content-line, rgba(128,128,128,.24)); } }
 
 /* Cumpleaños: el saludo de cada próximo cumpleaños, dentro de su tarjeta `.activity-kpi` */
-.cartelera-bday-lead { margin: 0 0 12px; }
 .cartelera-greet-cta { white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; color: var(--gold); font: 600 .72rem var(--sans); text-decoration: none; }
 .cartelera-greet-cta svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .cartelera-greet-cta:hover { text-decoration: underline; }

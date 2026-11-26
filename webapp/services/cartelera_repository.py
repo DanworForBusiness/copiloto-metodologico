@@ -172,8 +172,9 @@ def list_all(collection: str) -> list[dict]:
     return out
 
 
-def save(collection: str, doc_id: str, fields: dict, *, expected_revision: int | None) -> dict:
-    """Crea (`expected_revision=None`, falla si ya existe) o actualiza con concurrencia optimista. `fields` ya validado por el servicio."""
+def save(collection: str, doc_id: str, fields: dict, *, expected_revision: int | None, drop: tuple = ()) -> dict:
+    """Crea (`expected_revision=None`, falla si ya existe) o actualiza con concurrencia optimista. `fields` ya validado por el servicio.
+    `drop`: campos que se eliminan del documento (consolidaciones de modelo)."""
     with _write_lock:
         path = _path(collection, doc_id)
         current = get(collection, doc_id)
@@ -185,7 +186,8 @@ def save(collection: str, doc_id: str, fields: dict, *, expected_revision: int |
             if int(current.get("revision", 1)) != int(expected_revision):
                 raise CarteleraConcurrentModificationError("El contenido cambió desde que abriste el formulario. Recargá antes de guardar.")
         now = now_iso()
-        payload = {**(json.loads(json.dumps(current)) if current else {}), **fields,
+        base = {k: v for k, v in (json.loads(json.dumps(current)) if current else {}).items() if k not in drop}
+        payload = {**base, **fields,
                    "id": doc_id, "schema_version": SCHEMA_VERSION,
                    "revision": (int(current.get("revision", 1)) + 1) if current else 1,
                    "created_at": (current or {}).get("created_at") or now, "updated_at": now}

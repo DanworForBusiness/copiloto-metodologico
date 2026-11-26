@@ -73,8 +73,9 @@ def seed() -> None:
         day = today + timedelta(days=offset)
         saved = svc.save_birthday(None, None, name=name, day=day.day, month=day.month, authorized=authorized, actor=actor)
         by_name[name] = saved
-        if hidden:
-            svc.set_birthday_hidden(saved["id"], saved["revision"], True, actor)
+        if hidden:                                                         # registro del modelo anterior: la consolidación lo deja sin autorización
+            repo.save("birthdays", saved["id"], {"hidden": True, "hidden_change": {"value": True, "by": actor, "at": repo.now_iso()}},
+                      expected_revision=saved["revision"])
 
     # Saludos («Preparar saludo»): publicado para quien cumple hoy, programado para su día a las 9 y otro en borrador; el resto, sin preparar.
     def greet(name, body=None):

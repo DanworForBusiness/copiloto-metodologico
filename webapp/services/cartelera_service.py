@@ -397,8 +397,40 @@ def visible_editions(now: datetime | None = None) -> list[dict]:
 
 
 # ── cumpleaños ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+# Modelo de cumpleaños: nombre, día, mes y AUTORIZACIÓN DE PUBLICACIÓN (único atributo de publicación). Autorizado ⇒ publicable; sin
+# autorización ⇒ nunca aparece en la Cartelera. Cada cambio de autorización queda registrado (`authorization` + `authorization_log`).
+CONSOLIDATION_ACTOR = "Consolidación del modelo (estaba oculto)"
+
+
+def _consolidate(b: dict) -> dict:
+    """Registros del modelo anterior (autorización + ocultamiento). Un cumpleaños que estaba OCULTO pasa a SIN AUTORIZACIÓN (nunca se
+    vuelve visible por la simplificación), dejando la traza; el campo de ocultamiento desaparece. Se persiste en el primer uso y, si la
+    escritura fallara, igual se devuelve consolidado: lo oculto jamás se publica."""
+    if "hidden" not in b and "hidden_change" not in b:
+        return b
+    fields = {}
+    if b.get("hidden") and b.get("authorized"):
+        entry = {"value": False, "by": CONSOLIDATION_ACTOR, "at": repo.now_iso()}
+        fields = {"authorized": False, "authorization": entry, "authorization_log": [*(b.get("authorization_log") or []), entry][-50:]}
+    clean = {k: v for k, v in b.items() if k not in ("hidden", "hidden_change")}
+    try:
+        return repo.save("birthdays", b["id"], fields, expected_revision=b.get("revision"), drop=("hidden", "hidden_change"))
+    except Exception:                                                     # noqa: BLE001 — la lectura nunca publica lo que estaba oculto
+        return {**clean, **fields}
+
+
+def get_birthday(birthday_id: str) -> dict | None:
+    b = repo.get("birthdays", birthday_id)
+    return _consolidate(b) if b else None
+
+
 def list_birthdays() -> list[dict]:
-    return sorted(repo.list_all("birthdays"), key=lambda b: (int(b.get("month", 0)), int(b.get("day", 0)), b.get("name", "").lower()))
+    rows = [_consolidate(b) for b in repo.list_all("birthdays")]
+    return sorted(rows, key=lambda b: (int(b.get("month", 0)), int(b.get("day", 0)), b.get("name", "").lower()))
+
+
+def is_publishable(b: dict | None) -> bool:
+    return bool(b and b.get("authorized"))
 
 
 def _valid_day_month(day, month) -> tuple[int, int]:
@@ -415,17 +447,13 @@ def save_birthday(birthday_id: str | None, revision: int | None, *, name: str, d
     if not name:
         raise CarteleraValidationError("Completá el nombre.")
     d, m = _valid_day_month(day, month)
-    current = repo.get("birthdays", birthday_id) if birthday_id else None
-    fields = {"name": name, "day": d, "month": m, "authorized": bool(authorized),
-              "hidden": bool((current or {}).get("hidden", False))}
+    current = get_birthday(birthday_id) if birthday_id else None
+    fields = {"name": name, "day": d, "month": m, "authorized": bool(authorized)}
     if not current or bool(current.get("authorized")) != bool(authorized):
-        fields["authorization"] = {"value": bool(authorized), "by": actor, "at": repo.now_iso()}
+        entry = {"value": bool(authorized), "by": actor, "at": repo.now_iso()}
+        fields["authorization"] = entry
+        fields["authorization_log"] = [*((current or {}).get("authorization_log") or []), entry][-50:]
     return repo.save("birthdays", birthday_id or uuid.uuid4().hex, fields, expected_revision=revision if current else None)
-
-
-def set_birthday_hidden(birthday_id: str, revision: int, hidden: bool, actor: str) -> dict:
-    return repo.save("birthdays", birthday_id, {"hidden": bool(hidden), "hidden_change": {"value": bool(hidden), "by": actor, "at": repo.now_iso()}},
-                     expected_revision=revision)
 
 
 def import_birthdays(text: str, actor: str, *, authorized: bool) -> tuple[int, list[str]]:
@@ -454,18 +482,10 @@ def import_birthdays(text: str, actor: str, *, authorized: bool) -> tuple[int, l
     return created, rejected
 
 
-def birthday_visibility(b: dict) -> str:
-    """`visible` (autorización registrada y no oculto) · `hidden` (autorizado pero ocultado voluntariamente) · `unauthorized` (sin autorización:
-    NUNCA visible, aunque no esté oculto)."""
-    if not b.get("authorized"):
-        return "unauthorized"
-    return "hidden" if b.get("hidden") else "visible"
+AUTH_FILTERS = {"si": "Autorizado", "no": "Sin autorización"}
 
 
-VISIBILITY_LABELS = {"visible": "Visible", "hidden": "Oculto", "unauthorized": "Sin autorización"}
-
-
-def filter_birthdays(*, q: str = "", month: str = "", visibility: str = "") -> list[dict]:
+def filter_birthdays(*, q: str = "", month: str = "", authorized: str = "") -> list[dict]:
     q = (q or "").strip().lower()
     out = []
     for b in list_birthdays():
@@ -473,7 +493,7 @@ def filter_birthdays(*, q: str = "", month: str = "", visibility: str = "") -> l
             continue
         if month and str(b.get("month")) != str(month):
             continue
-        if visibility and birthday_visibility(b) != visibility:
+        if authorized and is_publishable(b) != (authorized == "si"):
             continue
         out.append(b)
     return out
@@ -506,8 +526,8 @@ def preview_birthday_import(text: str) -> list[dict]:
 
 
 def public_birthdays() -> list[dict]:
-    """Solo los que tienen autorización de publicación y no están ocultos."""
-    return [b for b in list_birthdays() if b.get("authorized") and not b.get("hidden")]
+    """Solo los que tienen autorización de publicación."""
+    return [b for b in list_birthdays() if is_publishable(b)]
 
 
 def birthdays_of_month(month: int) -> list[dict]:
@@ -566,11 +586,10 @@ def get_greeting(gid: str) -> dict | None:
 
 
 def greeting_visible(g: dict | None, now: datetime | None = None) -> bool:
-    """Lo ven los colaboradores: publicado (o programado vencido) Y la persona sigue autorizada y visible."""
+    """Lo ven los colaboradores: publicado (o programado vencido) Y la persona sigue autorizada."""
     if not g or not is_visible(g, now):
         return False
-    b = repo.get("birthdays", g.get("birthday_id", ""))
-    return bool(b and birthday_visibility(b) == "visible")
+    return is_publishable(get_birthday(g.get("birthday_id", "")))
 
 
 def greeting_status(b: dict, today: date | None = None) -> dict:
@@ -579,7 +598,7 @@ def greeting_status(b: dict, today: date | None = None) -> dict:
     g = get_greeting(greeting_id(b["id"], when.year))
     state = effective_state(g) if g else "none"
     return {"id": greeting_id(b["id"], when.year), "year": when.year, "date": when, "state": state, "greeting": g,
-            "can_prepare": birthday_visibility(b) == "visible"}
+            "can_prepare": is_publishable(b)}
 
 
 def live_greetings(year: int) -> set:
@@ -589,12 +608,11 @@ def live_greetings(year: int) -> set:
 
 def greeting_birthday(birthday_id: str) -> dict:
     """Cumpleaños para preparar o publicar su saludo: tiene que existir y estar autorizado y visible."""
-    b = repo.get("birthdays", birthday_id)
+    b = get_birthday(birthday_id)
     if b is None:
         raise repo.CarteleraNotFoundError(birthday_id)
-    if birthday_visibility(b) != "visible":
-        raise CarteleraValidationError("Para preparar el saludo, " + (b.get("name") or "la persona")
-                                       + " tiene que tener la autorización registrada y no estar oculta.")
+    if not is_publishable(b):
+        raise CarteleraValidationError("Para preparar el saludo, " + (b.get("name") or "la persona") + " tiene que tener la autorización de publicación.")
     return b
 
 
