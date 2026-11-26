@@ -1,12 +1,13 @@
 /* Cartelera Virtual — gestión (dentro de Capital Humano, sobre los componentes del Hub) y portal standalone de consumo. */
 
 /* ── Gestión ─────────────────────────────────────────────────────────────────────────────────────────────────────────── */
-/* MISMO lenguaje de campo que `.hc-profile-form` (human_capital.css), sin su grilla de columnas sobre el contenedor. */
+/* MISMO lenguaje de campo que `.hc-profile-form` (human_capital.css), sin su grilla de columnas sobre el contenedor. Los controles de
+   componentes COMPARTIDOS que traen su propio estilo (selector de tamaño del paginador `.activity-pager__size`) quedan fuera. */
 #hc-cartelera-panel input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]),
-#hc-cartelera-panel select,
+#hc-cartelera-panel select:not(.activity-pager__size),
 #hc-cartelera-panel textarea { width: 100%; padding: 8px 11px; border: 1px solid rgba(128,128,128,.35); border-radius: 8px; background: transparent; color: #1f1f24; font: .82rem var(--sans); }
 .content-theme-dark #hc-cartelera-panel input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]),
-.content-theme-dark #hc-cartelera-panel select,
+.content-theme-dark #hc-cartelera-panel select:not(.activity-pager__size),
 .content-theme-dark #hc-cartelera-panel textarea { color: #e4e4ec; }
 #hc-cartelera-panel textarea { resize: vertical; line-height: 1.45; }
 #hc-cartelera-panel .feedback-field label { display: block; margin-bottom: 4px; }
