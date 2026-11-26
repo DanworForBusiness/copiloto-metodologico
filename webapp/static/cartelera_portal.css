@@ -405,3 +405,13 @@ a.chip{text-decoration:none}
    no hay espacio extra: alto natural. */
 .cat-sec .item{display:flex;flex-direction:column}
 .cat-sec .item>.ct-social{margin-top:auto}
+/* Imágenes del servicio multimedia (Novedades): proporción original, sin recortes; el ancho lo da el tile. */
+.item-fig{margin:0;border-radius:8px;overflow:hidden;background:var(--surface-2)}
+.item .item-fig .item-img{display:block;width:auto;max-width:100%;height:auto;max-height:520px;margin:0 auto;object-fit:contain}  /* un flyer vertical se ve completo, centrado */
+/* Imagen o flyer de Comunidad: proporción original (un flyer vertical se ve completo), sin recortes. */
+.post-fig,.cp-img{margin:0;border-radius:10px;overflow:hidden;background:var(--surface-2);display:grid;gap:8px;justify-items:center}
+.post-fig img{display:block;width:100%;height:auto;max-height:640px;object-fit:contain}
+.cp-img{padding:8px}
+.cp-img img{display:block;max-width:100%;max-height:260px;height:auto;object-fit:contain;border-radius:8px}
+.cp-img[hidden],[data-cp-imgadd][hidden]{display:none}
+.cp-img.is-uploading img{opacity:.45}

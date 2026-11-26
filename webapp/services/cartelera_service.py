@@ -21,7 +21,7 @@ import re
 import uuid
 from datetime import date, datetime, timezone
 
-from webapp.services import cartelera_repository as repo
+from webapp.services import cartelera_media as media, cartelera_repository as repo
 from webapp.services.busqueda_repository import BUSINESS_TZ
 
 MONTHS = ("Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre")
@@ -40,7 +40,7 @@ SECTIONS = (
 SECTION_BY_KEY = {s["key"]: s for s in SECTIONS}
 
 STATE_LABELS = {"draft": "Borrador", "scheduled": "Programada", "published": "Publicada", "withdrawn": "Retirada"}
-GENERAL_FIELDS = ("title", "body", "link", "link_label")
+GENERAL_FIELDS = ("title", "body", "link", "link_label", "image")          # image = id del servicio multimedia (opcional)
 # Distribución horizontal: un contenido general puede llevar `"beside": True` = «a la derecha del anterior». Es preferencia de composición:
 # solo aplica en secciones SIN ancho completo (ahí la sección pasa a ocupar la fila y sus contenidos van en dos columnas); con ancho completo
 # se ignora pero se conserva. Efectiva solo si hay un anterior que no esté ya a la derecha (`beside_layout`).
@@ -344,7 +344,8 @@ def _items_from_form(kind: str, rows: list[dict]) -> list[dict]:
                 raise CarteleraValidationError("Cada proyecto del mes tiene que elegirse desde Operaciones.")
         else:
             item = {"title": _text(row.get("title"), limit=200), "body": _text(row.get("body")),
-                    "link": _url(row.get("link")), "link_label": _text(row.get("link_label"), limit=120)}
+                    "link": _url(row.get("link")), "link_label": _text(row.get("link_label"), limit=120),
+                    "image": media_ref(row.get("image"))}
             if not (item["title"] or item["body"]):
                 continue                                                  # fila vacía: se descarta, no es un error
             if row.get("beside") is True:                                 # «a la derecha del anterior» (solo se guarda si está activo)
@@ -1017,6 +1018,25 @@ def institutional() -> dict:
     return {**DEFAULT_INSTITUTIONAL, **(repo.get("settings", "institutional") or {})}
 
 
+def media_ref(value) -> str:
+    """Referencia a una imagen del servicio multimedia: solo ids que existen (nunca rutas ni URLs)."""
+    value = str(value or "").strip()
+    return value if media.valid_id(value) and media.meta(value) else ""
+
+
+MAX_ALBUM_PHOTOS = 60
+
+
+def _clean_photos(photos) -> list[dict]:
+    out, seen = [], set()
+    for ph in photos or []:
+        mid = media_ref((ph or {}).get("id") if isinstance(ph, dict) else ph)
+        if mid and mid not in seen:
+            seen.add(mid)
+            out.append({"id": mid, "caption": _text((ph or {}).get("caption") if isinstance(ph, dict) else "", limit=200)})
+    return out[:MAX_ALBUM_PHOTOS]
+
+
 def save_institutional(revision: int | None, *, mission: str, vision: str, values: list[dict], albums: list[dict], actor: str,
                        intro: str | None = None, values_intro: str | None = None, links: list[dict] | None = None,
                        org: list[dict] | None = None) -> dict:
@@ -1027,8 +1047,11 @@ def save_institutional(revision: int | None, *, mission: str, vision: str, value
         title = _text(a.get("title"), limit=120)
         if not title:
             continue
+        photos = _clean_photos(a.get("photos"))
+        cover = str(a.get("cover") or "")
         clean_albums.append({"id": str(a.get("id") or uuid.uuid4().hex[:12])[:24], "title": title,
-                             "date": _text(a.get("date"), limit=10), "description": _text(a.get("description"), limit=600)})
+                             "date": _text(a.get("date"), limit=10), "description": _text(a.get("description"), limit=600),
+                             "photos": photos, "cover": cover if any(p["id"] == cover for p in photos) else (photos[0]["id"] if photos else "")})
     current = repo.get("settings", "institutional")
     fields = {"mission": _text(mission, limit=1500), "vision": _text(vision, limit=1500), "values": clean_values, "albums": clean_albums,
               "updated_by": actor}

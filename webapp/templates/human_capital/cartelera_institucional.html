@@ -6,7 +6,7 @@
 {#- «Nosotros y galería»: el contenido institucional se LEE como queda y se edita en contexto (lápiz → diálogo `dw-confirm` del Hub), sin
     formularios permanentes. Valores, enlaces y álbumes en tablas del Hub; el organigrama se edita sobre el propio árbol (cada caja abre su
     diálogo). Todo persiste en el MISMO documento institucional con su revisión (endpoint de siempre); al guardar se recarga con el aviso. -#}
-{% macro ico(name) -%}<svg viewBox="0 0 24 24" aria-hidden="true">{% if name == 'edit' %}<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>{% elif name == 'trash' %}<path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/>{% elif name == 'up' %}<path d="M12 19V5"/><path d="m5 12 7-7 7 7"/>{% elif name == 'down' %}<path d="M12 5v14"/><path d="m19 12-7 7-7-7"/>{% elif name == 'left' %}<path d="M19 12H5"/><path d="m12 5-7 7 7 7"/>{% elif name == 'right' %}<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>{% elif name == 'plus' %}<path d="M12 5v14"/><path d="M5 12h14"/>{% elif name == 'out' %}<path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 14v6H4V6h6"/>{% endif %}</svg>{%- endmacro %}
+{% macro ico(name) -%}<svg viewBox="0 0 24 24" aria-hidden="true">{% if name == 'image' %}<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/>{% elif name == 'edit' %}<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>{% elif name == 'trash' %}<path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/>{% elif name == 'up' %}<path d="M12 19V5"/><path d="m5 12 7-7 7 7"/>{% elif name == 'down' %}<path d="M12 5v14"/><path d="m19 12-7 7-7-7"/>{% elif name == 'left' %}<path d="M19 12H5"/><path d="m12 5-7 7 7 7"/>{% elif name == 'right' %}<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>{% elif name == 'plus' %}<path d="M12 5v14"/><path d="M5 12h14"/>{% elif name == 'out' %}<path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 14v6H4V6h6"/>{% endif %}</svg>{%- endmacro %}
 {#- Ayuda contextual: MISMO `(i)` del Hub que Cumpleaños (`.chart-tooltip-anchor` + `.activity-kpi__info` + `.chart-tooltip`). -#}
 {% macro help_tip(text) -%}
 <span class="chart-tooltip-anchor"><button type="button" class="activity-kpi__info" aria-label="{{ text }}"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 7.8v.2"/></svg></button><span class="chart-tooltip"><p>{{ text }}</p></span></span>
@@ -94,18 +94,18 @@
 
   <details class="dashboard-section" data-section-id="galeria" data-persist-collapse open>
     <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Galería</span>
-      {{ help_tip("Las fotos de cada álbum se suben a la carpeta SharePoint de Cartelera Virtual: disponible cuando se habilite la integración documental (acceso en verificación). Mientras tanto podés preparar los álbumes; en Nosotros solo se muestran los que tienen al menos una foto.") }}
+      {{ help_tip("El original de cada foto se guarda en la carpeta SharePoint de Cartelera Virtual (Galería); el Hub muestra una copia optimizada. En Nosotros solo se ven los álbumes con al menos una foto; la portada se elige en «Fotos».") }}
       <span class="dashboard-section__count">{{ (data.albums or []) | length }} álbum{{ 'es' if (data.albums or []) | length != 1 else '' }}</span></summary>
     <div class="dashboard-section__body">
       <div class="ct-inst-subhead"><span></span><button type="button" class="btn-secondary" data-in-album-new>+ Nuevo álbum</button></div>
       {% if data.albums %}
-      {% call dw_table('nos-albumes', [{'key': 'album', 'label': 'Álbum', 'width': '30%'}, {'key': 'fecha', 'label': 'Fecha', 'width': '14%'}, {'key': 'descripcion', 'label': 'Descripción', 'width': '36%'}, {'key': 'fotos', 'label': 'Fotos', 'width': '20%', 'sort': false}], actions_width='110px') %}
+      {% call dw_table('nos-albumes', [{'key': 'album', 'label': 'Álbum', 'width': '30%'}, {'key': 'fecha', 'label': 'Fecha', 'width': '14%'}, {'key': 'descripcion', 'label': 'Descripción', 'width': '36%'}, {'key': 'fotos', 'label': 'Fotos', 'width': '20%', 'sort': false}], actions_width='140px') %}
         {% for a in data.albums %}<tr>
           <td class="left row-label" data-column-key="album" title="{{ a.title }}"><strong>{{ a.title }}</strong></td>
           <td class="left" data-column-key="fecha" data-sort-value="{{ a.date or '' }}">{{ (a.date[8:10] ~ '/' ~ a.date[5:7] ~ '/' ~ a.date[:4]) if a.date else '—' }}</td>
           <td class="left" data-column-key="descripcion"><div class="ct-clip" title="{{ a.description or '' }}">{{ a.description or '—' }}</div></td>
-          <td class="left" data-column-key="fotos"><span class="dashboard-status-badge solicitudes-status-badge solicitudes-status-badge--grey">Pendiente de integración</span></td>
-          <td class="center"><div class="dw-row-actions">{{ act('edit', 'Editar', 'data-in-album="' ~ loop.index0 ~ '"') }}{{ act('trash', 'Quitar álbum', 'data-in-del="albums" data-i="' ~ loop.index0 ~ '" data-name="' ~ a.title ~ '"', danger=true) }}</div></td>
+          {% set nph = (a.photos or []) | length %}<td class="left" data-column-key="fotos">{% if nph %}{{ nph }} foto{{ '' if nph == 1 else 's' }}{% else %}<span class="muted">Sin fotos</span>{% endif %}</td>
+          <td class="center"><div class="dw-row-actions">{{ act('image', 'Fotos', 'data-in-photos="' ~ loop.index0 ~ '"') }}{{ act('edit', 'Editar', 'data-in-album="' ~ loop.index0 ~ '"') }}{{ act('trash', 'Quitar álbum', 'data-in-del="albums" data-i="' ~ loop.index0 ~ '" data-name="' ~ a.title ~ '"', danger=true) }}</div></td>
         </tr>{% endfor %}
       {% endcall %}
       {% else %}<div class="dashboard-empty"><span class="dashboard-empty__label">Sin álbumes</span><p>Prepará el primero con «+ Nuevo álbum».</p></div>{% endif %}
@@ -163,6 +163,50 @@
     try { await persist(msg); } catch (err) { fail(err); }
   }
 
+  // ── fotos de un álbum (servicio multimedia compartido): el ORIGINAL va a SharePoint (Galería/<álbum>) con el token delegado de escritura
+  //    de la Cartelera; el servidor valida y genera las copias de consumo. Nada se confirma hasta «Guardar fotos». ──
+  function photosDialog(a) {
+    let photos = (a.photos || []).map(p => ({ ...p })), cover = a.cover || (photos[0] || {}).id || "", busy = false;
+    openDialog(`Fotos · ${a.title}`,
+      `<div class="ct-photos" data-ph-grid></div>
+       <div class="feedback-field"><label for="ph-files">Agregar fotos</label><input id="ph-files" type="file" accept="image/jpeg,image/png,image/webp" multiple>
+       <span class="field-hint">JPG, PNG o WebP · hasta 10 MB cada una. Elegí la portada con «Portada».</span></div>
+       <p class="field-hint" data-ph-status aria-live="polite"></p>`,
+      "Guardar fotos",
+      () => { if (busy) throw new Error("Esperá a que terminen de subirse las fotos."); a.photos = photos; a.cover = cover; return "Fotos del álbum actualizadas."; });
+    const grid = fields.querySelector("[data-ph-grid]"), status = fields.querySelector("[data-ph-status]"), ok = dlg.querySelector("[data-in-ok]");
+    const draw = () => {
+      if (!photos.some(p => p.id === cover)) cover = (photos[0] || {}).id || "";
+      grid.innerHTML = photos.length ? photos.map(p => `<figure class="ct-ph${p.id === cover ? " is-cover" : ""}"><img src="/cartelera/media/${esc(p.id)}/thumb" alt="">
+          <figcaption><label><input type="radio" name="ph-cover" value="${esc(p.id)}"${p.id === cover ? " checked" : ""}> Portada</label>
+          <button type="button" class="table-action-btn table-action-btn--danger" data-ph-del="${esc(p.id)}" aria-label="Quitar foto">{{ ico('trash') | replace('\n', '') }}</button></figcaption></figure>`).join("")
+        : `<p class="muted" style="margin:0">Todavía no hay fotos en este álbum.</p>`;
+    };
+    draw();
+    grid.addEventListener("change", e => { if (e.target.name === "ph-cover") { cover = e.target.value; draw(); } });
+    grid.addEventListener("click", e => { const del = e.target.closest("[data-ph-del]"); if (del) { photos = photos.filter(p => p.id !== del.dataset.phDel); draw(); } });
+    fields.querySelector("#ph-files").addEventListener("change", async e => {
+      const files = [...e.target.files]; if (!files.length) return;
+      busy = true; ok.disabled = true; errBox.hidden = true;
+      const token = window.dwCarteleraWriteToken ? (await window.dwCarteleraWriteToken({ interactive: true })) || "" : "";
+      const errors = [];
+      for (let k = 0; k < files.length; k++) {
+        status.textContent = `Subiendo ${k + 1} de ${files.length}…`;
+        const fd = new FormData(); fd.append("file", files[k]); fd.append("scope", "galeria"); fd.append("context", a.title); fd.append("write_token", token);
+        try {
+          const r = await fetch("/cchh/cartelera/media", { method: "POST", body: fd, credentials: "same-origin" });
+          const j = await r.json().catch(() => ({}));
+          if (!r.ok) throw new Error(j.error || "No se pudo subir.");
+          if (!photos.some(p => p.id === j.id)) photos.push({ id: j.id, caption: "" });
+          draw();
+        } catch (err) { errors.push(`${files[k].name}: ${err.message}`); }
+      }
+      busy = false; ok.disabled = false; e.target.value = "";
+      status.textContent = errors.length ? "" : `${files.length} foto${files.length === 1 ? "" : "s"} lista${files.length === 1 ? "" : "s"} para guardar.`;
+      if (errors.length) { errBox.textContent = errors.join(" · "); errBox.hidden = false; }
+    });
+  }
+
   // ── organigrama (mismas reglas que la administración de la app original) ──
   const N = () => model.org, byId = id => N().find(n => n.id === id);
   const desc = id => { const out = new Set([id]); let grew = true; while (grew) { grew = false; N().forEach(n => { if (out.has(n.parent) && !out.has(n.id)) { out.add(n.id); grew = true; } }); } return out; };
@@ -187,7 +231,7 @@
   }
 
   document.addEventListener("click", e => {
-    const b = e.target.closest("[data-in-text],[data-in-link],[data-in-link-new],[data-in-value],[data-in-value-new],[data-in-album],[data-in-album-new],[data-in-del],[data-in-move],[data-in-node],[data-in-node-add],[data-in-node-move],[data-in-node-del]");
+    const b = e.target.closest("[data-in-text],[data-in-link],[data-in-link-new],[data-in-value],[data-in-value-new],[data-in-album],[data-in-album-new],[data-in-photos],[data-in-del],[data-in-move],[data-in-node],[data-in-node-add],[data-in-node-move],[data-in-node-del]");
     if (!b || b.disabled) return;
     e.preventDefault();
     const d = b.dataset;
@@ -211,8 +255,10 @@
       openDialog(i == null ? "Nuevo álbum" : "Editar álbum",
         field("al-title", "Álbum", a.title, "text", 'maxlength="120" placeholder="Ej.: Fiesta de fin de año 2026"') + field("al-date", "Fecha", a.date, "date") + field("al-desc", "Descripción", a.description, "textarea", 'rows="3" maxlength="600"'),
         i == null ? "Agregar" : "Guardar cambios",
-        () => { const row = { id: a.id || Math.random().toString(36).slice(2, 14), title: val("al-title").trim(), date: val("al-date"), description: val("al-desc").trim() };
+        () => { const row = { ...a, id: a.id || Math.random().toString(36).slice(2, 14), title: val("al-title").trim(), date: val("al-date"), description: val("al-desc").trim() };
           if (!row.title) throw new Error("Poné el nombre del álbum."); if (i == null) model.albums.push(row); else model.albums[i] = row; return i == null ? "Álbum agregado." : "Álbum actualizado."; });
+    } else if ("inPhotos" in d) {
+      photosDialog(model.albums[+d.inPhotos]);
     } else if (d.inDel) {
       const list = model[d.inDel], i = +d.i, what = { links: "el enlace", values: "el valor", albums: "el álbum" }[d.inDel];
       confirmAndSave({ title: "Quitar " + what.split(" ")[1], message: `¿Quitar ${what} «${d.name}»?` }, () => list.splice(i, 1), "Cambios guardados.");

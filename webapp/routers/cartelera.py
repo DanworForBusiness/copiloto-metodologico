@@ -14,11 +14,11 @@ import re
 import uuid
 
 from fastapi import APIRouter, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from core.content_registry import DEFAULT_PACK
 from webapp import human_capital_access, same_origin_guard, workspaces
-from webapp.services import auth_service, cartelera_repository as repo, cartelera_service as svc, cartelera_social as social
+from webapp.services import auth_service, cartelera_media as media, cartelera_repository as repo, cartelera_service as svc, cartelera_social as social
 from webapp.services import cartelera_birthdays_source as bd_source
 from webapp.services.activity_catalog import AREA_CCHH, EVENT_PAGE_VIEW, SCOPE_HUMAN_CAPITAL
 from webapp.services.activity_service import log_activity
@@ -743,6 +743,77 @@ def portal_greeting(request: Request, gid: str):
         raise HTTPException(404, "Este saludo no está publicado")
     b = svc.get_birthday(g["birthday_id"])
     return _render_portal(request, "saludo", user=user, greeting=g, birthday=b, greet_date=svc.birthday_date(b, g["year"]))
+
+
+# ── imágenes (servicio multimedia compartido: Novedades, Galería y Comunidad) ─────────────────────────────────────────────────────────
+def media_allowed(media_id: str, user: dict | None) -> bool:
+    """¿Puede ESTE usuario ver esta imagen? Solo si la referencia algo que puede ver: una edición publicada, un álbum de Nosotros o una
+    publicación vigente de Comunidad. Además: Capital Humano ve lo editorial en preparación (borradores, vista previa); la moderación ve
+    las imágenes de publicaciones en revisión; la autoría ve las suyas (pendientes o recién subidas). Retiradas o ajenas no visibles ⇒ no."""
+    rec = media.meta(media_id)
+    if not rec:
+        return False
+    if rec.get("scope") in ("novedades", "galeria") and human_capital_access.is_human_capital_authorized_user(user):
+        return True
+    for e in svc.list_editions():
+        if svc.is_visible(e) and any(it.get("image") == media_id for s in e.get("sections") or [] for it in s.get("items") or []):
+            return True
+    if any(ph.get("id") == media_id for a in svc.institutional().get("albums") or [] for ph in a.get("photos") or []):
+        return True
+    me, mod = social.uid(user or {}), social.is_moderator(user)
+    for post in social.list_posts():
+        if post.get("image") == media_id and (social.post_state(post) == "published" or mod or post.get("author") == me):
+            return True
+    return rec.get("scope") == "comunidad" and bool(me) and rec.get("owner") == me
+
+
+_MEDIA_HEADERS = {"Cache-Control": "private, max-age=300", "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'; sandbox"}
+
+
+@router.get("/cartelera/media/{media_id}/{variant}", include_in_schema=False)
+def media_file(request: Request, media_id: str, variant: str):
+    """Representaciones de consumo (WebP sin metadatos), SIEMPRE a través del Hub y con autorización por referencia: nunca URLs de Spaces."""
+    user, redirect = _reader(request)
+    if redirect:
+        return redirect
+    if variant not in ("display", "thumb") or not media.valid_id(media_id) or not media_allowed(media_id, user):
+        raise HTTPException(404, "Imagen no disponible")
+    out = media.variant_bytes(media_id, variant)
+    if out is None:
+        raise HTTPException(404, "Imagen no disponible")
+    return Response(content=out[0], media_type=out[1], headers=_MEDIA_HEADERS)
+
+
+async def read_upload(request: Request) -> tuple[bytes, str, dict]:
+    """Lectura ACOTADA del multipart (mismo criterio que la carga masiva y Presentaciones): corta antes de leer de más."""
+    declared = int(request.headers.get("content-length") or 0)
+    if declared > media.MAX_UPLOAD_BYTES + 1024 * 1024:
+        raise media.MediaError(f"La imagen supera {media.MAX_UPLOAD_BYTES // (1024 * 1024)} MB.")
+    form = await request.form()
+    upload = form.get("file")
+    if upload is None or not hasattr(upload, "read"):
+        raise media.MediaError("Elegí una imagen.")
+    data = await upload.read(media.MAX_UPLOAD_BYTES + 1)
+    return data, str(getattr(upload, "filename", "") or ""), form
+
+
+@router.post(f"{BASE}/media", include_in_schema=False)
+async def media_upload_editorial(request: Request):
+    """Alta de imagen editorial (Novedades/Galería) por Capital Humano. El ORIGINAL va a SharePoint con el token delegado de escritura
+    (el mismo de Cumpleaños) ANTES de confirmar; si algo falla, nada queda confirmado."""
+    user = _admin_write(request)
+    try:
+        data, filename, form = await read_upload(request)
+        scope = str(form.get("scope") or "")
+        if scope not in ("novedades", "galeria"):
+            raise media.MediaError("Destino de imagen desconocido.")
+        record = media.ingest(data, scope=scope, actor=_actor(user), owner=social.uid(user), context=str(form.get("context") or ""),
+                              token=str(form.get("write_token") or ""), filename=filename)
+    except media.MediaError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=422, headers=_NO_STORE)
+    except bd_source.SourceError as exc:
+        return JSONResponse({"error": f"No se pudo guardar en SharePoint: {exc}"}, status_code=502, headers=_NO_STORE)
+    return JSONResponse(media.public_view(record), headers=_NO_STORE)
 
 
 @router.get("/cartelera/nosotros", response_class=HTMLResponse, include_in_schema=False)

@@ -155,6 +155,7 @@ function carteleraEditor(boot) {
         pickProject(opts) { return self.openPicker(opts); },
         save() { return self.save(); },
         pageChanged(pg) { self.page = pg; },
+        uploadImage(file) { return self.uploadImage(file); },
       };
       this.$watch("mode", m => { if (m === "edit") this.err = ""; });
     },
@@ -244,6 +245,21 @@ function carteleraEditor(boot) {
         return true;
       } catch (e) { this.err = "No se pudo conectar con el Hub. Tus cambios siguen en pantalla y en este navegador."; return false; }
       finally { this.saving = false; }
+    },
+    // Imagen de un contenido (servicio multimedia compartido). El ORIGINAL va a SharePoint con el token delegado de escritura de la
+    // Cartelera (el mismo de Cumpleaños); el servidor valida y genera las representaciones. Devuelve {id, display, …} o null (error visible).
+    async uploadImage(file) {
+      this.err = ""; this.loading = "Subiendo imagen…";
+      try {
+        const token = typeof window.dwCarteleraWriteToken === "function" ? (await window.dwCarteleraWriteToken({ interactive: true })) || "" : "";
+        const fd = new FormData();
+        fd.append("file", file); fd.append("scope", "novedades"); fd.append("context", this.month); fd.append("write_token", token);
+        const r = await fetch("/cchh/cartelera/media", { method: "POST", body: fd, credentials: "same-origin" });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(j.error || "No se pudo subir la imagen.");
+        return j;
+      } catch (e) { this.err = e.message || "No se pudo subir la imagen."; return null; }
+      finally { this.loading = ""; }
     },
     ask(opts) { return typeof dwConfirm === "function" ? dwConfirm(opts) : Promise.resolve(window.confirm(opts.message)); },
     async leave(ev) {

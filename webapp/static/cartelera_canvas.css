@@ -104,3 +104,11 @@ button.ct-kind:hover { filter: brightness(.95); outline: 1px dashed var(--gold);
 /* Editor: misma igualación de alturas que el portal, sobre el contenedor de contenidos del lienzo. */
 .cat-sec:not(.wide):not(.duo) > .ct-items:not(:empty) { flex: 1 1 auto; display: flex; flex-direction: column; }
 .cat-sec:not(.wide):not(.duo) > .ct-items > .item:last-of-type { flex: 1 1 auto; }
+
+/* Imagen de un contenido en el lienzo: «Cambiar» / «Quitar» sobre la imagen; atenuada mientras sube. */
+.ct-img { position: relative; }
+.ct-img[hidden] { display: none; }
+.ct-img.is-uploading img { opacity: .45; }
+.ct-img-tools { position: absolute; top: 8px; right: 8px; display: flex; gap: 6px; opacity: 0; transition: opacity .15s; }
+.item[data-ct-item]:hover .ct-img-tools, .ct-img:focus-within .ct-img-tools { opacity: 1; }
+.ct-img-tools .btn { background: var(--surface); }
