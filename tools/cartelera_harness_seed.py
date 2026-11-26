@@ -25,7 +25,19 @@ def patch_projects() -> None:
     cartelera_service.project_options = lambda token: original(token or "harness-token")         # noqa: E731 — sin MSAL en el harness
 
 
+def _assert_harness_runtime() -> None:
+    """Guarda: los datos DEMO solo se siembran en el runtime TEMPORAL del harness y sin persistencia remota. Si alguien la invocara con la
+    configuración de un despliegue (Spaces configurado o datos fuera del directorio temporal), se niega antes de escribir nada."""
+    import tempfile
+    from pathlib import Path
+    import config
+    base = Path(getattr(config, "BASE_DIR", "")).resolve()
+    if getattr(config, "SPACES_CONFIGURED", False) or getattr(config, "PERSIST_ENABLED", False) or not base.is_relative_to(Path(tempfile.gettempdir()).resolve()):
+        raise SystemExit("cartelera_harness_seed: solo para el harness local (runtime temporal, sin Spaces). No se sembró nada.")
+
+
 def seed() -> None:
+    _assert_harness_runtime()
     from webapp.services import cartelera_repository as repo, cartelera_service as svc
     actor = "Capital Humano (datos de ejemplo)"
     now = svc.now_utc()

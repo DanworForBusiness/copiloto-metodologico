@@ -24,7 +24,20 @@ def editions(monkeypatch):
     return cur, nxt, prv
 
 
-def test_any_admitted_collaborator_reads_the_portal_without_any_vertical(editions):
+def test_during_homologation_the_portal_is_limited_to_the_human_capital_workspace(editions):
+    from webapp.routers import cartelera as router
+    assert router.PORTAL_LAUNCHED is False                         # Fase I: sin lanzamiento institucional
+    ops = session_client(OPS_A)                                   # admitido al Hub, sin Capital Humano ni COMMUNITY_OWNER
+    assert ops.get("/cartelera").status_code == 403
+    assert ops.get("/cartelera/comunidad").status_code == 403
+    assert 'href="/cartelera"' not in ops.get("/onedanwor", follow_redirects=True).text
+    cchh = session_client(CCHH_EMAIL)
+    assert cchh.get("/cartelera").status_code == 200
+
+
+def test_any_admitted_collaborator_reads_the_portal_without_any_vertical(editions, monkeypatch):
+    from webapp.routers import cartelera as router
+    monkeypatch.setattr(router, "PORTAL_LAUNCHED", True)          # F11, tras el lanzamiento institucional
     cur, nxt, prv = editions
     ops = session_client(OPS_A)                                   # admitido al Hub, sin Capital Humano
     assert ops.get("/cartelera").status_code == 200

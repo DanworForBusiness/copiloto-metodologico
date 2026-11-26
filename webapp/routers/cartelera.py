@@ -67,12 +67,28 @@ def _admin_write(request: Request) -> dict:
     return user
 
 
+# AUDIENCIA DEL PORTAL. F11 (definitivo): en el lanzamiento institucional lo usa cualquier persona admitida al Hub. Hasta entonces (Fase I
+# y homologación en DigitalOcean) el portal y su acceso del topbar quedan limitados a quienes YA están admitidos al workspace de Capital
+# Humano (`HUMAN_CAPITAL_ALLOWED_USERS` o `COMMUNITY_OWNER`): ninguna variable ni mecanismo nuevo. El lanzamiento (Fase II, paso 6) es
+# cambiar esta constante a True en un PR propio.
+PORTAL_LAUNCHED = False
+
+
+templates.env.globals["cartelera_portal_open"] = PORTAL_LAUNCHED
+
+
+def portal_audience_ok(user: dict | None) -> bool:
+    return bool(user) and (PORTAL_LAUNCHED or human_capital_access.is_human_capital_workspace_member(user))
+
+
 def _reader(request: Request):
     user = auth_service.session_user(request)
     if not user:
         return None, workspaces.platform_login_redirect(request)
     if not auth_service.is_authorized(str(user.get("sub") or "")):
         raise HTTPException(403, "No autorizado")
+    if not portal_audience_ok(user):
+        raise HTTPException(403, "La Cartelera Virtual todavía no está disponible")
     return user, None
 
 

@@ -14,7 +14,7 @@ from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from webapp import same_origin_guard
-from webapp.routers.cartelera import BASE, _NO_STORE, _back, _reader, _render_portal, _shell
+from webapp.routers.cartelera import BASE, _NO_STORE, _back, _reader, _render_portal, _shell, portal_audience_ok
 from webapp.services import auth_service, cartelera_repository as repo, cartelera_service as svc, cartelera_social as social
 from webapp.templating import templates
 
@@ -26,7 +26,7 @@ def _participant(request: Request) -> dict:
     user = auth_service.session_user(request)
     if not user:
         raise HTTPException(401, "Sin sesión")
-    if not auth_service.is_authorized(str(user.get("sub") or "")):
+    if not auth_service.is_authorized(str(user.get("sub") or "")) or not portal_audience_ok(user):
         raise HTTPException(403, "No autorizado")
     if not same_origin_guard.is_same_origin_write(request):
         raise HTTPException(403, "Origen no verificado")
@@ -68,6 +68,8 @@ def _reader_json(request: Request) -> dict:
     user = auth_service.session_user(request)
     if not user or not auth_service.is_authorized(str(user.get("sub") or "")):
         raise HTTPException(401, "Sin sesión")
+    if not portal_audience_ok(user):
+        raise HTTPException(403, "No autorizado")
     return user
 
 
