@@ -216,7 +216,7 @@ async def edition_live_preview(request: Request, month: str):
         raise HTTPException(404, "La edición no existe") from None
     except (svc.CarteleraValidationError, ValueError, TypeError, AttributeError) as exc:
         return JSONResponse({"error": str(exc) or "Datos inválidos."}, status_code=422, headers=_NO_STORE)
-    return _render_portal(request, _canvas_page(request, "novedades"), edition=edition, preview=True, edit_mode=edit, context="preview",
+    return _render_portal(request, _canvas_page(request, "novedades"), edition=edition, preview=True, edit_mode=edit, context="preview", clean_view=not edit,
                           preview_note="Vista del colaborador · incluye los cambios sin guardar")
 
 
@@ -401,8 +401,8 @@ def _calendar(month_key: str) -> dict:
 def _portal_urls(edition: dict | None, context: str) -> dict:
     """Destinos de la navegación del portal según el CONTEXTO en que se abrió:
       - "general"  (acceso transversal / Ver portal): Inicio y Novedades siguen a la edición vigente;
-      - "edition"  (Presentar una edición publicada, vigente o histórica): toda la navegación conserva ESA edición y el modo Presentar
-                   (`?edicion=AAAA-MM&presentar=1`), sin controles administrativos;
+      - "edition"  (Presentar, el selector de mes o un enlace directo a una edición publicada, vigente o histórica): toda la navegación
+                   conserva ESA edición (`?edicion=AAAA-MM` / `/cartelera/novedades/AAAA-MM`);
       - "preview"  (Presentar/Vista previa administrativa de un borrador o programada): se queda dentro de la vista previa de gestión.
     El lienzo del editor usa siempre "general": su navegación la resuelve el propio lienzo sin salir del editor."""
     month = edition["id"] if edition else ""
@@ -411,16 +411,10 @@ def _portal_urls(edition: dict | None, context: str) -> dict:
         return {"inicio": f"{base}?pagina=inicio", "novedades": f"{base}?pagina=novedades", "nosotros": f"{base}?pagina=nosotros",
                 "edition": f"{base}?pagina=novedades"}
     if context == "edition" and month:
-        return {"inicio": f"/cartelera?edicion={month}&presentar=1", "novedades": f"/cartelera/novedades/{month}?presentar=1",
-                "nosotros": f"/cartelera/nosotros?edicion={month}&presentar=1", "edition": f"/cartelera/novedades/{month}?presentar=1"}
+        return {"inicio": f"/cartelera?edicion={month}", "novedades": f"/cartelera/novedades/{month}",
+                "nosotros": f"/cartelera/nosotros?edicion={month}", "edition": f"/cartelera/novedades/{month}"}
     return {"inicio": "/cartelera", "novedades": "/cartelera/novedades", "nosotros": "/cartelera/nosotros",
             "edition": f"/cartelera/novedades/{month}" if month else "/cartelera/novedades"}
-
-
-def _presenting(request: Request) -> bool:
-    """Modo Presentar: solo cuando se pide explícitamente (acción «Presentar» de Ediciones). Un enlace directo o el selector de mes del
-    portal muestran la edición elegida en el contexto general (con las acciones de gestión para quien está autorizado)."""
-    return request.query_params.get("presentar") == "1"
 
 
 def _selected_edition(request: Request) -> dict | None:
@@ -435,12 +429,16 @@ def _selected_edition(request: Request) -> dict | None:
 
 
 def _render_portal(request: Request, page: str, *, edition: dict | None = None, preview: bool = False, user: dict | None = None,
-                   preview_note: str = "", edit_mode: bool = False, context: str = "general", layout_mode: bool = False):
+                   preview_note: str = "", edit_mode: bool = False, context: str = "general", layout_mode: bool = False,
+                   clean_view: bool = False):
     user = user or auth_service.session_user(request)
     ctx = {"page": page, "svc": svc, "user": user, "preview": preview, "preview_note": preview_note, "edit_mode": edit_mode,
            "layout_mode": bool(edit_mode and layout_mode),
            "urls": _portal_urls(edition, "general" if edit_mode else context),
-           "presenting": context in ("edition", "preview") and not edit_mode,         # Presentar: sin «Gestionar» ni «Volver al Hub»
+           # «Gestionar» / «Volver al Hub» solo en el acceso general; nunca al presentar o mirar una edición elegida, ni en el editor.
+           "hdr_tools": context == "general" and not edit_mode,
+           # Vista del colaborador del editor: experiencia limpia, sin ningún control administrativo.
+           "clean_view": clean_view,
            "edition": edition, "links": svc.site_links(),
            "editions": svc.visible_editions(), "inst": svc.institutional(), "today_month": svc.month_key(),
            "today_day": svc.now_utc().astimezone(svc.BUSINESS_TZ).day,
@@ -460,7 +458,7 @@ def portal_home(request: Request):
         return redirect
     selected = _selected_edition(request)
     return _render_portal(request, "inicio", edition=selected or svc.current_edition(), user=user,
-                          context="edition" if selected and _presenting(request) else "general")
+                          context="edition" if selected else "general")
 
 
 @router.get("/cartelera/novedades", response_class=HTMLResponse, include_in_schema=False)
@@ -475,7 +473,7 @@ def portal_edition(request: Request, month: str = ""):
         if candidate is None or not svc.is_visible(candidate):
             raise HTTPException(404, "Esta edición no está publicada")
         edition = candidate
-    return _render_portal(request, "novedades", edition=edition, user=user, context="edition" if month and _presenting(request) else "general")
+    return _render_portal(request, "novedades", edition=edition, user=user, context="edition" if month else "general")
 
 
 @router.get("/cartelera/nosotros", response_class=HTMLResponse, include_in_schema=False)
@@ -484,4 +482,4 @@ def portal_about(request: Request):
     if redirect:
         return redirect
     selected = _selected_edition(request)
-    return _render_portal(request, "nosotros", edition=selected, user=user, context="edition" if selected and _presenting(request) else "general")
+    return _render_portal(request, "nosotros", edition=selected, user=user, context="edition" if selected else "general")

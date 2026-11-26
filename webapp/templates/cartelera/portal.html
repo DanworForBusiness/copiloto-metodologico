@@ -37,7 +37,7 @@
       <a href="{{ urls.novedades }}"{% if page == 'novedades' %} aria-current="page"{% endif %}>{{ ic('board') }}Novedades</a>
       <a href="{{ urls.nosotros }}"{% if page == 'nosotros' %} aria-current="page"{% endif %}>{{ ic('star') }}Nosotros</a>
     </nav>
-    {% if not presenting and not edit_mode %}<div class="hdr-tools">
+    {% if hdr_tools %}<div class="hdr-tools">
       {% if can_manage %}<a class="hdr-link" href="/cchh/cartelera">Gestionar</a>{% endif %}
       <a class="hdr-link" href="/onedanwor">Volver al Hub</a>
     </div>{% endif %}
@@ -170,7 +170,9 @@
     <div class="card empty">Capital Humano todavía no publicó las novedades de este mes.</div>
   {% else %}
     <div class="row" style="justify-content:space-between;margin-bottom:16px"><div><span class="eyebrow">Novedades del mes</span><h1>{{ svc.month_label(edition.id) }}</h1></div>
-      {% set manage_here = can_manage and not preview and not presenting and not edit_mode %}
+      {#- Acciones contextuales: para gestión de Capital Humano en CUALQUIER recorrido (acceso general, Presentar, selector, enlace directo,
+          vista previa de borradores); nunca dentro del editor ni en su «Vista del colaborador». -#}
+      {% set manage_here = can_manage and not edit_mode and not clean_view %}
       {% if (editions | length > 1 and not preview) or manage_here %}<div class="row">
         {% if editions | length > 1 and not preview %}<label for="cartMonthSel" style="position:absolute;left:-9999px">Mes</label>
         <select id="cartMonthSel" style="width:auto" onchange="location.href='/cartelera/novedades/' + this.value">{% for e in editions %}<option value="{{ e.id }}"{% if e.id == edition.id %} selected{% endif %}>{{ svc.month_label(e.id) }}</option>{% endfor %}</select>{% endif %}
