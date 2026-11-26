@@ -28,7 +28,8 @@
                service: field(item, "service"), tech: field(item, "tech"), body: field(item, "body"), team: field(item, "team"),
                thanks: field(item, "thanks"), link };
     }
-    return { id: item.dataset.id, title: field(item, "title"), body: field(item, "body"), link, link_label: link ? field(item, "link_label") : "" };
+    return { id: item.dataset.id, title: field(item, "title"), body: field(item, "body"), link, link_label: link ? field(item, "link_label") : "",
+             ...(besideFlags(item.closest("[data-ct-items]")).get(item) ? { beside: true } : {}) };
   }
   function sections() { return $$("[data-ct-sec]", canvas); }
   const instText = el => (el.dataset.inst || "").replace(/\r\n/g, "\n").trim();
@@ -66,7 +67,36 @@
   const filled = (item, kind) => kind === "projects" ? !!item.dataset.projectId : !!(field(item, "title") || field(item, "body"));
 
   // ── estado visual derivado (lo que el portal hará con este contenido) ────────────────────────────────────────────────────────
+  // ── distribución horizontal (misma regla que svc.beside_layout): «a la derecha del anterior» es efectivo si hay un anterior que no esté
+  //    ya a la derecha. Con ancho completo se ignora (todo apilado) pero se conserva: al volver «al costado» se recupera. ──
+  function besideFlags(box) {
+    const map = new Map(); let prev = true;                                         // el primero nunca va a la derecha
+    (box ? $$("[data-ct-item]", box) : []).forEach(it => { const on = it.dataset.beside === "1" && !prev; map.set(it, on); prev = on; });
+    return map;
+  }
+  function layoutBeside() {
+    sections().filter(s => s.dataset.ctKind === "general").forEach(sec => {
+      const box = $("[data-ct-items]", sec), flags = besideFlags(box), items = [...flags.keys()];
+      const wide = sec.classList.contains("wide"), duo = !wide && [...flags.values()].some(Boolean);
+      sec.classList.toggle("duo", duo);
+      items.forEach((it, i) => {
+        const on = flags.get(it), nextOn = i + 1 < items.length && flags.get(items[i + 1]);
+        it.classList.toggle("pos-right", duo && on);
+        it.classList.toggle("pos-left", duo && !on && nextOn);
+        const right = $('[data-ct-act="beside"]', it), left = $('[data-ct-act="unbeside"]', it);
+        if (!right || !left) return;
+        right.hidden = on; left.hidden = !on;
+        const prevOn = i > 0 && flags.get(items[i - 1]);
+        right.disabled = i === 0 || prevOn || wide;
+        right.title = i === 0 ? "El primer contenido no puede ir a la derecha" : prevOn ? "El anterior ya está a la derecha"
+          : wide ? "Con ancho completo los contenidos van apilados" : "Ubicar a la derecha del anterior";
+        left.disabled = wide; left.title = wide ? "Con ancho completo los contenidos van apilados" : "Volver a la izquierda";
+      });
+    });
+  }
+
   function refresh() {
+    layoutBeside();
     let n = 0;
     const secs = sections();
     secs.forEach((sec, si) => {
@@ -234,6 +264,10 @@
       return;
     }
     if (a === "wide") { sec.classList.toggle("wide"); changed(); return; }
+    if (a === "beside" || a === "unbeside") {                                       // distribución horizontal del contenido
+      if (a === "beside") item.dataset.beside = "1"; else delete item.dataset.beside;
+      changed(); return;
+    }
     if (a === "secup" || a === "secdown") {
       const all = sections().filter(s => s.dataset.ctKind !== "links"), i = all.indexOf(sec), j = a === "secup" ? i - 1 : i + 1;
       if (j < 0 || j >= all.length) return;

@@ -13,7 +13,7 @@
   'users': 'M16 19v-1a4 4 0 0 0-8 0v1M12 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM20 19v-1a3 3 0 0 0-2.5-3M17 5.5a3 3 0 0 1 0 5',
   'link': 'M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1',
   'out': 'M14 4h6v6M20 4l-9 9M18 14v6H4V6h6', 'check': 'M5 12l5 5 9-10', 'image': 'M4 5h16v14H4zM4 16l5-5 4 4 2-2 5 5M15 9.5a1 1 0 1 0 0-.01',
-  'move': 'M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3', 'up': 'M12 19V5M5 12l7-7 7 7', 'down': 'M12 5v14M19 12l-7 7-7-7',
+  'move': 'M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3', 'up': 'M12 19V5M5 12l7-7 7 7', 'down': 'M12 5v14M19 12l-7 7-7-7', 'right': 'M5 12h14M12 5l7 7-7 7', 'left': 'M19 12H5M12 19l-7-7 7-7',
   'plus': 'M12 5v14M5 12h14', 'trash': 'M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6', 'swap': 'M7 7h11l-3-3M17 17H6l3 3', 'edit': 'M4 20h4L19 9l-4-4L4 16zM14 6l4 4',
   'bell': 'M6 16V11a6 6 0 1 1 12 0v5l2 2H4zM10 21h4', 'chat': 'M4 5h16v11H9l-5 4z', 'flag': 'M5 21V4M5 4h11l-2 4 2 4H5',
   'shield': 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z', 'pin': 'M9 4h6l-1 6 3 3H7l3-3zM12 13v8', 'poll': 'M4 20V12M9 20V6M14 20v-9M19 20V9',
@@ -60,8 +60,8 @@
 {% if preview and not edit_mode %}<div class="preview-bar">{{ preview_note ~ ' · ' if preview_note else 'Vista previa de Capital Humano · ' }}{{ svc.STATE_LABELS[svc.effective_state(edition or greeting)] }} — los colaboradores {{ 'ya lo ven' if svc.is_visible(edition or greeting) else 'todavía no lo ven' }}.</div>{% endif %}
 
 <main class="wrap" id="content">
-{% macro item_html(it) -%}
-  <article class="item"{% if it.id %} id="it-{{ it.id }}"{% endif %}>
+{% macro item_html(it, pos='') -%}
+  <article class="item{{ ' pos-' ~ pos if pos else '' }}"{% if it.id %} id="it-{{ it.id }}"{% endif %}>
     {% if it.title %}<h3>{{ it.title }}</h3>{% endif %}
     {% if it.body %}<p>{{ it.body }}</p>{% endif %}
     {% if it.link %}<a class="linkcard" href="{{ it.link }}" target="_blank" rel="noopener">{{ ic('out') }}<span>{{ it.link_label or it.link }}</span></a>{% endif %}
@@ -101,6 +101,7 @@
   <div class="ct-ed ct-item-tools" contenteditable="false">
     <span class="grip" draggable="true" data-ct-grip="item" title="Arrastrar para ordenar (también a otra sección)">{{ ic('move') }}</span>
     {{ ed_btn('up', 'up', 'Subir') }}{{ ed_btn('down', 'down', 'Bajar') }}
+    {% if kind == 'general' %}{{ ed_btn('beside', 'right', 'Ubicar a la derecha del anterior') }}{{ ed_btn('unbeside', 'left', 'Volver a la izquierda', 'hidden') }}{% endif %}
     {% if not layout_mode %}{{ ed_btn('link', 'link', 'Enlace') }}
     {% if kind == 'projects' %}{{ ed_btn('swap', 'swap', 'Cambiar el proyecto de Operaciones') }}{% endif %}
     {{ ed_btn('', 'image', 'Imagen: disponible con la integración documental de SharePoint', 'disabled') }}
@@ -115,16 +116,16 @@
     <span class="ct-linkerr" hidden>Tiene que empezar con https://</span>
   </div>
 {% endif %}{%- endmacro %}
-{% macro general_item(it) -%}
+{% macro general_item(it, pos='') -%}
   {% if edit_mode %}
-  <article class="item" data-ct-item data-id="{{ it.id }}" data-link="{{ it.link or '' }}">
+  <article class="item{{ ' pos-' ~ pos if pos else '' }}" data-ct-item data-id="{{ it.id }}" data-link="{{ it.link or '' }}"{% if it.beside %} data-beside="1"{% endif %}>
     {{ item_tools('general') }}
     {{ ed_text('title', it.title, 'h3', 'Título') }}
     {{ ed_text('body', it.body, 'p', 'Texto del contenido', True) }}
     <a class="linkcard" data-ct-linkcard{% if not it.link %} hidden{% endif %}>{{ ic('out') }}{{ ed_text('link_label', it.link_label, 'span', it.link or 'Ver más') }}</a>
     {{ link_panel(it) }}
   </article>
-  {% else %}{{ item_html(it) }}{% endif %}
+  {% else %}{{ item_html(it, pos) }}{% endif %}
 {%- endmacro %}
 {% macro project_item(it) -%}
   <article class="item proj"{% if not edit_mode and it.id %} id="it-{{ it.id }}"{% endif %}{% if edit_mode %}  data-ct-item data-id="{{ it.id }}" data-link="{{ it.link or '' }}" data-project-id="{{ it.project_id }}" data-kind="{{ 'fin' if it.kind == 'fin' else 'inicio' }}"{% endif %}>
@@ -229,7 +230,10 @@
     {% for sec in edition.sections %}{% set meta = svc.SECTION_BY_KEY[sec.key] %}
       {% set show = E or sec['items'] or meta.kind == 'birthdays' or (meta.kind == 'links' and links) %}
       {% if show %}
-      <section class="cat-sec{{ ' wide' if sec.wide or meta.kind in ('birthdays', 'links', 'projects') else '' }}" id="sec-{{ sec.key }}"{% if E %} data-ct-sec="{{ sec.key }}" data-ct-kind="{{ meta.kind }}"{% endif %}>
+      {#- Distribución horizontal: en una sección general SIN ancho completo, si algún contenido va «a la derecha del anterior», la sección
+          ocupa la fila (la siguiente baja, en orden: nunca se solapan) y sus contenidos van en dos columnas (`.duo`, pos-left/right/full). -#}
+      {% set pos_list = svc.beside_layout(sec['items']) if meta.kind == 'general' and not sec.wide else [] %}{% set duo = 'right' in pos_list %}
+      <section class="cat-sec{{ ' wide' if sec.wide or meta.kind in ('birthdays', 'links', 'projects') else '' }}{{ ' duo' if duo else '' }}" id="sec-{{ sec.key }}"{% if E %} data-ct-sec="{{ sec.key }}" data-ct-kind="{{ meta.kind }}"{% endif %}>
         <div class="cat-head">{% if E and meta.kind != 'links' %}<span class="grip ct-ed" contenteditable="false" draggable="true" data-ct-grip="sec" title="Arrastrar sección">{{ ic('move') }}</span>{% endif %}<span class="ic">{{ ic(SECTION_ICON.get(sec.key, 'star')) }}</span><h2>{{ meta.title }}</h2>
           {% if E %}<div class="arr-tools ct-ed" contenteditable="false">
             <span class="tag cat ct-hidden-tag" hidden>No se muestra: sin contenidos</span>
@@ -253,7 +257,7 @@
           <div class="proj-grid"{% if E %} data-ct-items{% endif %}>{% for it in sec['items'] %}{{ project_item(it) }}{% endfor %}</div>
           {% if E and not layout_mode %}<button type="button" class="drop-empty ct-ed ct-add" contenteditable="false" data-ct-act="addproj">{{ ic('plus') }}Agregar proyecto desde Operaciones</button>{% endif %}
         {% else %}
-          {% if E %}<div class="ct-items" data-ct-items>{% endif %}{% for it in sec['items'] %}{{ general_item(it) }}{% endfor %}{% if E %}</div>{% endif %}{% if E and not layout_mode %}
+          {% if E %}<div class="ct-items" data-ct-items>{% endif %}{% for it in sec['items'] %}{{ general_item(it, pos_list[loop.index0] if duo else '') }}{% endfor %}{% if E %}</div>{% endif %}{% if E and not layout_mode %}
           <button type="button" class="drop-empty ct-ed ct-add" contenteditable="false" data-ct-act="add">{{ ic('plus') }}Agregar contenido</button>{% endif %}
           {% if meta.kind == 'links' %}
             {% if links %}<div class="links">{{ links_html(links) }}</div>{% endif %}

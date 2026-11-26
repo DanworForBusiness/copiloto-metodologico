@@ -41,6 +41,17 @@ SECTION_BY_KEY = {s["key"]: s for s in SECTIONS}
 
 STATE_LABELS = {"draft": "Borrador", "scheduled": "Programada", "published": "Publicada", "withdrawn": "Retirada"}
 GENERAL_FIELDS = ("title", "body", "link", "link_label")
+# Distribución horizontal: un contenido general puede llevar `"beside": True` = «a la derecha del anterior». Es preferencia de composición:
+# solo aplica en secciones SIN ancho completo (ahí la sección pasa a ocupar la fila y sus contenidos van en dos columnas); con ancho completo
+# se ignora pero se conserva. Efectiva solo si hay un anterior que no esté ya a la derecha (`beside_layout`).
+
+
+def beside_layout(items: list[dict]) -> list[str]:
+    """Posición de cada contenido en la distribución de dos columnas: "full" (fila completa), "left" (izquierda de un par) o "right"."""
+    eff = []
+    for i, it in enumerate(items or []):
+        eff.append(bool(it.get("beside")) and i > 0 and not eff[i - 1])
+    return ["right" if e else ("left" if i + 1 < len(eff) and eff[i + 1] else "full") for i, e in enumerate(eff)]
 PROJECT_FIELDS = ("project_id", "project_name", "client_name", "kind", "service", "tech", "body", "team", "thanks", "link")
 _MONTH = re.compile(r"^(20\d{2})-(0[1-9]|1[0-2])$")
 _URL = re.compile(r"^https://[^\s<>\"]+$")
@@ -195,7 +206,8 @@ def create_edition(month: str, actor: str, *, copy_previous: bool) -> dict:
         if previous:
             source = previous[0]
             sections = [{"key": s["key"], "wide": s.get("wide", False),
-                         "items": [{**{k: it.get(k, "") for k in GENERAL_FIELDS}, "id": uuid.uuid4().hex[:12]}
+                         "items": [{**{k: it.get(k, "") for k in GENERAL_FIELDS}, **({"beside": True} if it.get("beside") else {}),
+                                    "id": uuid.uuid4().hex[:12]}
                                    for it in s.get("items") or []] if SECTION_BY_KEY[s["key"]]["kind"] in ("general", "links") else []}
                         for s in normalize_sections(source.get("sections"))]
     fields = {"month": month, "title": "", "subtitle": "", "state": "draft", "publish_at": None, "published_at": None,
@@ -335,6 +347,8 @@ def _items_from_form(kind: str, rows: list[dict]) -> list[dict]:
                     "link": _url(row.get("link")), "link_label": _text(row.get("link_label"), limit=120)}
             if not (item["title"] or item["body"]):
                 continue                                                  # fila vacía: se descarta, no es un error
+            if row.get("beside") is True:                                 # «a la derecha del anterior» (solo se guarda si está activo)
+                item["beside"] = True
         item["id"] = str(row.get("id") or uuid.uuid4().hex[:12])[:24]
         items.append(item)
     return items
@@ -382,7 +396,8 @@ def draft_edition(month: str, *, title: str, subtitle: str, sections: list[dict]
             continue
         fields = PROJECT_FIELDS if meta["kind"] == "projects" else GENERAL_FIELDS
         items = [] if meta["kind"] == "birthdays" else [
-            {**{k: clip(row.get(k)) for k in fields}, "id": clip(row.get("id"), 24) or uuid.uuid4().hex[:12]}
+            {**{k: clip(row.get(k)) for k in fields}, "id": clip(row.get("id"), 24) or uuid.uuid4().hex[:12],
+             **({"beside": True} if meta["kind"] != "projects" and row.get("beside") is True else {})}
             for row in (sec.get("items") or []) if isinstance(row, dict)]
         clean.append({"key": meta["key"], "wide": bool(sec.get("wide")) and meta["kind"] == "general", "items": items})
     draft = {**edition, "title": clip(title, 160), "subtitle": clip(subtitle, 300), "sections": normalize_sections(clean)}

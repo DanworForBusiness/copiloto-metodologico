@@ -369,3 +369,9 @@ img{max-width:100%}
 a.chip{text-decoration:none}
 /* Motor de interacción (Hub): los bloques plegados de comentarios y avisos respetan `hidden` sobre los display de la hoja original. */
 .ct-social [hidden]{display:none!important}
+/* Distribución horizontal de Novedades: sección general sin ancho completo con algún contenido «a la derecha del anterior» (`.duo`): ocupa
+   la fila y reparte sus contenidos en dos columnas; los que no forman par usan la fila completa (sin huecos). En celular, todo apilado. */
+.cat-sec.duo{grid-column:1/-1;grid-template-columns:repeat(2,minmax(0,1fr))}
+.cat-sec.duo>*{grid-column:1/-1}
+.cat-sec.duo>.item.pos-left,.cat-sec.duo>.item.pos-right{grid-column:auto}
+@media (max-width:760px){.cat-sec.duo{grid-template-columns:minmax(0,1fr)}.cat-sec.duo>.item.pos-left,.cat-sec.duo>.item.pos-right{grid-column:1/-1}}

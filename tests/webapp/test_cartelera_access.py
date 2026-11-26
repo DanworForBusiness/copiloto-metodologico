@@ -154,3 +154,26 @@ def test_about_inherits_institutional_content_with_optional_per_edition_personal
     assert saved["about"] == {"title": "Nuestra esencia"}                                                            # sin `about` (Ordenar): se conserva
     draft = svc.draft_edition(cur, title="P", subtitle="", sections=[], about={"mission": "Borrador"})
     assert svc.about_view(draft)["fields"]["mission"] == "Borrador"
+
+
+def test_items_can_sit_beside_the_previous_one_in_sections_without_full_width(editions):
+    """Distribución horizontal: `beside` por contenido (solo se guarda si está activo); la sección sin ancho completo pasa a dos columnas;
+    con ancho completo se apila pero la preferencia se conserva; se copia; el borrador la respeta."""
+    cur, _, _ = editions
+    items = [{"title": "A"}, {"title": "B", "beside": True}, {"title": "C"}]
+    rev = repo.get("editions", cur)["revision"]
+    saved = svc.save_content(cur, rev, title="P", subtitle="", sections=[{"key": "comunicados", "items": items}], actor="t")
+    sec = next(s for s in saved["sections"] if s["key"] == "comunicados")
+    assert [i.get("beside") for i in sec["items"]] == [None, True, None]
+    assert svc.beside_layout(sec["items"]) == ["left", "right", "full"]
+    html = session_client(CCHH_EMAIL).get(f"/cartelera/novedades/{cur}").text
+    assert "cat-sec duo" in html and "item pos-left" in html and "item pos-right" in html
+    saved = svc.save_content(cur, saved["revision"], title="P", subtitle="", actor="t",
+                             sections=[{"key": "comunicados", "wide": True, "items": items}])
+    sec = next(s for s in saved["sections"] if s["key"] == "comunicados")
+    assert sec["wide"] and sec["items"][1].get("beside") is True                          # ancho completo: se conserva la preferencia
+    assert "cat-sec duo" not in session_client(CCHH_EMAIL).get(f"/cartelera/novedades/{cur}").text
+    copy = svc.copy_edition(cur, "2031-03", actor="t")
+    assert next(s for s in copy["sections"] if s["key"] == "comunicados")["items"][1].get("beside") is True
+    draft = svc.draft_edition(cur, title="P", subtitle="", sections=[{"key": "comunicados", "items": items}])
+    assert next(s for s in draft["sections"] if s["key"] == "comunicados")["items"][1].get("beside") is True
