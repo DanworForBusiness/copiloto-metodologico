@@ -411,6 +411,7 @@
   <section class="stack" style="gap:12px">
     <div class="row" style="justify-content:space-between;margin-top:8px"><div><span class="eyebrow">Organigrama</span><h2 style="margin:4px 0 0">Nuestro equipo</h2></div></div>
     <div class="card pad"><div class="org-scroll"><ul class="org"><li><div class="og-logo og-logo--hub"><img src="{{ brand_logo_url }}" alt="Danwor"></div>{% if tree %}<ul>{% for n in tree %}{{ og_li(n) }}{% endfor %}</ul>{% endif %}</li></ul></div></div>
+    {% if tree %}<script defer src="{{ url_for('static', path='cartelera_org.js') }}?v={{ static_version }}"></script>{% endif %}
   </section>
   {% set photo_albums = (inst.albums or []) | selectattr('photos') | list %}
   <section class="stack" style="gap:12px">
