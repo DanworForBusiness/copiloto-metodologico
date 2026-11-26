@@ -742,6 +742,29 @@ def birthdays_of_month(month: int) -> list[dict]:
     return [b for b in public_birthdays() if int(b.get("month", 0)) == month]
 
 
+def home_birthdays(edition_month: str | None, today: date | None = None) -> dict:
+    """Tile de cumpleaños de Inicio para el MES de la edición visualizada (mismas reglas de publicación: `public_birthdays`):
+      - mes en curso: `today` = los de hoy; `upcoming` = los de días posteriores de ese mes (nunca fechas pasadas);
+      - mes futuro: `upcoming` = todo el mes;
+      - mes histórico: `month_list` = todo el mes (se rotula «Cumpleaños de <mes>», no como próximos).
+    Todo en orden cronológico."""
+    today = today or now_utc().astimezone(BUSINESS_TZ).date()
+    current = f"{today.year:04d}-{today.month:02d}"
+    month_key_ = edition_month if _MONTH.match(edition_month or "") else current
+    month = int(month_key_[5:7])
+    people = sorted(birthdays_of_month(month), key=lambda b: (int(b["day"]), (b.get("name") or "").lower()))
+    out = {"month": month, "today": [], "upcoming": [], "month_list": [],
+           "mode": "current" if month_key_ == current else ("future" if month_key_ > current else "past")}
+    if out["mode"] == "current":
+        out["today"] = [b for b in people if int(b["day"]) == today.day]
+        out["upcoming"] = [b for b in people if int(b["day"]) > today.day]
+    elif out["mode"] == "future":
+        out["upcoming"] = people
+    else:
+        out["month_list"] = people
+    return out
+
+
 def upcoming_birthdays(days: int = 7, today: date | None = None) -> list[dict]:
     today = today or now_utc().astimezone(BUSINESS_TZ).date()
     out = []

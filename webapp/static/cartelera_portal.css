@@ -375,3 +375,14 @@ a.chip{text-decoration:none}
 .cat-sec.duo>*{grid-column:1/-1}
 .cat-sec.duo>.item.pos-left,.cat-sec.duo>.item.pos-right{grid-column:auto}
 @media (max-width:760px){.cat-sec.duo{grid-template-columns:minmax(0,1fr)}.cat-sec.duo>.item.pos-left,.cat-sec.duo>.item.pos-right{grid-column:1/-1}}
+/* Tile de cumpleaños de Inicio (cartelera_bdays.js): con JS (`.bday-tile--fit`) toma el alto del tile de bienvenida (contain:size + piso),
+   alinea desde arriba y muestra solo las filas que entran completas; sin scroll interno. Sin JS se ve todo, como antes. */
+.bday-tile{display:flex;flex-direction:column;gap:6px;min-width:0}
+.bday-tile [hidden]{display:none!important}
+.bday-tile--fit{contain:size;min-height:240px;overflow:hidden}
+.bday-sub{margin-top:8px}
+.bday-next{justify-content:space-between;flex-wrap:nowrap;font-size:13px;padding:4px 0}
+.bday-next>span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bday-next>span:last-child{flex:none}
+.bday-empty{margin:6px 0}
+@media (max-width:760px){.bday-tile--fit{contain:none;min-height:0;overflow:visible}}  /* apilado: sin alto de referencia, crece con un tope de filas (JS) */

@@ -157,15 +157,19 @@
         {% if not edit_mode %}<a class="btn" style="background:transparent;color:#F5F5F3;border-color:#5A5A5B" href="/cartelera/comunidad?publicar=1">{{ ic('plus') }}Publicar en Comunidad</a>{% endif %}
       </div>
     </div>
-    <div class="card pad stack" style="gap:6px">
+    {#- Tile de cumpleaños: composición dinámica del MES de la edición (svc.home_birthdays). Hoy (con Saludar) solo si hay; el resto del
+        alto, para los próximos del mes (o, en una edición histórica, los del mes). `cartelera_bdays.js` toma el alto del tile de bienvenida y
+        muestra las filas que entran completas (sin scroll interno); sin JS se ven todas. -#}
+    {% set hb = svc.home_birthdays(edition.id if edition else none) %}{% set mname = svc.MONTHS[hb.month - 1] | lower %}
+    {% set rest = hb.upcoming if hb.mode != 'past' else hb.month_list %}
+    <div class="card pad bday-tile" data-bfit>
       <div class="row" style="justify-content:space-between"><span class="eyebrow">Cumpleaños</span>{% if edition %}<a href="{{ urls.edition }}#sec-cumpleanos" class="muted" style="font-size:12px">Ver calendario</a>{% endif %}</div>
-      {% set todays = upcoming | selectattr('offset', 'equalto', 0) | list %}
-      {% if todays %}{% for b in todays %}<div class="bday-today"><span class="avatar" style="background:var(--gold)">{{ ic('cake') }}</span><div style="flex:1"><b>{{ b.name }}</b><div class="muted" style="font-size:12px">Cumple hoy</div></div>{% set gid = b.id ~ '-' ~ this_year %}{% if gid in live_greetings and not edit_mode %}<a class="btn sm" href="/cartelera/saludos/{{ gid }}#saludar">Saludar</a>{% endif %}</div>{% endfor %}
-      {% else %}<p class="muted" style="margin:6px 0">Hoy no tenemos cumpleaños.</p>{% endif %}
-      {% set week = upcoming | rejectattr('offset', 'equalto', 0) | list %}
-      {% if week %}<div class="eyebrow" style="margin-top:8px">Próximos 7 días</div>
-        {% for b in week[:4] %}<div class="row" style="justify-content:space-between;font-size:13px;padding:4px 0"><span>{{ b.name }}</span><span class="muted">{{ b.day }} de {{ svc.MONTHS[b.month - 1] | lower }}</span></div>{% endfor %}{% endif %}
+      {% for b in hb.today %}<div class="bday-today" data-brow><span class="avatar" style="background:var(--gold)">{{ ic('cake') }}</span><div style="flex:1;min-width:0"><b>{{ b.name }}</b><div class="muted" style="font-size:12px">Cumple hoy</div></div>{% set gid = b.id ~ '-' ~ this_year %}{% if gid in live_greetings and not edit_mode %}<a class="btn sm" href="/cartelera/saludos/{{ gid }}#saludar">Saludar</a>{% endif %}</div>{% endfor %}
+      {% if rest %}<div class="bday-group" data-bgroup><div class="eyebrow bday-sub">{{ 'Cumpleaños de ' ~ mname if hb.mode == 'past' else 'Próximos cumpleaños' }}</div>
+        {% for b in rest %}<div class="row bday-next" data-brow><span>{{ b.name }}</span><span class="muted">{{ b.day }} de {{ mname }}</span></div>{% endfor %}</div>
+      {% elif not hb.today %}<p class="muted bday-empty">{{ 'Sin cumpleaños en ' ~ mname ~ '.' if hb.mode == 'past' else ('No hay próximos cumpleaños este mes.' if hb.mode == 'current' else 'No hay cumpleaños en ' ~ mname ~ '.') }}</p>{% endif %}
     </div>
+    {% if hb.today or rest %}<script defer src="{{ url_for('static', path='cartelera_bdays.js') }}?v={{ static_version }}"></script>{% endif %}
   </section>
 
   <section class="spaces">
