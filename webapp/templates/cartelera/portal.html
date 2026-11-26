@@ -168,8 +168,8 @@
       <div class="row" style="justify-content:space-between"><span class="eyebrow">{{ rest_title if rest and not hb.today else 'Cumpleaños' }}</span>{% if edition %}<a href="{{ urls.edition }}#sec-cumpleanos" class="muted" style="font-size:12px">Ver calendario</a>{% endif %}</div>
       {% for b in hb.today %}<div class="bday-today" data-brow><span class="avatar" style="background:var(--gold)">{{ ic('cake') }}</span><div style="flex:1;min-width:0"><b>{{ b.name }}</b><div class="muted" style="font-size:12px">Cumple hoy</div></div>{% set gid = b.id ~ '-' ~ this_year %}{% if gid in live_greetings and not edit_mode %}<a class="btn sm" href="/cartelera/saludos/{{ gid }}#saludar">Saludar</a>{% endif %}</div>{% endfor %}
       {% if rest %}<div class="bday-group" data-bgroup>{% if hb.today %}<div class="eyebrow bday-sub">{{ rest_title }}</div>{% endif %}
-        {% for b in rest %}<div class="row bday-next" data-brow><span>{{ b.name }}</span><span class="muted">{{ b.day }} de {{ svc.MONTHS[b.month | int - 1] | lower }}</span></div>{% endfor %}</div>
-      {% elif not hb.today %}<p class="muted bday-empty">{{ 'Sin cumpleaños en ' ~ mname ~ '.' if hb.mode == 'past' else 'No hay próximos cumpleaños.' }}</p>{% endif %}
+        {% for b in rest %}<div class="row bday-next" data-brow><span>{{ b.name }}</span><span class="muted">{{ b.day }} de {{ mname }}</span></div>{% endfor %}</div>
+      {% elif not hb.today %}<p class="muted bday-empty">{{ 'Sin cumpleaños en ' ~ mname ~ '.' if hb.mode == 'past' else ('No hay próximos cumpleaños este mes.' if hb.mode == 'current' else 'No hay cumpleaños en ' ~ mname ~ '.') }}</p>{% endif %}
     </div>
     {% if hb.today or rest %}<script defer src="{{ url_for('static', path='cartelera_bdays.js') }}?v={{ static_version }}"></script>{% endif %}
   </section>

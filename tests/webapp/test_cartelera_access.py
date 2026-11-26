@@ -213,11 +213,9 @@ def test_home_birthdays_tile_uses_the_month_of_the_edition_without_past_dates(mo
     monkeypatch.setattr(svc, "public_birthdays", lambda: people)
     today = date(2026, 11, 26)
     cur = svc.home_birthdays("2026-11", today)
-    assert cur["mode"] == "current" and [b["name"] for b in cur["today"]] == ["Ana"]
-    assert [(b["name"], b["day"], b["month"]) for b in cur["upcoming"][:3]] == [("Dani", 28, 11), ("Ceci", 30, 11), ("Eva", 5, 12)]   # cruza el mes
-    assert "Beto" not in [b["name"] for b in cur["upcoming"][:4]]                                                # el 3/11 ya pasó: va al final (año próximo)
+    assert cur["mode"] == "current" and [b["name"] for b in cur["today"]] == ["Ana"] and [b["name"] for b in cur["upcoming"]] == ["Dani", "Ceci"]
     fut = svc.home_birthdays("2026-12", today)
-    assert fut["mode"] == "future" and [b["name"] for b in fut["upcoming"]][:1] == ["Eva"] and not fut["today"]
+    assert fut["mode"] == "future" and [b["name"] for b in fut["upcoming"]] == ["Eva"] and not fut["today"]
     past = svc.home_birthdays("2026-10", today)
     assert past["mode"] == "past" and [b["name"] for b in past["month_list"]] == ["Fede"] and not past["upcoming"]
     assert svc.home_birthdays(None, today)["mode"] == "current"
