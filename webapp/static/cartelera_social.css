@@ -1,0 +1,60 @@
+/* cartelera_social.css — barra de reacciones del MOTOR DE INTERACCIÓN (Comunidad, Novedades y saludos). Patrón de redes sociales: una
+   acción de reacción + Comentar a la izquierda, resumen de tipos y total a la derecha. Usa los tokens y piezas de `cartelera_portal.css`
+   (.reacts, .rbtn, .chip, .avatar, .modal); solo suma el selector flotante, el resumen y el detalle. */
+
+.ct-rx-bar { gap: 6px; align-items: center; flex-wrap: nowrap; }
+.ct-rx { position: relative; display: inline-flex; }
+.ct-rx-main .n { margin-left: 2px; padding-left: 6px; border-left: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.ct-rx-cmt span { white-space: nowrap; }
+
+/* Selector flotante: arriba del botón, sin empujar la publicación (absoluto) */
+.ct-rx-picker { position: absolute; left: -6px; bottom: calc(100% + 8px); z-index: 40; display: flex; gap: 2px; padding: 5px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 999px; box-shadow: 0 8px 28px rgba(0,0,0,.16);
+  opacity: 0; visibility: hidden; transform: translateY(6px) scale(.94); transform-origin: 24px 100%;
+  transition: opacity .14s ease, transform .14s ease, visibility 0s linear .14s; }
+.ct-rx.is-open .ct-rx-picker { opacity: 1; visibility: visible; transform: none; transition: opacity .14s ease, transform .14s ease; }
+.ct-rx-opt { position: relative; display: grid; place-items: center; width: 38px; height: 38px; padding: 0; border: 0; border-radius: 50%;
+  background: transparent; color: var(--text); cursor: pointer; transition: transform .12s ease, background .12s ease; }
+.ct-rx-opt svg { width: 20px; height: 20px; }
+.ct-rx-opt:hover, .ct-rx-opt:focus-visible { transform: translateY(-3px) scale(1.14); background: var(--gold-soft); outline: none; }
+.ct-rx-opt.is-mine { background: var(--gold-soft); box-shadow: inset 0 0 0 1px var(--gold); }
+.ct-rx-tip { position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); padding: 3px 8px; border-radius: 6px;
+  background: var(--ink, #1C1C1C); color: #F5F5F3; font-size: 11px; font-weight: 600; white-space: nowrap; opacity: 0; pointer-events: none;
+  transition: opacity .1s ease; }
+.ct-rx-opt:hover .ct-rx-tip, .ct-rx-opt:focus-visible .ct-rx-tip { opacity: 1; }
+
+/* Resumen a la derecha: tipos recibidos (íconos superpuestos) + total → abre el detalle */
+.ct-rx-sum { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; padding: 2px 0; border: 0; background: none;
+  color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap; }
+.ct-rx-sum:hover .ct-rx-total, .ct-rx-sum:focus-visible .ct-rx-total { text-decoration: underline; }
+.ct-rx-icons { display: inline-flex; }
+.ct-rx-ic { display: grid; place-items: center; width: 20px; height: 20px; margin-left: -5px; border: 2px solid var(--surface); border-radius: 50%; color: #1C1C1C; }
+.ct-rx-ic:first-child { margin-left: 0; }
+.ct-rx-ic svg { width: 11px; height: 11px; }
+.ct-rx-ic--like { background: var(--gold); }
+.ct-rx-ic--celebrate { background: #F2D24F; }
+.ct-rx-ic--support { background: #E59A6B; }
+.ct-rx-ic--thanks { background: #7FB77E; }
+
+/* Variante compacta (contenidos de Novedades): misma pieza, menos aire */
+.ct-rx-bar.mini .rbtn { padding: 4px 9px; }
+.ct-rx-bar.mini .ct-rx-opt { width: 34px; height: 34px; }
+
+/* Detalle de reacciones */
+.ct-rx-tabs { display: flex; gap: 6px; flex-wrap: wrap; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+.ct-rx-tabs .chip svg { width: 13px; height: 13px; }
+.ct-rx-list { display: grid; max-height: min(52vh, 420px); overflow-y: auto; }
+.ct-rx-row { display: flex; align-items: center; gap: 10px; padding: 8px 2px; border-bottom: 1px solid var(--line); }
+.ct-rx-row:last-child { border-bottom: 0; }
+.ct-rx-row .avatar { position: relative; }
+.ct-rx-row .ct-rx-ic { position: absolute; right: -4px; bottom: -4px; width: 16px; height: 16px; margin: 0; }
+.ct-rx-row .ct-rx-ic svg { width: 9px; height: 9px; }
+.ct-rx-row b { font-size: 14px; }
+.ct-rx-row small { display: block; color: var(--muted); font-size: 12px; }
+
+@media (max-width: 520px) {                                              /* una sola fila: el botón de reacción muestra ícono + total */
+  .ct-rx-main > span:not(.n) { display: none; }
+  .ct-rx-main .n { margin-left: 0; }
+  .ct-rx-opt { width: 34px; height: 34px; }
+}
+@media (prefers-reduced-motion: reduce) { .ct-rx-picker, .ct-rx-opt { transition: none; } }

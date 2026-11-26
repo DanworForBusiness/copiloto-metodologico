@@ -70,6 +70,7 @@ from webapp.routers import platform as platform_router
 from webapp.routers import commercial as commercial_router
 from webapp.routers import human_capital as human_capital_router
 from webapp.routers import cartelera as cartelera_router
+from webapp.routers import cartelera_comunidad as cartelera_comunidad_router
 from webapp.routers import catalog_assessment as catalog_assessment_router
 from webapp.routers import datasphere_assessment as datasphere_assessment_router
 from webapp.routers import governed_updates as governed_updates_router
@@ -366,6 +367,7 @@ app.include_router(platform_router.router)
 app.include_router(commercial_router.router)
 app.include_router(human_capital_router.router)
 app.include_router(cartelera_router.router)
+app.include_router(cartelera_comunidad_router.router)
 app.include_router(commercial_strategy_router.router)
 app.include_router(commercial_presentations_router.router)
 app.include_router(catalog_assessment_router.router)

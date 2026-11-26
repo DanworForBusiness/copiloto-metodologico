@@ -97,4 +97,60 @@ def seed() -> None:
     svc.save_links(None, [{"title": "Política de licencias", "group": "Políticas", "url": "https://www.danwor.com/"},
                           {"title": "Solicitud de vacaciones", "group": "Formularios", "url": "https://www.danwor.com/"},
                           {"title": "Beneficios corporativos", "group": "Beneficios", "url": "https://www.danwor.com/"}], actor)
+    seed_social()
     print("[harness] Cartelera Virtual sembrada: 3 ediciones (publicada, anterior y programada), 7 cumpleaños (3 saludos: publicado, programado y borrador), institucional y accesos directos")
+
+
+def seed_social() -> None:
+    """Comunidad e interacciones ficticias, creadas con el MISMO servicio que usa la app (reglas de aprobación incluidas)."""
+    from webapp.services import cartelera_repository as repo, cartelera_service as svc, cartelera_social as social
+    ch = {"sub": "cchh.visual.qa@danwor.local", "name": "CCHH Visual QA"}                     # Capital Humano (modera)
+    lucia = {"sub": "lucia.colaboradora@danwor.local", "name": "Lucía Colaboradora"}
+    martin = {"sub": "martin.colaborador@danwor.local", "name": "Martín Colaborador"}
+    for u in (ch, lucia, martin):
+        social.touch_person(u)
+    # La semilla corre ANTES de que el harness sume la identidad de QA a Capital Humano: solo acá, esa identidad modera.
+    from unittest import mock
+    with mock.patch.object(social, "is_admin", lambda u: bool(u) and u.get("sub") == ch["sub"]):
+        _seed_social_content(svc, repo, social, ch, lucia, martin)
+    print("[harness] Comunidad sembrada: 8 publicaciones (oficial fijada, encuesta, pendiente, retirada, programada), comentarios, reacciones, votos y un reporte")
+
+
+def _seed_social_content(svc, repo, social, ch, lucia, martin) -> None:
+    L, M = "@{u:lucia.colaboradora@danwor.local}", "@{u:martin.colaborador@danwor.local}"
+    welcome = social.save_post(ch, True, {"category": "oficial", "title": "Bienvenida a Comunidad Danwor", "official": True, "pinned": True,
+                                          "body": "Este es el nuevo espacio para compartir logros, agradecimientos e ideas. Leé las pautas de la comunidad y ¡sumate!"})
+    bi = social.save_post(lucia, False, {"category": "reconocimientos", "title": "¡Felicitaciones al equipo BI!",
+                                         "body": f"Cerraron el tablero regional de ventas en tiempo récord. Gracias {M} por la mano con los datos."})
+    social.save_post(martin, False, {"category": "comunidad", "title": "Damos la bienvenida a Carla",
+                                     "body": "Carla se suma al equipo de Datasphere. ¡Bienvenida!"})
+    poll = social.save_post(ch, True, {"category": "ideas", "title": "¿Qué charla interna te gustaría el mes próximo?", "official": True,
+                                       "body": "Votá y dejá tu propuesta en los comentarios.",
+                                       "poll": {"options": ["Gobierno de datos maestros", "SAP Datasphere avanzado", "IA aplicada a reporting"],
+                                                "results": "after_vote"}})
+    social.save_post(lucia, False, {"category": "proyectos", "title": "Go-live de la plataforma de datos",
+                                    "body": "Ayer salimos en producción con la plataforma de datos corporativa. ¡Gracias a todo el equipo!"})
+    social.save_post(martin, False, {"category": "personales", "title": "¡Nació mi hija Emma!", "consent": True,
+                                     "body": "Quería compartirles la alegría: el martes nació Emma. Estamos todos muy bien."})   # queda PENDIENTE
+    removed = social.save_post(martin, False, {"category": "comunidad", "title": "Vendo bicicleta", "body": "Si a alguien le interesa, escríbanme."})
+    social.moderate_post(ch, removed["id"], "retirar")
+    social.save_post(ch, True, {"category": "oficial", "title": "Cronograma de vacaciones de verano", "official": True,
+                                "body": "Compartimos el cronograma de turnos de vacaciones.",
+                                "publish_at": (svc.now_utc() + timedelta(days=1)).astimezone(svc.BUSINESS_TZ).date().isoformat() + "T09:00"})
+    # interacciones sobre Comunidad
+    social.react(martin, f"post:{bi['id']}", "celebrate"); social.react(ch, f"post:{bi['id']}", "like"); social.react(lucia, f"post:{welcome['id']}", "like")
+    c1 = social.add_comment(martin, f"post:{bi['id']}", "¡Gracias Lucía! Fue un trabajo en equipo.")
+    social.add_comment(lucia, f"post:{bi['id']}", "¡Totalmente! Gran equipo.", c1["id"])
+    c3 = social.add_comment(martin, f"post:{poll['id']}", f"Propongo una sobre gobierno de datos, {L} seguro se suma.")
+    social.vote(lucia, poll["id"], 0); social.vote(martin, poll["id"], 2)
+    social.report(lucia, "comment", c3["id"], "Spam o fuera de tema", "Ejemplo de reporte para revisar la moderación.")
+    # interacciones sobre contenido institucional de la Cartelera (Novedades y saludo)
+    current = svc.current_edition()
+    items = [it for sec in svc.normalize_sections((current or {}).get("sections")) for it in sec.get("items") or []]
+    if items:
+        social.react(lucia, f"item:{items[0]['id']}", "like"); social.react(martin, f"item:{items[0]['id']}", "thanks")
+        social.add_comment(martin, f"item:{items[0]['id']}", "¿El calendario ya está disponible por equipo?")
+    for g in repo.list_all("greetings"):
+        if svc.greeting_visible(g):
+            social.react(martin, f"greeting:{g['id']}", "celebrate")
+            social.add_comment(lucia, f"greeting:{g['id']}", "¡Feliz cumpleaños! Que lo disfrutes mucho.")

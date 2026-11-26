@@ -118,6 +118,10 @@ HARNESS_USER = {
     "family_name": "Visual QA",
 }
 
+# Colaboradores sintéticos para Comunidad: admitidos al Hub (ALLOWED_USERS=ALL en el harness) pero SIN Capital Humano, para comparar la
+# experiencia de un colaborador con la de quien modera. Mismo mecanismo de sesión que las otras identidades (create_session).
+COMMUNITY_USERS = (("lucia.colaboradora@danwor.local", "Lucía Colaboradora"), ("martin.colaborador@danwor.local", "Martín Colaborador"))
+
 # Puerto dedicado del harness -- NUNCA 8505 (runtime canónico local) ni 8096
 # (usado transitoriamente por otros worktrees de este mismo programa CCHH).
 DEFAULT_PORT = 8097
@@ -379,6 +383,9 @@ def main() -> None:
         f"     // usuario sintético de fixtures ({HARNESS_USER['email']}):",
         f'     document.cookie = "{_auth_service_mod.COOKIE_NAME}={synthetic_token}; path=/"',
     ]
+    for email, name in COMMUNITY_USERS:
+        lines += ["", f"     // colaborador/a sin Capital Humano ({name} · {email}):",
+                  f'     document.cookie = "{_auth_service_mod.COOKIE_NAME}={_mint_session_for(email, label=name)}; path=/"']
     if owner_sessions:
         for email, token in owner_sessions:
             lines += [

@@ -1,0 +1,90 @@
+{% extends "human_capital/_cartelera_layout.html" %}
+{% block page_title %}Comunidad{% endblock %}
+{% block hero_actions %}<a href="/cartelera/comunidad" class="btn-secondary" target="_blank" rel="noopener">Ver Comunidad ↗</a>{% endblock %}
+{% block cartelera_body %}
+{#- MODERACIÓN DE COMUNIDAD — Capital Humano con su autorización existente. Patrones del Hub: tiles `.activity-kpi`, secciones
+    colapsables, `.dashboard-table`, acciones SVG con tooltip y confirmación `dw-confirm`. Mismas capacidades que «Moderación» de la app
+    original (pendientes, reportes, programadas, registro) más las retiradas recientes; la regla vive en `cartelera_social`. -#}
+{% macro icon(name) -%}<svg viewBox="0 0 24 24" aria-hidden="true">{% if name == 'check' %}<path d="m5 12 5 5 9-10"/>{% elif name == 'x' %}<path d="M6 6l12 12"/><path d="M18 6 6 18"/>{% elif name == 'shield' %}<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/>{% elif name == 'out' %}<path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 14v6H4V6h6"/>{% elif name == 'done' %}<circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/>{% endif %}</svg>{%- endmacro %}
+{% macro who(p) %}{{ 'Capital Humano' if p.official else names.get(p.author, p.author_name or 'Colaborador/a') }}{% endmacro %}
+
+<div class="activity-kpi-grid">
+  <div class="activity-kpi"><span class="activity-kpi__value">{{ kpis.posts }}</span><span class="activity-kpi__label">Publicaciones · 30 días</span></div>
+  <div class="activity-kpi"><span class="activity-kpi__value">{{ kpis.comments }}</span><span class="activity-kpi__label">Comentarios · 30 días</span></div>
+  <div class="activity-kpi"><span class="activity-kpi__value">{{ kpis.reactions }}</span><span class="activity-kpi__label">Reacciones</span></div>
+  <div class="activity-kpi"><span class="activity-kpi__value">{{ kpis.people }}</span><span class="activity-kpi__label">Personas que participaron</span></div>
+</div>
+
+<div class="dashboard-sections" data-dashboard-key="cchh-cartelera-comunidad">
+  <details class="dashboard-section" data-section-id="pendientes" open>
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Pendientes de aprobación</span>
+      <span class="dashboard-section__count">{{ pending | length }}</span></summary>
+    <div class="dashboard-section__body">
+      {% if pending %}<div class="matrix-scroll"><table class="dashboard-table ct-mod-table">
+        <thead><tr><th class="left">Fecha</th><th class="left">Autor</th><th class="left">Categoría</th><th class="left">Publicación</th><th class="center">Acciones</th></tr></thead>
+        <tbody>{% for p in pending %}<tr>
+          <td class="left">{{ svc.fmt_local(p.updated_at or p.created_at) }}</td><td class="left">{{ who(p) }}</td><td class="left">{{ categories[p.category].name }}</td>
+          <td class="left"><strong>{{ p.title or '(sin título)' }}</strong><div class="field-hint">{{ social.editable_text(p.body, names)[:140] }}</div>{% if p.edited_at %}<div class="field-hint">Editada después de enviarse: vuelve a revisión.</div>{% endif %}</td>
+          <td class="center"><div class="dw-row-actions">
+            <form method="post" action="/cchh/cartelera/comunidad/publicaciones/{{ p.id }}/aprobar" class="dw-row-actions__form" data-dw-confirm-form data-dw-confirm-title="Aprobar publicación" data-dw-confirm-message="¿Aprobar y publicar «{{ p.title or 'esta publicación' }}» en Comunidad?" data-dw-confirm-ok="Aprobar">
+              <button type="submit" class="table-action-btn chart-tooltip-anchor" aria-label="Aprobar">{{ icon('check') }}<span class="chart-tooltip" aria-hidden="true"><p>Aprobar</p></span></button></form>
+            <form method="post" action="/cchh/cartelera/comunidad/publicaciones/{{ p.id }}/rechazar" class="dw-row-actions__form" data-dw-confirm-form data-dw-confirm-title="Rechazar publicación" data-dw-confirm-message="¿Rechazar «{{ p.title or 'esta publicación' }}»? No se publica." data-dw-confirm-ok="Rechazar">
+              <button type="submit" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" aria-label="Rechazar">{{ icon('x') }}<span class="chart-tooltip" aria-hidden="true"><p>Rechazar</p></span></button></form>
+          </div></td></tr>{% endfor %}</tbody></table></div>
+      {% else %}<div class="dashboard-empty"><span class="dashboard-empty__label">Sin pendientes</span><p>No hay publicaciones esperando aprobación.</p></div>{% endif %}
+    </div>
+  </details>
+
+  <details class="dashboard-section" data-section-id="reportes" open>
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Reportes abiertos</span>
+      <span class="dashboard-section__count">{{ reports | length }}</span></summary>
+    <div class="dashboard-section__body">
+      {% if reports %}<div class="matrix-scroll"><table class="dashboard-table ct-mod-table">
+        <thead><tr><th class="left">Fecha</th><th class="left">Tipo</th><th class="left">Motivo</th><th class="left">Contenido</th><th class="left">Reportó</th><th class="center">Acciones</th></tr></thead>
+        <tbody>{% for r in reports %}<tr>
+          <td class="left">{{ svc.fmt_local(r.created_at) }}</td><td class="left">{{ 'Publicación' if r.kind == 'post' else 'Comentario' }}</td>
+          <td class="left">{{ r.reason }}{% if r.note %}<div class="field-hint">{{ r.note }}</div>{% endif %}</td>
+          <td class="left">{% if r.content.exists %}{{ r.content.text }}{% if r.content.removed %} <span class="dashboard-status-badge solicitudes-status-badge solicitudes-status-badge--grey">Ya retirado</span>{% endif %}{% else %}<span class="field-hint">Ya no existe</span>{% endif %}</td>
+          <td class="left">{{ names.get(r.reporter, r.reporter_name) }}</td>
+          <td class="center"><div class="dw-row-actions">
+            {% if r.content.exists and r.content.url %}<a href="{{ r.content.url }}" target="_blank" rel="noopener" class="table-action-btn chart-tooltip-anchor" aria-label="Ver en la Cartelera">{{ icon('out') }}<span class="chart-tooltip" aria-hidden="true"><p>Ver en la Cartelera</p></span></a>{% endif %}
+            {% if r.content.exists and not r.content.removed %}<form method="post" action="/cchh/cartelera/comunidad/reportes/{{ r.id }}/retirar" class="dw-row-actions__form" data-dw-confirm-form data-dw-confirm-title="Retirar contenido" data-dw-confirm-message="¿Retirar el contenido reportado? Deja de verse para los colaboradores y el reporte queda resuelto." data-dw-confirm-ok="Retirar">
+              <button type="submit" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" aria-label="Retirar contenido">{{ icon('shield') }}<span class="chart-tooltip" aria-hidden="true"><p>Retirar contenido</p></span></button></form>{% endif %}
+            <form method="post" action="/cchh/cartelera/comunidad/reportes/{{ r.id }}/resolver" class="dw-row-actions__form">
+              <button type="submit" class="table-action-btn chart-tooltip-anchor" aria-label="Marcar resuelto">{{ icon('done') }}<span class="chart-tooltip" aria-hidden="true"><p>Marcar resuelto sin retirar</p></span></button></form>
+          </div></td></tr>{% endfor %}</tbody></table></div>
+      {% else %}<div class="dashboard-empty"><span class="dashboard-empty__label">Sin reportes</span><p>No hay reportes abiertos.</p></div>{% endif %}
+    </div>
+  </details>
+
+  <details class="dashboard-section" data-section-id="programadas">
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Programadas</span>
+      <span class="dashboard-section__count">{{ scheduled | length }}</span></summary>
+    <div class="dashboard-section__body">
+      {% if scheduled %}<table class="dashboard-table ct-mod-table"><thead><tr><th class="left">Se publica</th><th class="left">Publicación</th><th class="left">Categoría</th></tr></thead>
+        <tbody>{% for p in scheduled %}<tr><td class="left">{{ svc.fmt_local(p.publish_at) }}</td><td class="left"><strong>{{ p.title or '(sin título)' }}</strong></td><td class="left">{{ categories[p.category].name }}</td></tr>{% endfor %}</tbody></table>
+      {% else %}<p class="field-hint">No hay publicaciones programadas.</p>{% endif %}
+    </div>
+  </details>
+
+  <details class="dashboard-section" data-section-id="retiradas">
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Retiradas recientemente</span>
+      <span class="dashboard-section__count">{{ removed | length }}</span></summary>
+    <div class="dashboard-section__body">
+      {% if removed %}<table class="dashboard-table ct-mod-table"><thead><tr><th class="left">Retirada</th><th class="left">Publicación</th><th class="left">Autor</th><th class="left">Por</th></tr></thead>
+        <tbody>{% for p in removed %}<tr><td class="left">{{ svc.fmt_local(p.removed_at) }}</td><td class="left">{{ p.title or social.editable_text(p.body, names)[:80] }}</td><td class="left">{{ who(p) }}</td><td class="left">{{ p.removed_by }}</td></tr>{% endfor %}</tbody></table>
+      {% else %}<p class="field-hint">No hay publicaciones retiradas.</p>{% endif %}
+    </div>
+  </details>
+
+  <details class="dashboard-section" data-section-id="registro">
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Registro de moderación</span>
+      <span class="dashboard-section__count">{{ log | length }}</span></summary>
+    <div class="dashboard-section__body">
+      {% if log %}<table class="dashboard-table ct-mod-table"><thead><tr><th class="left">Fecha</th><th class="left">Acción</th><th class="left">Detalle</th><th class="left">Por</th></tr></thead>
+        <tbody>{% for l in log %}<tr><td class="left">{{ svc.fmt_local(l.created_at) }}</td><td class="left">{{ l.action }}</td><td class="left">{{ l.detail }}</td><td class="left">{{ l.by }}</td></tr>{% endfor %}</tbody></table>
+      {% else %}<p class="field-hint">Todavía no hay acciones registradas.</p>{% endif %}
+    </div>
+  </details>
+</div>
+{% endblock %}

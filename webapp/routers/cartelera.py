@@ -18,7 +18,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from core.content_registry import DEFAULT_PACK
 from webapp import human_capital_access, same_origin_guard, workspaces
-from webapp.services import auth_service, cartelera_repository as repo, cartelera_service as svc
+from webapp.services import auth_service, cartelera_repository as repo, cartelera_service as svc, cartelera_social as social
 from webapp.services.activity_catalog import AREA_CCHH, EVENT_PAGE_VIEW, SCOPE_HUMAN_CAPITAL
 from webapp.services.activity_service import log_activity
 from webapp.templating import templates
@@ -28,7 +28,8 @@ _log = logging.getLogger("danwor.cartelera")
 BASE = "/cchh/cartelera"
 _NO_STORE = {"Cache-Control": "no-store"}
 TABS = (("ediciones", "Ediciones", BASE), ("cumpleanos", "Cumpleaños", f"{BASE}/cumpleanos"),
-        ("institucional", "Nosotros y galería", f"{BASE}/institucional"), ("accesos", "Accesos directos", f"{BASE}/accesos"))
+        ("institucional", "Nosotros y galería", f"{BASE}/institucional"), ("accesos", "Accesos directos", f"{BASE}/accesos"),
+        ("comunidad", "Comunidad", f"{BASE}/comunidad"))
 
 
 # ── guardas ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -158,8 +159,10 @@ async def edition_save_content(request: Request, month: str):
     try:
         body = await request.json()
         revision = int(body.get("revision"))
+        before = social.item_targets(svc.get_edition(month))
         saved = svc.save_content(month, revision, title=body.get("title", ""), subtitle=body.get("subtitle", ""),
                                  sections=list(body.get("sections") or []), actor=_actor(user))
+        social.purge_targets(sorted(before - social.item_targets(saved)))             # contenidos quitados: sin interacciones huérfanas
     except repo.CarteleraNotFoundError:
         raise HTTPException(404, "La edición no existe") from None
     except repo.CarteleraConcurrentModificationError as exc:
@@ -187,7 +190,9 @@ def edition_state(request: Request, month: str, action: str = Form(""), revision
             svc.to_draft(month, revision, _actor(user), action=action)
             return _back(path, ok="Edición retirada del portal." if action == "withdraw" else "Programación cancelada: la edición vuelve a borrador.")
         if action == "delete":
+            targets = social.item_targets(svc.get_edition(month))
             svc.delete_edition(month, _actor(user))
+            social.purge_targets(sorted(targets))
             return _back(BASE, ok=f"Edición de {svc.month_label(month)} eliminada.")
     except _ERRORS as exc:
         return _back(path, error=str(exc) if isinstance(exc, svc.CarteleraValidationError) else _storage_message(exc))
@@ -331,7 +336,9 @@ async def birthday_import(request: Request):
 def birthday_delete(request: Request, birthday_id: str, volver: str = Form("")):
     _admin_write(request)
     try:
+        greetings = [f"greeting:{g['id']}" for g in repo.list_all("greetings") if g.get("birthday_id") == birthday_id]
         svc.delete_birthday(birthday_id)
+        social.purge_targets(greetings)
     except repo.CarteleraNotFoundError:
         raise HTTPException(404, "No existe") from None
     except _ERRORS as exc:
@@ -413,6 +420,8 @@ def greeting_state(request: Request, birthday_id: str, action: str = Form(""), r
     path = f"{BASE}/cumpleanos/{birthday_id}/saludo?anio={year}"
     try:
         saved = svc.greeting_state(birthday_id, year, revision, action, when, _actor(user))
+        if action == "delete":
+            social.purge_targets([f"greeting:{svc.greeting_id(birthday_id, year)}"])
     except repo.CarteleraNotFoundError:
         raise HTTPException(404, "El saludo no existe") from None
     except _ERRORS as exc:
@@ -522,6 +531,30 @@ def _selected_edition(request: Request) -> dict | None:
     return candidate
 
 
+def _social_context(user: dict | None, ctx: dict, *, social_on: bool) -> dict:
+    """Motor de interacción en el portal: solo en consumo real (nunca en el lienzo, vistas previas ni la vista del colaborador).
+    Targets de la página: contenidos de la edición mostrada, el saludo y las publicaciones de Comunidad."""
+    admin = bool(ctx.get("can_manage"))
+    out = {"social_on": social_on, "social": {}, "social_reactions": social.REACTIONS, "social_when": social.fmt_when,
+           "me": social.uid(user or {}), "me_name": social.uname(user or {}), "notif_unseen": 0, "social_names": {},
+           "community_count": sum(1 for p in social.list_posts() if social.post_state(p) == "published"),
+           "social_categories": social.CATEGORIES, "social_categories_by_id": social.CATEGORY_BY_ID, "social_post_state": social.post_state,
+           "social_post_json": social.post_json, "social_render": social.render_text, "social_rules": social.RULES,
+           "social_wall_types": social.WALL_TYPES, "social_poll": lambda p: social.poll_state(p, user, admin)}
+    if not social_on:
+        return out
+    social.touch_person(user)
+    names = social.people()
+    targets = sorted(social.item_targets(ctx.get("edition"))) if ctx.get("page") == "novedades" else []
+    if ctx.get("greeting"):
+        targets.append(f"greeting:{ctx['greeting']['id']}")
+    targets += [f"post:{p['id']}" for p in ctx.get("posts") or []]
+    out["social"] = social.snapshot(targets, user, admin, names)
+    out["notif_unseen"] = sum(1 for n in social.notifications(user, names) if n["new"])
+    out["social_names"] = names
+    return out
+
+
 def _render_portal(request: Request, page: str, *, edition: dict | None = None, preview: bool = False, user: dict | None = None,
                    preview_note: str = "", edit_mode: bool = False, context: str = "general", layout_mode: bool = False,
                    clean_view: bool = False, **extra):
@@ -541,6 +574,7 @@ def _render_portal(request: Request, page: str, *, edition: dict | None = None, 
            "this_year": svc.now_utc().astimezone(svc.BUSINESS_TZ).year, **extra}
     if edition is not None:
         ctx["calendar"] = _calendar(edition["id"])
+    ctx.update(_social_context(user, ctx, social_on=bool(user) and not preview and not edit_mode and not clean_view))
     if not preview:
         log_activity(EVENT_PAGE_VIEW, user=user, scope=SCOPE_HUMAN_CAPITAL, area=AREA_CCHH, module="cartelera",
                      view_id=uuid.uuid4().hex, nav_type="navigate", path=request.url.path)

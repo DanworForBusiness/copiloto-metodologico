@@ -245,3 +245,7 @@ a.ct-space:hover { border-color: var(--ct-gold); }
 .cartelera-greet-cta.is-done { color: var(--soft); }
 .table-action-btn.is-disabled { opacity: .35; cursor: default; }
 #bd-dialog .cartelera-check--spaced { margin: 14px 0 10px; }
+/* Moderación de Comunidad: los textos (motivo, contenido, publicación) se ajustan en vez de desbordar la tabla */
+.ct-mod-table { table-layout: auto; width: 100%; }
+.ct-mod-table td { white-space: normal; overflow-wrap: anywhere; vertical-align: top; }
+.ct-mod-table td:last-child { white-space: nowrap; }

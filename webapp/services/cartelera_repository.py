@@ -31,7 +31,8 @@ from core import remote_store
 _logger = logging.getLogger("danwor.human_capital")
 
 SCHEMA_VERSION = 1
-COLLECTIONS = ("editions", "birthdays", "settings", "greetings")
+COLLECTIONS = ("editions", "birthdays", "settings", "greetings",
+               "posts", "comments", "reactions", "votes", "reports", "modlog", "people", "prefs")   # Comunidad y motor de interacción
 _ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 _RESTORE_WAIT_TIMEOUT_S = 15.0
 _write_lock = threading.RLock()

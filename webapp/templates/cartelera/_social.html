@@ -1,0 +1,59 @@
+{#- MOTOR DE INTERACCIÓN — componente COMPARTIDO por Comunidad (publicaciones) y Cartelera (contenidos de Novedades, saludos).
+    Mismo marcado y clases que la app original (`.reacts`, `.rbtn`, `.who-reacted`, `.comments`, `.cmt`, `.bub`, `.acts`, `.cinput`):
+    `cartelera_portal.css` ya los estiliza. Lo que se puede hacer lo decide el servidor; esto solo lo dibuja.
+    Contexto: `social` (snapshot por target), `me` (id de la persona), `can_manage` (Capital Humano). Interacción: `cartelera_social.js`. -#}
+{%- set SOC_ICONS = {
+  'like': 'M7 10v10H4V10zM7 10l4-7c1.5 0 2.5 1 2 3l-1 4h6a2 2 0 0 1 2 2.3l-1.2 6A2 2 0 0 1 16.8 20H7',
+  'party': 'M4 20l4-12 8 8zM14 4l1 2M19 9l-2 1M17 4l-1 3M20 14l-3-1',
+  'heart': 'M12 20s-7-4.5-7-10a4 4 0 0 1 7-2.5A4 4 0 0 1 19 10c0 5.5-7 10-7 10z',
+  'hands': 'M7 12V7a1.5 1.5 0 0 1 3 0v4M10 11V5a1.5 1.5 0 0 1 3 0v6M13 11V6a1.5 1.5 0 0 1 3 0v6M16 12v-2a1.5 1.5 0 0 1 3 0v4c0 4-3 7-7 7s-6-2-7-5l-1.5-3a1.5 1.5 0 0 1 2.6-1.4L7 14',
+  'chat': 'M4 5h16v11H9l-5 4z'} -%}
+{%- macro sic(name) -%}<svg class="svg" viewBox="0 0 24 24" aria-hidden="true"><path d="{{ SOC_ICONS[name] }}"/></svg>{%- endmacro -%}
+{%- macro initials(name) -%}{{ ((name or '?').split() | map('first') | list)[:2] | join('') | upper }}{%- endmacro -%}
+
+{%- macro comment(c, target) -%}
+  <div class="cmt" id="cmt-{{ c.id }}" data-cmt="{{ c.id }}">
+    <span class="avatar sm" aria-hidden="true">{{ initials(c.name) }}</span>
+    <div style="flex:1;min-width:0">
+      <div class="bub"><b>{{ c.name }}</b>{% if c.status == 'removed' %} <span class="tag warn">Retirado</span>{% endif %}<div class="t" data-raw="{{ c.raw }}">{{ c.html }}</div></div>
+      <div class="acts"><span>{{ social_when(c.created_at) }}{{ ' · editado' if c.edited_at }}</span>
+        {% if c.status != 'removed' %}<button type="button" data-sx="reply" data-id="{{ c.parent_id or c.id }}" data-name="{{ c.name }}">Responder</button>{% endif %}
+        {% if c.mine and c.status != 'removed' %}<button type="button" data-sx="editcmt" data-id="{{ c.id }}">Editar</button><button type="button" data-sx="delcmt" data-id="{{ c.id }}">Eliminar</button>{% endif %}
+        {% if not c.mine and c.status != 'removed' %}<button type="button" data-sx="report" data-kind="comment" data-id="{{ c.id }}">Reportar</button>{% endif %}
+        {% if can_manage and not c.mine and c.status != 'removed' %}<button type="button" data-sx="modcmt" data-id="{{ c.id }}">Retirar</button>{% endif %}
+      </div>
+    </div>
+  </div>
+{%- endmacro -%}
+
+{%- macro social_block(target, mini=False, open=False) -%}
+{%- set s = social.get(target) -%}
+{%- if s -%}
+<div class="ct-social" data-social="{{ target }}" data-mini="{{ '1' if mini else '' }}">
+  {#- Barra compacta (patrón de redes sociales): a la izquierda UNA acción de reacción (clic = «Me gusta» o retirar la propia; al pasar el
+      mouse, mantener presionado o con ↑/↓ del teclado se abre el selector con los cuatro tipos) y Comentar; a la derecha el resumen de los
+      tipos recibidos y el total, que abre el detalle. Mismo componente en publicaciones, contenidos de Novedades y saludos. -#}
+  {%- set mine_meta = (social_reactions | selectattr(0, 'equalto', s.mine) | first) if s.mine else none -%}
+  <div class="reacts ct-rx-bar{{ ' mini' if mini else '' }}">
+    <div class="ct-rx" data-rx>
+      <button type="button" class="rbtn ct-rx-main" data-sx="react" data-r="{{ s.mine or 'like' }}" aria-pressed="{{ 'true' if s.mine else 'false' }}" aria-haspopup="menu" aria-expanded="false"
+              aria-label="{{ ('Tu reacción: ' ~ mine_meta[1] ~ '. Clic para quitarla; ↑ para cambiarla') if mine_meta else 'Reaccionar: Me gusta. ↑ para elegir otra reacción' }}">{{ sic(mine_meta[2] if mine_meta else 'like') }}<span>{{ mine_meta[1] if mine_meta else 'Me gusta' }}</span>{% if s.total %}<span class="n">{{ s.total }}</span>{% endif %}</button>
+      <div class="ct-rx-picker" role="menu" aria-label="Elegí una reacción">
+        {% for rid, label, icon in social_reactions %}<button type="button" class="ct-rx-opt{{ ' is-mine' if s.mine == rid else '' }}" role="menuitem" data-sx="react" data-r="{{ rid }}" aria-label="{{ label }}{{ ' (tu reacción: clic para quitarla)' if s.mine == rid else '' }}">{{ sic(icon) }}<span class="ct-rx-tip" aria-hidden="true">{{ label }}</span></button>{% endfor %}
+      </div>
+    </div>
+    <button type="button" class="rbtn ct-rx-cmt" data-sx="togglecmt">{{ sic('chat') }}<span>{{ 'Comentar' if not s.ncomments else (s.ncomments ~ (' comentario' if s.ncomments == 1 else ' comentarios')) }}</span></button>
+    {% if s.total %}<button type="button" class="ct-rx-sum" data-sx="who" data-who="{{ s.who | tojson | forceescape }}" aria-label="Ver quiénes reaccionaron ({{ s.total }})">
+      <span class="ct-rx-icons" aria-hidden="true">{% for rid, label, icon in social_reactions if s.counts[rid] %}<span class="ct-rx-ic ct-rx-ic--{{ rid }}">{{ sic(icon) }}</span>{% endfor %}</span>
+      <span class="ct-rx-total">{{ s.total }}{% if not mini %} {{ 'reacción' if s.total == 1 else 'reacciones' }}{% endif %}</span></button>{% endif %}
+  </div>
+  <div class="comments" data-sx-comments{% if not open %} hidden{% endif %}>
+    {% for c in s.comments %}{{ comment(c, target) }}{% if c.replies %}<div class="replies">{% for r in c.replies %}{{ comment(r, target) }}{% endfor %}</div>{% endif %}{% endfor %}
+    <div class="stack" style="gap:4px">
+      <span class="muted" style="font-size:12px" data-sx-replying hidden>Respondiendo a <b></b> · <button type="button" class="who-reacted" data-sx="cancelreply">cancelar</button></span>
+      <div class="cinput"><span class="avatar sm" aria-hidden="true">{{ initials(me_name) }}</span><textarea data-sx-input data-mention placeholder="Escribí un comentario… usá @ para mencionar" aria-label="Escribir comentario"></textarea><button type="button" class="btn primary sm" data-sx="sendcmt">Enviar</button></div>
+    </div>
+  </div>
+</div>
+{%- endif -%}
+{%- endmacro -%}

@@ -314,3 +314,5 @@ img{max-width:100%}
 .space.soon{opacity:.65;cursor:default}
 .space.soon:hover{transform:none;border-color:var(--line)}
 a.chip{text-decoration:none}
+/* Motor de interacción (Hub): los bloques plegados de comentarios y avisos respetan `hidden` sobre los display de la hoja original. */
+.ct-social [hidden]{display:none!important}
