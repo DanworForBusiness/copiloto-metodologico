@@ -689,14 +689,37 @@ def delete_birthday(birthday_id: str) -> None:
 
 
 # ── contenido institucional y accesos ─────────────────────────────────────────────────────────────────────────────────────────────
-DEFAULT_INSTITUTIONAL = {"mission": "", "vision": "", "values": [], "albums": [], "org_chart_note": ""}
+# PISO = contenido institucional de la aplicación original (app-cartelera, vista «Nosotros»): mientras Capital Humano no lo modifique, el portal
+# muestra exactamente esos textos, valores y enlaces. Cualquier campo guardado por Capital Humano tiene prioridad sobre el piso.
+ORIGINAL_VALUES = [
+    {"title": 'Integridad', "text": 'En Danwor, la integridad es el núcleo de todas nuestras acciones y decisiones. Creemos firmemente en la importancia de actuar con transparencia, haciendo de ella la guía de nuestro compromiso con la excelencia. Esto nos permite fomentar un entorno de confianza y respeto mutuo, esencial para nuestras relaciones internas y externas.'},
+    {"title": 'Empatía', "text": 'La empatía es fundamental para nuestra cultura y nuestras prácticas diarias. Entender y valorar las perspectivas y sentimientos de los demás es esencial para construir relaciones sólidas y colaborativas. Elegimos ser empáticos porque nos permite crear un entorno de trabajo inclusivo y respetuoso, donde cada individuo se siente escuchado y valorado.'},
+    {"title": 'Compromiso', "text": 'Nos esforzamos por cumplir con nuestras responsabilidades y mantenernos fieles a nuestras promesas, asegurando que cada proyecto y tarea se realice con la máxima dedicación y calidad. Este firme compromiso se extiende a nuestra relación con los clientes, socios y empleados, garantizando que todos trabajamos juntos hacia objetivos comunes y resultados sobresalientes.'},
+    {"title": 'Humildad', "text": 'En Danwor, la humildad es un valor esencial que guía nuestra forma de trabajar y de relacionarnos. Reconocemos que siempre hay algo nuevo que aprender y que cada persona puede aportar una perspectiva valiosa. La humildad nos permite colaborar de manera efectiva, valorando las contribuciones de todos y fomentando un ambiente de respeto y crecimiento mutuo.'},
+    {"title": 'Trabajo en equipo', "text": 'El verdadero potencial se alcanza cuando trabajamos juntos como un equipo unificado. Valoramos la diversidad de habilidades y experiencias de cada miembro, reconociendo que cada contribución es esencial para lograr nuestros objetivos comunes. Promovemos un ambiente de confianza y apoyo mutuo, donde cada persona se siente empoderada para compartir ideas, resolver problemas y colaborar en proyectos.'},
+]
+DEFAULT_INSTITUTIONAL = {
+    "intro": ("Creemos en el poder transformador de la tecnología para mejorar procesos, optimizar resultados y crear nuevas oportunidades. Este "
+              "compromiso es la base sobre la cual construimos nuestra misión y visión, guiándonos hacia un futuro de continuo progreso y crecimiento."),
+    "mission": "Satisfacer las necesidades analíticas existentes en el mercado nacional e internacional generando un valor adicional para los clientes.",
+    "vision": ("Ser reconocidos en el mercado como una compañía enfocada en el bienestar de sus colaboradores y a partir de eso entregar servicios de "
+               "máxima calidad a sus clientes."),
+    "values_intro": ("Fomentar la cultura de la empresa es un desafío y un componente vital para lograr nuestra misión. Nuestro objetivo de desarrollar "
+                     "una cultura inclusiva y diversa no solo fortalece nuestro equipo, sino que también impulsa a nuestros empleados y clientes a "
+                     "alcanzar logros extraordinarios."),
+    "values": ORIGINAL_VALUES,
+    "links": [{"label": "Sitio web", "url": "https://www.danwor.com/"}, {"label": "LinkedIn", "url": "https://www.linkedin.com/company/danwor/"}],
+    "albums": [], "org_chart_note": "",
+}
+_HTTPS = re.compile(r"^https://[^\s<>\"]+$")
 
 
 def institutional() -> dict:
     return {**DEFAULT_INSTITUTIONAL, **(repo.get("settings", "institutional") or {})}
 
 
-def save_institutional(revision: int | None, *, mission: str, vision: str, values: list[dict], albums: list[dict], actor: str) -> dict:
+def save_institutional(revision: int | None, *, mission: str, vision: str, values: list[dict], albums: list[dict], actor: str,
+                       intro: str | None = None, values_intro: str | None = None, links: list[dict] | None = None) -> dict:
     clean_values = [{"title": _text(v.get("title"), limit=80), "text": _text(v.get("text"), limit=1200)}
                     for v in values if (v.get("title") or "").strip() or (v.get("text") or "").strip()]
     clean_albums = []
@@ -707,9 +730,23 @@ def save_institutional(revision: int | None, *, mission: str, vision: str, value
         clean_albums.append({"id": str(a.get("id") or uuid.uuid4().hex[:12])[:24], "title": title,
                              "date": _text(a.get("date"), limit=10), "description": _text(a.get("description"), limit=600)})
     current = repo.get("settings", "institutional")
-    return repo.save("settings", "institutional", {"mission": _text(mission, limit=1500), "vision": _text(vision, limit=1500),
-                                                   "values": clean_values, "albums": clean_albums, "updated_by": actor},
-                     expected_revision=revision if current else None)
+    fields = {"mission": _text(mission, limit=1500), "vision": _text(vision, limit=1500), "values": clean_values, "albums": clean_albums,
+              "updated_by": actor}
+    if intro is not None:
+        fields["intro"] = _text(intro, limit=1500)
+    if values_intro is not None:
+        fields["values_intro"] = _text(values_intro, limit=1500)
+    if links is not None:                                                              # enlaces institucionales del encabezado (Sitio web, LinkedIn…)
+        clean_links = []
+        for link in links[:4]:
+            label, url = _text(link.get("label"), limit=40), str(link.get("url") or "").strip()
+            if not (label or url):
+                continue
+            if not (label and _HTTPS.match(url)):
+                raise CarteleraValidationError("Cada enlace institucional necesita un nombre y una dirección https://")
+            clean_links.append({"label": label, "url": url})
+        fields["links"] = clean_links
+    return repo.save("settings", "institutional", fields, expected_revision=revision if current else None)
 
 
 def site_links() -> list[dict]:

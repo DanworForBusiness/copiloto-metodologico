@@ -455,7 +455,7 @@ def institutional_page(request: Request):
         return redirect
     data = svc.institutional()
     return templates.TemplateResponse(request=request, name="human_capital/cartelera_institucional.html", headers=_NO_STORE, context=_shell(
-        request, user, "institucional", data=data, model_json=json.dumps({k: data.get(k) for k in ("mission", "vision", "values", "albums")}, ensure_ascii=False)))
+        request, user, "institucional", data=data, model_json=json.dumps({k: data.get(k) for k in ("intro", "mission", "vision", "values_intro", "values", "links", "albums")}, ensure_ascii=False)))
 
 
 @router.post(f"{BASE}/institucional", include_in_schema=False)
@@ -466,7 +466,8 @@ async def institutional_save(request: Request):
         revision = body.get("revision")
         saved = svc.save_institutional(int(revision) if revision not in (None, "") else None, mission=body.get("mission", ""),
                                        vision=body.get("vision", ""), values=list(body.get("values") or []),
-                                       albums=list(body.get("albums") or []), actor=_actor(user))
+                                       albums=list(body.get("albums") or []), actor=_actor(user), intro=body.get("intro", ""),
+                                       values_intro=body.get("values_intro", ""), links=list(body.get("links") or []))
     except repo.CarteleraConcurrentModificationError as exc:
         return JSONResponse({"error": str(exc)}, status_code=409, headers=_NO_STORE)
     except (svc.CarteleraValidationError, ValueError, TypeError) as exc:

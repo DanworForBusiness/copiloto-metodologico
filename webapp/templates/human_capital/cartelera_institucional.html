@@ -4,14 +4,25 @@
 <script type="application/json" id="ct-inst">{{ model_json | replace("</", "<\\/") | safe }}</script>
 <div x-data="carteleraInstitutional(JSON.parse(document.getElementById('ct-inst').textContent), {{ data.revision if data.revision else 'null' }})"
      @beforeunload.window="if (dirty) { $event.preventDefault(); $event.returnValue = true }">
-  <details class="dashboard-section" open><summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Misión y visión</span></summary><div class="dashboard-section__body">
+  <details class="dashboard-section" open><summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Presentación, misión y visión</span></summary><div class="dashboard-section__body">
     <div class="hc-profile-section__grid hc-profile-section__grid--fluid">
+      <div class="feedback-field feedback-field--wide"><label for="in-intro">Presentación</label><textarea id="in-intro" rows="3" x-model="m.intro" @input="dirty=true"></textarea></div>
       <div class="feedback-field feedback-field--wide"><label for="in-mission">Misión</label><textarea id="in-mission" rows="3" x-model="m.mission" @input="dirty=true"></textarea></div>
       <div class="feedback-field feedback-field--wide"><label for="in-vision">Visión</label><textarea id="in-vision" rows="3" x-model="m.vision" @input="dirty=true"></textarea></div>
     </div>
+    <span class="field-hint">Enlaces del encabezado de Nosotros (el primero se destaca).</span>
+    <template x-for="(l, i) in m.links" :key="i">
+      <div class="hc-profile-section__grid hc-profile-section__grid--fluid">
+        <div class="feedback-field feedback-field--medium"><label>Nombre</label><input type="text" maxlength="40" x-model="l.label" @input="dirty=true" placeholder="Ej.: Sitio web"></div>
+        <div class="feedback-field feedback-field--wide"><label>Dirección</label><input type="url" x-model="l.url" @input="dirty=true" placeholder="https://…"></div>
+        <div class="feedback-field feedback-field--compact" style="align-self:end"><button type="button" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" @click="m.links.splice(i, 1); dirty = true" aria-label="Quitar enlace"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Quitar enlace</p></span></button></div>
+      </div>
+    </template>
+    <button type="button" class="cartelera-mini-btn" x-show="m.links.length < 4" @click="m.links.push({label: '', url: ''}); dirty = true">+ Agregar enlace</button>
   </div></details>
 
   <details class="dashboard-section" open><summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Valores</span></summary><div class="dashboard-section__body">
+    <div class="feedback-field feedback-field--wide"><label for="in-values-intro">Introducción</label><textarea id="in-values-intro" rows="2" x-model="m.values_intro" @input="dirty=true"></textarea></div>
     <template x-for="(v, i) in m.values" :key="i">
       <div class="cartelera-item">
         <div class="hc-profile-section__grid hc-profile-section__grid--fluid">
@@ -54,7 +65,7 @@
 </div>
 <script>
 function carteleraInstitutional(m, revision) {
-  m.values = m.values || []; m.albums = m.albums || [];
+  m.values = m.values || []; m.albums = m.albums || []; m.links = m.links || []; m.intro = m.intro || ""; m.values_intro = m.values_intro || "";
   return {
     m, revision, dirty: false, saving: false, msg: "", err: "",
     move(a, i, d) { const j = i + d; if (j < 0 || j >= a.length) return; [a[i], a[j]] = [a[j], a[i]]; this.dirty = true; },

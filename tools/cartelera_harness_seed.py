@@ -89,10 +89,9 @@ def seed() -> None:
     svc.greeting_state(b["id"], year, g["revision"], "schedule", when, actor)
     greet("Carla Prueba")
 
-    svc.save_institutional(None, mission="Satisfacer las necesidades analíticas del mercado generando valor adicional para nuestros clientes (texto de ejemplo).",
-                           vision="Ser reconocidos por el bienestar de nuestros colaboradores y la calidad de nuestros servicios (texto de ejemplo).",
-                           values=[{"title": "Integridad", "text": "Actuamos con transparencia."}, {"title": "Empatía", "text": "Valoramos otras perspectivas."},
-                                   {"title": "Compromiso", "text": "Cumplimos lo que prometemos."}, {"title": "Trabajo en equipo", "text": "Logramos más juntos."}],
+    base = svc.DEFAULT_INSTITUTIONAL                                                   # piso: contenido institucional de la app original
+    svc.save_institutional(None, mission=base["mission"], vision=base["vision"], values=base["values"], intro=base["intro"],
+                           values_intro=base["values_intro"], links=base["links"],
                            albums=[{"title": "Fiesta de fin de año", "date": f"{today.year - 1}-12-15", "description": "Álbum de ejemplo"}], actor=actor)
     svc.save_links(None, [{"title": "Política de licencias", "group": "Políticas", "url": "https://www.danwor.com/"},
                           {"title": "Solicitud de vacaciones", "group": "Formularios", "url": "https://www.danwor.com/"},

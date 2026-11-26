@@ -365,6 +365,8 @@
   <section class="hero-main mv-hero">
     <span class="eyebrow" style="color:var(--gold)">Nosotros</span>
     <h1>Misión, visión y valores</h1>
+    {% if inst.intro %}<p>{{ inst.intro }}</p>{% endif %}
+    {% if inst.links %}<div class="row" style="position:relative;z-index:1">{% for l in inst.links %}<a class="btn{{ ' primary' if loop.first else '' }}"{% if not loop.first %} style="background:transparent;color:#F5F5F3;border-color:#5A5A5B"{% endif %} href="{{ l.url }}" target="_blank" rel="noopener">{{ ic('out') }}{{ l.label }}</a>{% endfor %}</div>{% endif %}
   </section>
   {% if inst.mission or inst.vision %}
   <section class="mv-grid">
@@ -374,14 +376,21 @@
   {% if inst['values'] %}
   <section class="stack" style="gap:12px">
     <h2 style="margin:8px 0 0">Nuestros valores</h2>
+    {% if inst.values_intro %}<p class="muted" style="margin:0;max-width:80ch">{{ inst.values_intro }}</p>{% endif %}
     <div class="val-grid">{% for v in inst['values'] %}<div class="card pad val"><h3><span class="val-n">{{ '%02d' | format(loop.index) }}</span>{{ v.title }}</h3><p>{{ v.text }}</p></div>{% endfor %}</div>
   </section>{% endif %}
-  {% if inst.albums %}
+  {#- Organigrama y galería: secciones del original, siempre presentes. Sus recursos son documentales (F5, SharePoint): hasta habilitar esa
+      integración se muestran como en preparación, sin simularla ni ofrecer acciones administrativas en la presentación. -#}
+  <section class="stack" style="gap:12px">
+    <div><span class="eyebrow">Organigrama</span><h2 style="margin:4px 0 0">Nuestro equipo</h2></div>
+    <div class="card pad"><div class="empty">{{ ic('users', 'lg') }}<p style="margin:6px 0 0">El organigrama se publica desde la carpeta documental de Capital Humano y estará disponible muy pronto.</p></div></div>
+  </section>
   <section class="stack" style="gap:12px">
     <div><span class="eyebrow">Galería</span><h2 style="margin:4px 0 0">Nuestros momentos</h2></div>
-    <div class="gal-grid">{% for a in inst.albums %}<div class="gal-album" style="cursor:default;display:grid;place-items:center;color:var(--muted)">{{ ic('image', 'lg') }}<span class="gal-cap"><b>{{ a.title }}</b><span>{{ a.date }} · fotos en preparación</span></span></div>{% endfor %}</div>
-  </section>{% endif %}
-  {% if not (inst.mission or inst.vision or inst['values'] or inst.albums) %}<div class="card empty">Capital Humano todavía no cargó este contenido.</div>{% endif %}
+    {% if inst.albums %}<div class="gal-grid">{% for a in inst.albums %}<div class="gal-album" style="cursor:default;display:grid;place-items:center;color:var(--muted)">{{ ic('image', 'lg') }}<span class="gal-cap"><b>{{ a.title }}</b><span>{{ a.date }} · fotos en preparación</span></span></div>{% endfor %}</div>
+    {% else %}<div class="card pad"><div class="empty">Todavía no hay álbumes.</div></div>{% endif %}
+  </section>
+
 </div>
 {{ page_close() }}{% endif %}
 </main>
