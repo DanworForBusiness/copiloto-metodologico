@@ -172,19 +172,29 @@
   }
 
   // ── notificaciones internas (no correo) ──
+  // Campana del portal: MISMA fuente y MISMO estado de lectura que la campana del Hub (`/notificaciones`). Cada ítem se marca leído al
+  // abrirlo (`/notificaciones/abrir/<id>`, que además respeta las autorizaciones); «Marcar todas como leídas» lo hace para toda la bandeja.
+  // Las preferencias de avisos siguen siendo de Cartelera.
   async function openNotif() {
-    const j = await api("/cartelera/social/notificaciones").catch(() => ({ items: [], prefs: {} }));
-    const pr = j.prefs || {};
-    const m = modal(`<div class="modal-h"><h2>Notificaciones</h2><button type="button" class="icon-btn" data-sx="close" aria-label="Cerrar">✕</button></div>
-      <div class="stack" style="gap:0">${j.items.length ? j.items.map(x => `<a href="${esc(x.url)}" class="mini-post" style="text-decoration:none;color:var(--text);${x.new ? "font-weight:700" : ""}"><span>${esc(x.text)}</span><span class="muted" style="font-size:12px;font-weight:400">${esc(x.when)}</span></a>`).join("") : `<div class="empty">No tenés notificaciones.</div>`}</div>
+    const [hub, mine] = await Promise.all([api("/notificaciones").catch(() => ({ items: [], unread: 0 })),
+                                           api("/cartelera/social/notificaciones").catch(() => ({ prefs: {} }))]);
+    const pr = mine.prefs || {};
+    const m = modal(`<div class="modal-h"><h2>Notificaciones</h2>${hub.unread ? `<button type="button" class="btn sm" data-sx="notifall">Marcar todas como leídas</button>` : ""}<button type="button" class="icon-btn" data-sx="close" aria-label="Cerrar">✕</button></div>
+      <div class="stack" style="gap:0">${hub.items.length ? hub.items.map(x => `<a href="${esc(x.href)}" class="mini-post" style="text-decoration:none;color:var(--text);${x.unread ? "font-weight:700" : ""}"><span>${esc(x.text)}</span><span class="muted" style="font-size:12px;font-weight:400">${x.source !== "cartelera" ? esc(x.source_label) + " · " : ""}${esc(x.when)}</span></a>`).join("") : `<div class="empty">No tenés notificaciones.</div>`}</div>
       <details><summary style="cursor:pointer;font-weight:600">Configurar avisos</summary><div class="stack" style="gap:8px;margin-top:10px">
         <label class="check"><input type="checkbox" id="np-mentions" ${pr.mentions ? "checked" : ""}> Cuando me mencionan</label>
         <label class="check"><input type="checkbox" id="np-replies" ${pr.replies ? "checked" : ""}> Respuestas y comentarios en mis publicaciones</label>
         <label class="check"><input type="checkbox" id="np-official" ${pr.official ? "checked" : ""}> Comunicaciones fijadas por Capital Humano</label>
         <button type="button" class="btn sm" data-sx="savenotif" style="justify-self:start">Guardar preferencias</button></div></details>
-      <p class="muted" style="margin:0;font-size:12px">Avisos dentro de la Cartelera: no se envían por correo.</p>`);
-    api("/cartelera/social/notificaciones", { seen: true }).then(() => { const d = $('[data-sx="notif"] .badge-dot'); if (d) d.remove(); }).catch(() => {});
+      <p class="muted" style="margin:0;font-size:12px">Avisos dentro del Hub: no se envían por correo.</p>`);
     return m;
+  }
+  function setBadge(n) {
+    const btn = $('[data-sx="notif"]'); if (!btn) return;
+    let d = $(".badge-dot", btn);
+    if (!n) { if (d) d.remove(); btn.setAttribute("aria-label", "Notificaciones"); return; }
+    if (!d) { d = document.createElement("span"); d.className = "badge-dot"; btn.appendChild(d); }
+    d.textContent = n > 9 ? "9+" : String(n); btn.setAttribute("aria-label", `Notificaciones, ${n} nuevas`);
   }
 
   // ── reacciones: selector flotante (mouse, toque prolongado y teclado) + detalle ──
@@ -300,6 +310,7 @@
       else if (a === "cpimgdel") { composer.image = ""; imageBox(""); }
       else if (a === "delpost") { if (await confirmBox("¿Eliminar esta publicación? Se eliminan también sus comentarios y reacciones. No se puede deshacer.", "Eliminar")) { await api(`/cartelera/comunidad/publicaciones/${el.dataset.id}/eliminar`, {}); sessionStorage.setItem("ct-toast", "Publicación eliminada."); location.reload(); } }
       else if (a === "notif") await openNotif();
+      else if (a === "notifall") { await api("/notificaciones/todas", {}); setBadge(0); closeModal(); await openNotif(); }
       else if (a === "savenotif") { await api("/cartelera/social/notificaciones", { notif: { mentions: $("#np-mentions").checked, replies: $("#np-replies").checked, official: $("#np-official").checked } }); closeModal(); toast("Preferencias guardadas."); }
     } catch (err) { toast(err.message); el.disabled = false; }
   });

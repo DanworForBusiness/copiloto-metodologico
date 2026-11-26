@@ -18,7 +18,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 
 from core.content_registry import DEFAULT_PACK
 from webapp import human_capital_access, same_origin_guard, workspaces
-from webapp.services import auth_service, cartelera_media as media, cartelera_repository as repo, cartelera_service as svc, cartelera_social as social
+from webapp.services import auth_service, hub_inbox, cartelera_media as media, cartelera_repository as repo, cartelera_service as svc, cartelera_social as social
 from webapp.services import cartelera_birthdays_source as bd_source
 from webapp.services.activity_catalog import AREA_CCHH, EVENT_PAGE_VIEW, SCOPE_HUMAN_CAPITAL
 from webapp.services.activity_service import log_activity
@@ -672,7 +672,7 @@ def _social_context(user: dict | None, ctx: dict, *, social_on: bool) -> dict:
         targets.append(f"greeting:{ctx['greeting']['id']}")
     targets += [f"post:{p['id']}" for p in ctx.get("posts") or []]
     out["social"] = social.snapshot(targets, user, False, names)
-    out["notif_unseen"] = sum(1 for n in social.notifications(user, names) if n["new"])
+    out["notif_unseen"] = hub_inbox.unread_count(user)                         # contador COMPARTIDO con la campana del Hub
     out["social_names"] = names
     return out
 
