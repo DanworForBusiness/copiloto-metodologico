@@ -391,11 +391,11 @@ def _birthdays_return(volver: str) -> str:
 
 @router.post(f"{BASE}/cumpleanos", include_in_schema=False)
 def birthday_save(request: Request, birthday_id: str = Form(""), revision: str = Form(""), name: str = Form(""), day: str = Form(""),
-                  month: str = Form(""), authorized: str = Form(""), volver: str = Form("")):
+                  month: str = Form(""), authorized: str = Form(""), volver: str = Form(""), write_token: str = Form("")):
     user = _admin_write(request)
     try:
         svc.save_birthday(birthday_id or None, int(revision) if revision else None, name=name, day=day, month=month,
-                          authorized=authorized == "1", actor=_actor(user))
+                          authorized=authorized == "1", actor=_actor(user), write_token=write_token)
     except repo.CarteleraNotFoundError:
         raise HTTPException(404, "No existe") from None
     except _ERRORS as exc:
@@ -408,8 +408,6 @@ def birthday_import_page(request: Request):
     user, redirect = _admin(request)
     if redirect:
         return redirect
-    if bd_source.ENABLED:
-        return _back(_birthdays_return(request.query_params.get("volver", "")), error=svc.SHAREPOINT_READ_ONLY)
     return templates.TemplateResponse(request=request, name="human_capital/cartelera_cumpleanos_importar.html", headers=_NO_STORE, context=_shell(
         request, user, "cumpleanos", rows=None, bulk="", volver=_volver_qs(request.query_params.get("volver", "")),
         back_url=_birthdays_return(request.query_params.get("volver", ""))))
@@ -438,7 +436,8 @@ async def birthday_import(request: Request):
     form = await request.form()
     lines = [str(v) for v in form.getlist("line")]
     try:
-        created, rejected = svc.import_birthdays(chr(10).join(lines), _actor(user), authorized=form.get("authorized") == "1")
+        created, rejected = svc.import_birthdays(chr(10).join(lines), _actor(user), authorized=form.get("authorized") == "1",
+                                                 write_token=str(form.get("write_token") or ""))
     except _ERRORS as exc:
         return _back(_birthdays_return(str(form.get("volver") or "")), error=_storage_message(exc))
     message = f"{created} cumpleaños importado{'' if created == 1 else 's'}."
@@ -446,11 +445,11 @@ async def birthday_import(request: Request):
 
 
 @router.post(f"{BASE}/cumpleanos/{{birthday_id}}/eliminar", include_in_schema=False)
-def birthday_delete(request: Request, birthday_id: str, volver: str = Form("")):
-    _admin_write(request)
+def birthday_delete(request: Request, birthday_id: str, volver: str = Form(""), write_token: str = Form("")):
+    user = _admin_write(request)
     try:
         greetings = [f"greeting:{g['id']}" for g in repo.list_all("greetings") if g.get("birthday_id") == birthday_id]
-        svc.delete_birthday(birthday_id)
+        svc.delete_birthday(birthday_id, write_token=write_token, actor=_actor(user))
         social.purge_targets(greetings)
     except repo.CarteleraNotFoundError:
         raise HTTPException(404, "No existe") from None

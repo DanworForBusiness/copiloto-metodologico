@@ -1,0 +1,22 @@
+{#- Credencial DELEGADA de escritura para formularios de Cartelera cuya persistencia es SharePoint (hoy: Cumpleaños en el Excel). Al enviar
+    un formulario que contiene `[data-ct-write-token]`, se pide el token a la autoridad de `hub_auth.js` (`dwCarteleraWriteToken`, el MISMO
+    `Sites.ReadWrite.All` delegado que ya usa Operaciones → Solicitudes; con gesto, puede pedir la autorización) y recién entonces se envía.
+    Con confirmación del Hub (`data-dw-confirm-form`) primero se confirma. Si no hay fuente SharePoint, el servidor ignora el campo. -#}
+<script>
+(() => {
+  document.addEventListener("submit", async e => {
+    const form = e.target, field = form.querySelector && form.querySelector("[data-ct-write-token]");
+    if (!field) return;
+    if (form.matches("[data-dw-confirm-form]") && form.dataset.dwConfirmed !== "1") return;   // primero la confirmación del Hub
+    if (form.dataset.ctTokenReady === "1") { form.dataset.ctTokenReady = ""; return; }      // segundo envío: ya lleva el token
+    e.preventDefault(); e.stopImmediatePropagation();
+    const confirmed = form.dataset.dwConfirmed;
+    let value = "";
+    try { value = window.dwCarteleraWriteToken ? (await window.dwCarteleraWriteToken({ interactive: true })) || "" : ""; } catch (err) { value = ""; }
+    field.value = value;
+    form.dataset.ctTokenReady = "1";
+    if (confirmed) form.dataset.dwConfirmed = confirmed;
+    if (form.requestSubmit) form.requestSubmit(); else form.submit();
+  }, true);
+})();
+</script>

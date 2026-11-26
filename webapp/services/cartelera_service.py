@@ -432,11 +432,10 @@ def _consolidate(b: dict) -> dict:
         return {**clean, **fields}
 
 
-# FUENTE: con `cartelera_birthdays_source.ENABLED` el registro de cumpleaños es el Excel de SharePoint (read-model materializado,
-# solo lectura). Este es el ÚNICO punto de lectura: Gestión, próximos, Inicio, calendario, panel de Comunidad y saludos lo consumen.
-# Los registros locales (`birthdays/`) no se borran: quedan sin uso hasta homologar la nueva fuente.
-SHAREPOINT_READ_ONLY = ("Los cumpleaños se administran en el Excel de SharePoint (Cartelera Virtual → Cumpleaños). Hacé el cambio ahí y "
-                        "tocá «Actualizar».")
+# PERSISTENCIA del registro: con `cartelera_birthdays_source.ENABLED` es el Excel de SharePoint (lectura y escritura); si no, el repositorio
+# interno. Las reglas funcionales (validaciones, publicabilidad, saludos) son las MISMAS: solo cambia dónde se persiste. Las funciones de
+# escritura reciben `write_token` (credencial delegada de escritura del usuario; el repositorio interno lo ignora).
+# Los registros internos (`birthdays/`) no se borran mientras se homologa la nueva fuente.
 
 
 def _sharepoint() -> bool:
@@ -473,13 +472,15 @@ def _valid_day_month(day, month) -> tuple[int, int]:
     return d, m
 
 
-def save_birthday(birthday_id: str | None, revision: int | None, *, name: str, day, month, authorized: bool, actor: str) -> dict:
-    if _sharepoint():
-        raise CarteleraValidationError(SHAREPOINT_READ_ONLY)
+def save_birthday(birthday_id: str | None, revision: int | None, *, name: str, day, month, authorized: bool, actor: str,
+                  write_token: str = "") -> dict:
     name = _text(name, limit=120)
     if not name:
         raise CarteleraValidationError("Completá el nombre.")
     d, m = _valid_day_month(day, month)
+    if _sharepoint():
+        from webapp.services import cartelera_birthdays_source as sp
+        return sp.save(birthday_id, revision, name=name, day=d, month=m, authorized=bool(authorized), token=write_token, actor=actor)
     current = get_birthday(birthday_id) if birthday_id else None
     fields = {"name": name, "day": d, "month": m, "authorized": bool(authorized)}
     if not current or bool(current.get("authorized")) != bool(authorized):
@@ -489,11 +490,9 @@ def save_birthday(birthday_id: str | None, revision: int | None, *, name: str, d
     return repo.save("birthdays", birthday_id or uuid.uuid4().hex, fields, expected_revision=revision if current else None)
 
 
-def import_birthdays(text: str, actor: str, *, authorized: bool) -> tuple[int, list[str]]:
-    if _sharepoint():
-        raise CarteleraValidationError(SHAREPOINT_READ_ONLY)
+def import_birthdays(text: str, actor: str, *, authorized: bool, write_token: str = "") -> tuple[int, list[str]]:
     """Carga masiva: una persona por línea, «Nombre Apellido;DD/MM» (también coma o tabulación). Devuelve (creados, líneas rechazadas)."""
-    created, rejected = 0, []
+    created, rejected, pending = 0, [], []
     existing = {(b.get("name", "").lower(), b.get("day"), b.get("month")) for b in list_birthdays()}
     for line in (text or "").splitlines():
         line = line.strip()
@@ -511,9 +510,15 @@ def import_birthdays(text: str, actor: str, *, authorized: bool) -> tuple[int, l
         name = m.group(1).strip()
         if (name.lower(), d, mo) in existing:
             continue
-        save_birthday(None, None, name=name, day=d, month=mo, authorized=authorized, actor=actor)
         existing.add((name.lower(), d, mo))
+        if _sharepoint():
+            pending.append({"name": _text(name, limit=120), "day": d, "month": mo, "authorized": bool(authorized)})
+            continue
+        save_birthday(None, None, name=name, day=d, month=mo, authorized=authorized, actor=actor)
         created += 1
+    if pending:                                                           # Excel: todas las filas nuevas en UNA escritura
+        from webapp.services import cartelera_birthdays_source as sp
+        created += sp.add_many(pending, token=write_token, actor=actor)
     return created, rejected
 
 
@@ -715,11 +720,13 @@ def greeting_state(birthday_id: str, year: int, revision: int, action: str, when
     raise CarteleraValidationError("Acción desconocida.")
 
 
-def delete_birthday(birthday_id: str) -> None:
+def delete_birthday(birthday_id: str, *, write_token: str = "", actor: str = "") -> None:
     """Elimina el cumpleaños y sus saludos (no quedan saludos huérfanos)."""
     if _sharepoint():
-        raise CarteleraValidationError(SHAREPOINT_READ_ONLY)
-    repo.delete("birthdays", birthday_id)
+        from webapp.services import cartelera_birthdays_source as sp
+        sp.delete(birthday_id, token=write_token, actor=actor)
+    else:
+        repo.delete("birthdays", birthday_id)
     for g in repo.list_all("greetings"):
         if g.get("birthday_id") == birthday_id:
             repo.delete("greetings", g["id"])

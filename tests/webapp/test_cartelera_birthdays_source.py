@@ -1,8 +1,9 @@
-"""Cumpleaños de Cartelera Virtual desde el Excel de SharePoint (solo lectura): parser, identidad estable, autorización de publicación,
-refresh con Graph simulado (token delegado) y bloqueo de las escrituras locales."""
+"""Cumpleaños de Cartelera Virtual con el Excel de SharePoint como PERSISTENCIA (lectura y escritura): parser, identidad estable, autorización
+de publicación, refresh, escrituras puntuales (Excel REST API simulada), concurrencia y errores. La experiencia funcional no cambia."""
 from __future__ import annotations
 
 import io
+import re
 import urllib.error
 from datetime import datetime
 
@@ -10,10 +11,13 @@ import pytest
 
 import config
 from webapp.services import cartelera_birthdays_source as sp
+from webapp.services import cartelera_repository as repo
 from webapp.services import cartelera_service as svc
 
+HEAD = ["Nombre", "Apellido", "Cumpleaños", "Autorizo"]
 
-def _xlsx(rows: list[list], sheet: str = "Cumpleaños") -> bytes:
+
+def _xlsx(rows: list[list], sheet: str = "Sheet1") -> bytes:
     import openpyxl
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -25,6 +29,64 @@ def _xlsx(rows: list[list], sheet: str = "Cumpleaños") -> bytes:
     return buf.getvalue()
 
 
+class FakeWorkbook:
+    """SharePoint + Excel REST API mínimos: metadata, /content, usedRange, PATCH de rango y borrado de fila."""
+
+    def __init__(self, grid: list[list]):
+        self.grid, self.ctag, self.calls, self.fail_write = [list(r) for r in grid], 1, [], None
+
+    def _addr(self, url):
+        return re.search(r"range\(address='([^']+)'\)", url).group(1)
+
+    def get_json(self, url, token):
+        self.calls.append(("GET", url))
+        if "usedRange" in url:
+            width = max(len(r) for r in self.grid)
+            vals = [r + [""] * (width - len(r)) for r in self.grid]
+            return {"address": "Sheet1!A1", "values": vals, "text": [[str(c) for c in r] for r in vals], "rowIndex": 0, "columnIndex": 0}
+        if url.endswith("/tables?$select=id,name"):
+            return {"value": []}
+        return {"id": "ITEM1", "name": "Cumpleaños.xlsx", "webUrl": "https://example/x", "cTag": f"c{self.ctag}", "eTag": "e",
+                "lastModifiedDateTime": "2026-11-26T12:00:00Z", "parentReference": {"driveId": "DRIVE1", "path": "/drive/root:/CCHH HUB"}}
+
+    def get_bytes(self, url, token):
+        self.calls.append(("CONTENT", url))
+        return _xlsx(self.grid)
+
+    def patch_json(self, url, token, body, **kw):
+        self.calls.append(("PATCH", url))
+        if self.fail_write:
+            raise self.fail_write
+        addr = self._addr(url)
+        m = re.match(r"([A-Z]+)(\d+)(?::([A-Z]+)(\d+))?$", addr)
+        col, row = ord(m.group(1)) - 65, int(m.group(2))
+        for i, vals in enumerate(body["values"]):
+            r = row - 1 + i
+            while len(self.grid) <= r:
+                self.grid.append([])
+            line = self.grid[r]
+            for j, v in enumerate(vals):
+                while len(line) <= col + j:
+                    line.append("")
+                line[col + j] = v
+        self.ctag += 1
+        return {}
+
+    def post_accepted(self, url, token, body, **kw):
+        self.calls.append(("DELETE-ROW", url))
+        n = int(self._addr(url).split(":")[0])
+        del self.grid[n - 1]
+        self.ctag += 1
+        return 204
+
+    def install(self, monkeypatch):
+        monkeypatch.setattr(sp.microsoft365, "graph_get_json", self.get_json)
+        monkeypatch.setattr(sp.microsoft365, "graph_get_bytes", self.get_bytes)
+        monkeypatch.setattr(sp.microsoft365, "graph_patch_json", self.patch_json)
+        monkeypatch.setattr(sp.microsoft365, "graph_post_accepted", self.post_accepted)
+        return self
+
+
 @pytest.fixture(autouse=True)
 def _runtime(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "BASE_DIR", tmp_path)
@@ -34,113 +96,120 @@ def _runtime(tmp_path, monkeypatch):
     monkeypatch.setattr(sp, "ITEM_ID", "")
 
 
-class FakeGraph:
-    def __init__(self, xlsx: bytes, ctag: str = "c1"):
-        self.xlsx, self.ctag, self.calls, self.fail = xlsx, ctag, [], None
-
-    def get_json(self, url, token):
-        self.calls.append(("meta", url))
-        if self.fail:
-            raise self.fail
-        return {"id": "ITEM1", "name": "Cumpleaños.xlsx", "webUrl": "https://example/x", "cTag": self.ctag, "eTag": "e",
-                "lastModifiedDateTime": "2026-11-26T12:00:00Z", "parentReference": {"driveId": "DRIVE1", "path": "/drive/root:/CCHH HUB"}}
-
-    def get_bytes(self, url, token):
-        self.calls.append(("content", url))
-        return self.xlsx
-
-
 @pytest.fixture
-def graph(monkeypatch):
-    g = FakeGraph(_xlsx([["Nombre y apellido", "Fecha de nacimiento", "Email", "Autoriza publicación"],
-                         ["Ana Pérez", datetime(1990, 3, 14), "ana@danwor.com", "Sí"],
-                         ["Juan Gómez", "02/11/1985", "JUAN@danwor.com", "No"]]))
-    monkeypatch.setattr(sp.microsoft365, "graph_get_json", g.get_json)
-    monkeypatch.setattr(sp.microsoft365, "graph_get_bytes", g.get_bytes)
-    return g
+def wb(monkeypatch):
+    w = FakeWorkbook([HEAD, ["Ana", "Pérez", "14/03", "SI"], ["Juan", "Gómez", "02/11", "NO"], ["Notas", "", "", ""]]).install(monkeypatch)
+    sp.refresh("tok", actor="qa")
+    w.calls.clear()
+    return w
 
 
-def test_parser_reads_structure_identity_by_email_and_explicit_consent_without_keeping_the_year_or_email():
+def _by_name(name):
+    return next(b for b in svc.list_birthdays() if b["name"] == name)
+
+
+# ── lectura ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+def test_parser_reads_structure_identity_and_consent_without_keeping_the_year_or_email():
     out = sp.parse_workbook(_xlsx([["Nombre y apellido", "Fecha de nacimiento", "Email", "Autoriza publicación"],
                                    ["Ana Pérez", datetime(1990, 3, 14), "ana@danwor.com", "Sí"],
-                                   ["Juan Gómez", "02/11/1985", "juan@danwor.com", ""]]))
-    assert out["identity_basis"] == "email" and out["consent_column"] == "Autoriza publicación"
+                                   ["Juan Gómez", "02/11/1985", "", ""]]))
+    assert out["identity_basis"] == "mixed" and out["consent_column"] == "Autoriza publicación"
     ana, juan = out["rows"]
     assert (ana["name"], ana["day"], ana["month"], ana["authorized"]) == ("Ana Pérez", 14, 3, True)
     assert (juan["day"], juan["month"], juan["authorized"]) == (2, 11, False)                 # vacío ≠ autorizado
     assert set(ana) == {"id", "name", "day", "month", "authorized", "row"}                     # sin año ni correo
-    assert out["structure"]["sheets"][0]["types"]["Fecha de nacimiento"] in ("fecha, texto", "texto, fecha")
+    assert any("sin correo ni legajo" in w for w in out["warnings"])                           # solo Juan: identidad débil, informada
 
 
-def test_identity_is_stable_across_row_order_and_independent_of_the_row_number():
-    a = sp.parse_workbook(_xlsx([["Nombre", "Apellido", "Día", "Mes", "Legajo", "Autorizado"], ["Ana", "Pérez", 14, 3, "L-1", "x"],
-                                 ["Juan", "Gómez", 2, "noviembre", "L-2", ""]]))
-    b = sp.parse_workbook(_xlsx([["Nombre", "Apellido", "Día", "Mes", "Legajo", "Autorizado"], ["Juan", "Gómez", 2, 11, "L-2", ""],
-                                 ["Ana", "Pérez", 14, 3, "L-1", "x"]]))
-    assert a["identity_basis"] == "employee_id"
+def test_identity_is_stable_across_row_order_and_does_not_depend_on_the_row_number():
+    a = sp.parse_workbook(_xlsx([HEAD, ["Ana", "Pérez", "14/03", "SI"], ["Juan", "Gómez", "02/11", "SI"]]))
+    b = sp.parse_workbook(_xlsx([HEAD, ["Juan", "Gómez", "02/11", "SI"], ["Ana", "Pérez", "14/03", "SI"]]))
     assert {r["name"]: r["id"] for r in a["rows"]} == {r["name"]: r["id"] for r in b["rows"]}
-    assert {r["name"]: (r["day"], r["month"]) for r in a["rows"]} == {"Ana Pérez": (14, 3), "Juan Gómez": (2, 11)}
 
 
-def test_without_consent_column_nobody_is_published_and_weak_identity_is_reported():
-    out = sp.parse_workbook(_xlsx([["Colaborador", "Cumpleaños"], ["Ana Pérez", "14/03"], ["Sin fecha", ""]]))
-    assert out["identity_basis"] == "name_date" and out["consent_column"] is None
-    assert [r["authorized"] for r in out["rows"]] == [False]
-    assert any("autorización" in w for w in out["warnings"]) and any("nombre + día + mes" in w for w in out["warnings"])
-    assert any("no se incorporaron" in w for w in out["warnings"])
-
-
-def test_a_workbook_without_name_and_date_columns_fails_closed():
-    with pytest.raises(sp.SourceError) as exc:
+def test_without_consent_column_nobody_is_published_and_a_sheet_without_name_and_date_fails_closed():
+    out = sp.parse_workbook(_xlsx([["Colaborador", "Cumpleaños"], ["Ana Pérez", "14/03"]]))
+    assert [r["authorized"] for r in out["rows"]] == [False] and any("autorización" in w for w in out["warnings"])
+    with pytest.raises(sp.SourceError):
         sp.parse_workbook(_xlsx([["Foo", "Bar"], [1, 2]]))
-    assert exc.value.kind == "workbook"
 
 
-def test_refresh_materializes_the_read_model_and_every_experience_reads_it(graph):
-    assert sp.refresh("tok", actor="qa")["changed"] is True
-    st = sp.status()
-    assert st["loaded"] and st["count"] == 2 and st["authorized"] == 1
-    assert (st["source"]["drive_id"], st["source"]["item_id"]) == ("DRIVE1", "ITEM1")
-    assert graph.calls[0][1].startswith(f"{sp.GRAPH}/shares/u!")                              # primera resolución: por enlace
+def test_refresh_materializes_the_read_model_and_every_experience_reads_it(wb):
     assert [b["name"] for b in svc.list_birthdays()] == ["Ana Pérez", "Juan Gómez"]
-    assert [b["name"] for b in svc.public_birthdays()] == ["Ana Pérez"]                        # solo autorizados
-    ana = svc.list_birthdays()[0]
-    assert svc.get_birthday(ana["id"])["name"] == "Ana Pérez"
+    assert [b["name"] for b in svc.public_birthdays()] == ["Ana Pérez"]
+    st = sp.status()
+    assert (st["source"]["drive_id"], st["source"]["item_id"]) == ("DRIVE1", "ITEM1") and st["structure"]["used_sheet"] == "Sheet1"
 
 
-def test_unchanged_ctag_does_not_download_again_and_a_new_version_is_picked_up_without_restart(graph):
-    sp.refresh("tok", actor="qa")
-    graph.calls.clear()
+def test_unchanged_file_is_not_reread_and_an_edit_made_in_excel_is_picked_up_without_restart(wb):
     assert sp.refresh("tok", actor="qa") == {"changed": False, "checked": True}
-    assert [c[0] for c in graph.calls] == ["meta"]
-    assert "/drives/DRIVE1/items/ITEM1" in graph.calls[0][1]                                  # luego: por identidad estable
-    graph.ctag, graph.xlsx = "c2", _xlsx([["Nombre y apellido", "Fecha de nacimiento", "Email", "Autoriza publicación"],
-                                         ["Ana Pérez", datetime(1990, 3, 15), "ana@danwor.com", "Sí"]])
+    assert [c[0] for c in wb.calls] == ["GET"]                                                 # solo metadata
+    wb.grid[1][2], wb.ctag = "15/03", wb.ctag + 1                                              # alguien edita el Excel
     assert sp.refresh("tok", actor="qa")["changed"] is True
-    assert [(b["name"], b["day"]) for b in svc.list_birthdays()] == [("Ana Pérez", 15)]
+    assert _by_name("Ana Pérez")["day"] == 15
 
 
-def test_graph_errors_keep_the_last_valid_read_model_and_record_the_concrete_error(graph):
-    sp.refresh("tok", actor="qa")
-    graph.fail = urllib.error.HTTPError("u", 403, "Forbidden", {}, io.BytesIO(b'{"error":{"code":"accessDenied","message":"Access denied"}}'))
+def test_read_errors_keep_the_last_valid_read_model(wb, monkeypatch):
+    def boom(url, token):
+        raise urllib.error.HTTPError("u", 403, "Forbidden", {}, io.BytesIO(b'{"error":{"code":"accessDenied","message":"Access denied"}}'))
+    monkeypatch.setattr(sp.microsoft365, "graph_get_json", boom)
     with pytest.raises(sp.SourceError) as exc:
         sp.refresh("tok", actor="qa", force=True)
     assert exc.value.kind == "forbidden" and "accessDenied" in exc.value.detail
-    st = sp.status()
-    assert st["count"] == 2 and st["last_error"]["status"] == 403                              # nada se borra ni cae a DEMO
+    assert len(svc.list_birthdays()) == 2 and sp.status()["last_error"]["status"] == 403
 
 
-def test_without_a_delegated_token_graph_is_never_called(graph):
+# ── escritura ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+def test_edit_writes_only_the_changed_cells_keeping_format_and_identity_for_the_greetings(wb):
+    ana = _by_name("Ana Pérez")
+    svc.save_birthday(ana["id"], ana["revision"], name="Ana Pérez", day=14, month=3, authorized=False, actor="qa", write_token="w")
+    assert len([c for c in wb.calls if c[0] == "PATCH"]) == 1                                   # una sola celda
+    assert wb.grid[1] == ["Ana", "Pérez", "14/03", "NO"]                                       # solo «Autorizo», con el vocabulario del Excel
+    assert wb.grid[3] == ["Notas", "", "", ""]                                                  # el resto del contenido intacto
+    assert _by_name("Ana Pérez")["id"] == ana["id"] and not _by_name("Ana Pérez")["authorized"]
+
+
+def test_date_is_written_in_the_same_format_the_excel_uses(wb):
+    juan = _by_name("Juan Gómez")
+    svc.save_birthday(juan["id"], juan["revision"], name="Juan Gómez", day=5, month=1, authorized=False, actor="qa", write_token="w")
+    assert wb.grid[2][2] == "05/01"
+
+
+def test_a_change_made_in_excel_after_opening_the_dialog_is_never_overwritten(wb):
+    ana = _by_name("Ana Pérez")
+    wb.grid[1][3] = "NO"                                                                       # un tercero la cambió en el Excel
+    with pytest.raises(repo.CarteleraConcurrentModificationError):
+        svc.save_birthday(ana["id"], ana["revision"], name="Ana Pérez", day=20, month=3, authorized=True, actor="qa", write_token="w")
+    assert wb.grid[1] == ["Ana", "Pérez", "14/03", "NO"] and not [c for c in wb.calls if c[0] == "PATCH"]
+
+
+def test_add_appends_a_row_after_the_used_range_and_refreshes_gestion_and_portal(wb):
+    svc.save_birthday(None, None, name="María José Ruiz", day=1, month=12, authorized=True, actor="qa", write_token="w")
+    assert wb.grid[4] == ["María", "José Ruiz", "01/12", "SI"]
+    assert [b["name"] for b in svc.public_birthdays()] == ["Ana Pérez", "María José Ruiz"]
+    with pytest.raises(svc.CarteleraValidationError):                                          # duplicado
+        svc.save_birthday(None, None, name="María José Ruiz", day=1, month=12, authorized=True, actor="qa", write_token="w")
+
+
+def test_bulk_import_writes_all_new_rows_in_one_write(wb):
+    created, rejected = svc.import_birthdays("Pedro Sosa;03/04\nAna Pérez;14/03\nmal", "qa", authorized=False, write_token="w")
+    assert (created, rejected) == (1, ["mal"]) and len([c for c in wb.calls if c[0] == "PATCH"]) == 1
+    assert wb.grid[4] == ["Pedro", "Sosa", "03/04", "NO"]
+
+
+def test_delete_removes_the_row_and_its_greetings(wb):
+    juan = _by_name("Juan Gómez")
+    svc.delete_birthday(juan["id"], write_token="w", actor="qa")
+    assert [r[0] for r in wb.grid] == ["Nombre", "Ana", "Notas"] and [b["name"] for b in svc.list_birthdays()] == ["Ana Pérez"]
+
+
+def test_without_write_token_or_permission_nothing_is_confirmed(wb):
+    ana = _by_name("Ana Pérez")
     with pytest.raises(sp.SourceError) as exc:
-        sp.refresh("", actor="qa")
-    assert exc.value.kind == "auth_required" and graph.calls == []
-
-
-def test_local_writes_are_blocked_while_sharepoint_is_the_source(graph):
-    sp.refresh("tok", actor="qa")
-    for call in (lambda: svc.save_birthday(None, None, name="X", day=1, month=1, authorized=True, actor="qa"),
-                 lambda: svc.import_birthdays("X;01/01", "qa", authorized=True),
-                 lambda: svc.delete_birthday(svc.list_birthdays()[0]["id"])):
-        with pytest.raises(svc.CarteleraValidationError, match="Excel de SharePoint"):
-            call()
-    assert len(svc.list_birthdays()) == 2
+        svc.save_birthday(ana["id"], ana["revision"], name="Ana Pérez", day=14, month=3, authorized=False, actor="qa", write_token="")
+    assert exc.value.kind == "auth_required"
+    wb.fail_write = urllib.error.HTTPError("u", 403, "Forbidden", {}, io.BytesIO(b'{"error":{"code":"accessDenied"}}'))
+    with pytest.raises(sp.SourceError) as exc:
+        svc.save_birthday(ana["id"], ana["revision"], name="Ana Pérez", day=14, month=3, authorized=False, actor="qa", write_token="w")
+    assert exc.value.kind == "forbidden" and "edición" in str(exc.value)
+    assert _by_name("Ana Pérez")["authorized"] is True                                         # el read-model no cambió

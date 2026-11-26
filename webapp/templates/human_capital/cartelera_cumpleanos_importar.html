@@ -20,7 +20,7 @@
 </form>
 {% else %}
 {% set valid = rows | selectattr('status', 'equalto', 'valid') | list %}
-<form class="hc-profile-form hc-profile-form--plain" method="post" action="/cchh/cartelera/cumpleanos/importar"><input type="hidden" name="volver" value="{{ volver }}">
+<form class="hc-profile-form hc-profile-form--plain" method="post" action="/cchh/cartelera/cumpleanos/importar"><input type="hidden" name="volver" value="{{ volver }}"><input type="hidden" name="write_token" data-ct-write-token>
   <div class="dashboard-sections">
     <details class="dashboard-section" open>
       <summary class="dashboard-section__head">
@@ -55,4 +55,5 @@
   </div>
 </form>
 {% endif %}
+{% include "human_capital/_cartelera_write_token.html" %}
 {% endblock %}
