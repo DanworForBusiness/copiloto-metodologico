@@ -19,6 +19,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from core.content_registry import DEFAULT_PACK
 from webapp import human_capital_access, same_origin_guard, workspaces
 from webapp.services import auth_service, cartelera_repository as repo, cartelera_service as svc, cartelera_social as social
+from webapp.services import cartelera_birthdays_source as bd_source
 from webapp.services.activity_catalog import AREA_CCHH, EVENT_PAGE_VIEW, SCOPE_HUMAN_CAPITAL
 from webapp.services.activity_service import log_activity
 from webapp.templating import templates
@@ -118,6 +119,8 @@ def _back(path: str, *, ok: str = "", error: str = "") -> RedirectResponse:
 
 
 def _storage_message(exc: Exception) -> str:
+    if isinstance(exc, svc.CarteleraValidationError):
+        return str(exc)
     if isinstance(exc, repo.CarteleraConcurrentModificationError):
         return str(exc) or "El contenido cambió mientras editabas. Recargá antes de guardar."
     if isinstance(exc, (repo.CarteleraStorageError, repo.CarteleraRemoteOutcomeUnknownError)):
@@ -341,7 +344,28 @@ def birthdays_page(request: Request, q: str = "", mes: str = "", autorizacion: s
     return templates.TemplateResponse(request=request, name="human_capital/cartelera_cumpleanos.html", headers=_NO_STORE, context=_shell(
         request, user, "cumpleanos", birthdays=pager["items"], pager=pager, filtered=pager["total"], total=len(all_rows),
         sort_cols=_birthday_sort_state({**params, **sizing}, orden, direction),
-        greetings=greetings, upcoming=svc.upcoming_birthdays(30), months=svc.MONTHS, q=q, mes=mes, autorizacion=autorizacion))
+        greetings=greetings, upcoming=svc.upcoming_birthdays(30), months=svc.MONTHS, q=q, mes=mes, autorizacion=autorizacion,
+        sp_status=bd_source.status() if bd_source.ENABLED else None))
+
+
+@router.post(f"{BASE}/cumpleanos/fuente", response_class=HTMLResponse, include_in_schema=False)
+def birthdays_source_refresh(request: Request, graph_token: str = Form(""), force: str = Form("")):
+    """Lee el Excel de SharePoint con el token DELEGADO de quien abre Gestión (inyectado por `data-dw-graph-token`, MISMO hook que la
+    actualización de Catálogos CCHH). Si el contenido cambió, recarga la página; si no, devuelve el estado de la fuente."""
+    user = _admin_write(request)
+    if not bd_source.ENABLED:
+        raise HTTPException(404, "Fuente no habilitada")
+    error, headers = None, dict(_NO_STORE)
+    try:
+        result = bd_source.refresh(graph_token, actor=_actor(user), force=force == "1")
+        if result["changed"]:
+            headers["HX-Refresh"] = "true"
+    except bd_source.SourceError as exc:
+        error = {"kind": exc.kind, "message": str(exc), "detail": exc.detail}
+    except _ERRORS as exc:
+        error = {"kind": "storage", "message": _storage_message(exc), "detail": ""}
+    return templates.TemplateResponse(request=request, name="human_capital/_cartelera_bd_source.html", headers=headers, context={
+        "request": request, "sp_status": bd_source.status(), "sp_error": error, "svc": svc})
 
 
 def _volver_qs(volver: str) -> str:
@@ -384,6 +408,8 @@ def birthday_import_page(request: Request):
     user, redirect = _admin(request)
     if redirect:
         return redirect
+    if bd_source.ENABLED:
+        return _back(_birthdays_return(request.query_params.get("volver", "")), error=svc.SHAREPOINT_READ_ONLY)
     return templates.TemplateResponse(request=request, name="human_capital/cartelera_cumpleanos_importar.html", headers=_NO_STORE, context=_shell(
         request, user, "cumpleanos", rows=None, bulk="", volver=_volver_qs(request.query_params.get("volver", "")),
         back_url=_birthdays_return(request.query_params.get("volver", ""))))

@@ -5,16 +5,30 @@
 {#- Estado de la vista (filtros, orden, página) para que las subpantallas vuelvan al mismo lugar (`_birthdays_return`). -#}
 {% set _volver = ('volver=' ~ request.url.query | urlencode) if request.url.query else '' %}
 {% block hero_actions %}
+  {% if sp_status is not none %}
+  {#- Fuente SharePoint (solo lectura): el alta, la edición, la carga masiva y la eliminación se hacen en el Excel. -#}
+  <button type="button" class="btn-secondary" data-dw-graph-token hx-post="/cchh/cartelera/cumpleanos/fuente" hx-vals='{"force": "1"}'
+          hx-target="#ct-bd-source" hx-swap="innerHTML">Actualizar desde SharePoint</button>
+  {% if sp_status.source and sp_status.source.web_url %}<a href="{{ sp_status.source.web_url }}" class="btn-primary" target="_blank" rel="noopener">Abrir el Excel ↗</a>{% endif %}
+  {% else %}
   <a href="/cchh/cartelera/cumpleanos/importar{{ '?' ~ _volver if _volver }}" class="btn-secondary">Carga masiva</a>
   <button type="button" class="btn-primary" data-bd-new>+ Nuevo cumpleaños</button>
+  {% endif %}
 {% endblock %}
 {% block cartelera_body %}
+{% if sp_status is not none %}
+{#- Estado de la fuente + refresh automático al abrir (token delegado inyectado por el hook transversal de `hub_auth.js`). Si el Excel cambió, el
+    servidor responde `HX-Refresh` y la página se recarga con los datos nuevos. -#}
+<div id="ct-bd-source" data-dw-graph-token hx-post="/cchh/cartelera/cumpleanos/fuente" hx-trigger="load" hx-swap="innerHTML">
+  {% with sp_error = none %}{% include "human_capital/_cartelera_bd_source.html" %}{% endwith %}
+</div>
+{% endif %}
 {#- Modelo: nombre, día, mes y AUTORIZACIÓN DE PUBLICACIÓN (único atributo de publicación). Autorizado ⇒ aparece en la Cartelera. -#}
 {% set g_labels = {'none': 'Preparar saludo', 'draft': 'Saludo en borrador', 'scheduled': 'Saludo programado', 'published': 'Saludo publicado', 'withdrawn': 'Saludo retirado'} %}
 {% macro cake() %}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21h16"/><path d="M5 21v-7h14v7"/><path d="M8 14v-3M12 14v-3M16 14v-3"/><path d="M12 7a1.5 1.5 0 0 0 0-3"/></svg>{% endmacro %}
 {% macro greeting_href(b, g) %}/cchh/cartelera/cumpleanos/{{ b.id }}/saludo?anio={{ g.year }}{{ '&' ~ _volver if _volver }}{% endmacro %}
 {#- Datos para el MISMO diálogo de edición que abre el lápiz de la tabla (y ahora también cada tarjeta de próximos). -#}
-{% macro edit_data(b) %}data-bd-edit data-bd-id="{{ b.id }}" data-bd-rev="{{ b.revision }}" data-bd-name="{{ b.name }}" data-bd-day="{{ b.day }}" data-bd-month="{{ b.month }}" data-bd-auth="{{ '1' if b.authorized else '' }}"{% endmacro %}
+{% macro edit_data(b) %}{% if sp_status is none %}data-bd-edit {% endif %}data-bd-id="{{ b.id }}" data-bd-rev="{{ b.revision }}" data-bd-name="{{ b.name }}" data-bd-day="{{ b.day }}" data-bd-month="{{ b.month }}" data-bd-auth="{{ '1' if b.authorized else '' }}"{% endmacro %}
 
 <div class="dashboard-sections" data-dashboard-key="cchh-cartelera-cumpleanos">
   {# Próximos 30 días: MISMO primitivo `.activity-kpi` del Hub, interactivo como los tiles del CRM (`.activity-kpi--clickable`: cursor, hover,
@@ -37,7 +51,7 @@
       {% if upcoming %}
       <div class="activity-kpi-grid cartelera-bday-tiles">
         {% for b in upcoming[:12] %}
-        <div class="activity-kpi activity-kpi--clickable{{ ' is-today' if b.offset == 0 else '' }}" role="button" tabindex="0" {{ edit_data(b) }} aria-label="Editar el cumpleaños de {{ b.name }}">
+        <div class="activity-kpi{{ ' activity-kpi--clickable' if sp_status is none }}{{ ' is-today' if b.offset == 0 else '' }}"{% if sp_status is none %} role="button" tabindex="0" {{ edit_data(b) }} aria-label="Editar el cumpleaños de {{ b.name }}"{% endif %}>
           <span class="activity-kpi__value">{{ '%02d' | format(b.day) }}/{{ '%02d' | format(b.month) }}</span>
           <span class="activity-kpi__label">{{ 'Hoy' if b.offset == 0 else ('Mañana' if b.offset == 1 else 'En ' ~ b.offset ~ ' días') }}</span>
           <span class="activity-kpi__hint">{{ b.name }}</span>
@@ -102,20 +116,20 @@
                   {% if b.authorization %}<div class="field-hint">{{ b.authorization.by }} · {{ svc.fmt_local(b.authorization.at, with_time=False) }}</div>{% endif %}</td>
                 <td class="center">
                   <div class="dw-row-actions">
-                    <button type="button" class="table-action-btn chart-tooltip-anchor" {{ edit_data(b) }} aria-label="Editar a {{ b.name }}">
+                    {% if sp_status is none %}<button type="button" class="table-action-btn chart-tooltip-anchor" {{ edit_data(b) }} aria-label="Editar a {{ b.name }}">
                       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
                       <span class="chart-tooltip" aria-hidden="true"><p>Editar</p></span>
-                    </button>
+                    </button>{% endif %}
                     {% if g.can_prepare %}<a href="{{ greeting_href(b, g) }}" class="table-action-btn chart-tooltip-anchor" aria-label="{{ g_labels[g.state] }} de {{ b.name }}">{{ cake() }}<span class="chart-tooltip" aria-hidden="true"><p>{{ g_labels[g.state] }} · {{ '%02d' | format(g.date.day) }}/{{ '%02d' | format(g.date.month) }}/{{ g.year }}</p></span></a>
                     {% else %}<span class="table-action-btn chart-tooltip-anchor is-disabled" aria-disabled="true" tabindex="0" aria-label="Preparar saludo no disponible">{{ cake() }}<span class="chart-tooltip" aria-hidden="true"><p>Para preparar el saludo, la persona tiene que tener la autorización de publicación.</p></span></span>{% endif %}
-                    <form method="post" action="/cchh/cartelera/cumpleanos/{{ b.id }}/eliminar" class="dw-row-actions__form"
+                    {% if sp_status is none %}<form method="post" action="/cchh/cartelera/cumpleanos/{{ b.id }}/eliminar" class="dw-row-actions__form"
                           data-dw-confirm-form data-dw-confirm-title="Eliminar cumpleaños" data-dw-confirm-message="¿Eliminar a {{ b.name }} del calendario? También se eliminan sus saludos. Esta acción no se puede deshacer." data-dw-confirm-ok="Eliminar">
                       <input type="hidden" name="volver" data-bd-return>
                       <button type="submit" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" aria-label="Eliminar a {{ b.name }}">
                         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
                         <span class="chart-tooltip" aria-hidden="true"><p>Eliminar</p></span>
                       </button>
-                    </form>
+                    </form>{% endif %}
                   </div>
                 </td>
               </tr>

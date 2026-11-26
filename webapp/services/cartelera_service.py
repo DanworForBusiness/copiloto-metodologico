@@ -432,12 +432,30 @@ def _consolidate(b: dict) -> dict:
         return {**clean, **fields}
 
 
+# FUENTE: con `cartelera_birthdays_source.ENABLED` el registro de cumpleaños es el Excel de SharePoint (read-model materializado,
+# solo lectura). Este es el ÚNICO punto de lectura: Gestión, próximos, Inicio, calendario, panel de Comunidad y saludos lo consumen.
+# Los registros locales (`birthdays/`) no se borran: quedan sin uso hasta homologar la nueva fuente.
+SHAREPOINT_READ_ONLY = ("Los cumpleaños se administran en el Excel de SharePoint (Cartelera Virtual → Cumpleaños). Hacé el cambio ahí y "
+                        "actualizá desde SharePoint.")
+
+
+def _sharepoint() -> bool:
+    from webapp.services import cartelera_birthdays_source as sp
+    return sp.ENABLED
+
+
 def get_birthday(birthday_id: str) -> dict | None:
+    if _sharepoint():
+        from webapp.services import cartelera_birthdays_source as sp
+        return sp.get(birthday_id)
     b = repo.get("birthdays", birthday_id)
     return _consolidate(b) if b else None
 
 
 def list_birthdays() -> list[dict]:
+    if _sharepoint():
+        from webapp.services import cartelera_birthdays_source as sp
+        return sp.rows()
     rows = [_consolidate(b) for b in repo.list_all("birthdays")]
     return sorted(rows, key=lambda b: (int(b.get("month", 0)), int(b.get("day", 0)), b.get("name", "").lower()))
 
@@ -456,6 +474,8 @@ def _valid_day_month(day, month) -> tuple[int, int]:
 
 
 def save_birthday(birthday_id: str | None, revision: int | None, *, name: str, day, month, authorized: bool, actor: str) -> dict:
+    if _sharepoint():
+        raise CarteleraValidationError(SHAREPOINT_READ_ONLY)
     name = _text(name, limit=120)
     if not name:
         raise CarteleraValidationError("Completá el nombre.")
@@ -470,6 +490,8 @@ def save_birthday(birthday_id: str | None, revision: int | None, *, name: str, d
 
 
 def import_birthdays(text: str, actor: str, *, authorized: bool) -> tuple[int, list[str]]:
+    if _sharepoint():
+        raise CarteleraValidationError(SHAREPOINT_READ_ONLY)
     """Carga masiva: una persona por línea, «Nombre Apellido;DD/MM» (también coma o tabulación). Devuelve (creados, líneas rechazadas)."""
     created, rejected = 0, []
     existing = {(b.get("name", "").lower(), b.get("day"), b.get("month")) for b in list_birthdays()}
@@ -695,6 +717,8 @@ def greeting_state(birthday_id: str, year: int, revision: int, action: str, when
 
 def delete_birthday(birthday_id: str) -> None:
     """Elimina el cumpleaños y sus saludos (no quedan saludos huérfanos)."""
+    if _sharepoint():
+        raise CarteleraValidationError(SHAREPOINT_READ_ONLY)
     repo.delete("birthdays", birthday_id)
     for g in repo.list_all("greetings"):
         if g.get("birthday_id") == birthday_id:

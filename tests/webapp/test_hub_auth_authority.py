@@ -312,6 +312,9 @@ def test_the_marker_is_declarative_and_carries_no_credential():
         "human_capital/profile_import.html": 1,
         "partials/cv_inbox_panel.html": 8,
         "partials/cv_inbox_row.html": 2,
+        # Cartelera Virtual → Cumpleaños con el Excel de SharePoint como fuente (SOLO LECTURA): lectura automática al abrir Gestión (1) y
+        # «Actualizar desde SharePoint» (1); token base de LECTURA (`Sites.Read.All`) en el cuerpo del POST, nada se guarda ni viaja en el markup.
+        "human_capital/cartelera_cumpleanos.html": 2,
     }
     found = {}
     for path in sorted(_TEMPLATES.glob("**/*.html")):

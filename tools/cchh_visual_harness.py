@@ -326,6 +326,9 @@ def _seed_runtime(keep: bool) -> Path:
     from tools import cartelera_harness_seed
     cartelera_harness_seed.seed()
     cartelera_harness_seed.patch_projects()
+    # Arnés DEMO (sin MSAL): los cumpleaños siguen saliendo de la semilla local, no del Excel de SharePoint (que exige token delegado).
+    from webapp.services import cartelera_birthdays_source
+    cartelera_birthdays_source.ENABLED = False
 
     # OPT-IN (apagado por defecto: el harness NO se infla): CCHH_HARNESS_EXTRA_ROWS=N agrega N perfiles + N entrevistas + N onboardings SINTÉTICOS determinísticos
     # (ids `99999999-…`) SOLO para ver/validar el paginador estándar (>50 filas) en Candidatos/Entrevistas/Onboarding. Las suites de tests usan sus propios datasets.
