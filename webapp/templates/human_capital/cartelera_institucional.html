@@ -1,128 +1,238 @@
 {% extends "human_capital/_cartelera_layout.html" %}
+{% from "human_capital/_cartelera_table.html" import dw_table %}
 {% block page_title %}Nosotros y galería{% endblock %}
+{% block hero_actions %}<a href="/cartelera/nosotros" class="btn-secondary" target="_blank" rel="noopener">Ver Nosotros ↗</a>{% endblock %}
 {% block cartelera_body %}
-<script type="application/json" id="ct-inst">{{ model_json | replace("</", "<\\/") | safe }}</script>
-<div x-data="carteleraInstitutional(JSON.parse(document.getElementById('ct-inst').textContent), {{ data.revision if data.revision else 'null' }})"
-     @beforeunload.window="if (dirty) { $event.preventDefault(); $event.returnValue = true }">
-  <details class="dashboard-section" open><summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Presentación, misión y visión</span></summary><div class="dashboard-section__body">
-    <div class="hc-profile-section__grid hc-profile-section__grid--fluid">
-      <div class="feedback-field feedback-field--wide"><label for="in-intro">Presentación</label><textarea id="in-intro" rows="3" x-model="m.intro" @input="dirty=true"></textarea></div>
-      <div class="feedback-field feedback-field--wide"><label for="in-mission">Misión</label><textarea id="in-mission" rows="3" x-model="m.mission" @input="dirty=true"></textarea></div>
-      <div class="feedback-field feedback-field--wide"><label for="in-vision">Visión</label><textarea id="in-vision" rows="3" x-model="m.vision" @input="dirty=true"></textarea></div>
-    </div>
-    <span class="field-hint">Enlaces del encabezado de Nosotros (el primero se destaca).</span>
-    <template x-for="(l, i) in m.links" :key="i">
-      <div class="hc-profile-section__grid hc-profile-section__grid--fluid">
-        <div class="feedback-field feedback-field--medium"><label>Nombre</label><input type="text" maxlength="40" x-model="l.label" @input="dirty=true" placeholder="Ej.: Sitio web"></div>
-        <div class="feedback-field feedback-field--wide"><label>Dirección</label><input type="url" x-model="l.url" @input="dirty=true" placeholder="https://…"></div>
-        <div class="feedback-field feedback-field--compact" style="align-self:end"><button type="button" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" @click="m.links.splice(i, 1); dirty = true" aria-label="Quitar enlace"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Quitar enlace</p></span></button></div>
-      </div>
-    </template>
-    <div><button type="button" class="btn-secondary" x-show="m.links.length < 4" @click="m.links.push({label: '', url: ''}); dirty = true">+ Agregar enlace</button></div>
-  </div></details>
-
-  <details class="dashboard-section" open><summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Valores</span></summary><div class="dashboard-section__body">
-    <div class="feedback-field feedback-field--wide"><label for="in-values-intro">Introducción</label><textarea id="in-values-intro" rows="2" x-model="m.values_intro" @input="dirty=true"></textarea></div>
-    <template x-for="(v, i) in m.values" :key="i">
-      <div class="cartelera-item">
-        <div class="hc-profile-section__grid hc-profile-section__grid--fluid">
-          <div class="feedback-field feedback-field--medium"><label>Valor</label><input type="text" maxlength="80" x-model="v.title" @input="dirty=true"></div>
-          <div class="feedback-field feedback-field--wide"><label>Descripción</label><textarea rows="2" x-model="v.text" @input="dirty=true"></textarea></div>
-        </div>
-        <div class="cartelera-item__foot"><span></span><span>
-          <button type="button" class="table-action-btn chart-tooltip-anchor" @click="move(m.values, i, -1)" :disabled="i === 0" aria-label="Subir"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Subir</p></span></button>
-          <button type="button" class="table-action-btn chart-tooltip-anchor" @click="move(m.values, i, 1)" :disabled="i === m.values.length - 1" aria-label="Bajar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Bajar</p></span></button>
-          <button type="button" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" @click="m.values.splice(i, 1); dirty = true" aria-label="Quitar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Quitar</p></span></button></span></div>
-      </div>
-    </template>
-    <div><button type="button" class="btn-secondary" @click="m.values.push({title: '', text: ''}); dirty = true">+ Agregar valor</button></div>
-  </div></details>
-
-  <details class="dashboard-section" open><summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Galería</span></summary><div class="dashboard-section__body">
-    <p class="cartelera-pending" data-pending="sharepoint">Las fotos de cada álbum se suben a la carpeta SharePoint de Cartelera Virtual: disponible cuando se habilite la integración documental (acceso en verificación). Mientras tanto podés preparar los álbumes; en Nosotros solo se muestran los que tienen al menos una foto.</p>
-    <template x-for="(a, i) in m.albums" :key="a.id || i">
-      <div class="cartelera-item">
-        <div class="hc-profile-section__grid hc-profile-section__grid--fluid">
-          <div class="feedback-field feedback-field--wide"><label>Álbum</label><input type="text" maxlength="120" x-model="a.title" @input="dirty=true" placeholder="Ej.: Fiesta de fin de año 2026"></div>
-          <div class="feedback-field feedback-field--compact"><label>Fecha</label><input type="date" x-model="a.date" @input="dirty=true"></div>
-          <div class="feedback-field feedback-field--wide"><label>Descripción</label><input type="text" maxlength="600" x-model="a.description" @input="dirty=true"></div>
-        </div>
-        <div class="cartelera-item__foot"><span class="cartelera-pending cartelera-pending--inline">Fotos · pendiente de integración SharePoint</span>
-          <button type="button" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" @click="m.albums.splice(i, 1); dirty = true" aria-label="Quitar álbum"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Quitar álbum</p></span></button></div>
-      </div>
-    </template>
-    <div><button type="button" class="btn-secondary" @click="m.albums.push({id: Math.random().toString(36).slice(2, 14), title: '', date: '', description: ''}); dirty = true">+ Nuevo álbum</button></div>
-  </div></details>
-
-  <details class="dashboard-section" open><summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Organigrama</span>
-    <span class="dashboard-section__count" x-text="m.org.length"></span></summary><div class="dashboard-section__body">
-    <p class="field-hint">Lo ven todos en Nosotros. <b>Persona</b> muestra nombre y cargo; <b>Área</b> se ve en amarillo y <b>Puesto</b> en gris. «Depende de» define dónde cuelga cada caja.</p>
-    <div class="matrix-scroll"><table class="dashboard-table ct-org-table">
-      <thead><tr><th class="left">Tipo</th><th class="left">Área, puesto o cargo</th><th class="left">Nombre</th><th class="left">Depende de</th><th class="center">Acciones</th></tr></thead>
-      <tbody>
-        <template x-for="r in orgRows()" :key="r.n.id">
-          <tr>
-            <td class="left"><div :style="`padding-left:${r.depth * 18}px`"><select x-model="r.n.kind" @change="dirty=true" aria-label="Tipo">{% for v, l in org_kinds %}<option value="{{ v }}">{{ l }}</option>{% endfor %}</select></div></td>
-            <td class="left"><input type="text" maxlength="80" x-model="r.n.title" @input="dirty=true" :placeholder="r.n.kind === 'persona' ? 'Cargo (CEO, VP…)' : 'Nombre del área o puesto'" aria-label="Área, puesto o cargo"></td>
-            <td class="left"><input type="text" maxlength="80" x-model="r.n.name" @input="dirty=true" x-show="r.n.kind === 'persona'" placeholder="Nombre y apellido" aria-label="Nombre"></td>
-            <td class="left"><select x-model="r.n.parent" @change="dirty=true" aria-label="Depende de"><option value="">Danwor</option>
-              <template x-for="o in orgParents(r.n)" :key="o.id"><option :value="o.id" x-text="orgLabel(o)" :selected="o.id === r.n.parent"></option></template></select></td>
-            <td class="center"><div class="dw-row-actions">
-              <button type="button" class="table-action-btn chart-tooltip-anchor" @click="orgMove(r.n, -1)" aria-label="Mover a la izquierda"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Mover a la izquierda</p></span></button>
-              <button type="button" class="table-action-btn chart-tooltip-anchor" @click="orgMove(r.n, 1)" aria-label="Mover a la derecha"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Mover a la derecha</p></span></button>
-              <button type="button" class="table-action-btn chart-tooltip-anchor" @click="orgAdd(r.n.id)" aria-label="Agregar una caja que dependa de esta"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Agregar una caja que dependa de esta</p></span></button>
-              <button type="button" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" @click="orgRemove(r.n)" aria-label="Quitar caja"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Quitar caja (lo que depende de ella sube un nivel)</p></span></button>
-            </div></td>
-          </tr>
-        </template>
-      </tbody></table></div>
-    <div class="row" style="gap:8px;margin-top:10px"><button type="button" class="btn-secondary" @click="orgAdd('')">+ Nueva caja principal</button>
-      <a href="/cartelera/nosotros" class="btn-secondary" target="_blank" rel="noopener">Ver en Nosotros ↗</a></div>
-  </div></details>
-
-  <div class="cartelera-sticky-save">
-    <button type="button" class="btn-primary" @click="save()" :disabled="saving || !dirty" x-text="saving ? 'Guardando…' : (dirty ? 'Guardar cambios' : 'Cambios guardados')"></button>
-    <span class="field-hint" x-show="msg" x-text="msg"></span><span class="cartelera-error" x-show="err" x-text="err"></span>
-  </div>
+{#- «Nosotros y galería»: el contenido institucional se LEE como queda y se edita en contexto (lápiz → diálogo `dw-confirm` del Hub), sin
+    formularios permanentes. Valores, enlaces y álbumes en tablas del Hub; el organigrama se edita sobre el propio árbol (cada caja abre su
+    diálogo). Todo persiste en el MISMO documento institucional con su revisión (endpoint de siempre); al guardar se recarga con el aviso. -#}
+{% macro ico(name) -%}<svg viewBox="0 0 24 24" aria-hidden="true">{% if name == 'edit' %}<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>{% elif name == 'trash' %}<path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/>{% elif name == 'up' %}<path d="M12 19V5"/><path d="m5 12 7-7 7 7"/>{% elif name == 'down' %}<path d="M12 5v14"/><path d="m19 12-7 7-7-7"/>{% elif name == 'left' %}<path d="M19 12H5"/><path d="m12 5-7 7 7 7"/>{% elif name == 'right' %}<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>{% elif name == 'plus' %}<path d="M12 5v14"/><path d="M5 12h14"/>{% elif name == 'out' %}<path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 14v6H4V6h6"/>{% endif %}</svg>{%- endmacro %}
+{% macro act(name, label, attrs, danger=false, disabled=false) -%}
+<button type="button" class="table-action-btn{{ ' table-action-btn--danger' if danger }} chart-tooltip-anchor" {{ attrs | safe }} aria-label="{{ label }}"{% if disabled %} disabled{% endif %}>{{ ico(name) }}<span class="chart-tooltip" aria-hidden="true"><p>{{ label }}</p></span></button>
+{%- endmacro %}
+{% macro text_field(key, label, rows=3) -%}
+<div class="feedback-field ct-inst-text">
+  <div class="ct-inst-text__head"><label>{{ label }}</label>{{ act('edit', 'Editar ' ~ label | lower, 'data-in-text="' ~ key ~ '" data-in-label="' ~ label ~ '" data-in-rows="' ~ rows ~ '"') }}</div>
+  <div class="hc-readonly-value ct-inst-text__value">{{ data[key] or '—' }}</div>
 </div>
+{%- endmacro %}
+<script type="application/json" id="ct-inst">{{ model_json | replace("</", "<\\/") | safe }}</script>
+
+<div class="dashboard-sections" data-dashboard-key="cchh-cartelera-nosotros">
+  <details class="dashboard-section" data-section-id="presentacion" data-persist-collapse open>
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Presentación, misión y visión</span></summary>
+    <div class="dashboard-section__body">
+      <div class="hc-profile-section__grid hc-profile-section__grid--fluid ct-inst-grid">
+        {{ text_field('intro', 'Presentación', 4) }}
+        {{ text_field('mission', 'Misión') }}
+        {{ text_field('vision', 'Visión') }}
+      </div>
+      <div class="ct-inst-subhead"><h3>Enlaces del encabezado</h3><span class="field-hint">El primero se destaca en Nosotros. Hasta 4.</span>
+        {% if (data.links or []) | length < 4 %}<button type="button" class="btn-secondary" data-in-link-new>+ Agregar enlace</button>{% endif %}</div>
+      {% if data.links %}
+      {% call dw_table('nos-enlaces', [{'key': 'nombre', 'label': 'Nombre', 'width': '28%', 'sort': false}, {'key': 'url', 'label': 'Dirección', 'width': '72%', 'sort': false}], actions_width='170px') %}
+        {% for l in data.links %}<tr>
+          <td class="left" data-column-key="nombre"><strong>{{ l.label }}</strong>{% if loop.first %} <span class="dashboard-status-badge solicitudes-status-badge solicitudes-status-badge--amber">Destacado</span>{% endif %}</td>
+          <td class="left row-label" data-column-key="url" title="{{ l.url }}">{{ l.url }}</td>
+          <td class="center"><div class="dw-row-actions">
+            {{ act('up', 'Subir', 'data-in-move="links" data-i="' ~ loop.index0 ~ '" data-d="-1"', disabled=loop.first) }}{{ act('down', 'Bajar', 'data-in-move="links" data-i="' ~ loop.index0 ~ '" data-d="1"', disabled=loop.last) }}
+            {{ act('edit', 'Editar', 'data-in-link="' ~ loop.index0 ~ '"') }}{{ act('trash', 'Quitar', 'data-in-del="links" data-i="' ~ loop.index0 ~ '" data-name="' ~ l.label ~ '"', danger=true) }}
+          </div></td></tr>{% endfor %}
+      {% endcall %}
+      {% else %}<p class="field-hint">Sin enlaces: Nosotros no muestra botones en el encabezado.</p>{% endif %}
+    </div>
+  </details>
+
+  <details class="dashboard-section" data-section-id="valores" data-persist-collapse open>
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Valores</span>
+      <span class="dashboard-section__count">{{ (data['values'] or []) | length }}</span></summary>
+    <div class="dashboard-section__body">
+      {{ text_field('values_intro', 'Introducción', 3) }}
+      <div class="ct-inst-subhead"><h3>Valores</h3><span class="field-hint">Se numeran en este orden (01, 02…).</span><button type="button" class="btn-secondary" data-in-value-new>+ Nuevo valor</button></div>
+      {% if data['values'] %}
+      {% call dw_table('nos-valores', [{'key': 'n', 'label': 'N.º', 'width': '7%', 'sort': false}, {'key': 'valor', 'label': 'Valor', 'width': '20%', 'sort': false}, {'key': 'descripcion', 'label': 'Descripción', 'width': '73%', 'sort': false}], actions_width='170px') %}
+        {% for v in data['values'] %}<tr>
+          <td class="left" data-column-key="n">{{ '%02d' | format(loop.index) }}</td>
+          <td class="left" data-column-key="valor"><strong>{{ v.title }}</strong></td>
+          <td class="left" data-column-key="descripcion"><div class="ct-clip" title="{{ v.text }}">{{ v.text }}</div></td>
+          <td class="center"><div class="dw-row-actions">
+            {{ act('up', 'Subir', 'data-in-move="values" data-i="' ~ loop.index0 ~ '" data-d="-1"', disabled=loop.first) }}{{ act('down', 'Bajar', 'data-in-move="values" data-i="' ~ loop.index0 ~ '" data-d="1"', disabled=loop.last) }}
+            {{ act('edit', 'Editar', 'data-in-value="' ~ loop.index0 ~ '"') }}{{ act('trash', 'Quitar', 'data-in-del="values" data-i="' ~ loop.index0 ~ '" data-name="' ~ v.title ~ '"', danger=true) }}
+          </div></td></tr>{% endfor %}
+      {% endcall %}
+      {% else %}<div class="dashboard-empty"><span class="dashboard-empty__label">Sin valores</span><p>Agregá el primero con «+ Nuevo valor».</p></div>{% endif %}
+    </div>
+  </details>
+
+  {#- Organigrama: edición sobre el propio árbol (MISMA jerarquía y códigos de color que Nosotros: Área en amarillo, Puesto en gris, Persona con
+      nombre y cargo). Cada caja abre su diálogo; las acciones de la caja agregan una dependiente, la mueven entre sus pares o la quitan. -#}
+  {% macro og_node(n) -%}
+  <li>
+    <div class="ct-og">
+      <button type="button" class="ct-og__node ct-og__node--{{ n.kind }}" data-in-node="{{ n.id }}" aria-label="Editar {{ n.name or n.title }}">
+        {% if n.kind == 'persona' %}<b>{{ n.name or 'Nombre' }}</b><span>{{ n.title }}</span>{% else %}{{ n.title }}{% endif %}</button>
+      <span class="ct-og__actions">{{ act('plus', 'Agregar una caja que dependa de esta', 'data-in-node-add="' ~ n.id ~ '"') }}{{ act('left', 'Mover antes', 'data-in-node-move="' ~ n.id ~ '" data-d="-1"') }}{{ act('right', 'Mover después', 'data-in-node-move="' ~ n.id ~ '" data-d="1"') }}{{ act('trash', 'Quitar caja (lo que depende de ella sube un nivel)', 'data-in-node-del="' ~ n.id ~ '"', danger=true) }}</span>
+    </div>
+    {% if n.children %}<ul>{% for c in n.children %}{{ og_node(c) }}{% endfor %}</ul>{% endif %}
+  </li>
+  {%- endmacro %}
+  <details class="dashboard-section" data-section-id="organigrama" data-persist-collapse open>
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Organigrama</span>
+      <span class="dashboard-section__count">{{ (data.org or []) | length }} cajas</span></summary>
+    <div class="dashboard-section__body">
+      <div class="ct-inst-subhead"><span class="field-hint">Lo ven todos en Nosotros. Tocá una caja para editarla. <b>Persona</b> muestra nombre y cargo; <b>Área</b> se ve en amarillo y <b>Puesto</b> en gris.</span>
+        <button type="button" class="btn-secondary" data-in-node-add="">+ Nueva caja principal</button></div>
+      <div class="ct-orgtree"><div class="ct-orgtree__root">Danwor</div>
+        {% set tree = svc.org_tree(data.org or []) %}{% if tree %}<ul>{% for n in tree %}{{ og_node(n) }}{% endfor %}</ul>{% else %}<p class="field-hint">Sin cajas.</p>{% endif %}</div>
+    </div>
+  </details>
+
+  <details class="dashboard-section" data-section-id="galeria" data-persist-collapse open>
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Galería</span>
+      <span class="dashboard-section__count">{{ (data.albums or []) | length }} álbum{{ 'es' if (data.albums or []) | length != 1 else '' }}</span></summary>
+    <div class="dashboard-section__body">
+      <p class="cartelera-pending" data-pending="sharepoint">Las fotos de cada álbum se suben a la carpeta SharePoint de Cartelera Virtual: disponible cuando se habilite la integración documental (acceso en verificación). Mientras tanto podés preparar los álbumes; en Nosotros solo se muestran los que tienen al menos una foto.</p>
+      <div class="ct-inst-subhead"><span></span><button type="button" class="btn-secondary" data-in-album-new>+ Nuevo álbum</button></div>
+      {% if data.albums %}
+      {% call dw_table('nos-albumes', [{'key': 'album', 'label': 'Álbum', 'width': '30%'}, {'key': 'fecha', 'label': 'Fecha', 'width': '14%'}, {'key': 'descripcion', 'label': 'Descripción', 'width': '36%'}, {'key': 'fotos', 'label': 'Fotos', 'width': '20%', 'sort': false}], actions_width='110px') %}
+        {% for a in data.albums %}<tr>
+          <td class="left row-label" data-column-key="album" title="{{ a.title }}"><strong>{{ a.title }}</strong></td>
+          <td class="left" data-column-key="fecha" data-sort-value="{{ a.date or '' }}">{{ (a.date[8:10] ~ '/' ~ a.date[5:7] ~ '/' ~ a.date[:4]) if a.date else '—' }}</td>
+          <td class="left" data-column-key="descripcion"><div class="ct-clip" title="{{ a.description or '' }}">{{ a.description or '—' }}</div></td>
+          <td class="left" data-column-key="fotos"><span class="dashboard-status-badge solicitudes-status-badge solicitudes-status-badge--grey">Pendiente de integración</span></td>
+          <td class="center"><div class="dw-row-actions">{{ act('edit', 'Editar', 'data-in-album="' ~ loop.index0 ~ '"') }}{{ act('trash', 'Quitar álbum', 'data-in-del="albums" data-i="' ~ loop.index0 ~ '" data-name="' ~ a.title ~ '"', danger=true) }}</div></td>
+        </tr>{% endfor %}
+      {% endcall %}
+      {% else %}<div class="dashboard-empty"><span class="dashboard-empty__label">Sin álbumes</span><p>Prepará el primero con «+ Nuevo álbum».</p></div>{% endif %}
+    </div>
+  </details>
+</div>
+
+{#- Un solo diálogo `dw-confirm` del Hub para todas las ediciones de esta pestaña: los campos se arman según lo que se edita. -#}
+<dialog class="dw-confirm" id="in-dialog" aria-labelledby="in-dialog-title">
+  <form class="tree-feedback-form" method="dialog">
+    <div class="dw-confirm__body"><h2 class="dw-confirm__title" id="in-dialog-title"></h2><div data-in-fields></div><p class="cartelera-error" data-in-error hidden></p></div>
+    <div class="dw-confirm__actions"><button type="button" class="btn-secondary" data-in-cancel>Cancelar</button><button type="submit" class="btn-primary" data-in-ok>Guardar</button></div>
+  </form>
+</dialog>
 <script>
-function carteleraInstitutional(m, revision) {
-  m.values = m.values || []; m.albums = m.albums || []; m.links = m.links || []; m.intro = m.intro || ""; m.values_intro = m.values_intro || "";
-  m.org = (m.org || []).map(n => ({ id: n.id, parent: n.parent || "", kind: n.kind || "puesto", name: n.name || "", title: n.title || "" }));
-  return {
-    m, revision, dirty: false, saving: false, msg: "", err: "",
-    move(a, i, d) { const j = i + d; if (j < 0 || j >= a.length) return; [a[i], a[j]] = [a[j], a[i]]; this.dirty = true; },
-    // ── organigrama: mismas operaciones que la administración de la app original ──
-    orgExists(id) { return this.m.org.some(n => n.id === id); },
-    orgRows() {
-      const N = this.m.org, out = [], seen = new Set();
-      const walk = (n, depth) => { if (seen.has(n.id)) return; seen.add(n.id); out.push({ n, depth }); N.filter(m => m.parent === n.id).forEach(c => walk(c, depth + 1)); };
-      N.filter(n => !n.parent || !this.orgExists(n.parent)).forEach(n => walk(n, 0));
-      return out;
-    },
-    orgDesc(id) { const out = new Set([id]); let grew = true; while (grew) { grew = false; this.m.org.forEach(n => { if (out.has(n.parent) && !out.has(n.id)) { out.add(n.id); grew = true; } }); } return out; },
-    orgParents(n) { const bad = this.orgDesc(n.id); return this.m.org.filter(o => !bad.has(o.id)); },
-    orgLabel(o) { return (o.kind === "persona" && o.name) ? o.name : (o.title || "Sin nombre"); },
-    orgAdd(parent) { this.m.org.push({ id: "o" + Math.random().toString(36).slice(2, 10), parent, kind: parent ? "puesto" : "persona", name: "", title: "" }); this.dirty = true; },
-    orgRemove(n) { const N = this.m.org; N.forEach(x => { if (x.parent === n.id) x.parent = n.parent || ""; }); N.splice(N.indexOf(n), 1); this.dirty = true; },
-    orgMove(n, d) {
-      const N = this.m.org, root = x => !x.parent || !this.orgExists(x.parent);
-      const sib = N.filter(x => (x.parent || "") === (n.parent || "") || (root(x) && root(n)));
-      const o = sib[sib.indexOf(n) + d]; if (!o) return;
-      const i = N.indexOf(n), j = N.indexOf(o); [N[i], N[j]] = [N[j], N[i]]; this.dirty = true;
-    },
-    async save() {
-      this.saving = true; this.msg = ""; this.err = "";
-      try {
-        const r = await fetch("/cchh/cartelera/institucional", { method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ revision: this.revision, ...this.m }) });
-        const j = await r.json().catch(() => ({}));
-        if (!r.ok) { this.err = j.error || "No se pudo guardar."; return; }
-        this.revision = j.revision; this.dirty = false; this.msg = "Guardado.";
-      } catch (e) { this.err = "No se pudo conectar con el Hub."; }
-      finally { this.saving = false; }
-    },
-  };
-}
+(() => {
+  const model = JSON.parse(document.getElementById("ct-inst").textContent);
+  const scroller = () => { const m = document.querySelector(".module-content"); return m && m.scrollHeight > m.clientHeight ? m : document.scrollingElement; };
+  let revision = {{ data.revision if data.revision else 'null' }};
+  ["values", "albums", "links", "org"].forEach(k => { model[k] = model[k] || []; });
+  const dlg = document.getElementById("in-dialog"), form = dlg.querySelector("form"), fields = dlg.querySelector("[data-in-fields]"), errBox = dlg.querySelector("[data-in-error]");
+  const esc = s => String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const KINDS = {{ org_kinds | tojson }};
+  let onOk = null;
+
+  // Persistencia: el documento completo con la revisión vigente; al guardar se recarga con el aviso del Hub (mismo patrón que el resto de Gestión).
+  async function persist(msg) {
+    const r = await fetch("/cchh/cartelera/institucional", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ revision, ...model }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || "No se pudo guardar.");
+    sessionStorage.setItem("ct-inst-scroll", String(scroller().scrollTop));
+    location.replace(location.pathname + "?ok=" + encodeURIComponent(msg));
+  }
+  function openDialog(title, html, okLabel, apply) {
+    dlg.querySelector("#in-dialog-title").textContent = title; fields.innerHTML = html; errBox.hidden = true;
+    dlg.querySelector("[data-in-ok]").textContent = okLabel || "Guardar"; onOk = apply; dlg.showModal();
+    const first = fields.querySelector("input,textarea,select"); if (first) first.focus();
+  }
+  const field = (id, label, value, type = "text", extra = "") => type === "textarea"
+    ? `<div class="feedback-field"><label for="${id}">${label}</label><textarea id="${id}" ${extra}>${esc(value)}</textarea></div>`
+    : `<div class="feedback-field"><label for="${id}">${label}</label><input id="${id}" type="${type}" value="${esc(value)}" ${extra}></div>`;
+  const val = id => (fields.querySelector("#" + id) || {}).value || "";
+  form.addEventListener("submit", async e => {
+    e.preventDefault(); if (!onOk) return;
+    const btn = dlg.querySelector("[data-in-ok]"); btn.disabled = true;
+    const snap = JSON.stringify(model);                                     // si algo falla, el modelo vuelve a como estaba (sin altas duplicadas)
+    try { const msg = onOk(); if (msg) await persist(msg); }
+    catch (err) { Object.assign(model, JSON.parse(snap)); errBox.textContent = err.message; errBox.hidden = false; btn.disabled = false; }
+  });
+  dlg.querySelector("[data-in-cancel]").addEventListener("click", () => dlg.close());
+  const fail = err => dwConfirm({ title: "No se pudo guardar", message: err.message, confirmLabel: "Entendido", okClass: "btn-primary" }).then(() => location.reload());
+  async function confirmAndSave(opts, mutate, msg) {
+    if (!(await dwConfirm({ title: opts.title, message: opts.message, confirmLabel: opts.ok || "Quitar" }))) return;
+    mutate();
+    try { await persist(msg); } catch (err) { fail(err); }
+  }
+
+  // ── organigrama (mismas reglas que la administración de la app original) ──
+  const N = () => model.org, byId = id => N().find(n => n.id === id);
+  const desc = id => { const out = new Set([id]); let grew = true; while (grew) { grew = false; N().forEach(n => { if (out.has(n.parent) && !out.has(n.id)) { out.add(n.id); grew = true; } }); } return out; };
+  const label = o => (o.kind === "persona" && o.name) ? o.name : (o.title || "Sin nombre");
+  function nodeDialog(node, isNew) {
+    const bad = isNew ? new Set() : desc(node.id);
+    const parents = N().filter(o => !bad.has(o.id) && o !== node).map(o => `<option value="${esc(o.id)}"${o.id === node.parent ? " selected" : ""}>${esc(label(o))}</option>`).join("");
+    openDialog(isNew ? "Nueva caja" : "Editar caja",
+      `<div class="cartelera-dialog-row"><div class="feedback-field"><label for="og-kind">Tipo</label><select id="og-kind">${KINDS.map(([v, l]) => `<option value="${v}"${v === node.kind ? " selected" : ""}>${l}</option>`).join("")}</select></div>
+       <div class="feedback-field"><label for="og-parent">Depende de</label><select id="og-parent"><option value="">Danwor</option>${parents}</select></div></div>
+       ${field("og-title", "Área, puesto o cargo", node.title, "text", 'maxlength="80"')}
+       <div data-og-name${node.kind === "persona" ? "" : " hidden"}>${field("og-name", "Nombre y apellido", node.name, "text", 'maxlength="80"')}</div>`,
+      isNew ? "Agregar" : "Guardar cambios",
+      () => {
+        const kind = val("og-kind"), title = val("og-title").trim(), name = kind === "persona" ? val("og-name").trim() : "";
+        if (!title && !name) throw new Error("Completá el área, el puesto o el cargo.");
+        Object.assign(node, { kind, title, name, parent: val("og-parent") });
+        if (isNew) N().push(node);
+        return isNew ? "Caja agregada al organigrama." : "Organigrama actualizado.";
+      });
+    fields.querySelector("#og-kind").addEventListener("change", e => { fields.querySelector("[data-og-name]").hidden = e.target.value !== "persona"; });
+  }
+
+  document.addEventListener("click", e => {
+    const b = e.target.closest("[data-in-text],[data-in-link],[data-in-link-new],[data-in-value],[data-in-value-new],[data-in-album],[data-in-album-new],[data-in-del],[data-in-move],[data-in-node],[data-in-node-add],[data-in-node-move],[data-in-node-del]");
+    if (!b || b.disabled) return;
+    e.preventDefault();
+    const d = b.dataset;
+    if (d.inText) {
+      openDialog(`Editar ${d.inLabel.toLowerCase()}`, field("in-text", d.inLabel, model[d.inText], "textarea", `rows="${d.inRows || 3}" maxlength="1500"`), "Guardar cambios",
+        () => { model[d.inText] = val("in-text").trim(); return `${d.inLabel} actualizada.`; });
+    } else if ("inLink" in d || "inLinkNew" in d) {
+      const i = "inLink" in d ? +d.inLink : null, l = i == null ? {} : model.links[i];
+      openDialog(i == null ? "Nuevo enlace" : "Editar enlace", field("ln-label", "Nombre", l.label, "text", 'maxlength="40" placeholder="Ej.: Sitio web"') + field("ln-url", "Dirección", l.url, "url", 'placeholder="https://…"'),
+        i == null ? "Agregar" : "Guardar cambios",
+        () => { const row = { label: val("ln-label").trim(), url: val("ln-url").trim() }; if (!row.label || !/^https:\/\//.test(row.url)) throw new Error("Completá un nombre y una dirección https://");
+          if (i == null) model.links.push(row); else model.links[i] = row; return i == null ? "Enlace agregado." : "Enlace actualizado."; });
+    } else if ("inValue" in d || "inValueNew" in d) {
+      const i = "inValue" in d ? +d.inValue : null, v = i == null ? {} : model.values[i];
+      openDialog(i == null ? "Nuevo valor" : "Editar valor", field("vl-title", "Valor", v.title, "text", 'maxlength="80"') + field("vl-text", "Descripción", v.text, "textarea", 'rows="6" maxlength="1200"'),
+        i == null ? "Agregar" : "Guardar cambios",
+        () => { const row = { title: val("vl-title").trim(), text: val("vl-text").trim() }; if (!row.title) throw new Error("Poné el nombre del valor.");
+          if (i == null) model.values.push(row); else model.values[i] = row; return i == null ? "Valor agregado." : "Valor actualizado."; });
+    } else if ("inAlbum" in d || "inAlbumNew" in d) {
+      const i = "inAlbum" in d ? +d.inAlbum : null, a = i == null ? {} : model.albums[i];
+      openDialog(i == null ? "Nuevo álbum" : "Editar álbum",
+        field("al-title", "Álbum", a.title, "text", 'maxlength="120" placeholder="Ej.: Fiesta de fin de año 2026"') + field("al-date", "Fecha", a.date, "date") + field("al-desc", "Descripción", a.description, "textarea", 'rows="3" maxlength="600"'),
+        i == null ? "Agregar" : "Guardar cambios",
+        () => { const row = { id: a.id || Math.random().toString(36).slice(2, 14), title: val("al-title").trim(), date: val("al-date"), description: val("al-desc").trim() };
+          if (!row.title) throw new Error("Poné el nombre del álbum."); if (i == null) model.albums.push(row); else model.albums[i] = row; return i == null ? "Álbum agregado." : "Álbum actualizado."; });
+    } else if (d.inDel) {
+      const list = model[d.inDel], i = +d.i, what = { links: "el enlace", values: "el valor", albums: "el álbum" }[d.inDel];
+      confirmAndSave({ title: "Quitar " + what.split(" ")[1], message: `¿Quitar ${what} «${d.name}»?` }, () => list.splice(i, 1), "Cambios guardados.");
+    } else if (d.inMove) {
+      const list = model[d.inMove], i = +d.i, j = i + (+d.d); if (j < 0 || j >= list.length) return;
+      [list[i], list[j]] = [list[j], list[i]]; persist("Orden actualizado.").catch(fail);
+    } else if (d.inNode) {
+      nodeDialog(byId(d.inNode), false);
+    } else if ("inNodeAdd" in d) {
+      nodeDialog({ id: "o" + Math.random().toString(36).slice(2, 10), parent: d.inNodeAdd || "", kind: d.inNodeAdd ? "puesto" : "persona", name: "", title: "" }, true);
+    } else if (d.inNodeMove) {
+      const n = byId(d.inNodeMove), root = x => !x.parent || !byId(x.parent);
+      const sib = N().filter(x => (x.parent || "") === (n.parent || "") || (root(x) && root(n)));
+      const o = sib[sib.indexOf(n) + (+d.d)]; if (!o) return;
+      const i = N().indexOf(n), j = N().indexOf(o); [N()[i], N()[j]] = [N()[j], N()[i]];
+      persist("Organigrama actualizado.").catch(fail);
+    } else if (d.inNodeDel) {
+      const n = byId(d.inNodeDel);
+      confirmAndSave({ title: "Quitar caja", message: `¿Quitar «${label(n)}» del organigrama? Lo que depende de esta caja sube un nivel.` },
+        () => { N().forEach(x => { if (x.parent === n.id) x.parent = n.parent || ""; }); N().splice(N().indexOf(n), 1); }, "Organigrama actualizado.");
+    }
+  });
+  const y = sessionStorage.getItem("ct-inst-scroll");                     // vuelve a donde estaba (el scroll del Hub es el del contenido)
+  if (y) { sessionStorage.removeItem("ct-inst-scroll"); const go = () => setTimeout(() => { scroller().scrollTop = +y; }, 60);
+    if (document.readyState === "complete") go(); else window.addEventListener("load", go, { once: true }); }
+})();
 </script>
 {% endblock %}

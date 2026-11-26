@@ -42,25 +42,25 @@
   </div>
 {%- endmacro %}
 
+{% from "human_capital/_cartelera_table.html" import dw_table %}
+{#- Una sola preferencia de columnas para las tres tablas de ediciones (vigente, en preparación, historial). -#}
 {% macro editions_table(rows, key) -%}
-  <div class="matrix-scroll">
-    <table class="dashboard-table">
-      <colgroup><col style="width:16%"><col style="width:38%"><col style="width:13%"><col style="width:16%"><col style="width:17%"><col style="width:150px"></colgroup>
-      <thead><tr><th class="left">Mes</th><th class="left">Portada</th><th class="left">Estado</th><th class="left">{{ 'Publicación' if key != 'preparing' else 'Programada para' }}</th><th class="left">Última edición</th><th class="center">Acciones</th></tr></thead>
-      <tbody>
-      {% for e in rows %}{% set st = svc.effective_state(e) %}
+  {% set cols = [{'key': 'mes', 'label': 'Mes', 'width': '15%'}, {'key': 'portada', 'label': 'Portada', 'width': '33%'},
+                 {'key': 'estado', 'label': 'Estado', 'width': '13%'},
+                 {'key': 'fecha', 'label': 'Publicación' if key != 'preparing' else 'Programada para', 'width': '17%'},
+                 {'key': 'edicion', 'label': 'Última edición', 'width': '16%'}] %}
+  {% call dw_table('ediciones', cols, actions_width='170px') %}
+      {% for e in rows %}{% set st = svc.effective_state(e) %}{% set when = e.publish_at if st == 'scheduled' else ((e.published_at or e.publish_at) if st == 'published' else '') %}
         <tr>
-          <td class="left"><strong>{{ svc.month_label(e.id) }}</strong>{% if e.copied_from %}<div class="field-hint">Copia de {{ svc.month_label(e.copied_from) }}</div>{% endif %}</td>
-          <td class="left">{{ e.title or '—' }}</td>
-          <td class="left"><span class="dashboard-status-badge solicitudes-status-badge solicitudes-status-badge--{{ tones[st] }}">{{ svc.STATE_LABELS[st] }}</span></td>
-          <td class="left">{% if st == 'scheduled' %}{{ svc.fmt_local(e.publish_at) }}{% elif st == 'published' %}{{ svc.fmt_local(e.published_at or e.publish_at) }}{% else %}—{% endif %}</td>
-          <td class="left">{{ svc.fmt_local(e.updated_at) }}</td>
+          <td class="left" data-column-key="mes" data-sort-value="{{ e.id }}"><strong>{{ svc.month_label(e.id) }}</strong>{% if e.copied_from %}<div class="field-hint">Copia de {{ svc.month_label(e.copied_from) }}</div>{% endif %}</td>
+          <td class="left row-label" data-column-key="portada" title="{{ e.title or '' }}">{{ e.title or '—' }}</td>
+          <td class="left" data-column-key="estado"><span class="dashboard-status-badge solicitudes-status-badge solicitudes-status-badge--{{ tones[st] }}">{{ svc.STATE_LABELS[st] }}</span></td>
+          <td class="left" data-column-key="fecha" data-sort-value="{{ when or '' }}">{{ svc.fmt_local(when) if when else '—' }}</td>
+          <td class="left" data-column-key="edicion" data-sort-value="{{ e.updated_at or '' }}">{{ svc.fmt_local(e.updated_at) }}</td>
           <td class="center">{{ row_actions(e, st) }}</td>
         </tr>
       {% endfor %}
-      </tbody>
-    </table>
-  </div>
+  {% endcall %}
 {%- endmacro %}
 
 <div class="dashboard-sections" data-dashboard-key="cchh-cartelera-ediciones">

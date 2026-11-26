@@ -1,0 +1,24 @@
+{#- Tabla de Gestión de cartelera con las capacidades COMPARTIDAS de las tablas de Capital Humano: reordenar y redimensionar columnas
+    (primitivos de app.js, preferencias en el mecanismo existente de localStorage), ordenar registros y anchos default que entran sin
+    scroll en desktop. Un solo macro para todas las pestañas; las celdas las escribe cada pantalla con `data-column-key`.
+      cols: [{key, label, width, align='left', sort=true, type=('number'|none), href=(url de orden en servidor) , arrow, aria}]
+      sort_target: destino HTMX del orden en servidor (tablas paginadas); sin `href` el orden es en cliente (`table[data-client-sort]`).
+      Celdas largas: `class="left row-label"` (ellipsis compartido de tools.css) + `title` con el texto completo. -#}
+{% macro dw_table(key, cols, actions_width='150px', version=1, table_class='', sort_target=none) -%}
+<div class="matrix-scroll" data-ssr-columns data-draggable-columns-key="ct-{{ key }}" data-resizable-columns-key="ct-{{ key }}" data-layout-version="{{ version }}">
+  <table class="dashboard-table {{ table_class }}"{% if not sort_target %} data-client-sort{% endif %}>
+    <colgroup>{% for c in cols %}<col data-column-key="{{ c.key }}"{% if actions_width or not loop.last %} style="width:{{ c.width }}"{% endif %}>{% endfor %}{% if actions_width %}<col style="width:{{ actions_width }}">{% endif %}</colgroup>
+    <thead><tr>
+      {%- for c in cols %}
+      {%- set sortable = c.sort is not defined or c.sort %}
+      <th class="{{ c.align or 'left' }}{{ ' dashboard-table-th--sortable' if sortable else '' }}" data-column-key="{{ c.key }}" draggable="true"
+          {%- if sortable %} title="Ordenar por {{ c.label | lower }}"{% if c.type %} data-sort-type="{{ c.type }}"{% endif %}{% endif %}
+          {%- if c.href %} hx-get="{{ c.href }}" hx-target="{{ sort_target }}" hx-select="{{ sort_target }}" hx-swap="outerHTML" hx-push-url="true"{% endif %}
+          aria-sort="{{ c.aria or 'none' }}">{{ c.label }}{% if c.arrow %}<span class="dashboard-table-th__arrow"> {{ c.arrow }}</span>{% endif %}</th>
+      {%- endfor %}
+      {% if actions_width %}<th class="center">Acciones</th>{% endif %}
+    </tr></thead>
+    <tbody>{{ caller() }}</tbody>
+  </table>
+</div>
+{%- endmacro %}

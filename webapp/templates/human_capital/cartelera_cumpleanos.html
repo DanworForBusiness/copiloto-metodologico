@@ -1,4 +1,6 @@
 {% extends "human_capital/_cartelera_layout.html" %}
+{% from "human_capital/_cartelera_table.html" import dw_table %}
+{% from "partials/pager.html" import render_pager %}
 {% block page_title %}Cumpleaños{% endblock %}
 {% block hero_actions %}
   <a href="/cchh/cartelera/cumpleanos/importar" class="btn-secondary">Carga masiva</a>
@@ -49,6 +51,8 @@
   </details>
 </div>
 
+{#- Envoltorio de herencia HTMX: el paginador compartido y las cabeceras ordenables piden la página completa y toman solo el panel. -#}
+<div hx-select="#ct-birthdays-panel" hx-push-url="true">
 <div id="ct-birthdays-panel">
   {# Búsqueda y filtros: MISMA barra que Base de CVs (`.hc-profile-filters.filter-toolbar-card`, HTMX sobre esta misma página). #}
   <form class="hc-profile-filters filter-toolbar-card" hx-get="/cchh/cartelera/cumpleanos" hx-target="#ct-birthdays-panel" hx-select="#ct-birthdays-panel" hx-swap="outerHTML" hx-push-url="true">
@@ -70,6 +74,9 @@
         {% for key, label in svc.AUTH_FILTERS.items() %}<option value="{{ key }}"{% if autorizacion == key %} selected{% endif %}>{{ label }}</option>{% endfor %}
       </select>
     </div>
+    {# El orden y el tamaño de página sobreviven a la búsqueda y los filtros; la página vuelve a 1. #}
+    {% if request.query_params.get('orden') %}<input type="hidden" name="orden" value="{{ request.query_params.get('orden') }}"><input type="hidden" name="dir" value="{{ request.query_params.get('dir', 'asc') }}">{% endif %}
+    {% if request.query_params.get('page_size') %}<input type="hidden" name="page_size" value="{{ pager.page_size }}">{% endif %}
     <button type="button" class="whatsnew-filter__clear" hx-get="/cchh/cartelera/cumpleanos" hx-target="#ct-birthdays-panel" hx-select="#ct-birthdays-panel" hx-swap="outerHTML" hx-push-url="true">✕ Limpiar</button>
   </form>
 
@@ -78,20 +85,18 @@
       <summary class="dashboard-section__head">
         <span class="dashboard-section__caret"></span>
         <span class="dashboard-section__title">Cumpleaños</span>
-        <span class="dashboard-section__count">{% if birthdays | length != total %}{{ birthdays | length }} de {% endif %}{{ total }} persona{{ '' if total == 1 else 's' }}</span>
+        <span class="dashboard-section__count">{% if filtered != total %}{{ filtered }} de {% endif %}{{ total }} persona{{ '' if total == 1 else 's' }}{% if pager.total_pages > 1 %} · {{ pager.range_start }}–{{ pager.range_end }}{% endif %}</span>
       </summary>
       <div class="dashboard-section__body">
         {% if birthdays %}
-        <div class="matrix-scroll">
-          <table class="dashboard-table">
-            <colgroup><col style="width:10%"><col style="width:38%"><col style="width:36%"><col style="width:140px"></colgroup>
-            <thead><tr><th class="left">Fecha</th><th class="left">Colaborador</th><th class="left">Autorización de publicación</th><th class="center">Acciones</th></tr></thead>
-            <tbody>
+        {% set cols = [dict(key='fecha', label='Fecha', width='12%', **sort_cols.fecha), dict(key='colaborador', label='Colaborador', width='40%', **sort_cols.colaborador),
+                       dict(key='autorizacion', label='Autorización de publicación', width='34%', **sort_cols.autorizacion)] %}
+        {% call dw_table('cumpleanos', cols, actions_width='140px', sort_target='#ct-birthdays-panel') %}
             {% for b in birthdays %}{% set g = greetings[b.id] %}
               <tr>
-                <td class="left">{{ '%02d' | format(b.day) }}/{{ '%02d' | format(b.month) }}</td>
-                <td class="left"><strong>{{ b.name }}</strong></td>
-                <td class="left"><span class="dashboard-status-badge solicitudes-status-badge solicitudes-status-badge--{{ 'green' if b.authorized else 'amber' }}">{{ 'Autorizado' if b.authorized else 'Sin autorización' }}</span>
+                <td class="left" data-column-key="fecha">{{ '%02d' | format(b.day) }}/{{ '%02d' | format(b.month) }}</td>
+                <td class="left row-label" data-column-key="colaborador" title="{{ b.name }}"><strong>{{ b.name }}</strong></td>
+                <td class="left" data-column-key="autorizacion"><span class="dashboard-status-badge solicitudes-status-badge solicitudes-status-badge--{{ 'green' if b.authorized else 'amber' }}">{{ 'Autorizado' if b.authorized else 'Sin autorización' }}</span>
                   {% if b.authorization %}<div class="field-hint">{{ b.authorization.by }} · {{ svc.fmt_local(b.authorization.at, with_time=False) }}</div>{% endif %}</td>
                 <td class="center">
                   <div class="dw-row-actions">
@@ -113,9 +118,8 @@
                 </td>
               </tr>
             {% endfor %}
-            </tbody>
-          </table>
-        </div>
+        {% endcall %}
+        {{ render_pager(pager, "#ct-birthdays-panel", "Paginación de cumpleaños", "Cumpleaños por página") }}
         {% elif total %}
         <div class="dashboard-empty" data-empty-kind="no_matches"><span class="dashboard-empty__label">Sin resultados</span><p>No hay cumpleaños para los filtros seleccionados.</p></div>
         {% else %}
@@ -124,6 +128,7 @@
       </div>
     </details>
   </div>
+</div>
 </div>
 
 {# Alta y edición: MISMO diálogo `dw-confirm` que Ediciones. Solo día y mes; la autorización de publicación es el único atributo de

@@ -1,22 +1,87 @@
 {% extends "human_capital/_cartelera_layout.html" %}
+{% from "human_capital/_cartelera_table.html" import dw_table %}
 {% block page_title %}Accesos directos{% endblock %}
+{% block hero_actions %}<button type="button" class="btn-primary" data-ln-new>+ Nuevo acceso</button>{% endblock %}
 {% block cartelera_body %}
-<details class="dashboard-section" x-data="{ rows: {{ (links or [{'title': '', 'group': '', 'url': ''}]) | tojson | forceescape }} }" open><summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Accesos directos permanentes</span></summary><div class="dashboard-section__body">
-  <p class="field-hint">Enlaces a políticas, formularios, beneficios y herramientas. Se muestran en todas las ediciones, al final de «Beneficios e información útil». No se copian documentos: se enlazan donde ya están.</p>
-  <form method="post" action="/cchh/cartelera/accesos">
-    <input type="hidden" name="revision" value="{{ links_revision or '' }}">
-    <template x-for="(r, i) in rows" :key="i">
-      <div class="cartelera-link-row">
-        <input type="text" name="title" x-model="r.title" placeholder="Nombre" aria-label="Nombre" maxlength="120">
-        <input type="text" name="group" x-model="r.group" placeholder="Grupo (Políticas, Formularios…)" aria-label="Grupo" maxlength="60">
-        <input type="url" name="url" x-model="r.url" placeholder="https://danwor.sharepoint.com/…" aria-label="Enlace">
-        <button type="button" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" @click="rows.splice(i, 1)" aria-label="Quitar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg><span class="chart-tooltip" aria-hidden="true"><p>Quitar</p></span></button>
-      </div>
-    </template>
-    <div class="hc-profile-form__actions">
-      <button type="button" class="btn-secondary" @click="rows.push({title: '', group: '', url: ''})">+ Agregar acceso</button>
-      <button type="submit" class="btn-primary">Guardar accesos</button>
+{#- Accesos directos: tabla del Hub (reordenar, redimensionar y ordenar) + alta/edición en el MISMO diálogo `dw-confirm` que Cumpleaños y
+    eliminación con la confirmación del Hub. Se guarda la lista completa con la revisión vigente (mismo endpoint de siempre). -#}
+{% macro ico(name) -%}<svg viewBox="0 0 24 24" aria-hidden="true">{% if name == 'edit' %}<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>{% elif name == 'out' %}<path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 14v6H4V6h6"/>{% elif name == 'trash' %}<path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/>{% endif %}</svg>{%- endmacro %}
+<script type="application/json" id="ct-links">{{ links | tojson | replace("</", "<\\/") }}</script>
+<div class="dashboard-sections" data-dashboard-key="cchh-cartelera-accesos">
+  <details class="dashboard-section" data-section-id="accesos" data-persist-collapse open>
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Accesos directos</span>
+      <span class="dashboard-section__count">{{ links | length }}</span></summary>
+    <div class="dashboard-section__body">
+      <p class="field-hint">Enlaces a políticas, formularios, beneficios y herramientas. Se muestran en todas las ediciones, al final de «Beneficios e información útil». No se copian documentos: se enlazan donde ya están.</p>
+      {% if links %}
+      {% call dw_table('accesos', [{'key': 'nombre', 'label': 'Nombre', 'width': '30%'}, {'key': 'grupo', 'label': 'Grupo', 'width': '20%'}, {'key': 'enlace', 'label': 'Enlace', 'width': '38%'}], actions_width='130px') %}
+        {% for l in links %}
+        <tr>
+          <td class="left row-label" data-column-key="nombre" title="{{ l.title }}"><strong>{{ l.title }}</strong></td>
+          <td class="left" data-column-key="grupo">{{ l.group or '—' }}</td>
+          <td class="left row-label" data-column-key="enlace" title="{{ l.url }}">{{ l.url }}</td>
+          <td class="center"><div class="dw-row-actions">
+            <a href="{{ l.url }}" target="_blank" rel="noopener" class="table-action-btn chart-tooltip-anchor" aria-label="Abrir enlace">{{ ico('out') }}<span class="chart-tooltip" aria-hidden="true"><p>Abrir enlace</p></span></a>
+            <button type="button" class="table-action-btn chart-tooltip-anchor" data-ln-edit="{{ loop.index0 }}" aria-label="Editar {{ l.title }}">{{ ico('edit') }}<span class="chart-tooltip" aria-hidden="true"><p>Editar</p></span></button>
+            <button type="button" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" data-ln-del="{{ loop.index0 }}" aria-label="Eliminar {{ l.title }}">{{ ico('trash') }}<span class="chart-tooltip" aria-hidden="true"><p>Eliminar</p></span></button>
+          </div></td>
+        </tr>
+        {% endfor %}
+      {% endcall %}
+      {% else %}
+      <div class="dashboard-empty" data-empty-kind="dataset_empty"><span class="dashboard-empty__label">Sin accesos directos</span><p>Agregá el primero con «+ Nuevo acceso».</p></div>
+      {% endif %}
     </div>
+  </details>
+</div>
+
+{# Guardado: el MISMO formulario de siempre (listas title/group/url + revisión), armado con la lista completa. #}
+<form method="post" action="/cchh/cartelera/accesos" id="ln-save" hidden><input type="hidden" name="revision" value="{{ links_revision or '' }}"></form>
+<dialog class="dw-confirm" id="ln-dialog" aria-labelledby="ln-dialog-title">
+  <form class="tree-feedback-form" method="dialog">
+    <div class="dw-confirm__body">
+      <h2 class="dw-confirm__title" id="ln-dialog-title">Nuevo acceso</h2>
+      <div class="feedback-field"><label for="ln-title">Nombre</label><input id="ln-title" type="text" maxlength="120" required></div>
+      <div class="feedback-field"><label for="ln-group">Grupo</label><input id="ln-group" type="text" maxlength="60" placeholder="Políticas, Formularios, Beneficios…"></div>
+      <div class="feedback-field"><label for="ln-url">Enlace</label><input id="ln-url" type="url" required placeholder="https://danwor.sharepoint.com/…"></div>
+    </div>
+    <div class="dw-confirm__actions"><button type="button" class="btn-secondary" data-ln-cancel>Cancelar</button><button type="submit" class="btn-primary" data-ln-ok>Agregar</button></div>
   </form>
-</div></details>
+</dialog>
+<script>
+(() => {
+  const links = JSON.parse(document.getElementById("ct-links").textContent || "[]");
+  const dlg = document.getElementById("ln-dialog"), f = dlg.querySelector("form");
+  let editing = null;
+  const save = list => {
+    const form = document.getElementById("ln-save");
+    list.forEach(l => ["title", "group", "url"].forEach(k => { const i = document.createElement("input"); i.type = "hidden"; i.name = k; i.value = l[k] || ""; form.appendChild(i); }));
+    form.submit();
+  };
+  const open = idx => {
+    editing = idx; const l = idx == null ? {} : links[idx];
+    f.reset(); f.querySelector("#ln-title").value = l.title || ""; f.querySelector("#ln-group").value = l.group || ""; f.querySelector("#ln-url").value = l.url || "";
+    dlg.querySelector("#ln-dialog-title").textContent = idx == null ? "Nuevo acceso" : "Editar acceso";
+    dlg.querySelector("[data-ln-ok]").textContent = idx == null ? "Agregar" : "Guardar cambios";
+    dlg.showModal();
+  };
+  document.addEventListener("click", e => {
+    const b = e.target.closest("[data-ln-new],[data-ln-edit],[data-ln-del],[data-ln-cancel]"); if (!b) return;
+    if (b.matches("[data-ln-new]")) open(null);
+    else if (b.matches("[data-ln-edit]")) open(+b.dataset.lnEdit);
+    else if (b.matches("[data-ln-cancel]")) dlg.close();
+    else {
+      const l = links[+b.dataset.lnDel];
+      dwConfirm({ title: "Eliminar acceso directo", message: `¿Eliminar «${l.title}»? Deja de verse en la Cartelera.`, confirmLabel: "Eliminar" })
+        .then(ok => { if (ok) save(links.filter((_, i) => i !== +b.dataset.lnDel)); });
+    }
+  });
+  f.addEventListener("submit", e => {
+    e.preventDefault();
+    const row = { title: f.querySelector("#ln-title").value.trim(), group: f.querySelector("#ln-group").value.trim(), url: f.querySelector("#ln-url").value.trim() };
+    const list = links.slice(); if (editing == null) list.push(row); else list[editing] = row;
+    save(list);
+  });
+})();
+</script>
 {% endblock %}

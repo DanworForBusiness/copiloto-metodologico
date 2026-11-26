@@ -3,6 +3,7 @@
 {% block hero_lead %}Gestión y moderación de Comunidad: aprobaciones, reportes, publicaciones y comentarios. Cada acción queda en el registro y la autoría recibe un aviso con el motivo.{% endblock %}
 {% block hero_actions %}<a href="/cartelera/comunidad" class="btn-secondary" target="_blank" rel="noopener">Ver Comunidad ↗</a>{% endblock %}
 {% block cartelera_body %}
+{% from "human_capital/_cartelera_table.html" import dw_table %}
 {#- GESTIÓN DE CARTELERA › COMUNIDAD — autorización `COMMUNITY_OWNER` (independiente de Capital Humano). Patrones del Hub: tiles `.activity-kpi`, secciones
     colapsables, `.dashboard-table`, acciones SVG con tooltip y confirmación `dw-confirm`. Mismas capacidades que «Moderación» de la app
     original (pendientes, reportes, programadas, registro) más las retiradas recientes; la regla vive en `cartelera_social`. -#}
@@ -22,16 +23,15 @@
     <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Pendientes de aprobación</span>
       <span class="dashboard-section__count">{{ pending | length }}</span></summary>
     <div class="dashboard-section__body">
-      {% if pending %}<div class="matrix-scroll"><table class="dashboard-table ct-mod-table">
-        <thead><tr><th class="left">Fecha</th><th class="left">Autor</th><th class="left">Categoría</th><th class="left">Publicación</th><th class="center">Acciones</th></tr></thead>
-        <tbody>{% for p in pending %}<tr>
-          <td class="left">{{ svc.fmt_local(p.updated_at or p.created_at) }}</td><td class="left">{{ who(p) }}</td><td class="left">{{ categories[p.category].name }}</td>
-          <td class="left"><strong>{{ p.title or '(sin título)' }}</strong><div class="field-hint">{{ social.editable_text(p.body, names)[:140] }}</div>{% if p.edited_at %}<div class="field-hint">Editada después de enviarse: vuelve a revisión.</div>{% endif %}</td>
+      {% if pending %}{% call dw_table('com-pendientes', [{'key': 'fecha', 'label': 'Fecha', 'width': '14%'}, {'key': 'autor', 'label': 'Autor', 'width': '17%'}, {'key': 'categoria', 'label': 'Categoría', 'width': '18%'}, {'key': 'publicacion', 'label': 'Publicación', 'width': '51%'}], actions_width='110px', table_class='ct-mod-table') %}
+        {% for p in pending %}<tr>
+          <td class="left" data-column-key="fecha" data-sort-value="{{ p.updated_at or p.created_at }}">{{ svc.fmt_local(p.updated_at or p.created_at) }}</td><td class="left" data-column-key="autor">{{ who(p) }}</td><td class="left" data-column-key="categoria">{{ categories[p.category].name }}</td>
+          <td class="left" data-column-key="publicacion"><strong>{{ p.title or '(sin título)' }}</strong>{% set body = social.editable_text(p.body, names) %}<div class="field-hint ct-clip" title="{{ body }}">{{ body }}</div>{% if p.edited_at %}<div class="field-hint">Editada después de enviarse: vuelve a revisión.</div>{% endif %}</td>
           <td class="center"><div class="dw-row-actions">{% if p.author != me %}
             <form method="post" action="/cchh/cartelera/comunidad/publicaciones/{{ p.id }}/aprobar" class="dw-row-actions__form" data-dw-confirm-form data-dw-confirm-title="Aprobar publicación" data-dw-confirm-message="¿Aprobar y publicar «{{ p.title or 'esta publicación' }}» en Comunidad?" data-dw-confirm-ok="Aprobar">
               <button type="submit" class="table-action-btn chart-tooltip-anchor" aria-label="Aprobar">{{ icon('check') }}<span class="chart-tooltip" aria-hidden="true"><p>Aprobar</p></span></button></form>
             <button type="button" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" data-mod-reason="/cchh/cartelera/comunidad/publicaciones/{{ p.id }}/rechazar" data-mod-heading="Rechazar publicación" data-mod-ok="Rechazar" data-mod-msg="«{{ p.title or 'Esta publicación' }}» no se publica. La autoría recibe un aviso con el motivo." aria-label="Rechazar">{{ icon('x') }}<span class="chart-tooltip" aria-hidden="true"><p>Rechazar</p></span></button>
-          {% else %}<span class="field-hint">La revisa otra persona de la moderación</span>{% endif %}</div></td></tr>{% endfor %}</tbody></table></div>
+          {% else %}<span class="field-hint">La revisa otra persona de la moderación</span>{% endif %}</div></td></tr>{% endfor %}{% endcall %}
       {% else %}<div class="dashboard-empty"><span class="dashboard-empty__label">Sin pendientes</span><p>No hay publicaciones esperando aprobación.</p></div>{% endif %}
     </div>
   </details>
@@ -40,20 +40,19 @@
     <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Reportes abiertos</span>
       <span class="dashboard-section__count">{{ reports | length }}</span></summary>
     <div class="dashboard-section__body">
-      {% if reports %}<div class="matrix-scroll"><table class="dashboard-table ct-mod-table">
-        <thead><tr><th class="left">Fecha</th><th class="left">Tipo</th><th class="left">Motivo</th><th class="left">Contenido</th><th class="left">Reportó</th><th class="center">Acciones</th></tr></thead>
-        <tbody>{% for r in reports %}<tr>
-          <td class="left">{{ svc.fmt_local(r.created_at) }}</td><td class="left">{{ 'Publicación' if r.kind == 'post' else 'Comentario' }}</td>
-          <td class="left">{{ r.reason }}{% if r.note %}<div class="field-hint">{{ r.note }}</div>{% endif %}</td>
-          <td class="left">{% if r.content.exists %}{{ r.content.text }}{% if r.content.removed %} <span class="dashboard-status-badge solicitudes-status-badge solicitudes-status-badge--grey">Ya retirado</span>{% endif %}{% else %}<span class="field-hint">Ya no existe</span>{% endif %}</td>
-          <td class="left">{{ names.get(r.reporter, r.reporter_name) }}</td>
+      {% if reports %}{% call dw_table('com-reportes', [{'key': 'fecha', 'label': 'Fecha', 'width': '13%'}, {'key': 'tipo', 'label': 'Tipo', 'width': '11%'}, {'key': 'motivo', 'label': 'Motivo', 'width': '22%'}, {'key': 'contenido', 'label': 'Contenido', 'width': '38%'}, {'key': 'reporto', 'label': 'Reportó', 'width': '16%'}], actions_width='120px', table_class='ct-mod-table') %}
+        {% for r in reports %}<tr>
+          <td class="left" data-column-key="fecha" data-sort-value="{{ r.created_at }}">{{ svc.fmt_local(r.created_at) }}</td><td class="left" data-column-key="tipo">{{ 'Publicación' if r.kind == 'post' else 'Comentario' }}</td>
+          <td class="left" data-column-key="motivo"><div class="ct-clip" title="{{ r.reason }}">{{ r.reason }}</div>{% if r.note %}<div class="field-hint ct-clip" title="{{ r.note }}">{{ r.note }}</div>{% endif %}</td>
+          <td class="left" data-column-key="contenido">{% if r.content.exists %}<div class="ct-clip" title="{{ r.content.text }}">{{ r.content.text }}</div>{% if r.content.removed %}<span class="dashboard-status-badge solicitudes-status-badge solicitudes-status-badge--grey">Ya retirado</span>{% endif %}{% else %}<span class="field-hint">Ya no existe</span>{% endif %}</td>
+          <td class="left row-label" data-column-key="reporto" title="{{ names.get(r.reporter, r.reporter_name) }}">{{ names.get(r.reporter, r.reporter_name) }}</td>
           <td class="center"><div class="dw-row-actions">
             {% if r.content.exists and r.content.url %}<a href="{{ r.content.url }}" target="_blank" rel="noopener" class="table-action-btn chart-tooltip-anchor" aria-label="Ver en la Cartelera">{{ icon('out') }}<span class="chart-tooltip" aria-hidden="true"><p>Ver en la Cartelera</p></span></a>{% endif %}
             {% if r.content.exists and not r.content.removed %}<form method="post" action="/cchh/cartelera/comunidad/reportes/{{ r.id }}/retirar" class="dw-row-actions__form" data-dw-confirm-form data-dw-confirm-title="Retirar contenido" data-dw-confirm-message="¿Retirar el contenido reportado? Deja de verse para los colaboradores y el reporte queda resuelto." data-dw-confirm-ok="Retirar">
               <button type="submit" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" aria-label="Retirar contenido">{{ icon('shield') }}<span class="chart-tooltip" aria-hidden="true"><p>Retirar contenido</p></span></button></form>{% endif %}
             <form method="post" action="/cchh/cartelera/comunidad/reportes/{{ r.id }}/resolver" class="dw-row-actions__form">
               <button type="submit" class="table-action-btn chart-tooltip-anchor" aria-label="Marcar resuelto">{{ icon('done') }}<span class="chart-tooltip" aria-hidden="true"><p>Marcar resuelto sin retirar</p></span></button></form>
-          </div></td></tr>{% endfor %}</tbody></table></div>
+          </div></td></tr>{% endfor %}{% endcall %}
       {% else %}<div class="dashboard-empty"><span class="dashboard-empty__label">Sin reportes</span><p>No hay reportes abiertos.</p></div>{% endif %}
     </div>
   </details>
@@ -62,11 +61,10 @@
     <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Publicadas</span>
       <span class="dashboard-section__count">{{ published | length }}</span></summary>
     <div class="dashboard-section__body">
-      {% if published %}<div class="matrix-scroll"><table class="dashboard-table ct-mod-table">
-        <thead><tr><th class="left">Fecha</th><th class="left">Autor</th><th class="left">Categoría</th><th class="left">Publicación</th><th class="center">Acciones</th></tr></thead>
-        <tbody>{% for p in published %}{% set own = p.author == me %}<tr>
-          <td class="left">{{ svc.fmt_local(p.publish_at or p.created_at) }}</td><td class="left">{{ who(p) }}</td><td class="left">{{ categories[p.category].name }}</td>
-          <td class="left"><strong>{{ p.title or '(sin título)' }}</strong>{% if p.pinned %} <span class="dashboard-status-badge solicitudes-status-badge solicitudes-status-badge--amber">Fijada</span>{% endif %}<div class="field-hint">{{ social.editable_text(p.body, names)[:140] }}</div></td>
+      {% if published %}{% call dw_table('com-publicadas', [{'key': 'fecha', 'label': 'Fecha', 'width': '14%'}, {'key': 'autor', 'label': 'Autor', 'width': '17%'}, {'key': 'categoria', 'label': 'Categoría', 'width': '18%'}, {'key': 'publicacion', 'label': 'Publicación', 'width': '51%'}], actions_width='150px', table_class='ct-mod-table') %}
+        {% for p in published %}{% set own = p.author == me %}<tr>
+          <td class="left" data-column-key="fecha" data-sort-value="{{ p.publish_at or p.created_at }}">{{ svc.fmt_local(p.publish_at or p.created_at) }}</td><td class="left" data-column-key="autor">{{ who(p) }}</td><td class="left" data-column-key="categoria">{{ categories[p.category].name }}</td>
+          <td class="left" data-column-key="publicacion"><strong>{{ p.title or '(sin título)' }}</strong>{% if p.pinned %} <span class="dashboard-status-badge solicitudes-status-badge solicitudes-status-badge--amber">Fijada</span>{% endif %}{% set body = social.editable_text(p.body, names) %}<div class="field-hint ct-clip" title="{{ body }}">{{ body }}</div></td>
           <td class="center"><div class="dw-row-actions">
             <a href="/cartelera/comunidad#post-{{ p.id }}" target="_blank" rel="noopener" class="table-action-btn chart-tooltip-anchor" aria-label="Ver en Comunidad">{{ icon('out') }}<span class="chart-tooltip" aria-hidden="true"><p>Ver en Comunidad</p></span></a>
             {% if p.official %}<form method="post" action="/cchh/cartelera/comunidad/publicaciones/{{ p.id }}/fijar" class="dw-row-actions__form">
@@ -74,7 +72,7 @@
             {% if not own %}<button type="button" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" data-mod-reason="/cchh/cartelera/comunidad/publicaciones/{{ p.id }}/retirar" data-mod-heading="Retirar publicación" data-mod-ok="Retirar" data-mod-msg="«{{ p.title or 'Esta publicación' }}» deja de verse en Comunidad. La autoría recibe un aviso con el motivo." aria-label="Retirar por moderación">{{ icon('shield') }}<span class="chart-tooltip" aria-hidden="true"><p>Retirar por moderación</p></span></button>{% endif %}
             <form method="post" action="/cchh/cartelera/comunidad/publicaciones/{{ p.id }}/eliminar" class="dw-row-actions__form" data-dw-confirm-form data-dw-confirm-title="Eliminar publicación" data-dw-confirm-message="¿Eliminar «{{ p.title or 'esta publicación' }}»? Se eliminan también sus comentarios y reacciones{{ '' if own else ', queda en el registro de moderación' }} y no se puede deshacer." data-dw-confirm-ok="Eliminar">
               <button type="submit" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" aria-label="Eliminar">{{ icon('trash') }}<span class="chart-tooltip" aria-hidden="true"><p>Eliminar</p></span></button></form>
-          </div></td></tr>{% endfor %}</tbody></table></div>
+          </div></td></tr>{% endfor %}{% endcall %}
       {% else %}<div class="dashboard-empty"><span class="dashboard-empty__label">Sin publicaciones</span><p>Todavía no hay publicaciones vigentes en Comunidad.</p></div>{% endif %}
     </div>
   </details>
@@ -83,16 +81,15 @@
     <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Comentarios recientes · 30 días</span>
       <span class="dashboard-section__count">{{ recent_comments | length }}</span></summary>
     <div class="dashboard-section__body">
-      {% if recent_comments %}<div class="matrix-scroll"><table class="dashboard-table ct-mod-table">
-        <thead><tr><th class="left">Fecha</th><th class="left">Autor</th><th class="left">En</th><th class="left">Comentario</th><th class="center">Acciones</th></tr></thead>
-        <tbody>{% for c in recent_comments %}<tr>
-          <td class="left">{{ svc.fmt_local(c.created_at) }}</td><td class="left">{{ names.get(c.author, c.author_name or 'Colaborador/a') }}</td>
-          <td class="left">{{ c.where[0] }}<div class="field-hint">{{ c.where[1] }}</div></td>
-          <td class="left">{{ social.editable_text(c.body, names)[:160] }}</td>
+      {% if recent_comments %}{% call dw_table('com-comentarios', [{'key': 'fecha', 'label': 'Fecha', 'width': '14%'}, {'key': 'autor', 'label': 'Autor', 'width': '17%'}, {'key': 'en', 'label': 'En', 'width': '24%'}, {'key': 'comentario', 'label': 'Comentario', 'width': '45%'}], actions_width='100px', table_class='ct-mod-table') %}
+        {% for c in recent_comments %}<tr>
+          <td class="left" data-column-key="fecha" data-sort-value="{{ c.created_at }}">{{ svc.fmt_local(c.created_at) }}</td><td class="left" data-column-key="autor">{{ names.get(c.author, c.author_name or 'Colaborador/a') }}</td>
+          <td class="left" data-column-key="en">{{ c.where[0] }}<div class="field-hint ct-clip" title="{{ c.where[1] }}">{{ c.where[1] }}</div></td>
+          {% set body = social.editable_text(c.body, names) %}<td class="left" data-column-key="comentario"><div class="ct-clip" title="{{ body }}">{{ body }}</div></td>
           <td class="center"><div class="dw-row-actions">
             {% if c.where[2] %}<a href="{{ c.where[2] }}" target="_blank" rel="noopener" class="table-action-btn chart-tooltip-anchor" aria-label="Ver en la Cartelera">{{ icon('out') }}<span class="chart-tooltip" aria-hidden="true"><p>Ver en la Cartelera</p></span></a>{% endif %}
             {% if c.author != me %}<button type="button" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" data-mod-reason="/cchh/cartelera/comunidad/comentarios/{{ c.id }}/retirar" data-mod-heading="Retirar comentario" data-mod-ok="Retirar" data-mod-msg="El comentario deja de verse. La autoría recibe un aviso con el motivo." aria-label="Retirar comentario">{{ icon('shield') }}<span class="chart-tooltip" aria-hidden="true"><p>Retirar comentario</p></span></button>{% endif %}
-          </div></td></tr>{% endfor %}</tbody></table></div>
+          </div></td></tr>{% endfor %}{% endcall %}
       {% else %}<p class="field-hint">No hay comentarios en los últimos 30 días.</p>{% endif %}
     </div>
   </details>
@@ -101,8 +98,8 @@
     <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Programadas</span>
       <span class="dashboard-section__count">{{ scheduled | length }}</span></summary>
     <div class="dashboard-section__body">
-      {% if scheduled %}<table class="dashboard-table ct-mod-table"><thead><tr><th class="left">Se publica</th><th class="left">Publicación</th><th class="left">Autor</th><th class="left">Categoría</th></tr></thead>
-        <tbody>{% for p in scheduled %}<tr><td class="left">{{ svc.fmt_local(p.publish_at) }}</td><td class="left"><strong>{{ p.title or '(sin título)' }}</strong></td><td class="left">{{ who(p) }}</td><td class="left">{{ categories[p.category].name }}</td></tr>{% endfor %}</tbody></table>
+      {% if scheduled %}{% call dw_table('com-programadas', [{'key': 'fecha', 'label': 'Se publica', 'width': '18%'}, {'key': 'publicacion', 'label': 'Publicación', 'width': '42%'}, {'key': 'autor', 'label': 'Autor', 'width': '20%'}, {'key': 'categoria', 'label': 'Categoría', 'width': '20%'}], actions_width=none, table_class='ct-mod-table') %}
+        {% for p in scheduled %}<tr><td class="left" data-column-key="fecha" data-sort-value="{{ p.publish_at }}">{{ svc.fmt_local(p.publish_at) }}</td><td class="left row-label" data-column-key="publicacion" title="{{ p.title or '' }}"><strong>{{ p.title or '(sin título)' }}</strong></td><td class="left" data-column-key="autor">{{ who(p) }}</td><td class="left" data-column-key="categoria">{{ categories[p.category].name }}</td></tr>{% endfor %}{% endcall %}
       {% else %}<p class="field-hint">No hay publicaciones programadas.</p>{% endif %}
     </div>
   </details>
@@ -111,11 +108,11 @@
     <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Retiradas recientemente</span>
       <span class="dashboard-section__count">{{ removed | length }}</span></summary>
     <div class="dashboard-section__body">
-      {% if removed %}<table class="dashboard-table ct-mod-table"><thead><tr><th class="left">Fecha</th><th class="left">Estado</th><th class="left">Publicación</th><th class="left">Autor</th><th class="left">Motivo</th><th class="left">Por</th></tr></thead>
-        <tbody>{% for p in removed %}<tr><td class="left">{{ svc.fmt_local(p.removed_at) }}</td>
-          <td class="left"><span class="dashboard-status-badge solicitudes-status-badge solicitudes-status-badge--{{ 'amber' if p.removed_kind == 'rechazada' else 'grey' }}">{{ 'Rechazada' if p.removed_kind == 'rechazada' else 'Retirada' }}</span></td>
-          <td class="left"><strong>{{ p.title or '(sin título)' }}</strong><div class="field-hint">{{ social.editable_text(p.body, names)[:140] }}</div></td><td class="left">{{ who(p) }}</td>
-          <td class="left">{{ p.removed_reason or '—' }}</td><td class="left">{{ p.removed_by }}</td></tr>{% endfor %}</tbody></table>
+      {% if removed %}{% call dw_table('com-retiradas', [{'key': 'fecha', 'label': 'Fecha', 'width': '13%'}, {'key': 'estado', 'label': 'Estado', 'width': '11%'}, {'key': 'publicacion', 'label': 'Publicación', 'width': '30%'}, {'key': 'autor', 'label': 'Autor', 'width': '15%'}, {'key': 'motivo', 'label': 'Motivo', 'width': '18%'}, {'key': 'por', 'label': 'Por', 'width': '13%'}], actions_width=none, table_class='ct-mod-table') %}
+        {% for p in removed %}<tr><td class="left" data-column-key="fecha" data-sort-value="{{ p.removed_at }}">{{ svc.fmt_local(p.removed_at) }}</td>
+          <td class="left" data-column-key="estado"><span class="dashboard-status-badge solicitudes-status-badge solicitudes-status-badge--{{ 'amber' if p.removed_kind == 'rechazada' else 'grey' }}">{{ 'Rechazada' if p.removed_kind == 'rechazada' else 'Retirada' }}</span></td>
+          {% set body = social.editable_text(p.body, names) %}<td class="left" data-column-key="publicacion"><strong>{{ p.title or '(sin título)' }}</strong><div class="field-hint ct-clip" title="{{ body }}">{{ body }}</div></td><td class="left" data-column-key="autor">{{ who(p) }}</td>
+          <td class="left" data-column-key="motivo"><div class="ct-clip" title="{{ p.removed_reason or '' }}">{{ p.removed_reason or '—' }}</div></td><td class="left row-label" data-column-key="por" title="{{ p.removed_by }}">{{ p.removed_by }}</td></tr>{% endfor %}{% endcall %}
       {% else %}<p class="field-hint">No hay publicaciones retiradas.</p>{% endif %}
     </div>
   </details>
@@ -124,8 +121,8 @@
     <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Registro de moderación</span>
       <span class="dashboard-section__count">{{ log | length }}</span></summary>
     <div class="dashboard-section__body">
-      {% if log %}<table class="dashboard-table ct-mod-table"><thead><tr><th class="left">Fecha</th><th class="left">Acción</th><th class="left">Detalle</th><th class="left">Por</th></tr></thead>
-        <tbody>{% for l in log %}<tr><td class="left">{{ svc.fmt_local(l.created_at) }}</td><td class="left">{{ l.action }}</td><td class="left">{{ l.detail }}</td><td class="left">{{ l.by }}</td></tr>{% endfor %}</tbody></table>
+      {% if log %}{% call dw_table('com-registro', [{'key': 'fecha', 'label': 'Fecha', 'width': '15%'}, {'key': 'accion', 'label': 'Acción', 'width': '30%'}, {'key': 'detalle', 'label': 'Detalle', 'width': '38%'}, {'key': 'por', 'label': 'Por', 'width': '17%'}], actions_width=none, table_class='ct-mod-table') %}
+        {% for l in log %}<tr><td class="left" data-column-key="fecha" data-sort-value="{{ l.created_at }}">{{ svc.fmt_local(l.created_at) }}</td><td class="left" data-column-key="accion"><div class="ct-clip" title="{{ l.action }}">{{ l.action }}</div></td><td class="left" data-column-key="detalle"><div class="ct-clip" title="{{ l.detail }}">{{ l.detail }}</div></td><td class="left row-label" data-column-key="por" title="{{ l.by }}">{{ l.by }}</td></tr>{% endfor %}{% endcall %}
       {% else %}<p class="field-hint">Todavía no hay acciones registradas.</p>{% endif %}
     </div>
   </details>

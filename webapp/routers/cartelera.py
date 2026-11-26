@@ -273,24 +273,60 @@ def project_options(request: Request, graph_token: str = Form("")):
 
 
 # ── gestión: cumpleaños ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+_BIRTHDAY_SORTS = {"fecha": lambda b: (int(b.get("month", 0)), int(b.get("day", 0)), b.get("name", "").lower()),
+                   "colaborador": lambda b: svc_fold(b.get("name", "")),
+                   "autorizacion": lambda b: (not svc.is_publishable(b), int(b.get("month", 0)), int(b.get("day", 0)))}
+
+
+def svc_fold(value: str) -> str:
+    import unicodedata
+    return "".join(c for c in unicodedata.normalize("NFD", value or "") if not unicodedata.combining(c)).lower()
+
+
+def _birthday_sort_state(params: dict, orden: str, direction: str) -> dict:
+    """MISMO contrato que el orden del Banco de CVs: la misma columna invierte la dirección, otra arranca ascendente; cada URL conserva
+    búsqueda, filtros y tamaño de página y vuelve a la página 1."""
+    from urllib.parse import urlencode
+    urls, cols = {}, {}
+    for col in _BIRTHDAY_SORTS:
+        nxt = "desc" if (col == orden and direction == "asc") else "asc"
+        urls[col] = f"{BASE}/cumpleanos?" + urlencode({**params, "orden": col, "dir": nxt})
+        cols[col] = {"href": urls[col], "arrow": ("▲" if direction == "asc" else "▼") if col == orden else "",
+                     "aria": ("ascending" if direction == "asc" else "descending") if col == orden else "none"}
+    return cols
+
+
 @router.get(f"{BASE}/cumpleanos", response_class=HTMLResponse, include_in_schema=False)
-def birthdays_page(request: Request, q: str = "", mes: str = "", autorizacion: str = ""):
+def birthdays_page(request: Request, q: str = "", mes: str = "", autorizacion: str = "", orden: str = "fecha", dir: str = "asc",
+                   page: str = "1", page_size: str = ""):
     user, redirect = _admin(request)
     if redirect:
         return redirect
+    from webapp.services.pagination import paginate
     autorizacion = autorizacion if autorizacion in svc.AUTH_FILTERS else ""
     mes = mes if mes.isdigit() and 1 <= int(mes) <= 12 else ""
+    orden = orden if orden in _BIRTHDAY_SORTS else "fecha"
+    direction = "desc" if dir == "desc" else "asc"
     all_rows = svc.list_birthdays()
+    # Contrato del Hub: dataset completo → filtros → búsqueda → orden → total filtrado → página (nunca paginar antes de filtrar).
+    rows = sorted(svc.filter_birthdays(q=q, month=mes, authorized=autorizacion), key=_BIRTHDAY_SORTS[orden], reverse=direction == "desc")
+    params = {k: v for k, v in (("q", q), ("mes", mes), ("autorizacion", autorizacion)) if v}
+    sort_params = {**params, **({"orden": orden, "dir": direction} if (orden, direction) != ("fecha", "asc") else {})}
+    pager = paginate(rows, page=page, page_size=page_size, base_url=f"{BASE}/cumpleanos", params=sort_params)
+    sizing = {"page_size": pager["page_size"]} if page_size else {}
     greetings = {b["id"]: svc.greeting_status(b) for b in all_rows}                  # saludo del PRÓXIMO cumpleaños de cada persona
     return templates.TemplateResponse(request=request, name="human_capital/cartelera_cumpleanos.html", headers=_NO_STORE, context=_shell(
-        request, user, "cumpleanos", birthdays=svc.filter_birthdays(q=q, month=mes, authorized=autorizacion), total=len(all_rows),
+        request, user, "cumpleanos", birthdays=pager["items"], pager=pager, filtered=pager["total"], total=len(all_rows),
+        sort_cols=_birthday_sort_state({**params, **sizing}, orden, direction),
         greetings=greetings, upcoming=svc.upcoming_birthdays(30), months=svc.MONTHS, q=q, mes=mes, autorizacion=autorizacion))
 
 
 def _birthdays_return(volver: str) -> str:
-    """Vuelve a la vista de Cumpleaños con los MISMOS filtros (`q`, `mes`, `autorizacion`); cualquier otra cosa se descarta."""
+    """Vuelve a la vista de Cumpleaños con los MISMOS filtros, orden y página (`q`, `mes`, `autorizacion`, `orden`, `dir`, `page`,
+    `page_size`); cualquier otra cosa se descarta. Si la página quedó fuera de rango (p. ej. tras eliminar), `paginate` la acota."""
     from urllib.parse import parse_qsl, urlencode
-    keep = {k: v for k, v in parse_qsl((volver or "").lstrip("?")) if k in ("q", "mes", "autorizacion") and len(v) <= 120}
+    keep = {k: v for k, v in parse_qsl((volver or "").lstrip("?"))
+            if k in ("q", "mes", "autorizacion", "orden", "dir", "page", "page_size") and len(v) <= 120}
     return f"{BASE}/cumpleanos" + (f"?{urlencode(keep)}" if keep else "")
 
 

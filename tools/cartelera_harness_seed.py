@@ -5,7 +5,7 @@ lectura de proyectos de Operaciones (Graph) por un catálogo ficticio: en el har
 """
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import date, timedelta
 
 PROJECTS = [
     ("101", "Plataforma de datos corporativa", "201", "Cliente Demo Alimentos"),
@@ -76,6 +76,23 @@ def seed() -> None:
         if hidden:                                                         # registro del modelo anterior: la consolidación lo deja sin autorización
             repo.save("birthdays", saved["id"], {"hidden": True, "hidden_change": {"value": True, "by": actor, "at": repo.now_iso()}},
                       expected_revision=saved["revision"])
+
+    # DEMO de paginación (no son personas reales): 120 cumpleaños ficticios FUERA del mes en curso y de los próximos 45 días, para que la
+    # tabla de Gestión tenga varias páginas sin alterar lo que se homologa en el portal (Inicio, calendario del mes, próximos cumpleaños).
+    firsts = ("Agustina", "Bautista", "Camila", "Damián", "Emilia", "Facundo", "Guadalupe", "Hernán", "Inés", "Joaquín", "Julieta", "Lautaro",
+              "Martina", "Nicolás", "Olivia", "Pablo", "Renata", "Santiago", "Sofía", "Tomás")
+    lasts = ("Acosta", "Benítez", "Castro", "Domínguez", "Fernández", "Giménez", "Herrera", "Ibarra", "Juárez", "Luna", "Medina", "Núñez")
+    window = {today + timedelta(days=k) for k in range(46)}
+    day, made = date(today.year, 1, 1), 0
+    while made < 120:
+        day += timedelta(days=3)
+        if day.year != today.year:
+            day = date(today.year, 1, 2 + made % 3)
+        if day.month == today.month or day in window or day.replace(year=today.year + 1) in window:
+            continue
+        name = f"{firsts[made % len(firsts)]} {lasts[(made * 7) % len(lasts)]} (DEMO {made + 1:03d})"
+        svc.save_birthday(None, None, name=name, day=day.day, month=day.month, authorized=made % 4 != 0, actor=actor)
+        made += 1
 
     # Saludos («Preparar saludo»): publicado para quien cumple hoy, programado para su día a las 9 y otro en borrador; el resto, sin preparar.
     def greet(name, body=None):

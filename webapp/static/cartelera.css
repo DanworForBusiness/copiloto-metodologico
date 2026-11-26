@@ -241,15 +241,41 @@ a.ct-space:hover { border-color: var(--ct-gold); }
 .cartelera-greet-cta.is-done { color: var(--soft); }
 .table-action-btn.is-disabled { opacity: .35; cursor: default; }
 #bd-dialog .cartelera-check--spaced { margin: 14px 0 10px; }
-/* Moderación de Comunidad: los textos (motivo, contenido, publicación) se ajustan en vez de desbordar la tabla */
-.ct-mod-table { table-layout: auto; width: 100%; }
+/* Moderación de Comunidad: anchos por columna del <colgroup> (layout fijo de `.dashboard-table`, que el redimensionado necesita) y textos
+   que se ajustan o se recortan con «…» (`.ct-clip`) en vez de desbordar: sin scroll horizontal en desktop. */
 .ct-mod-table td { white-space: normal; overflow-wrap: anywhere; vertical-align: top; }
 .ct-mod-table td:last-child { white-space: nowrap; }
 
 
-/* Organigrama en «Nosotros y galería»: misma tabla del Hub; los controles ocupan la celda */
-.ct-org-table select, .ct-org-table input { width: 100%; min-width: 0; }
-.ct-org-table th:nth-child(1) { width: 17%; } .ct-org-table th:nth-child(2) { width: 27%; } .ct-org-table th:nth-child(3) { width: 21%; }
-.ct-org-table th:nth-child(4) { width: 20%; } .ct-org-table th:nth-child(5) { width: 150px; }
-.ct-org-table td:last-child { white-space: nowrap; }
-.ct-org-table td:first-child > div { display: flex; }
+
+/* Textos largos en tablas de gestión: hasta dos líneas con «…» y el texto completo en el `title` (MISMO criterio que el ellipsis compartido
+   `td.row-label`, que es de una sola línea). Así las columnas por defecto entran sin scroll horizontal en desktop. */
+.ct-clip { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+
+/* «Nosotros y galería»: textos institucionales de solo lectura con su lápiz (edición contextual) y subtítulos con la acción de alta. */
+.ct-inst-grid { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+.ct-inst-text__head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ct-inst-text__value { white-space: pre-wrap; line-height: 1.5; }
+.ct-inst-subhead { display: flex; align-items: center; gap: 12px; margin: 18px 0 10px; flex-wrap: wrap; }
+.ct-inst-subhead h3 { margin: 0; font-size: .95rem; }
+.ct-inst-subhead > .btn-secondary { margin-left: auto; }
+/* Organigrama editable sobre el propio árbol: misma jerarquía y códigos de color que Nosotros (Área amarilla, Puesto gris, Persona con
+   nombre y cargo), en un esquema vertical de líneas guía que entra en el ancho de la gestión. Las acciones de cada caja aparecen al pasar. */
+.ct-orgtree { padding: 4px 0; }
+.ct-orgtree__root { display: inline-block; padding: 6px 14px; border-radius: 10px; background: #1C1C1C; color: #F5F5F3; font-weight: 700; letter-spacing: .04em; }
+.ct-orgtree ul { list-style: none; margin: 0; padding: 0 0 0 26px; border-left: 2px solid rgba(128,128,128,.35); margin-left: 14px; }
+.ct-orgtree li { position: relative; padding: 6px 0 0 0; }
+.ct-orgtree li::before { content: ""; position: absolute; left: -26px; top: 22px; width: 22px; border-top: 2px solid rgba(128,128,128,.35); }
+.ct-og { display: flex; align-items: center; gap: 8px; }
+.ct-og__node { border: 0; border-radius: 10px; padding: 7px 12px; font: 600 .8rem var(--sans); color: #1C1C1C; cursor: pointer; text-align: left; }
+.ct-og__node--area { background: #F2D24F; }
+.ct-og__node--puesto { background: #C9C9C7; font-weight: 500; }
+.ct-og__node--persona { display: grid; padding: 0; overflow: hidden; background: #fff; border: 2px solid #3A3A3A; }
+.ct-og__node--persona b { background: #EBBF08; padding: 4px 12px; font-weight: 600; }
+.ct-og__node--persona span { padding: 4px 12px; font-weight: 700; letter-spacing: .03em; }
+.ct-og__node:hover, .ct-og__node:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.ct-og__actions { display: inline-flex; gap: 2px; opacity: 0; transition: opacity .12s; }
+.ct-og:hover .ct-og__actions, .ct-og:focus-within .ct-og__actions { opacity: 1; }
+@media (hover: none) { .ct-og__actions { opacity: 1; } }
+/* Tablas sin columna de acciones: el handle de la última columna no debe asomar fuera de la tabla (MISMO criterio que la bandeja de CVs). */
+.matrix-scroll[data-ssr-columns] th:last-child > .col-resize-handle { right: 0; }
