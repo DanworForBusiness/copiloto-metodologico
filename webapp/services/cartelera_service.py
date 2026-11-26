@@ -743,26 +743,43 @@ def birthdays_of_month(month: int) -> list[dict]:
 
 
 def home_birthdays(edition_month: str | None, today: date | None = None) -> dict:
-    """Tile de cumpleaños de Inicio para el MES de la edición visualizada (mismas reglas de publicación: `public_birthdays`):
-      - mes en curso: `today` = los de hoy; `upcoming` = los de días posteriores de ese mes (nunca fechas pasadas);
-      - mes futuro: `upcoming` = todo el mes;
-      - mes histórico: `month_list` = todo el mes (se rotula «Cumpleaños de <mes>», no como próximos).
-    Todo en orden cronológico."""
+    """Tile de cumpleaños de Inicio según la edición visualizada (mismas reglas de publicación: `public_birthdays`):
+      - mes en curso: `today` = los de hoy; `upcoming` = los PRÓXIMOS en orden cronológico desde mañana, aunque crucen el fin de mes
+        (nunca fechas pasadas; el tile muestra los que entran);
+      - mes futuro: `upcoming` = los próximos desde el día 1 de ese mes, también cruzando el fin de mes;
+      - mes histórico: `month_list` = los del mes (se rotula «Cumpleaños de <mes>», no como próximos)."""
     today = today or now_utc().astimezone(BUSINESS_TZ).date()
     current = f"{today.year:04d}-{today.month:02d}"
     month_key_ = edition_month if _MONTH.match(edition_month or "") else current
     month = int(month_key_[5:7])
-    people = sorted(birthdays_of_month(month), key=lambda b: (int(b["day"]), (b.get("name") or "").lower()))
     out = {"month": month, "today": [], "upcoming": [], "month_list": [],
            "mode": "current" if month_key_ == current else ("future" if month_key_ > current else "past")}
-    if out["mode"] == "current":
-        out["today"] = [b for b in people if int(b["day"]) == today.day]
-        out["upcoming"] = [b for b in people if int(b["day"]) > today.day]
-    elif out["mode"] == "future":
-        out["upcoming"] = people
-    else:
-        out["month_list"] = people
+    if out["mode"] == "past":
+        out["month_list"] = sorted(birthdays_of_month(month), key=lambda b: (int(b["day"]), (b.get("name") or "").lower()))
+        return out
+    start = today if out["mode"] == "current" else date(int(month_key_[:4]), month, 1)
+
+    def next_date(b: dict) -> date | None:                                          # próxima ocurrencia en `start` o después
+        for year in (start.year, start.year + 1):
+            try:
+                d = date(year, int(b["month"]), int(b["day"]))
+            except ValueError:                                                      # 29/02 en año no bisiesto: se celebra el 1/03
+                d = date(year, 3, 1)
+            if d >= start:
+                return d
+        return None
+    dated = sorted(((next_date(b), b) for b in public_birthdays()), key=lambda x: (x[0] or date.max, (x[1].get("name") or "").lower()))
+    for d, b in dated:
+        if d is None:
+            continue
+        if out["mode"] == "current" and d == today:
+            out["today"].append(b)
+        elif len(out["upcoming"]) < HOME_UPCOMING_MAX:
+            out["upcoming"].append({**b, "day": d.day, "month": d.month})
     return out
+
+
+HOME_UPCOMING_MAX = 20                                                              # el tile muestra los que entran; esto acota el HTML
 
 
 def upcoming_birthdays(days: int = 7, today: date | None = None) -> list[dict]:
