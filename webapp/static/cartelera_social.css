@@ -2,6 +2,8 @@
    acción de reacción + Comentar a la izquierda, resumen de tipos y total a la derecha. Usa los tokens y piezas de `cartelera_portal.css`
    (.reacts, .rbtn, .chip, .avatar, .modal); solo suma el selector flotante, el resumen y el detalle. */
 
+/* El bloque (barra + comentarios) conserva la separación de 12px que la app original daba con la grilla de la publicación */
+.ct-social { display: grid; gap: 12px; }
 .ct-rx-bar { gap: 6px; align-items: center; flex-wrap: nowrap; }
 .ct-rx { position: relative; display: inline-flex; }
 .ct-rx-main .n { margin-left: 2px; padding-left: 6px; border-left: 1px solid var(--line); font-variant-numeric: tabular-nums; }
