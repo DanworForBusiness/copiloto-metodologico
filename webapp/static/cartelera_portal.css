@@ -159,7 +159,8 @@ label.f span.h{font-weight:400;color:var(--muted);font-size:12px}
 .org li:only-child::after{border:0 none;border-left:2px solid #3A3A3A}
 /* cartelera_org.js: cuando el tronco del padre cae exactamente sobre el primer/último hijo, su conector va recto (sin esquina redondeada). */
 .org li.og-stem-through::before,.org li.og-stem-through::after{border-radius:0}
-.org ul::before{content:"";position:absolute;top:0;left:50%;height:22px;border-left:2px solid #3A3A3A}
+.org ul{--og-stem-shift:0px}
+.org ul::before{content:"";position:absolute;top:0;left:calc(50% + var(--og-stem-shift));height:22px;border-left:2px solid #3A3A3A}
 .og-node{border-radius:12px;font-size:12.5px;line-height:1.25;text-align:center;min-width:76px;max-width:108px;padding:7px 9px;color:#1C1C1C}
 .og-area{background:#F2D24F;font-weight:600}
 .og-puesto{background:#C9C9C7;font-weight:500}

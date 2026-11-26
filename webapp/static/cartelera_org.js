@@ -55,11 +55,14 @@
   function markStem(ul) {
     var kids = ul.querySelectorAll(':scope > li');
     if (kids.length < 2) return;
-    var u = rect(ul), c = u.left + u.width / 2;
+    var u = rect(ul), c = u.left + u.width / 2, shift = 0;
     [kids[0], kids[kids.length - 1]].forEach(function (li) {
-      var n = rect(nodeOf(li) || li);
-      li.classList.toggle('og-stem-through', Math.abs(n.left + n.width / 2 - c) <= 2);
+      var r = rect(li), x = r.left + r.width / 2;                                  // la vertical del hijo está en el centro de su li
+      var through = Math.abs(x - c) <= 3;
+      li.classList.toggle('og-stem-through', through);
+      if (through) shift = x - c;
     });
+    ul.style.setProperty('--og-stem-shift', shift.toFixed(2) + 'px');             // tronco exactamente sobre esa vertical
   }
 
   function run(org) {
