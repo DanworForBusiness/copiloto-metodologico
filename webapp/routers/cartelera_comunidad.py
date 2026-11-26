@@ -3,21 +3,18 @@
 Contratos (mismos que el portal, F11):
   - Consumo y participación (`/cartelera/comunidad`, `/cartelera/social/…`): sesión + admisión general al Hub; no exige ninguna vertical.
     Toda escritura exige además origen verificado (`same_origin_guard`). Identidad = la sesión de Entra ID (correo y nombre).
-  - Moderación (`/cartelera/comunidad/moderacion`): admisión al Hub + `COMMUNITY_OWNER` (patrón de CONTENT_OWNER). NO depende de Capital
-    Humano ni lo otorga; la vertical CCHH no tiene pestaña de Comunidad.
+  - Moderación: pestaña «Comunidad» de Gestión de cartelera (`/cchh/cartelera/comunidad`) con admisión al Hub + `COMMUNITY_OWNER` (patrón de
+    CONTENT_OWNER). NO depende de Capital Humano ni lo otorga: quien solo modera ve únicamente esa pestaña, sin la navegación de la vertical.
+    La presentación (portal) no tiene controles de moderación.
 Las reglas (visibilidad, propiedad, aprobación, integridad) viven en `cartelera_social`; acá solo se traducen a HTTP.
 """
 from __future__ import annotations
 
 from fastapi import APIRouter, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from webapp import same_origin_guard
-from fastapi.responses import RedirectResponse
-
-from webapp import workspaces
-from core.content_registry import DEFAULT_PACK
-from webapp.routers.cartelera import BASE, _NO_STORE, _back, _reader, _render_portal
+from webapp.routers.cartelera import BASE, _NO_STORE, _back, _reader, _render_portal, _shell
 from webapp.services import auth_service, cartelera_repository as repo, cartelera_service as svc, cartelera_social as social
 from webapp.templating import templates
 
@@ -46,7 +43,8 @@ async def _json(request: Request) -> dict:
     return data
 
 
-MOD = "/cartelera/comunidad/moderacion"
+MOD = f"{BASE}/comunidad"                                                             # pestaña «Comunidad» de Gestión de cartelera
+LEGACY_MOD = "/cartelera/comunidad/moderacion"
 
 
 def _moderator(request: Request):
@@ -106,7 +104,7 @@ def community_page(request: Request):
     user, redirect = _reader(request)
     if redirect:
         return redirect
-    return _render_portal(request, "comunidad", user=user, **wall_context(user, social.is_moderator(user), request))
+    return _render_portal(request, "comunidad", user=user, **wall_context(user, False, request))
 
 
 # ── publicaciones ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -128,13 +126,6 @@ async def post_update(request: Request, post_id: str):
 def post_delete(request: Request, post_id: str):
     user = _participant(request)
     return _run(lambda: social.delete_post(user, post_id))
-
-
-@router.post("/cartelera/comunidad/publicaciones/{post_id}/moderar", include_in_schema=False)
-async def post_moderate(request: Request, post_id: str):
-    user = _participant(request)
-    data = await _json(request)
-    return _run(lambda: {"status": social.moderate_post(user, post_id, str(data.get("action") or ""), str(data.get("reason") or ""))["status"]})
 
 
 # ── interacciones (motor compartido) ──────────────────────────────────────────────────────────────────────────────────────────────
@@ -165,13 +156,6 @@ def api_comment_delete(request: Request, comment_id: str):
     return _run(lambda: social.delete_comment(user, comment_id))
 
 
-@router.post("/cartelera/social/comentarios/{comment_id}/retirar", include_in_schema=False)
-async def api_comment_remove(request: Request, comment_id: str):
-    user = _participant(request)
-    data = await _json(request)
-    return _run(lambda: {"id": social.remove_comment(user, comment_id, str(data.get("reason") or ""))["id"]})
-
-
 @router.post("/cartelera/social/voto", include_in_schema=False)
 async def api_vote(request: Request):
     user = _participant(request)
@@ -191,12 +175,11 @@ async def api_report(request: Request):
 def api_block(request: Request, target: str = "", mini: str = ""):
     """Vuelve a dibujar el bloque de interacción de UN contenido (mismo componente que la página) tras una acción."""
     user = _reader_json(request)
-    mod = social.is_moderator(user)
-    if not social.target_visible(target, user, mod):
+    if not social.target_visible(target, user, False):
         raise HTTPException(404, "No disponible")
     names = social.people()
-    ctx = {"social": social.snapshot([target], user, mod, names), "me": social.uid(user), "me_name": social.uname(user),
-           "can_moderate": mod, "social_reactions": social.REACTIONS, "social_when": social.fmt_when, "target": target, "mini": mini == "1"}
+    ctx = {"social": social.snapshot([target], user, False, names), "me": social.uid(user), "me_name": social.uname(user),
+           "social_reactions": social.REACTIONS, "social_when": social.fmt_when, "target": target, "mini": mini == "1"}
     return templates.TemplateResponse(request=request, name="cartelera/_social_fragment.html", context=ctx, headers=_NO_STORE)
 
 
@@ -219,10 +202,10 @@ async def api_notifications_update(request: Request):
     return _run(lambda: social.save_prefs(user, notif=data.get("notif"), seen=bool(data.get("seen"))))
 
 
-# ── moderación de Comunidad (COMMUNITY_OWNER; fuera de Capital Humano) ─────────────────────────────────────────────────────────────
-@router.get(f"{BASE}/comunidad", include_in_schema=False)
+# ── Gestión de cartelera › Comunidad (COMMUNITY_OWNER; sin requerir ni otorgar Capital Humano) ─────────────────────────────────────
+@router.get(LEGACY_MOD, include_in_schema=False)
 def legacy_moderation_page():
-    """La moderación ya no vive en Capital Humano: se conserva el enlace anterior."""
+    """La moderación vive en Gestión de cartelera › Comunidad: se conserva el enlace anterior."""
     return RedirectResponse(MOD, status_code=303)
 
 
@@ -232,6 +215,7 @@ def moderation_page(request: Request):
     if redirect:
         return redirect
     posts = social.list_posts()
+    published = [p for p in social.wall_posts()]                                        # mismo orden que el muro (fijadas primero)
     names = social.people()
     pending = sorted([p for p in posts if social.post_state(p) == "pending"], key=social.post_when)
     scheduled = sorted([p for p in posts if social.post_state(p) == "scheduled"], key=social.post_when)
@@ -240,13 +224,15 @@ def moderation_page(request: Request):
     since = (svc.now_utc().timestamp() - 30 * 86400)
     recent = lambda v: (svc.parse_utc(v) or svc.now_utc()).timestamp() >= since                     # noqa: E731
     comments = [c for c in social.list_comments() if c.get("status") != "removed"]
+    recent_comments = [{**c, "where": social.target_label(c["target"])} for c in sorted(comments, key=lambda c: c.get("created_at", ""), reverse=True)
+                       if recent(c.get("created_at"))][:30]
     reactions = sum(len(d.get("by") or {}) for d in repo.list_all("reactions"))
     kpis = {"posts": sum(1 for p in posts if social.post_state(p) == "published" and recent(social.post_when(p))),
             "comments": sum(1 for c in comments if recent(c.get("created_at"))), "reactions": reactions,
             "people": len(names), "pending": len(pending), "reports": len(reports)}
-    return templates.TemplateResponse(request=request, name="cartelera/moderacion.html", headers=_NO_STORE, context=dict(
-        user=user, pack=DEFAULT_PACK, available_workspaces=workspaces.available_workspaces(user), svc=svc,
-        ok=request.query_params.get("ok", ""), error=request.query_params.get("error", ""), pending=pending, scheduled=scheduled, removed=removed, reports=reports, log=social.modlog(),
+    return templates.TemplateResponse(request=request, name="human_capital/cartelera_comunidad.html", headers=_NO_STORE, context=_shell(
+        request, user, "comunidad", pending=pending, scheduled=scheduled, removed=removed, reports=reports, log=social.modlog(),
+        published=published, recent_comments=recent_comments, me=social.uid(user),
         names=names, kpis=kpis, categories=social.CATEGORY_BY_ID, social=social, reasons=social.MODERATION_REASONS))
 
 
@@ -255,10 +241,24 @@ def moderation_post(request: Request, post_id: str, action: str, motivo: str = F
     user = _moderator_write(request)
     reason = " · ".join(x for x in (motivo.strip(), nota.strip()) if x)
     try:
-        social.moderate_post(user, post_id, action, reason)
-    except (social.SocialError, social.SocialNotFound) as exc:
+        if action == "eliminar":                                                       # mismo servicio que la autoría (registra lo ajeno)
+            social.delete_post(user, post_id)
+        else:
+            social.moderate_post(user, post_id, action, reason)
+    except (social.SocialError, social.SocialForbidden, social.SocialNotFound) as exc:
         return _back(MOD, error=str(exc) or "La publicación ya no está disponible.")
-    return _back(MOD, ok={"aprobar": "Publicación aprobada.", "rechazar": "Publicación rechazada.", "retirar": "Publicación retirada."}.get(action, "Hecho."))
+    return _back(MOD, ok={"aprobar": "Publicación aprobada.", "rechazar": "Publicación rechazada.", "retirar": "Publicación retirada.",
+                          "fijar": "Fijación actualizada.", "eliminar": "Publicación eliminada."}.get(action, "Hecho."))
+
+
+@router.post(f"{MOD}/comentarios/{{comment_id}}/retirar", include_in_schema=False)
+def moderation_comment(request: Request, comment_id: str, motivo: str = Form(""), nota: str = Form("")):
+    user = _moderator_write(request)
+    try:
+        social.remove_comment(user, comment_id, " · ".join(x for x in (motivo.strip(), nota.strip()) if x))
+    except (social.SocialError, social.SocialForbidden, social.SocialNotFound) as exc:
+        return _back(MOD, error=str(exc) or "El comentario ya no está disponible.")
+    return _back(MOD, ok="Comentario retirado.")
 
 
 @router.post(f"{MOD}/reportes/{{report_id}}/{{action}}", include_in_schema=False)

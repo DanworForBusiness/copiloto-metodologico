@@ -33,22 +33,6 @@
     });
   }
 
-  // Motivo de un retiro (mismo modal del portal que los reportes): devuelve el texto o null si se cancela.
-  function askReason(title, hint) {
-    return new Promise(resolve => {
-      const m = modal(`<div class="modal-h"><h2>${esc(title)}</h2><button type="button" class="icon-btn" data-rs="no" aria-label="Cerrar">✕</button></div>
-        <p class="muted" style="margin:0">${esc(hint)}</p>
-        <label class="f">Motivo<select id="rs-reason"><option>Contenido ofensivo o inapropiado</option><option>Información confidencial</option><option>Información personal sin consentimiento</option><option>Spam o fuera de tema</option><option>Otro</option></select></label>
-        <label class="f">Detalle (opcional)<textarea id="rs-note" rows="2"></textarea></label>
-        <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-rs="no">Cancelar</button><button type="button" class="btn primary" data-rs="yes">Retirar</button></div>`);
-      m.addEventListener("click", e => {
-        const b = e.target.closest("[data-rs]"); if (!b) return;
-        const out = b.dataset.rs === "yes" ? [$("#rs-reason", m).value, $("#rs-note", m).value.trim()].filter(Boolean).join(" · ") : null;
-        closeModal(); resolve(out);
-      });
-    });
-  }
-
   // ── menciones: «@nombre» → directorio interno de personas del Hub (Entra ID); se guardan como @{u:correo} ──
   let mm = null;
   function closeMenu() { if (mm) { mm.el.remove(); mm = null; } }
@@ -133,7 +117,7 @@
       $("[data-cp-title]", m).textContent = "Editar publicación"; $('[data-sx="publish"]', m).textContent = "Guardar cambios";
       $("#cp-cat", m).value = post.category; $("#cp-title", m).value = post.title; body.value = post.body; body.__picks = post.mentions || {};
       $("#cp-link", m).value = post.link || "";
-      if ($("#cp-official", m)) { $("#cp-official", m).checked = post.official; if ($("#cp-pin", m)) $("#cp-pin", m).checked = post.pinned; $("#cp-when", m).value = post.publish_at || ""; }
+      if ($("#cp-official", m)) { $("#cp-official", m).checked = post.official; $("#cp-when", m).value = post.publish_at || ""; }
       if ($("#cp-consentchk", m)) $("#cp-consentchk", m).checked = !!post.consent;
     }
     const consent = () => { $("#cp-consent", m).style.display = $("#cp-cat", m).value === "personales" ? "" : "none"; };
@@ -145,7 +129,7 @@
     const m = $("#layer .modal"), err = $("[data-cp-error]", m);
     const data = { category: $("#cp-cat", m).value, title: $("#cp-title", m).value.trim(), body: toStored($("#cp-body", m)), link: $("#cp-link", m).value.trim(),
                    poll: composer.poll, consent: $("#cp-consentchk", m) && $("#cp-consentchk", m).checked };
-    if ($("#cp-official", m)) Object.assign(data, { official: $("#cp-official", m).checked, pinned: !!$("#cp-pin", m)?.checked, publish_at: $("#cp-when", m).value });
+    if ($("#cp-official", m)) Object.assign(data, { official: $("#cp-official", m).checked, publish_at: $("#cp-when", m).value });
     btn.disabled = true; err.textContent = "";
     try {
       const j = await api(composer.post ? `/cartelera/comunidad/publicaciones/${composer.post.id}` : "/cartelera/comunidad/publicaciones", data);
@@ -262,7 +246,6 @@
       else if (a === "canceledit") await refresh(block, true);
       else if (a === "savecmt") { const ta = el.parentElement.querySelector("textarea"); await api(`/cartelera/social/comentarios/${el.dataset.id}`, { body: toStored(ta) }); await refresh(block, true); }
       else if (a === "delcmt") { if (await confirmBox("¿Eliminar tu comentario?", "Eliminar")) { await api(`/cartelera/social/comentarios/${el.dataset.id}/eliminar`, {}); await refresh(block, true); } }
-      else if (a === "modcmt") { const reason = await askReason("Retirar comentario", "Deja de verse para los colaboradores. La autoría recibe un aviso con el motivo."); if (reason !== null) { await api(`/cartelera/social/comentarios/${el.dataset.id}/retirar`, { reason }); await refresh(block, true); toast("Comentario retirado."); } }
       else if (a === "who") openReactions(block, JSON.parse(el.dataset.who || "{}"));
       else if (a === "rxtab") filterReactions(el.dataset.r);
       else if (a === "report") {
@@ -281,17 +264,7 @@
       else if (a === "addopt") { syncPoll(); composer.poll.options.push(""); pollBox(composer.poll); }
       else if (a === "rmopt") { syncPoll(); composer.poll.options.splice(Number(el.dataset.i), 1); pollBox(composer.poll); }
       else if (a === "publish") await publish(el);
-      else if (a === "delpost") { if (await confirmBox(el.dataset.mod ? "¿Eliminar esta publicación de otra persona? Se eliminan también sus comentarios y reacciones, queda en el registro de moderación y no se puede deshacer." : "¿Eliminar esta publicación? Se eliminan también sus comentarios y reacciones. No se puede deshacer.", "Eliminar")) { await api(`/cartelera/comunidad/publicaciones/${el.dataset.id}/eliminar`, {}); sessionStorage.setItem("ct-toast", "Publicación eliminada."); location.reload(); } }
-      else if (a === "modpost") {                                                    // en el muro solo hay publicaciones vigentes: retirar, con motivo
-        const reason = await askReason("Retirar publicación", "Deja de verse en Comunidad. Queda en la moderación y la autoría recibe un aviso con el motivo.");
-        if (reason !== null) { await api(`/cartelera/comunidad/publicaciones/${el.dataset.id}/moderar`, { action: el.dataset.action, reason }); sessionStorage.setItem("ct-toast", "Publicación retirada."); keep(); location.reload(); }
-      }
-      else if (a === "pin") {                                                        // la publicación cambia de lugar en el muro: se la sigue y se la resalta
-        const pinned = el.getAttribute("aria-label") === "Fijar arriba";
-        await api(`/cartelera/comunidad/publicaciones/${el.dataset.id}/moderar`, { action: "fijar" });
-        sessionStorage.setItem("ct-toast", pinned ? "Publicación fijada arriba." : "Publicación desfijada.");
-        location.hash = "post-" + el.dataset.id; location.reload();
-      }
+      else if (a === "delpost") { if (await confirmBox("¿Eliminar esta publicación? Se eliminan también sus comentarios y reacciones. No se puede deshacer.", "Eliminar")) { await api(`/cartelera/comunidad/publicaciones/${el.dataset.id}/eliminar`, {}); sessionStorage.setItem("ct-toast", "Publicación eliminada."); location.reload(); } }
       else if (a === "notif") await openNotif();
       else if (a === "savenotif") { await api("/cartelera/social/notificaciones", { notif: { mentions: $("#np-mentions").checked, replies: $("#np-replies").checked, official: $("#np-official").checked } }); closeModal(); toast("Preferencias guardadas."); }
     } catch (err) { toast(err.message); el.disabled = false; }

@@ -28,7 +28,16 @@ _log = logging.getLogger("danwor.cartelera")
 BASE = "/cchh/cartelera"
 _NO_STORE = {"Cache-Control": "no-store"}
 TABS = (("ediciones", "Ediciones", BASE), ("cumpleanos", "Cumpleaños", f"{BASE}/cumpleanos"),
-        ("institucional", "Nosotros y galería", f"{BASE}/institucional"), ("accesos", "Accesos directos", f"{BASE}/accesos"))
+        ("institucional", "Nosotros y galería", f"{BASE}/institucional"), ("accesos", "Accesos directos", f"{BASE}/accesos"),
+        ("comunidad", "Comunidad", f"{BASE}/comunidad"))
+# Cada pestaña con la autorización EXISTENTE que la gobierna: las editoriales, Capital Humano (HUMAN_CAPITAL_ALLOWED_USERS); Comunidad, la
+# moderación (COMMUNITY_OWNER). Son independientes: quien solo modera ve únicamente Comunidad, y Capital Humano no ve Comunidad por serlo.
+COMMUNITY_TAB = "comunidad"
+
+
+def _tabs_for(user: dict | None) -> tuple:
+    hc, mod = human_capital_access.is_human_capital_authorized_user(user), social.is_moderator(user)
+    return tuple(t for t in TABS if (mod if t[0] == COMMUNITY_TAB else hc))
 
 
 # ── guardas ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -67,8 +76,10 @@ def _actor(user: dict) -> str:
 
 
 def _shell(request: Request, user: dict, tab: str, **extra) -> dict:
-    return {"current_workspace": workspaces.HUMAN_CAPITAL, "available_workspaces": workspaces.available_workspaces(user),
-            "pack": DEFAULT_PACK, "user": user, "active_page": "cartelera", "tabs": TABS, "tab": tab, "svc": svc,
+    # Sin Capital Humano (solo moderación): mismo layout de Gestión de cartelera, pero sin la navegación ni el workspace de la vertical.
+    hc = human_capital_access.is_human_capital_authorized_user(user)
+    return {"current_workspace": workspaces.HUMAN_CAPITAL if hc else None, "hc_shell": hc, "available_workspaces": workspaces.available_workspaces(user),
+            "pack": DEFAULT_PACK, "user": user, "active_page": "cartelera", "tabs": _tabs_for(user), "tab": tab, "svc": svc,
             "ok": request.query_params.get("ok", ""), "error": request.query_params.get("error", ""), **extra}
 
 
@@ -534,13 +545,16 @@ def _social_context(user: dict | None, ctx: dict, *, social_on: bool) -> dict:
     """Motor de interacción en el portal: solo en consumo real (nunca en el lienzo, vistas previas ni la vista del colaborador).
     Targets de la página: contenidos de la edición mostrada, el saludo y las publicaciones de Comunidad."""
     # Roles de Comunidad resueltos en el servidor y ORTOGONALES a Capital Humano (`can_manage` sigue siendo solo la gestión editorial).
-    mod = social.is_moderator(user)
-    out = {"social_on": social_on, "social": {}, "can_moderate": mod, "can_publish_official": social.can_publish_official(user), "social_reactions": social.REACTIONS, "social_when": social.fmt_when,
+    # Consumo IGUAL para cualquier permiso administrativo: el portal se dibuja siempre como colaborador (sin vista de moderación: nada retirado
+    # a la vista ni resultados anticipados). Solo cambian capacidades de PARTICIPACIÓN: comunicación oficial (Capital Humano) y publicar sin
+    # aprobación previa (moderación), ambas validadas otra vez en el servidor.
+    out = {"social_on": social_on, "social": {}, "social_skip_approval": social.is_moderator(user),
+           "can_publish_official": social.can_publish_official(user), "social_reactions": social.REACTIONS, "social_when": social.fmt_when,
            "me": social.uid(user or {}), "me_name": social.uname(user or {}), "notif_unseen": 0, "social_names": {},
            "community_count": sum(1 for p in social.list_posts() if social.post_state(p) == "published"),
            "social_categories": social.CATEGORIES, "social_categories_by_id": social.CATEGORY_BY_ID, "social_post_state": social.post_state,
            "social_post_json": social.post_json, "social_render": social.render_text, "social_rules": social.RULES,
-           "social_wall_types": social.WALL_TYPES, "social_poll": lambda p: social.poll_state(p, user, mod)}
+           "social_wall_types": social.WALL_TYPES, "social_poll": lambda p: social.poll_state(p, user, False)}
     if not social_on:
         return out
     social.touch_person(user)
@@ -549,7 +563,7 @@ def _social_context(user: dict | None, ctx: dict, *, social_on: bool) -> dict:
     if ctx.get("greeting"):
         targets.append(f"greeting:{ctx['greeting']['id']}")
     targets += [f"post:{p['id']}" for p in ctx.get("posts") or []]
-    out["social"] = social.snapshot(targets, user, mod, names)
+    out["social"] = social.snapshot(targets, user, False, names)
     out["notif_unseen"] = sum(1 for n in social.notifications(user, names) if n["new"])
     out["social_names"] = names
     return out

@@ -269,9 +269,7 @@ def save_post(user: dict, data: dict, post_id: str | None = None) -> dict:
         when = str(data.get("publish_at") or "").strip()
         fields["publish_at"] = svc.local_input_to_utc(when).isoformat() if when else None
     current = get_post(post_id) if post_id else None
-    if mod:                                                                            # fijar: solo moderación, y solo lo oficial
-        fields["pinned"] = bool(data.get("pinned")) and bool(fields.get("official"))
-    elif current:
+    if current:                                                                        # fijar NO se decide editando: solo desde la moderación
         fields["pinned"] = bool(current.get("pinned")) and bool(fields.get("official", current.get("official")))
     if post_id:
         if not current or not post_visible(current, user, mod):

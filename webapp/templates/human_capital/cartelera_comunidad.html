@@ -1,29 +1,12 @@
-{#- MODERACIÓN DE COMUNIDAD (Cartelera Virtual). NO pertenece a Capital Humano: la usa quien figura en `COMMUNITY_OWNER`, tenga o no la
-    vertical CCHH. Shell del Hub SIN navegación de vertical (mismo topbar de plataforma, mismo `module-hero`), y los mismos componentes de
-    administración: tiles `.activity-kpi`, secciones colapsables, `.dashboard-table`, acciones SVG con tooltip y confirmación `dw-confirm`. -#}
-{% extends "base.html" %}
-{% from "partials/platform_topbar.html" import platform_topbar %}
-{% block title %}Moderación · Comunidad · Cartelera Virtual · Danwor{% endblock %}
-{% block head_styles %}<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}"><link rel="stylesheet" href="{{ url_for('static', path='operations_solicitudes.css') }}?v={{ static_version }}"><link rel="stylesheet" href="{{ url_for('static', path='cartelera.css') }}?v={{ static_version }}">{% endblock %}
-{% block body %}
-<div x-data="copilotLayout('cartelera-moderacion')" x-init="init()" class="app-shell no-copilot ct-modshell">
-  {% set _identity_html %}<iframe src="/brand/dancing/{{ pack }}?title={{ config.APP_TITLE | urlencode }}&subtitle={{ config.APP_SUBTITLE | urlencode }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
-  {% call platform_topbar(None, available_workspaces, "/", _identity_html, "Menú") %}{% endcall %}
-  <main id="content" class="module-content">
-    <section class="module-hero hc-profiles-hero">
-      <div class="hc-profiles-hero-text">
-        <p class="eyebrow">Cartelera Virtual · Comunidad</p>
-        <h1>Moderación</h1>
-        <p>Aprobación de publicaciones, reportes y retiros de Comunidad. Cada acción queda en el registro y la autoría recibe un aviso con el motivo.</p>
-      </div>
-      <div class="hc-profiles-hero-actions"><a href="/cartelera/comunidad" class="btn-secondary">Volver a Comunidad</a></div>
-    </section>
-    {% if ok %}<div class="callout callout--success callout--feedback" role="status"><div class="callout__body field-hint"><p>{{ ok }}</p></div></div>{% endif %}
-    {% if error %}<div class="callout callout--warn callout--feedback" role="alert"><div class="callout__body field-hint"><p>{{ error }}</p></div></div>{% endif %}
-{#- MODERACIÓN DE COMUNIDAD — autorización `COMMUNITY_OWNER` (independiente de Capital Humano). Patrones del Hub: tiles `.activity-kpi`, secciones
+{% extends "human_capital/_cartelera_layout.html" %}
+{% block page_title %}Comunidad{% endblock %}
+{% block hero_lead %}Gestión y moderación de Comunidad: aprobaciones, reportes, publicaciones y comentarios. Cada acción queda en el registro y la autoría recibe un aviso con el motivo.{% endblock %}
+{% block hero_actions %}<a href="/cartelera/comunidad" class="btn-secondary" target="_blank" rel="noopener">Ver Comunidad ↗</a>{% endblock %}
+{% block cartelera_body %}
+{#- GESTIÓN DE CARTELERA › COMUNIDAD — autorización `COMMUNITY_OWNER` (independiente de Capital Humano). Patrones del Hub: tiles `.activity-kpi`, secciones
     colapsables, `.dashboard-table`, acciones SVG con tooltip y confirmación `dw-confirm`. Mismas capacidades que «Moderación» de la app
     original (pendientes, reportes, programadas, registro) más las retiradas recientes; la regla vive en `cartelera_social`. -#}
-{% macro icon(name) -%}<svg viewBox="0 0 24 24" aria-hidden="true">{% if name == 'check' %}<path d="m5 12 5 5 9-10"/>{% elif name == 'x' %}<path d="M6 6l12 12"/><path d="M18 6 6 18"/>{% elif name == 'shield' %}<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/>{% elif name == 'out' %}<path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 14v6H4V6h6"/>{% elif name == 'done' %}<circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/>{% endif %}</svg>{%- endmacro %}
+{% macro icon(name) -%}<svg viewBox="0 0 24 24" aria-hidden="true">{% if name == 'check' %}<path d="m5 12 5 5 9-10"/>{% elif name == 'x' %}<path d="M6 6l12 12"/><path d="M18 6 6 18"/>{% elif name == 'shield' %}<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/>{% elif name == 'out' %}<path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 14v6H4V6h6"/>{% elif name == 'pin' %}<path d="M9 4h6l-1 6 3 3H7l3-3z"/><path d="M12 13v8"/>{% elif name == 'trash' %}<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/>{% elif name == 'done' %}<circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/>{% endif %}</svg>{%- endmacro %}
 {#- Lo oficial se presenta como Capital Humano, pero la moderación ve SIEMPRE la autoría real (auditoría). -#}
 {% macro who(p) %}{% set real = names.get(p.author, p.author_name or p.author or 'Colaborador/a') %}{% if p.official %}Capital Humano<div class="field-hint">por {{ real }}</div>{% else %}{{ real }}{% endif %}{% endmacro %}
 
@@ -45,9 +28,9 @@
           <td class="left">{{ svc.fmt_local(p.updated_at or p.created_at) }}</td><td class="left">{{ who(p) }}</td><td class="left">{{ categories[p.category].name }}</td>
           <td class="left"><strong>{{ p.title or '(sin título)' }}</strong><div class="field-hint">{{ social.editable_text(p.body, names)[:140] }}</div>{% if p.edited_at %}<div class="field-hint">Editada después de enviarse: vuelve a revisión.</div>{% endif %}</td>
           <td class="center"><div class="dw-row-actions">
-            <form method="post" action="/cartelera/comunidad/moderacion/publicaciones/{{ p.id }}/aprobar" class="dw-row-actions__form" data-dw-confirm-form data-dw-confirm-title="Aprobar publicación" data-dw-confirm-message="¿Aprobar y publicar «{{ p.title or 'esta publicación' }}» en Comunidad?" data-dw-confirm-ok="Aprobar">
+            <form method="post" action="/cchh/cartelera/comunidad/publicaciones/{{ p.id }}/aprobar" class="dw-row-actions__form" data-dw-confirm-form data-dw-confirm-title="Aprobar publicación" data-dw-confirm-message="¿Aprobar y publicar «{{ p.title or 'esta publicación' }}» en Comunidad?" data-dw-confirm-ok="Aprobar">
               <button type="submit" class="table-action-btn chart-tooltip-anchor" aria-label="Aprobar">{{ icon('check') }}<span class="chart-tooltip" aria-hidden="true"><p>Aprobar</p></span></button></form>
-            <button type="button" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" data-mod-reject="{{ p.id }}" data-mod-title="{{ p.title or 'esta publicación' }}" aria-label="Rechazar">{{ icon('x') }}<span class="chart-tooltip" aria-hidden="true"><p>Rechazar</p></span></button>
+            <button type="button" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" data-mod-reason="/cchh/cartelera/comunidad/publicaciones/{{ p.id }}/rechazar" data-mod-heading="Rechazar publicación" data-mod-ok="Rechazar" data-mod-msg="«{{ p.title or 'Esta publicación' }}» no se publica. La autoría recibe un aviso con el motivo." aria-label="Rechazar">{{ icon('x') }}<span class="chart-tooltip" aria-hidden="true"><p>Rechazar</p></span></button>
           </div></td></tr>{% endfor %}</tbody></table></div>
       {% else %}<div class="dashboard-empty"><span class="dashboard-empty__label">Sin pendientes</span><p>No hay publicaciones esperando aprobación.</p></div>{% endif %}
     </div>
@@ -66,12 +49,51 @@
           <td class="left">{{ names.get(r.reporter, r.reporter_name) }}</td>
           <td class="center"><div class="dw-row-actions">
             {% if r.content.exists and r.content.url %}<a href="{{ r.content.url }}" target="_blank" rel="noopener" class="table-action-btn chart-tooltip-anchor" aria-label="Ver en la Cartelera">{{ icon('out') }}<span class="chart-tooltip" aria-hidden="true"><p>Ver en la Cartelera</p></span></a>{% endif %}
-            {% if r.content.exists and not r.content.removed %}<form method="post" action="/cartelera/comunidad/moderacion/reportes/{{ r.id }}/retirar" class="dw-row-actions__form" data-dw-confirm-form data-dw-confirm-title="Retirar contenido" data-dw-confirm-message="¿Retirar el contenido reportado? Deja de verse para los colaboradores y el reporte queda resuelto." data-dw-confirm-ok="Retirar">
+            {% if r.content.exists and not r.content.removed %}<form method="post" action="/cchh/cartelera/comunidad/reportes/{{ r.id }}/retirar" class="dw-row-actions__form" data-dw-confirm-form data-dw-confirm-title="Retirar contenido" data-dw-confirm-message="¿Retirar el contenido reportado? Deja de verse para los colaboradores y el reporte queda resuelto." data-dw-confirm-ok="Retirar">
               <button type="submit" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" aria-label="Retirar contenido">{{ icon('shield') }}<span class="chart-tooltip" aria-hidden="true"><p>Retirar contenido</p></span></button></form>{% endif %}
-            <form method="post" action="/cartelera/comunidad/moderacion/reportes/{{ r.id }}/resolver" class="dw-row-actions__form">
+            <form method="post" action="/cchh/cartelera/comunidad/reportes/{{ r.id }}/resolver" class="dw-row-actions__form">
               <button type="submit" class="table-action-btn chart-tooltip-anchor" aria-label="Marcar resuelto">{{ icon('done') }}<span class="chart-tooltip" aria-hidden="true"><p>Marcar resuelto sin retirar</p></span></button></form>
           </div></td></tr>{% endfor %}</tbody></table></div>
       {% else %}<div class="dashboard-empty"><span class="dashboard-empty__label">Sin reportes</span><p>No hay reportes abiertos.</p></div>{% endif %}
+    </div>
+  </details>
+
+  <details class="dashboard-section" data-section-id="publicadas" open>
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Publicadas</span>
+      <span class="dashboard-section__count">{{ published | length }}</span></summary>
+    <div class="dashboard-section__body">
+      {% if published %}<div class="matrix-scroll"><table class="dashboard-table ct-mod-table">
+        <thead><tr><th class="left">Fecha</th><th class="left">Autor</th><th class="left">Categoría</th><th class="left">Publicación</th><th class="center">Acciones</th></tr></thead>
+        <tbody>{% for p in published %}{% set own = p.author == me %}<tr>
+          <td class="left">{{ svc.fmt_local(p.publish_at or p.created_at) }}</td><td class="left">{{ who(p) }}</td><td class="left">{{ categories[p.category].name }}</td>
+          <td class="left"><strong>{{ p.title or '(sin título)' }}</strong>{% if p.pinned %} <span class="dashboard-status-badge solicitudes-status-badge solicitudes-status-badge--amber">Fijada</span>{% endif %}<div class="field-hint">{{ social.editable_text(p.body, names)[:140] }}</div></td>
+          <td class="center"><div class="dw-row-actions">
+            <a href="/cartelera/comunidad#post-{{ p.id }}" target="_blank" rel="noopener" class="table-action-btn chart-tooltip-anchor" aria-label="Ver en Comunidad">{{ icon('out') }}<span class="chart-tooltip" aria-hidden="true"><p>Ver en Comunidad</p></span></a>
+            {% if p.official %}<form method="post" action="/cchh/cartelera/comunidad/publicaciones/{{ p.id }}/fijar" class="dw-row-actions__form">
+              <button type="submit" class="table-action-btn chart-tooltip-anchor" aria-label="{{ 'Desfijar' if p.pinned else 'Fijar arriba' }}">{{ icon('pin') }}<span class="chart-tooltip" aria-hidden="true"><p>{{ 'Desfijar' if p.pinned else 'Fijar arriba en Comunidad' }}</p></span></button></form>{% endif %}
+            {% if not own %}<button type="button" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" data-mod-reason="/cchh/cartelera/comunidad/publicaciones/{{ p.id }}/retirar" data-mod-heading="Retirar publicación" data-mod-ok="Retirar" data-mod-msg="«{{ p.title or 'Esta publicación' }}» deja de verse en Comunidad. La autoría recibe un aviso con el motivo." aria-label="Retirar por moderación">{{ icon('shield') }}<span class="chart-tooltip" aria-hidden="true"><p>Retirar por moderación</p></span></button>{% endif %}
+            <form method="post" action="/cchh/cartelera/comunidad/publicaciones/{{ p.id }}/eliminar" class="dw-row-actions__form" data-dw-confirm-form data-dw-confirm-title="Eliminar publicación" data-dw-confirm-message="¿Eliminar «{{ p.title or 'esta publicación' }}»? Se eliminan también sus comentarios y reacciones{{ '' if own else ', queda en el registro de moderación' }} y no se puede deshacer." data-dw-confirm-ok="Eliminar">
+              <button type="submit" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" aria-label="Eliminar">{{ icon('trash') }}<span class="chart-tooltip" aria-hidden="true"><p>Eliminar</p></span></button></form>
+          </div></td></tr>{% endfor %}</tbody></table></div>
+      {% else %}<div class="dashboard-empty"><span class="dashboard-empty__label">Sin publicaciones</span><p>Todavía no hay publicaciones vigentes en Comunidad.</p></div>{% endif %}
+    </div>
+  </details>
+
+  <details class="dashboard-section" data-section-id="comentarios">
+    <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Comentarios recientes · 30 días</span>
+      <span class="dashboard-section__count">{{ recent_comments | length }}</span></summary>
+    <div class="dashboard-section__body">
+      {% if recent_comments %}<div class="matrix-scroll"><table class="dashboard-table ct-mod-table">
+        <thead><tr><th class="left">Fecha</th><th class="left">Autor</th><th class="left">En</th><th class="left">Comentario</th><th class="center">Acciones</th></tr></thead>
+        <tbody>{% for c in recent_comments %}<tr>
+          <td class="left">{{ svc.fmt_local(c.created_at) }}</td><td class="left">{{ names.get(c.author, c.author_name or 'Colaborador/a') }}</td>
+          <td class="left">{{ c.where[0] }}<div class="field-hint">{{ c.where[1] }}</div></td>
+          <td class="left">{{ social.editable_text(c.body, names)[:160] }}</td>
+          <td class="center"><div class="dw-row-actions">
+            {% if c.where[2] %}<a href="{{ c.where[2] }}" target="_blank" rel="noopener" class="table-action-btn chart-tooltip-anchor" aria-label="Ver en la Cartelera">{{ icon('out') }}<span class="chart-tooltip" aria-hidden="true"><p>Ver en la Cartelera</p></span></a>{% endif %}
+            {% if c.author != me %}<button type="button" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" data-mod-reason="/cchh/cartelera/comunidad/comentarios/{{ c.id }}/retirar" data-mod-heading="Retirar comentario" data-mod-ok="Retirar" data-mod-msg="El comentario deja de verse. La autoría recibe un aviso con el motivo." aria-label="Retirar comentario">{{ icon('shield') }}<span class="chart-tooltip" aria-hidden="true"><p>Retirar comentario</p></span></button>{% endif %}
+          </div></td></tr>{% endfor %}</tbody></table></div>
+      {% else %}<p class="field-hint">No hay comentarios en los últimos 30 días.</p>{% endif %}
     </div>
   </details>
 
@@ -108,27 +130,29 @@
     </div>
   </details>
 </div>
-  </main>
-</div>
-{# Rechazo con motivo: MISMO diálogo `dw-confirm` del Hub; el motivo le llega a la autoría por las notificaciones de Comunidad. #}
-<dialog class="dw-confirm" id="mod-reject" aria-labelledby="mod-reject-title">
+
+{#- Motivo de un rechazo o retiro: MISMO diálogo `dw-confirm` del Hub para publicaciones y comentarios; el motivo le llega a la autoría por las
+    notificaciones de Comunidad. -#}
+<dialog class="dw-confirm" id="mod-reason" aria-labelledby="mod-reason-title">
   <form method="post" action="" class="tree-feedback-form">
     <div class="dw-confirm__body">
-      <h2 class="dw-confirm__title" id="mod-reject-title">Rechazar publicación</h2>
+      <h2 class="dw-confirm__title" id="mod-reason-title"></h2>
       <p class="dw-confirm__msg" data-mod-msg></p>
       <div class="feedback-field"><label for="mod-motivo">Motivo</label><select id="mod-motivo" name="motivo">{% for r in reasons %}<option>{{ r }}</option>{% endfor %}</select></div>
       <div class="feedback-field"><label for="mod-nota">Detalle (opcional)</label><textarea id="mod-nota" name="nota" rows="2" maxlength="200"></textarea></div>
     </div>
-    <div class="dw-confirm__actions"><button type="button" class="btn-secondary" data-mod-cancel>Cancelar</button><button type="submit" class="btn-danger">Rechazar</button></div>
+    <div class="dw-confirm__actions"><button type="button" class="btn-secondary" data-mod-cancel>Cancelar</button><button type="submit" class="btn-danger" data-mod-ok></button></div>
   </form>
 </dialog>
 <script>
 (() => {
-  const dlg = document.getElementById("mod-reject"), form = dlg.querySelector("form");
+  const dlg = document.getElementById("mod-reason"), form = dlg.querySelector("form");
   document.addEventListener("click", e => {
-    const b = e.target.closest("[data-mod-reject]"); if (!b) return;
-    form.reset(); form.action = `/cartelera/comunidad/moderacion/publicaciones/${b.dataset.modReject}/rechazar`;
-    dlg.querySelector("[data-mod-msg]").textContent = `«${b.dataset.modTitle}» no se publica. La autoría recibe un aviso con el motivo.`;
+    const b = e.target.closest("[data-mod-reason]"); if (!b) return;
+    form.reset(); form.action = b.dataset.modReason;
+    dlg.querySelector(".dw-confirm__title").textContent = b.dataset.modHeading;
+    dlg.querySelector("[data-mod-msg]").textContent = b.dataset.modMsg;
+    dlg.querySelector("[data-mod-ok]").textContent = b.dataset.modOk;
     dlg.showModal();
   });
   dlg.querySelector("[data-mod-cancel]").addEventListener("click", () => dlg.close());
