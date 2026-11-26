@@ -74,6 +74,10 @@
     // chips de navegación: mismo orden que las secciones; las ocultas, atenuadas
     const nav = $("[data-ct-nav]");
     if (nav) secs.forEach(sec => { const chip = $('[data-ct-chip="' + sec.dataset.ctSec + '"]', nav); if (chip) { nav.appendChild(chip); chip.classList.toggle("ct-is-hidden", sec.classList.contains("ct-is-hidden")); } });
+    renderFeatured();
+    const title = text($('.cart-banner [data-ct-f="title"]')), sub = text($('.cart-banner [data-ct-f="subtitle"]'));
+    $$('[data-ct-echo="title"]').forEach(el => { el.textContent = title || "Novedades, bienestar, aprendizaje, cumpleaños y accesos directos."; });
+    $$("[data-ct-sep]").forEach(el => { el.hidden = !sub; });
     $$("[data-ct-chips]").forEach(row => {
       const src = $('[data-ct-f="tech"]', row.parentElement);
       const techs = text(src).split(",").map(t => t.trim()).filter(Boolean);
@@ -83,9 +87,58 @@
   }
   function changed() { refresh(); listeners.forEach(fn => { try { fn(); } catch (e) {} }); }
 
+  // ── Inicio se DERIVA de Novedades (una sola fuente de verdad): la portada del Inicio es un espejo editable de la de Novedades y
+  //    «Destacado» se recalcula con los primeros contenidos, igual que en el portal. Nada de Inicio se serializa por separado. ──
+  function syncMirror(fieldName, from) {
+    const value = from.innerText;
+    [...$$('.cart-banner [data-ct-f="' + fieldName + '"]'), ...$$('[data-ct-mirror="' + fieldName + '"]')].forEach(el => {
+      if (el !== from && el.innerText !== value) el.textContent = value;
+    });
+  }
+  function renderFeatured() {
+    const box = $("[data-ct-featured]");
+    if (!box) return;
+    const rows = [];
+    sections().forEach(sec => {
+      const kind = sec.dataset.ctKind;
+      if (kind !== "general" && kind !== "projects") return;
+      $$("[data-ct-item]", sec).forEach(it => {
+        if (rows.length >= FEATURED || !filled(it, kind)) return;
+        const label = kind === "projects" ? text($('[data-ct-ro="project_name"]', it)) : (field(it, "title") || field(it, "body").slice(0, 80));
+        const client = kind === "projects" ? text($('[data-ct-ro="client_name"]', it)).replace(/^—$/, "") : "";
+        rows.push({ id: it.dataset.id, sec: text($("h2", sec)), label, client });
+      });
+    });
+    box.replaceChildren(...(rows.length ? rows.map(r => {
+      const div = document.createElement("div"); div.className = "mini-post";
+      const head = document.createElement("div"); head.className = "row"; head.style.gap = "6px";
+      const tag = document.createElement("span"); tag.className = "tag cat"; tag.textContent = r.sec; head.appendChild(tag);
+      const a = document.createElement("a"); a.href = "#"; a.dataset.ctGoto = r.id; a.textContent = r.label; a.title = "Editar en Novedades";
+      div.append(head, a);
+      if (r.client) { const c = document.createElement("span"); c.className = "muted"; c.style.fontSize = "12px"; c.textContent = r.client; div.appendChild(c); }
+      return div;
+    }) : [Object.assign(document.createElement("div"), { className: "empty", textContent: "Todavía no hay novedades publicadas." })]));
+  }
+  let current = "inicio";
+  function showPage(pg, target) {
+    if (!$('[data-ct-page="' + pg + '"]')) return;
+    current = pg;
+    $$("[data-ct-page]").forEach(el => { el.hidden = el.dataset.ctPage !== pg; });
+    $$("[data-ct-pages] a").forEach(a => { if (pageOf(a.getAttribute("href")) === pg) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current"); });
+    const H = host(); if (H && H.pageChanged) H.pageChanged(pg);
+    if (target) target.scrollIntoView({ block: "center" }); else window.scrollTo(0, 0);
+  }
+  function pageOf(href) {
+    const path = (href || "").split("#")[0];
+    if (/^\/cartelera\/novedades/.test(path)) return "novedades";
+    if (/^\/cartelera\/nosotros/.test(path)) return "nosotros";
+    if (/^\/cartelera\/?$/.test(path)) return "inicio";
+    return null;
+  }
+
   // ── textos: texto plano, Enter solo donde corresponde, sin navegación ───────────────────────────────────────────────────────────
   function wireText(root) {
-    $$("[data-ct-f]", root).forEach(el => {
+    $$("[data-ct-f], [data-ct-mirror]", root).forEach(el => {
       if (el.dataset.ctWired) return;
       el.dataset.ctWired = "1";
       el.addEventListener("keydown", ev => {
@@ -98,7 +151,12 @@
         if (!el.hasAttribute("data-multi")) t = t.replace(/\s*\n\s*/g, " ");
         document.execCommand("insertText", false, t);
       });
-      el.addEventListener("input", () => { if (!el.textContent.trim() && el.innerHTML !== "") el.innerHTML = ""; changed(); });
+      el.addEventListener("input", () => {
+        if (!el.textContent.trim() && el.innerHTML !== "") el.innerHTML = "";
+        const f = el.dataset.ctMirror || (el.closest(".cart-banner") ? el.dataset.ctF : "");
+        if (f === "title" || f === "subtitle") syncMirror(f, el);
+        changed();
+      });
     });
     $$("[data-ct-link]", root).forEach(inp => {
       if (inp.dataset.ctWired) return;
@@ -228,14 +286,25 @@
     document.addEventListener("click", ev => {
       const btn = ev.target.closest && ev.target.closest("[data-ct-act]");
       if (btn) { ev.preventDefault(); if (!btn.disabled) act(btn); return; }
-      const a = ev.target.closest && ev.target.closest("a[href]");
-      if (a) {                                                                        // el lienzo no navega: los chips llevan a su sección
+      const go = ev.target.closest && ev.target.closest("[data-ct-goto]");
+      if (go) {                                                                       // Destacado → el contenido, en Novedades
         ev.preventDefault();
-        const href = a.getAttribute("href");
-        if (href.startsWith("#")) { const t = document.getElementById(href.slice(1)); if (t) t.scrollIntoView({ behavior: "smooth", block: "start" }); }
+        const it = $('[data-ct-item][data-id="' + go.dataset.ctGoto + '"]');
+        showPage("novedades", it);
+        if (it) { const f = $("[data-ct-f]", it); if (f) focusEnd(f); }
+        return;
+      }
+      const a = ev.target.closest && ev.target.closest("a[href]");
+      if (a) {                                                                        // el lienzo no sale del editor: recorre sus páginas
+        ev.preventDefault();
+        const href = a.getAttribute("href") || "", hash = href.includes("#") ? href.slice(href.indexOf("#") + 1) : "";
+        const pg = href.startsWith("#") ? null : pageOf(href);
+        if (pg) showPage(pg, hash ? document.getElementById(hash) : null);
+        else if (hash) { const t = document.getElementById(hash); if (t) t.scrollIntoView({ behavior: "smooth", block: "start" }); }
       }
     });
     $$("select").forEach(s => { s.disabled = true; });
+    const vis = $("[data-ct-page]:not([hidden])"); if (vis) current = vis.dataset.ctPage;
     refresh();
     window.ctCanvas = {
       serialize, refresh,
@@ -247,6 +316,7 @@
         $(".ct-linkpanel", it).hidden = false; it.scrollIntoView({ block: "center" }); $("[data-ct-link]", it).focus();
       },
       pruneEmpty() { sections().forEach(sec => $$("[data-ct-item]", sec).forEach(it => { if (sec.dataset.ctKind !== "projects" && !filled(it, sec.dataset.ctKind)) it.remove(); })); refresh(); },
+      page: () => current, showPage,
       scrollTo(key) { const s = document.getElementById("sec-" + key); if (s) s.scrollIntoView({ block: "start" }); },
     };
     const H = host();

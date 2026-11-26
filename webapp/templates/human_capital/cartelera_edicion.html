@@ -140,7 +140,7 @@ function carteleraEditor(boot) {
   };
   return {
     revision: boot.revision, month: boot.month, saved: null, dirty: false, saving: false, msg: "", err: "", loading: "Preparando la cartelera…",
-    mode: "edit", device: "desktop", side: window.innerWidth >= 1280, recovery: null, canvas: null, phase: "load", t: null,
+    mode: "edit", page: "inicio", device: "desktop", side: window.innerWidth >= 1280, recovery: null, canvas: null, phase: "load", t: null,
     projects: null, projLoading: false, projErr: "", projQuery: "", picker: null,
 
     boot() {
@@ -150,11 +150,12 @@ function carteleraEditor(boot) {
         confirm(opts) { return self.ask(opts); },
         pickProject(opts) { return self.openPicker(opts); },
         save() { return self.save(); },
+        pageChanged(pg) { self.page = pg; },
       };
       this.$watch("mode", m => { if (m === "edit") this.err = ""; });
     },
     attach(c) {
-      this.canvas = c; this.loading = "";
+      this.canvas = c; this.loading = ""; if (c.page) this.page = c.page();
       c.onChange(() => this.changed());
       const now = JSON.stringify(c.serialize());
       if (this.phase === "load" || this.phase === "discard") {
@@ -178,7 +179,7 @@ function carteleraEditor(boot) {
       this.t = setTimeout(() => { if (this.dirty) store.set({ revision: this.revision, at: Date.now(), payload: this.payload() }); else if (!this.recovery) store.clear(); }, 400);
     },
     async renderInto(frame, payload, edit) {
-      const r = await fetch(`/cchh/cartelera/ediciones/${this.month}/vista-previa${edit ? "?edit=1" : ""}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const r = await fetch(`/cchh/cartelera/ediciones/${this.month}/vista-previa?pagina=${this.page}${edit ? "&edit=1" : ""}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || "No se pudo preparar la cartelera."); }
       frame.srcdoc = await r.text();
     },
@@ -189,7 +190,7 @@ function carteleraEditor(boot) {
     dropRecovery() { this.recovery = null; store.clear(); },
     reloadCanvas() {
       const f = this.$refs.edit; this.loading = "Preparando la cartelera…"; this.phase = "discard";
-      f.removeAttribute("srcdoc"); f.src = `/cchh/cartelera/ediciones/${this.month}/lienzo?t=${Date.now()}`;
+      f.removeAttribute("srcdoc"); f.src = `/cchh/cartelera/ediciones/${this.month}/lienzo?pagina=${this.page}&t=${Date.now()}`;
     },
     async discard() {
       if (!(await this.ask({ title: "Descartar cambios", message: "Se pierden los cambios que todavía no guardaste en esta edición.", confirmLabel: "Descartar" }))) return;

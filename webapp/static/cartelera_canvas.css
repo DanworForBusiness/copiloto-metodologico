@@ -60,3 +60,9 @@ button.ct-kind:hover { filter: brightness(.95); outline: 1px dashed var(--gold);
 .ct-feat[hidden] { display: none; }
 [data-ct-linkcard][hidden], [data-ct-chips][hidden], .ct-item-tools[hidden] { display: none !important; }
 .cat-head .arr-tools .btn { white-space: nowrap; } .cat-head { flex-wrap: wrap; row-gap: 6px; }
+/* Inicio: la portada es un espejo editable de la de Novedades (mismo dato) */
+.hero-main .ct-edit { outline-color: rgba(245,245,243,.28); position: relative; z-index: 1; }
+.hero-main .ct-edit:empty::before { color: rgba(245,245,243,.55); }
+.ct-editing [data-ct-goto] { cursor: pointer; }
+.ct-editing [data-ct-goto]:hover { text-decoration: underline; text-decoration-color: var(--gold); }
+.ct-editing [data-ct-page] > .ct-note:first-child, .ct-editing [data-ct-page] > .stack > .ct-note:first-child { margin-bottom: 4px; }

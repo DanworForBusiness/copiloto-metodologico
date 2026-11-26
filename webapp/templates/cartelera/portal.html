@@ -21,7 +21,7 @@
 <html lang="es" data-theme="{{ 'dark' if request.cookies.get('dw-content-theme') == 'dark' else 'light' }}">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>{% if page == 'novedades' and edition %}{{ svc.month_label(edition.id) }} · {% elif page == 'nosotros' %}Nosotros · {% endif %}Novedades Danwor</title>
+<title>Cartelera Virtual · {{ {'inicio': 'Inicio', 'novedades': 'Novedades', 'nosotros': 'Nosotros', 'comunidad': 'Comunidad'}.get(page, 'Inicio') }} | Danwor</title>
 <link rel="icon" href="{{ url_for('static', path='favicon.ico') }}">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap">
@@ -32,7 +32,7 @@
 <header class="top">
   <div class="wrap">
     <a class="brand" href="/cartelera" aria-label="Danwor, inicio"><img src="{{ url_for('static', path='cartelera/logo-danwor.png') }}" alt="Danwor" class="brand-logo"></a>
-    <nav class="main" aria-label="Secciones">
+    <nav class="main" aria-label="Secciones"{% if edit_mode %} data-ct-pages{% endif %}>
       <a href="/cartelera"{% if page == 'inicio' %} aria-current="page"{% endif %}>{{ ic('home') }}Inicio</a>
       <a href="/cartelera/novedades"{% if page == 'novedades' %} aria-current="page"{% endif %}>{{ ic('board') }}Novedades</a>
       <a href="/cartelera/nosotros"{% if page == 'nosotros' %} aria-current="page"{% endif %}>{{ ic('star') }}Nosotros</a>
@@ -57,13 +57,19 @@
   {% for l in items %}<a class="lnk" href="{{ l.url }}" target="_blank" rel="noopener"><span class="ic">{{ ic('link') }}</span><span style="min-width:0">{{ l.title }}<small>{{ l.group }}</small></span></a>{% endfor %}
 {%- endmacro %}
 
-{% if page == 'inicio' %}
+{#- En el lienzo del editor (`edit_mode`) se dibujan TODAS las páginas del portal y se alterna entre ellas sin recargar: así se recorre la
+    cartelera completa conservando los cambios pendientes. Sin `edit_mode`, solo la página pedida (como siempre). -#}
+{% set pages = ['inicio', 'novedades', 'nosotros'] if edit_mode else [page] %}
+{% macro page_open(pg) %}{% if edit_mode %}<div data-ct-page="{{ pg }}"{% if pg != page %} hidden{% endif %}>{% endif %}{% endmacro %}
+{% macro page_close() %}{% if edit_mode %}</div>{% endif %}{% endmacro %}
+{% if 'inicio' in pages %}{{ page_open('inicio') }}
 <div class="stack">
+  {% if edit_mode %}<p class="ct-ed ct-note" contenteditable="false">{{ ic('home') }}Inicio se arma con la portada y los primeros contenidos de Novedades: lo que edites acá se guarda en la edición, una sola vez. Cumpleaños y accesos rápidos se administran en sus pestañas.</p>{% endif %}
   <section class="hero">
     <div class="hero-main">
       <span class="eyebrow" style="color:var(--gold)">{{ svc.month_label(edition.id) if edition else svc.month_label(today_month) }}</span>
       <h1>{% if first_name %}Hola, {{ first_name }}. {% endif %}Esto es lo que está pasando en Danwor.</h1>
-      <p>{% if edition %}{{ edition.title }}{% if edition.subtitle %} — {{ edition.subtitle }}{% endif %}{% else %}Consultá las novedades del mes, encontrá información útil y celebrá con tus compañeros.{% endif %}</p>
+      <p>{% if edition and edit_mode %}<span class="ct-edit" contenteditable="plaintext-only" spellcheck="true" data-ct-mirror="title" data-ph="Título de portada">{{ edition.title }}</span><span data-ct-sep{% if not edition.subtitle %} hidden{% endif %}> — </span><span class="ct-edit" contenteditable="plaintext-only" spellcheck="true" data-ct-mirror="subtitle" data-ph="Bajada (opcional)">{{ edition.subtitle }}</span>{% elif edition %}{{ edition.title }}{% if edition.subtitle %} — {{ edition.subtitle }}{% endif %}{% else %}Consultá las novedades del mes, encontrá información útil y celebrá con tus compañeros.{% endif %}</p>
       <div class="row" style="position:relative;z-index:1">
         <a class="btn primary" href="/cartelera/novedades">{{ ic('board') }}Ver las novedades</a>
       </div>
@@ -80,7 +86,7 @@
   </section>
 
   <section class="spaces">
-    <a class="space" href="/cartelera/novedades"><span class="ic">{{ ic('board', 'lg') }}</span><h2>Novedades de {{ (svc.month_label(edition.id) if edition else svc.month_label(today_month)).split(' ')[0] | lower }}</h2><span class="muted">{{ edition.title if edition and edition.title else 'Novedades, bienestar, aprendizaje, cumpleaños y accesos directos.' }}</span></a>
+    <a class="space" href="/cartelera/novedades"><span class="ic">{{ ic('board', 'lg') }}</span><h2>Novedades de {{ (svc.month_label(edition.id) if edition else svc.month_label(today_month)).split(' ')[0] | lower }}</h2><span class="muted"{% if edit_mode %} data-ct-echo="title"{% endif %}>{{ edition.title if edition and edition.title else 'Novedades, bienestar, aprendizaje, cumpleaños y accesos directos.' }}</span></a>
     <div class="space soon"><span class="ic">{{ ic('wall', 'lg') }}</span><h2>Comunidad Danwor</h2><span class="muted">Próximamente: celebraciones, reconocimientos, proyectos e ideas.</span></div>
     <a class="space" href="/cartelera/nosotros"><span class="ic">{{ ic('star', 'lg') }}</span><h2>Nosotros</h2><span class="muted">Nuestra misión, visión y valores.</span></a>
   </section>
@@ -88,13 +94,13 @@
   <section class="home-grid">
     <div class="card pad">
       <div class="row" style="justify-content:space-between;margin-bottom:6px"><h2>Destacado</h2>{% if edition %}<a href="/cartelera/novedades/{{ edition.id }}" class="muted" style="font-size:12px">Ir a Novedades</a>{% endif %}</div>
-      {% set ns = namespace(n=0) %}
+      {% if edit_mode %}<div data-ct-featured>{% endif %}{% set ns = namespace(n=0) %}
       {% if edition %}{% for sec in edition.sections if svc.SECTION_BY_KEY[sec.key].kind in ('general', 'projects') %}{% for it in sec['items'] %}{% if ns.n < 6 %}{% set ns.n = ns.n + 1 %}
         <div class="mini-post"><div class="row" style="gap:6px"><span class="tag cat">{{ svc.SECTION_BY_KEY[sec.key].title }}</span></div>
           <a href="/cartelera/novedades/{{ edition.id }}#sec-{{ sec.key }}">{{ it.title or it.project_name or it.body[:80] }}</a>
           {% if it.client_name %}<span class="muted" style="font-size:12px">{{ it.client_name }}</span>{% endif %}</div>
       {% endif %}{% endfor %}{% endfor %}{% endif %}
-      {% if ns.n == 0 %}<div class="empty">Todavía no hay novedades publicadas.</div>{% endif %}
+      {% if ns.n == 0 %}<div class="empty">Todavía no hay novedades publicadas.</div>{% endif %}{% if edit_mode %}</div>{% endif %}
     </div>
     <div class="stack">
       <div class="card pad stack" style="gap:10px"><span class="eyebrow">Accesos rápidos</span>{% if links %}<div class="links">{{ links_html(links[:4]) }}</div>{% else %}<p class="muted" style="margin:0">Sin accesos cargados.</p>{% endif %}</div>
@@ -102,7 +108,8 @@
   </section>
 </div>
 
-{% elif page == 'novedades' %}
+{{ page_close() }}{% endif %}
+{% if 'novedades' in pages %}{{ page_open('novedades') }}
 {#- NOVEDADES: UNA sola representación para consumo y edición. Con `edit_mode` (solo el lienzo del editor de Capital Humano) la MISMA estructura
     suma la capa de edición: textos `contenteditable` (`data-ct-f`), herramientas `contenteditable=false` (`.ct-ed`), secciones vacías visibles y
     las plantillas de contenidos nuevos. Las herramientas reutilizan los controles de la app original (`.btn sm`, `.icon-btn`, `.arr-tools`,
@@ -219,8 +226,10 @@
   {% endif %}
 </div>
 
-{% elif page == 'nosotros' %}
+{{ page_close() }}{% endif %}
+{% if 'nosotros' in pages %}{{ page_open('nosotros') }}
 <div class="stack">
+  {% if edit_mode %}<p class="ct-ed ct-note" contenteditable="false">{{ ic('star') }}Nosotros no forma parte de la edición del mes: misión, visión, valores y galería se administran en la pestaña «Nosotros y galería».</p>{% endif %}
   <section class="hero-main mv-hero">
     <span class="eyebrow" style="color:var(--gold)">Nosotros</span>
     <h1>Misión, visión y valores</h1>
@@ -242,7 +251,7 @@
   </section>{% endif %}
   {% if not (inst.mission or inst.vision or inst['values'] or inst.albums) %}<div class="card empty">Capital Humano todavía no cargó este contenido.</div>{% endif %}
 </div>
-{% endif %}
+{{ page_close() }}{% endif %}
 </main>
 </body>
 </html>

@@ -212,18 +212,24 @@ async def edition_live_preview(request: Request, month: str):
         raise HTTPException(404, "La edición no existe") from None
     except (svc.CarteleraValidationError, ValueError, TypeError, AttributeError) as exc:
         return JSONResponse({"error": str(exc) or "Datos inválidos."}, status_code=422, headers=_NO_STORE)
-    return _render_portal(request, "novedades", edition=edition, preview=True, edit_mode=edit,
+    return _render_portal(request, _canvas_page(request, "novedades"), edition=edition, preview=True, edit_mode=edit,
                           preview_note="Vista del colaborador · incluye los cambios sin guardar")
+
+
+def _canvas_page(request: Request, default: str) -> str:
+    page = request.query_params.get("pagina", "")
+    return page if page in ("inicio", "novedades", "nosotros") else default
 
 
 @router.get(f"{BASE}/ediciones/{{month}}/lienzo", response_class=HTMLResponse, include_in_schema=False)
 def edition_canvas(request: Request, month: str):
     """LIENZO de edición: la MISMA plantilla del portal (`cartelera/portal.html`) con `edit_mode`, que agrega la capa de edición (textos
-    `contenteditable`, herramientas de sección y de contenido, arrastre). Solo gestión de Capital Humano; nada de esto llega al portal."""
+    `contenteditable`, herramientas de sección y de contenido, arrastre) y dibuja todas sus páginas para recorrerlas sin recargar.
+    Arranca en Inicio, como el portal. Solo gestión de Capital Humano; nada de esto llega al portal."""
     user, redirect = _admin(request)
     if redirect:
         return redirect
-    return _render_portal(request, "novedades", edition=_edition_or_404(month), preview=True, edit_mode=True, user=user)
+    return _render_portal(request, _canvas_page(request, "inicio"), edition=_edition_or_404(month), preview=True, edit_mode=True, user=user)
 
 
 @router.post(f"{BASE}/proyectos", include_in_schema=False)
