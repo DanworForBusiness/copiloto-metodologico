@@ -98,8 +98,12 @@ label.f span.h{font-weight:400;color:var(--muted);font-size:12px}
 .hero{display:grid;grid-template-columns:1.4fr 1fr;gap:20px}
 .hero-main{background:var(--ink);color:#F5F5F3;border-radius:16px;padding:28px;display:grid;gap:14px;position:relative;overflow:hidden}
 .hero-main::after{content:"";position:absolute;right:-60px;bottom:-60px;width:220px;height:220px;border-radius:50%;border:28px solid var(--gold);opacity:.9}
-.hero-main h1{max-width:20ch;position:relative;z-index:1}
-.hero-main p{color:#CFCFCC;max-width:46ch;margin:0;position:relative;z-index:1}
+/* Mensaje y bajada editables: nunca entran en la franja del anillo dorado (visible 160px a la derecha); en escritorio el tope sigue siendo
+   20ch/46ch, así que la proporción no cambia; con textos largos o tiles angostos el texto baja de línea en lugar de pisar el anillo. */
+.hero-main h1{max-width:min(20ch,calc(100% - 150px));position:relative;z-index:1;overflow-wrap:anywhere}
+.hero-main p{color:#CFCFCC;max-width:min(46ch,calc(100% - 150px));margin:0;position:relative;z-index:1;overflow-wrap:anywhere}
+.space{min-width:0}
+.space .muted{overflow-wrap:anywhere}
 .spaces{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:20px}
 .space{display:grid;gap:8px;padding:22px;border-radius:16px;text-decoration:none;color:var(--text);background:var(--surface);border:1px solid var(--line);transition:transform .15s}
 .space:hover{transform:translateY(-2px);border-color:var(--gold)}
@@ -141,13 +145,22 @@ label.f span.h{font-weight:400;color:var(--muted);font-size:12px}
 .org>li{padding-top:0}
 .org li::before,.org li::after{content:"";position:absolute;top:0;right:50%;width:50%;height:22px;border-top:2px solid #3A3A3A}
 .org li::after{right:auto;left:50%;border-left:2px solid #3A3A3A}
+/* cartelera_org.js acerca una hoja a su vecino con subárbol y recorta acá el tramo del vecino para que el conector termine en la hoja. */
+.org li{--og-before-trim:0px;--og-after-trim:0px}  /* cada li declara el suyo: el recorte del vecino no se hereda a su subárbol */
+.org li::before{width:calc(50% - var(--og-before-trim))}
+.org li::after{width:calc(50% - var(--og-after-trim))}
 .org>li::before,.org>li::after,.org li:only-child::before{display:none}
 .org li:only-child::after{border-top:0}
 .org li:first-child::before,.org li:last-child::after{border:0 none}
 .org li:last-child::before{border-right:2px solid #3A3A3A;border-radius:0 8px 0 0}
 .org li:first-child::after{border-radius:8px 0 0 0}
 .org li:only-child::after{border-radius:0}
-.org ul::before{content:"";position:absolute;top:0;left:50%;height:22px;border-left:2px solid #3A3A3A}
+/* Hijo único: la línea vertical sigue hasta el nodo (la regla de `:last-child::after` le quitaba el tramo inferior y quedaba un hueco). */
+.org li:only-child::after{border:0 none;border-left:2px solid #3A3A3A}
+/* cartelera_org.js: cuando el tronco del padre cae exactamente sobre el primer/último hijo, su conector va recto (sin esquina redondeada). */
+.org li.og-stem-through::before,.org li.og-stem-through::after{border-radius:0}
+.org ul{--og-stem-shift:0px}
+.org ul::before{content:"";position:absolute;top:0;left:calc(50% + var(--og-stem-shift));height:22px;border-left:2px solid #3A3A3A}
 .og-node{border-radius:12px;font-size:12.5px;line-height:1.25;text-align:center;min-width:76px;max-width:108px;padding:7px 9px;color:#1C1C1C}
 .og-area{background:#F2D24F;font-weight:600}
 .og-puesto{background:#C9C9C7;font-weight:500}
@@ -183,7 +196,15 @@ label.f span.h{font-weight:400;color:var(--muted);font-size:12px}
 .cart-banner .txt .eyebrow{color:var(--gold)}
 .cart-banner .txt p{color:#CFCFCC;margin:0;max-width:52ch}
 .cart-banner img{height:100%;max-height:260px;width:auto;max-width:100%;object-fit:cover;display:block}
-.cart-nav{display:flex;gap:8px;flex-wrap:wrap;margin:20px 0}
+/* Chips de secciones de Novedades: una sola línea. Si no entran, primero se acorta el ÚLTIMO con «…» (factor de encogimiento alto, piso de
+   ícono + unas letras); recién después, en pantallas angostas, se acortan los demás. El título completo queda en `title`. */
+.cart-nav{display:flex;gap:8px;flex-wrap:nowrap;margin:20px 0;min-width:0}
+.cart-nav .chip{flex:0 1 auto;min-width:0;overflow:hidden}
+.cart-nav .chip:last-child{flex-shrink:1000;min-width:72px}
+.cart-nav .chip .svg{flex:none}
+.cart-nav .chip-t{min-width:0;overflow:hidden;text-overflow:ellipsis}
+/* Celular: misma línea, pero con desplazamiento horizontal y textos completos (patrón de las categorías de Comunidad), para no quedar en solo íconos. */
+@media (max-width:760px){.cart-nav{overflow-x:auto;padding-bottom:4px;scrollbar-width:none}.cart-nav::-webkit-scrollbar{display:none}.cart-nav .chip,.cart-nav .chip:last-child{flex:none;min-width:auto}}
 .cart-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}
 .cat-sec{display:grid;gap:12px;align-content:start}
 .cat-sec.wide{grid-column:1/-1}
@@ -225,6 +246,30 @@ label.f span.h{font-weight:400;color:var(--muted);font-size:12px}
 .lnk:hover{border-color:var(--gold)}
 .lnk small{display:block;font-weight:500;color:var(--muted);font-size:11px}
 .lnk .ic{width:30px;height:30px;border-radius:8px;background:var(--surface-2);display:grid;place-items:center;flex:none}
+/* Accesos rápidos de Inicio (cartelera_quicklinks.js). Con JS (`.qlinks--fit`) la tarjeta NO aporta altura a la fila: `contain:size` la hace
+   ocupar el alto que fija «Destacado» (con un piso), así la cantidad total de accesos nunca la estira ni genera scroll interno; el script
+   muestra tantos botones como entran y pagina el resto. Sin JS se ven todos, como antes. Botones: mismos `.lnk`, con nombre/grupo en una
+   línea para que todos midan igual. Paginador: markup y estética de `.activity-pager` del Hub (tools.css), con los tokens del portal. */
+.qlinks{display:flex;flex-direction:column;gap:10px;min-width:0}
+.qlinks [hidden]{display:none!important}
+.qlinks--fit{contain:size;min-height:360px;overflow:hidden}
+.qlinks--fit .links{flex:1 1 0;min-height:0;overflow:hidden;align-content:start}
+.qlinks--fit .lnk > span{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.qlinks--fit .lnk small{overflow:hidden;text-overflow:ellipsis}
+.qlinks .qlinks-search{flex:none;min-width:0}
+.qlinks .qlinks-search input{padding-right:36px}
+.qlinks-search input::-webkit-search-cancel-button{-webkit-appearance:none;appearance:none;display:none}
+.qlinks-clear{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:26px;height:26px;display:grid;place-items:center;border:0;border-radius:6px;background:transparent;color:var(--muted);cursor:pointer}
+.qlinks-clear:hover{color:var(--text);background:var(--surface-2)}
+.qlinks-empty{flex:1 1 0;min-height:0;padding:24px 8px}
+.qlinks-pager{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:auto;padding-top:12px;border-top:1px solid var(--line)}
+.qlinks-pager .activity-pager__btn,.qlinks-pager .activity-pager__page{display:inline-flex;align-items:center;justify-content:center;min-width:30px;height:30px;padding:0 8px;border:1px solid rgba(128,128,128,.32);border-radius:6px;background:transparent;color:var(--text);font-family:inherit;font-weight:600;font-size:12px;line-height:1;cursor:pointer;box-sizing:border-box}
+.qlinks-pager .activity-pager__btn:disabled{opacity:.35;cursor:default}
+.qlinks-pager .activity-pager__btn:not(:disabled):hover,.qlinks-pager .activity-pager__page:not(.is-active):hover{border-color:var(--gold);color:var(--gold-ink)}
+.qlinks-pager .activity-pager__page.is-active{border-color:var(--gold);background:var(--gold-soft);color:var(--gold-ink);cursor:default}
+.qlinks-pager .activity-pager__ellipsis{padding:0 2px;color:var(--muted);font-size:12px}
+.qlinks-pager__range{margin-left:auto;color:var(--muted);font-size:12px;font-weight:600;white-space:nowrap}
+@media (max-width:760px){.qlinks--fit{min-height:420px}}
 
 /* Muro */
 .wall>*{min-width:0}
@@ -324,3 +369,9 @@ img{max-width:100%}
 a.chip{text-decoration:none}
 /* Motor de interacción (Hub): los bloques plegados de comentarios y avisos respetan `hidden` sobre los display de la hoja original. */
 .ct-social [hidden]{display:none!important}
+/* Distribución horizontal de Novedades: sección general sin ancho completo con algún contenido «a la derecha del anterior» (`.duo`): ocupa
+   la fila y reparte sus contenidos en dos columnas; los que no forman par usan la fila completa (sin huecos). En celular, todo apilado. */
+.cat-sec.duo{grid-column:1/-1;grid-template-columns:repeat(2,minmax(0,1fr))}
+.cat-sec.duo>*{grid-column:1/-1}
+.cat-sec.duo>.item.pos-left,.cat-sec.duo>.item.pos-right{grid-column:auto}
+@media (max-width:760px){.cat-sec.duo{grid-template-columns:minmax(0,1fr)}.cat-sec.duo>.item.pos-left,.cat-sec.duo>.item.pos-right{grid-column:1/-1}}

@@ -16,6 +16,7 @@ Decisiones ratificadas que gobiernan este módulo (ver `_handoffs/CARTELERA_VIRT
 """
 from __future__ import annotations
 
+import json
 import re
 import uuid
 from datetime import date, datetime, timezone
@@ -40,6 +41,17 @@ SECTION_BY_KEY = {s["key"]: s for s in SECTIONS}
 
 STATE_LABELS = {"draft": "Borrador", "scheduled": "Programada", "published": "Publicada", "withdrawn": "Retirada"}
 GENERAL_FIELDS = ("title", "body", "link", "link_label")
+# Distribución horizontal: un contenido general puede llevar `"beside": True` = «a la derecha del anterior». Es preferencia de composición:
+# solo aplica en secciones SIN ancho completo (ahí la sección pasa a ocupar la fila y sus contenidos van en dos columnas); con ancho completo
+# se ignora pero se conserva. Efectiva solo si hay un anterior que no esté ya a la derecha (`beside_layout`).
+
+
+def beside_layout(items: list[dict]) -> list[str]:
+    """Posición de cada contenido en la distribución de dos columnas: "full" (fila completa), "left" (izquierda de un par) o "right"."""
+    eff = []
+    for i, it in enumerate(items or []):
+        eff.append(bool(it.get("beside")) and i > 0 and not eff[i - 1])
+    return ["right" if e else ("left" if i + 1 < len(eff) and eff[i + 1] else "full") for i, e in enumerate(eff)]
 PROJECT_FIELDS = ("project_id", "project_name", "client_name", "kind", "service", "tech", "body", "team", "thanks", "link")
 _MONTH = re.compile(r"^(20\d{2})-(0[1-9]|1[0-2])$")
 _URL = re.compile(r"^https://[^\s<>\"]+$")
@@ -194,12 +206,101 @@ def create_edition(month: str, actor: str, *, copy_previous: bool) -> dict:
         if previous:
             source = previous[0]
             sections = [{"key": s["key"], "wide": s.get("wide", False),
-                         "items": [{**{k: it.get(k, "") for k in GENERAL_FIELDS}, "id": uuid.uuid4().hex[:12]}
+                         "items": [{**{k: it.get(k, "") for k in GENERAL_FIELDS}, **({"beside": True} if it.get("beside") else {}),
+                                    "id": uuid.uuid4().hex[:12]}
                                    for it in s.get("items") or []] if SECTION_BY_KEY[s["key"]]["kind"] in ("general", "links") else []}
                         for s in normalize_sections(source.get("sections"))]
     fields = {"month": month, "title": "", "subtitle": "", "state": "draft", "publish_at": None, "published_at": None,
               "sections": sections, "history": _history(None, actor, "Creó la edición" + (f" a partir de {month_label(source['id'])}" if source else ""))}
     return repo.save("editions", month, fields, expected_revision=None)
+
+
+# Textos editoriales de Inicio que NO salen de Novedades (el del tile Novedades es el título de portada): mensaje que acompaña al saludo del
+# tile de bienvenida y bajadas de los tiles Comunidad y Nosotros. Viven en `edition["home"]`; ausentes o vacíos ⇒ estos predeterminados.
+HOME_DEFAULTS = {"welcome": "Esto es lo que está pasando en Danwor.",
+                 "community": "celebraciones, reconocimientos, proyectos e ideas.",
+                 "about": "Nuestra misión, visión y valores."}
+HOME_LIMIT = 160
+
+
+def home_text(edition: dict | None, key: str) -> str:
+    return str(((edition or {}).get("home") or {}).get(key) or "").strip() or HOME_DEFAULTS[key]
+
+
+def _clean_home(home, clip=None) -> dict:
+    clip = clip or (lambda v: _text(v, limit=HOME_LIMIT))
+    return {k: clip(home.get(k)) for k in HOME_DEFAULTS if isinstance(home, dict) and k in home}
+
+
+# Nosotros por edición: HERENCIA del contenido institucional («Nosotros y galería») con personalización opcional. `edition["about"]` guarda
+# SOLO lo personalizado: {"title"?, "intro"?, "mission"?, "vision"?, "values_intro"?, "values"?: {clave: {"title"?, "text"?}}}. Los valores se
+# identifican por su NOMBRE institucional normalizado (no por posición): si el institucional se renombra o se quita, la personalización deja de
+# aplicarse y vuelve a heredarse. Vacío o igual al institucional ⇒ no se guarda (hereda). Organigrama, galería y enlaces: siempre globales.
+ABOUT_TITLE = "Misión, visión y valores"
+ABOUT_FIELDS = ("title", "intro", "mission", "vision", "values_intro")
+ABOUT_LIMITS = {"title": 120, "intro": 1500, "mission": 1500, "vision": 1500, "values_intro": 1500, "value_title": 80, "value_text": 1200}
+
+
+def value_key(title: str) -> str:
+    return re.sub(r"\s+", " ", str(title or "").strip().lower())
+
+
+def _norm(value) -> str:
+    return str(value or "").replace("\r\n", "\n").strip()
+
+
+def _about_base(inst: dict | None = None) -> dict:
+    inst = inst or institutional()
+    return {"title": ABOUT_TITLE, **{k: _norm(inst.get(k)) for k in ABOUT_FIELDS if k != "title"}}
+
+
+def about_view(edition: dict | None) -> dict:
+    """Nosotros tal como lo ve ESTA edición: cada texto es el personalizado (si existe) o el institucional vigente; `custom` marca qué se
+    personalizó y `base` trae el institucional (el lienzo lo usa para marcar y restablecer)."""
+    inst = institutional()
+    base, ov = _about_base(inst), (edition or {}).get("about") or {}
+    fields = {k: (_norm(ov.get(k)) or base[k]) for k in ABOUT_FIELDS}
+    custom = {k for k in ABOUT_FIELDS if _norm(ov.get(k))}
+    vov = ov.get("values") or {}
+    values = []
+    for v in inst.get("values") or []:
+        key = value_key(v.get("title"))
+        o = vov.get(key) or {}
+        t, x = _norm(o.get("title")), _norm(o.get("text"))
+        values.append({"key": key, "title": t or v.get("title", ""), "text": x or v.get("text", ""),
+                       "base_title": _norm(v.get("title")), "base_text": _norm(v.get("text")), "custom_title": bool(t), "custom_text": bool(x)})
+    return {"fields": fields, "base": base, "custom": custom, "values": values}
+
+
+def _clean_about(about, clip=None) -> dict:
+    """Solo personalizaciones válidas: campos conocidos, distintos del institucional vigente y no vacíos; valores que existen hoy."""
+    if not isinstance(about, dict):
+        return {}
+    clip = clip or (lambda v, n: _text(v, limit=n))
+    inst = institutional()
+    base = _about_base(inst)
+    out: dict = {}
+    for k in ABOUT_FIELDS:
+        val = _norm(clip(about.get(k), ABOUT_LIMITS[k])) if k in about else ""
+        if val and val != base[k]:
+            out[k] = val
+    current = {value_key(v.get("title")): v for v in inst.get("values") or []}
+    raw_values = about.get("values") if isinstance(about.get("values"), dict) else {}
+    values = {}
+    for key, o in raw_values.items():
+        v = current.get(value_key(key))
+        if v is None or not isinstance(o, dict):
+            continue
+        entry = {}
+        for f, lim in (("title", "value_title"), ("text", "value_text")):
+            val = _norm(clip(o.get(f), ABOUT_LIMITS[lim])) if f in o else ""
+            if val and val != _norm(v.get(f)):
+                entry[f] = val
+        if entry:
+            values[value_key(key)] = entry
+    if values:
+        out["values"] = values
+    return out
 
 
 def copy_edition(source_month: str, month: str, actor: str) -> dict:
@@ -217,6 +318,8 @@ def copy_edition(source_month: str, month: str, actor: str) -> dict:
                 for s in source["sections"]]
     fields = {"month": month, "title": source.get("title", ""), "subtitle": source.get("subtitle", ""), "state": "draft",
               "publish_at": None, "published_at": None, "sections": sections, "copied_from": source_month,
+              "home": dict(source.get("home") or {}),
+              "about": json.loads(json.dumps(source.get("about") or {})),          # solo personalizaciones: lo demás sigue heredándose
               "history": _history(None, actor, f"Creó la edición como copia de {month_label(source_month)}")}
     return repo.save("editions", month, fields, expected_revision=None)
 
@@ -244,21 +347,25 @@ def _items_from_form(kind: str, rows: list[dict]) -> list[dict]:
                     "link": _url(row.get("link")), "link_label": _text(row.get("link_label"), limit=120)}
             if not (item["title"] or item["body"]):
                 continue                                                  # fila vacía: se descarta, no es un error
+            if row.get("beside") is True:                                 # «a la derecha del anterior» (solo se guarda si está activo)
+                item["beside"] = True
         item["id"] = str(row.get("id") or uuid.uuid4().hex[:12])[:24]
         items.append(item)
     return items
 
 
-def save_content(month: str, revision: int, *, title: str, subtitle: str, sections: list[dict], actor: str) -> dict:
-    """Guarda portada y secciones (orden, ancho e ítems). No cambia el estado de publicación."""
+def save_content(month: str, revision: int, *, title: str, subtitle: str, sections: list[dict], actor: str, home: dict | None = None,
+                 about: dict | None = None) -> dict:
+    """Guarda portada, textos de Inicio (`home`, si vienen) y secciones (orden, ancho e ítems). No cambia el estado de publicación."""
     edition = get_edition(month)
     if edition is None:
         raise repo.CarteleraNotFoundError(month)
-    fields = {**_clean_content(title, subtitle, sections), "history": _history(edition, actor, EDIT_ACTION)}
+    fields = {**_clean_content(title, subtitle, sections, home, edition, about), "history": _history(edition, actor, EDIT_ACTION)}
     return repo.save("editions", month, fields, expected_revision=revision)
 
 
-def _clean_content(title: str, subtitle: str, sections: list[dict]) -> dict:
+def _clean_content(title: str, subtitle: str, sections: list[dict], home: dict | None = None, edition: dict | None = None,
+                   about: dict | None = None) -> dict:
     clean = []
     for sec in sections:
         meta = SECTION_BY_KEY.get(sec.get("key"))
@@ -266,10 +373,16 @@ def _clean_content(title: str, subtitle: str, sections: list[dict]) -> dict:
             continue
         items = [] if meta["kind"] == "birthdays" else _items_from_form(meta["kind"], sec.get("items") or [])
         clean.append({"key": meta["key"], "wide": bool(sec.get("wide")) and meta["kind"] == "general", "items": items})
-    return {"title": _text(title, limit=160), "subtitle": _text(subtitle, limit=300), "sections": normalize_sections(clean)}
+    out = {"title": _text(title, limit=160), "subtitle": _text(subtitle, limit=300), "sections": normalize_sections(clean)}
+    if home is not None:                                                    # sin `home` (p. ej. modo Ordenar) se conserva el guardado
+        out["home"] = {**((edition or {}).get("home") or {}), **_clean_home(home)}
+    if about is not None:                                                   # el lienzo envía TODAS las personalizaciones vigentes de Nosotros
+        out["about"] = _clean_about(about)
+    return out
 
 
-def draft_edition(month: str, *, title: str, subtitle: str, sections: list[dict]) -> dict:
+def draft_edition(month: str, *, title: str, subtitle: str, sections: list[dict], home: dict | None = None,
+                  about: dict | None = None) -> dict:
     """Edición con el borrador del lienzo SIN validar (para volver a dibujarlo en modo edición, p. ej. al recuperar cambios locales): los
     textos se recortan y se escapan al renderizar; los enlaces inválidos se conservan para que el editor los marque. Nunca se persiste."""
     edition = get_edition(month)
@@ -283,19 +396,26 @@ def draft_edition(month: str, *, title: str, subtitle: str, sections: list[dict]
             continue
         fields = PROJECT_FIELDS if meta["kind"] == "projects" else GENERAL_FIELDS
         items = [] if meta["kind"] == "birthdays" else [
-            {**{k: clip(row.get(k)) for k in fields}, "id": clip(row.get("id"), 24) or uuid.uuid4().hex[:12]}
+            {**{k: clip(row.get(k)) for k in fields}, "id": clip(row.get("id"), 24) or uuid.uuid4().hex[:12],
+             **({"beside": True} if meta["kind"] != "projects" and row.get("beside") is True else {})}
             for row in (sec.get("items") or []) if isinstance(row, dict)]
         clean.append({"key": meta["key"], "wide": bool(sec.get("wide")) and meta["kind"] == "general", "items": items})
-    return {**edition, "title": clip(title, 160), "subtitle": clip(subtitle, 300), "sections": normalize_sections(clean)}
+    draft = {**edition, "title": clip(title, 160), "subtitle": clip(subtitle, 300), "sections": normalize_sections(clean)}
+    if home is not None:
+        draft["home"] = {**(edition.get("home") or {}), **_clean_home(home, lambda v: clip(v, HOME_LIMIT))}
+    if about is not None:
+        draft["about"] = _clean_about(about, lambda v, n: clip(v, n))
+    return draft
 
 
-def preview_edition(month: str, *, title: str, subtitle: str, sections: list[dict]) -> dict:
+def preview_edition(month: str, *, title: str, subtitle: str, sections: list[dict], home: dict | None = None,
+                    about: dict | None = None) -> dict:
     """Edición tal como quedaría con el contenido EN PANTALLA del editor (sin guardar): MISMA validación que `save_content`, nada se persiste.
     Conserva estado y fechas de la guardada: la vista previa nunca cambia qué ven los colaboradores."""
     edition = get_edition(month)
     if edition is None:
         raise repo.CarteleraNotFoundError(month)
-    return {**edition, **_clean_content(title, subtitle, sections)}
+    return {**edition, **_clean_content(title, subtitle, sections, home, edition, about)}
 
 
 def publish_now(month: str, revision: int, actor: str) -> dict:

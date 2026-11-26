@@ -85,3 +85,18 @@ button.ct-kind:hover { filter: brightness(.95); outline: 1px dashed var(--gold);
 .hero-main .ct-edit[data-multi] { white-space: pre-wrap; }
 .hero-main .ct-linkpanel { position: relative; z-index: 2; margin-top: 10px; color: var(--text); }
 .hero-main.ct-has-error { box-shadow: 0 0 0 2px var(--crit, #c0392b); }
+
+/* Nosotros por edición: marca discreta de lo personalizado (solo en el lienzo) + restablecer el institucional. */
+.ct-about { display: inline; }
+.ct-custom-tag { display: inline-flex; align-items: center; gap: 2px; margin-left: 8px; padding: 0 2px 0 8px; height: 22px; vertical-align: middle; border-radius: 999px; background: var(--gold-soft); color: var(--gold-ink); font-family: inherit; font-weight: 600; font-size: 11px; line-height: 1; letter-spacing: 0; text-transform: none; white-space: nowrap; }
+.ct-custom-tag[hidden] { display: none; }
+.ct-custom-tag .ct-ed-btn { width: 20px; height: 20px; color: inherit; }
+.ct-custom-tag .ct-ed-btn svg { width: 12px; height: 12px; }
+.ct-about.is-custom > .ct-edit { outline-color: color-mix(in srgb, var(--gold) 70%, transparent); }
+
+/* Distribución horizontal en el lienzo: misma regla que el portal, sobre el contenedor de contenidos del editor. */
+.cat-sec.duo .ct-items { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.cat-sec.duo .ct-items > .item { grid-column: 1 / -1; }
+.cat-sec.duo .ct-items > .item.pos-left, .cat-sec.duo .ct-items > .item.pos-right { grid-column: auto; }
+.ct-item-tools .ct-ed-btn[hidden] { display: none; }
+@media (max-width: 760px) { .cat-sec.duo .ct-items { grid-template-columns: minmax(0, 1fr); } .cat-sec.duo .ct-items > .item.pos-left, .cat-sec.duo .ct-items > .item.pos-right { grid-column: 1 / -1; } }

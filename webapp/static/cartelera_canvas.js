@@ -28,14 +28,38 @@
                service: field(item, "service"), tech: field(item, "tech"), body: field(item, "body"), team: field(item, "team"),
                thanks: field(item, "thanks"), link };
     }
-    return { id: item.dataset.id, title: field(item, "title"), body: field(item, "body"), link, link_label: link ? field(item, "link_label") : "" };
+    return { id: item.dataset.id, title: field(item, "title"), body: field(item, "body"), link, link_label: link ? field(item, "link_label") : "",
+             ...(besideFlags(item.closest("[data-ct-items]")).get(item) ? { beside: true } : {}) };
   }
   function sections() { return $$("[data-ct-sec]", canvas); }
+  const instText = el => (el.dataset.inst || "").replace(/\r\n/g, "\n").trim();
+  // Campos de una línea por `textContent` (innerText devuelve lo que muestra el CSS, p. ej. los nombres de valores en mayúsculas).
+  const aboutText = el => el.hasAttribute("data-multi") ? text(el) : el.textContent.replace(/ /g, " ").trim();
+  const aboutCustom = el => { const v = aboutText(el); return !!v && v !== instText(el); };
+  function aboutMark(el) {                                                          // marca discreta «Personalizado» + restablecer
+    const wrap = el.closest("[data-ct-about-wrap]"); if (!wrap) return;
+    const on = aboutCustom(el);
+    wrap.classList.toggle("is-custom", on);
+    const tag = $(".ct-custom-tag", wrap); if (tag) tag.hidden = !on;
+  }
   function serialize() {
     const greet = $("[data-ct-greeting] [data-ct-item]");
     if (greet) { const it = readItem(greet, "general"); delete it.id; return it; }
+    // Textos de Inicio que no salen de Novedades (bienvenida, bajadas de Comunidad y Nosotros): solo si el lienzo los muestra editables
+    // (en modo Ordenar no viajan y el servidor conserva los guardados).
+    const homeEls = $$("[data-ct-home]"), home = {};
+    homeEls.forEach(el => { home[el.dataset.ctHome] = text(el); });
+    // Nosotros: SOLO lo personalizado (distinto del institucional y no vacío); el resto se hereda. Valores por su clave institucional.
+    const aboutEls = $$("[data-ct-about]"), about = {};
+    aboutEls.forEach(el => {
+      if (!aboutCustom(el)) return;
+      if (el.dataset.vkey) { const v = (about.values = about.values || {}); (v[el.dataset.vkey] = v[el.dataset.vkey] || {})[el.dataset.vf] = aboutText(el); }
+      else about[el.dataset.ctAbout] = aboutText(el);
+    });
     return {
       title: text($('.cart-banner [data-ct-f="title"]')), subtitle: text($('.cart-banner [data-ct-f="subtitle"]')),
+      ...(homeEls.length ? { home } : {}),
+      ...(aboutEls.length ? { about } : {}),
       sections: sections().map(sec => ({ key: sec.dataset.ctSec, wide: sec.dataset.ctKind === "general" && sec.classList.contains("wide"),
         items: $$("[data-ct-item]", sec).map(it => readItem(it, sec.dataset.ctKind)) })),
     };
@@ -43,7 +67,36 @@
   const filled = (item, kind) => kind === "projects" ? !!item.dataset.projectId : !!(field(item, "title") || field(item, "body"));
 
   // ── estado visual derivado (lo que el portal hará con este contenido) ────────────────────────────────────────────────────────
+  // ── distribución horizontal (misma regla que svc.beside_layout): «a la derecha del anterior» es efectivo si hay un anterior que no esté
+  //    ya a la derecha. Con ancho completo se ignora (todo apilado) pero se conserva: al volver «al costado» se recupera. ──
+  function besideFlags(box) {
+    const map = new Map(); let prev = true;                                         // el primero nunca va a la derecha
+    (box ? $$("[data-ct-item]", box) : []).forEach(it => { const on = it.dataset.beside === "1" && !prev; map.set(it, on); prev = on; });
+    return map;
+  }
+  function layoutBeside() {
+    sections().filter(s => s.dataset.ctKind === "general").forEach(sec => {
+      const box = $("[data-ct-items]", sec), flags = besideFlags(box), items = [...flags.keys()];
+      const wide = sec.classList.contains("wide"), duo = !wide && [...flags.values()].some(Boolean);
+      sec.classList.toggle("duo", duo);
+      items.forEach((it, i) => {
+        const on = flags.get(it), nextOn = i + 1 < items.length && flags.get(items[i + 1]);
+        it.classList.toggle("pos-right", duo && on);
+        it.classList.toggle("pos-left", duo && !on && nextOn);
+        const right = $('[data-ct-act="beside"]', it), left = $('[data-ct-act="unbeside"]', it);
+        if (!right || !left) return;
+        right.hidden = on; left.hidden = !on;
+        const prevOn = i > 0 && flags.get(items[i - 1]);
+        right.disabled = i === 0 || prevOn || wide;
+        right.title = i === 0 ? "El primer contenido no puede ir a la derecha" : prevOn ? "El anterior ya está a la derecha"
+          : wide ? "Con ancho completo los contenidos van apilados" : "Ubicar a la derecha del anterior";
+        left.disabled = wide; left.title = wide ? "Con ancho completo los contenidos van apilados" : "Volver a la izquierda";
+      });
+    });
+  }
+
   function refresh() {
+    layoutBeside();
     let n = 0;
     const secs = sections();
     secs.forEach((sec, si) => {
@@ -144,7 +197,7 @@
 
   // ── textos: texto plano, Enter solo donde corresponde, sin navegación ───────────────────────────────────────────────────────────
   function wireText(root) {
-    $$("[data-ct-f], [data-ct-mirror]", root).forEach(el => {
+    $$("[data-ct-f], [data-ct-mirror], [data-ct-home], [data-ct-about]", root).forEach(el => {
       if (el.dataset.ctWired) return;
       el.dataset.ctWired = "1";
       el.addEventListener("keydown", ev => {
@@ -161,6 +214,7 @@
         if (!el.textContent.trim() && el.innerHTML !== "") el.innerHTML = "";
         const f = el.dataset.ctMirror || (el.closest(".cart-banner") ? el.dataset.ctF : "");
         if (f === "title" || f === "subtitle") syncMirror(f, el);
+        if (el.dataset.ctAbout) aboutMark(el);
         changed();
       });
     });
@@ -204,7 +258,16 @@
 
   async function act(btn) {
     const a = btn.dataset.ctAct, item = btn.closest("[data-ct-item]"), sec = btn.closest("[data-ct-sec]"), H = host();
+    if (a === "about-reset") {                                                      // Nosotros: vuelve al institucional (deja de personalizarse)
+      const wrap = btn.closest("[data-ct-about-wrap]"), el = wrap && $("[data-ct-about]", wrap);
+      if (el) { el.textContent = instText(el); aboutMark(el); changed(); }
+      return;
+    }
     if (a === "wide") { sec.classList.toggle("wide"); changed(); return; }
+    if (a === "beside" || a === "unbeside") {                                       // distribución horizontal del contenido
+      if (a === "beside") item.dataset.beside = "1"; else delete item.dataset.beside;
+      changed(); return;
+    }
     if (a === "secup" || a === "secdown") {
       const all = sections().filter(s => s.dataset.ctKind !== "links"), i = all.indexOf(sec), j = a === "secup" ? i - 1 : i + 1;
       if (j < 0 || j >= all.length) return;
@@ -313,6 +376,7 @@
       const a = ev.target.closest && ev.target.closest("a[href]");
       if (a) {                                                                        // el lienzo no sale del editor: recorre sus páginas
         ev.preventDefault();
+        if (ev.target.closest(".ct-edit")) return;                                    // texto editable dentro de un tile: se edita, no se navega
         const href = a.getAttribute("href") || "", hash = href.includes("#") ? href.slice(href.indexOf("#") + 1) : "";
         const pg = href.startsWith("#") ? null : pageOf(href);
         if (pg) showPage(pg, hash ? document.getElementById(hash) : null);
