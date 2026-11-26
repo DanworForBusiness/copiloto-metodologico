@@ -109,7 +109,7 @@ def post_delete(request: Request, post_id: str):
 async def post_moderate(request: Request, post_id: str):
     user = _participant(request)
     data = await _json(request)
-    return _run(lambda: {"status": social.moderate_post(user, post_id, str(data.get("action") or ""))["status"]})
+    return _run(lambda: {"status": social.moderate_post(user, post_id, str(data.get("action") or ""), str(data.get("reason") or ""))["status"]})
 
 
 # ── interacciones (motor compartido) ──────────────────────────────────────────────────────────────────────────────────────────────
@@ -141,9 +141,10 @@ def api_comment_delete(request: Request, comment_id: str):
 
 
 @router.post("/cartelera/social/comentarios/{comment_id}/retirar", include_in_schema=False)
-def api_comment_remove(request: Request, comment_id: str):
+async def api_comment_remove(request: Request, comment_id: str):
     user = _participant(request)
-    return _run(lambda: {"id": social.remove_comment(user, comment_id)["id"]})
+    data = await _json(request)
+    return _run(lambda: {"id": social.remove_comment(user, comment_id, str(data.get("reason") or ""))["id"]})
 
 
 @router.post("/cartelera/social/voto", include_in_schema=False)
@@ -214,14 +215,15 @@ def moderation_page(request: Request):
             "people": len(names), "pending": len(pending), "reports": len(reports)}
     return templates.TemplateResponse(request=request, name="human_capital/cartelera_comunidad.html", headers=_NO_STORE, context=_shell(
         request, user, "comunidad", pending=pending, scheduled=scheduled, removed=removed, reports=reports, log=social.modlog(),
-        names=names, kpis=kpis, categories=social.CATEGORY_BY_ID, social=social))
+        names=names, kpis=kpis, categories=social.CATEGORY_BY_ID, social=social, reasons=social.MODERATION_REASONS))
 
 
 @router.post(f"{BASE}/comunidad/publicaciones/{{post_id}}/{{action}}", include_in_schema=False)
-def moderation_post(request: Request, post_id: str, action: str):
+def moderation_post(request: Request, post_id: str, action: str, motivo: str = Form(""), nota: str = Form("")):
     user = _admin_write(request)
+    reason = " · ".join(x for x in (motivo.strip(), nota.strip()) if x)
     try:
-        social.moderate_post(user, post_id, action)
+        social.moderate_post(user, post_id, action, reason)
     except (social.SocialError, social.SocialNotFound) as exc:
         return _back(f"{BASE}/comunidad", error=str(exc) or "La publicación ya no está disponible.")
     return _back(f"{BASE}/comunidad", ok={"aprobar": "Publicación aprobada.", "rechazar": "Publicación rechazada.", "retirar": "Publicación retirada."}.get(action, "Hecho."))
@@ -239,11 +241,11 @@ def moderation_report(request: Request, report_id: str, action: str):
             kind, ident = r["target"].split(":", 1)
             if kind == "post":
                 if (social.get_post(ident) or {}).get("status") != "removed":
-                    social.moderate_post(user, ident, "retirar")
+                    social.moderate_post(user, ident, "retirar", r.get("reason", ""))
             else:
                 c = repo.get("comments", ident)
                 if c and c.get("status") != "removed":
-                    social.remove_comment(user, ident)
+                    social.remove_comment(user, ident, r.get("reason", ""))
         social.resolve_report(user, report_id)
     except (social.SocialError, social.SocialNotFound) as exc:
         return _back(f"{BASE}/comunidad", error=str(exc) or "El contenido ya no está disponible.")

@@ -279,7 +279,8 @@
 {{ page_close() }}{% endif %}
 {% if 'comunidad' in pages %}
 {#- COMUNIDAD — muro de la app original: categorías a la izquierda, publicador + filtros + publicaciones al centro, cumpleaños próximos y
-    pautas a la derecha. Lo que cada persona ve y puede hacer lo resuelve el servidor (`cartelera_social`); acá solo se dibuja. -#}
+    pautas a la derecha. El servidor entrega SOLO publicaciones publicadas y vigentes (pendientes, programadas, rechazadas y retiradas se
+    gestionan en la moderación de Capital Humano); acá solo se dibuja. -#}
 {% macro post_card(p) -%}
   {%- set cat = social_categories_by_id.get(p.category, {'name': p.category, 'icon': 'wall'}) -%}
   {%- set st = social_post_state(p) -%}
@@ -316,8 +317,6 @@
       {% if not poll.show %}<span class="muted" style="font-size:12px">{{ 'Los resultados se muestran al cierre.' if p.poll.results == 'after_close' else 'Votá para ver los resultados.' }}</span>{% endif %}
     </div>
     {% endif %}
-    {% if st == 'pending' and can_manage %}<div class="row"><button type="button" class="btn primary sm" data-sx="modpost" data-action="aprobar" data-id="{{ p.id }}">{{ ic('check') }}Aprobar</button><button type="button" class="btn sm danger" data-sx="modpost" data-action="rechazar" data-id="{{ p.id }}">Rechazar</button></div>
-    {% elif st == 'pending' %}<p class="muted" style="margin:0;font-size:12px">Capital Humano la revisa antes de publicarla. Solo vos la ves mientras tanto.</p>{% endif %}
     {% if st == 'published' %}{{ social_block('post:' ~ p.id) }}{% endif %}
   </article>
 {%- endmacro %}

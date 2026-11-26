@@ -133,7 +133,7 @@ def _seed_social_content(svc, repo, social, ch, lucia, martin) -> None:
     social.save_post(martin, False, {"category": "personales", "title": "¡Nació mi hija Emma!", "consent": True,
                                      "body": "Quería compartirles la alegría: el martes nació Emma. Estamos todos muy bien."})   # queda PENDIENTE
     removed = social.save_post(martin, False, {"category": "comunidad", "title": "Vendo bicicleta", "body": "Si a alguien le interesa, escríbanme."})
-    social.moderate_post(ch, removed["id"], "retirar")
+    social.moderate_post(ch, removed["id"], "retirar", "Spam o fuera de tema · Comunidad no es un espacio de compraventa")
     social.save_post(ch, True, {"category": "oficial", "title": "Cronograma de vacaciones de verano", "official": True,
                                 "body": "Compartimos el cronograma de turnos de vacaciones.",
                                 "publish_at": (svc.now_utc() + timedelta(days=1)).astimezone(svc.BUSINESS_TZ).date().isoformat() + "T09:00"})

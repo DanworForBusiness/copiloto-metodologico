@@ -293,8 +293,11 @@ def delete_post(user: dict, admin: bool, post_id: str) -> None:
         log(user, "Eliminó publicación oficial", p.get("title") or p.get("body", "")[:60])
 
 
-def moderate_post(user: dict, post_id: str, action: str) -> dict:
-    """Solo Capital Humano: aprobar · rechazar · retirar · fijar/desfijar (lo oficial)."""
+MODERATION_REASONS = REPORT_REASONS
+
+
+def moderate_post(user: dict, post_id: str, action: str, reason: str = "") -> dict:
+    """Solo Capital Humano: aprobar · rechazar · retirar (con motivo, que se le informa a la autoría) · fijar/desfijar (lo oficial)."""
     if not is_admin(user):
         raise SocialForbidden("Solo Capital Humano modera.")
     p = get_post(post_id)
@@ -305,9 +308,11 @@ def moderate_post(user: dict, post_id: str, action: str) -> dict:
         saved = repo.save("posts", post_id, {"status": "published", "approved_at": _iso(), "approved_by": uname(user)}, expected_revision=p["revision"])
         log(user, "Aprobó publicación", label)
     elif action in ("rechazar", "retirar") and p.get("status") != "removed":
-        saved = repo.save("posts", post_id, {"status": "removed", "removed_at": _iso(), "removed_by": uname(user), "pinned": False},
-                          expected_revision=p["revision"])
-        log(user, "Rechazó publicación" if p.get("status") == "pending" else "Retiró publicación", label)
+        kind = "rechazada" if p.get("status") == "pending" else "retirada"
+        reason = _text(reason, 300)
+        saved = repo.save("posts", post_id, {"status": "removed", "removed_at": _iso(), "removed_by": uname(user), "removed_kind": kind,
+                                             "removed_reason": reason, "pinned": False}, expected_revision=p["revision"])
+        log(user, ("Rechazó publicación" if kind == "rechazada" else "Retiró publicación") + (f" · {reason}" if reason else ""), label)
     elif action == "fijar" and p.get("official") and p.get("status") != "removed":
         saved = repo.save("posts", post_id, {"pinned": not p.get("pinned")}, expected_revision=p["revision"])
         log(user, "Desfijó" if p.get("pinned") else "Fijó", label)
@@ -441,13 +446,14 @@ def delete_comment(user: dict, comment_id: str) -> None:
     _purge_reports(f"comment:{comment_id}")
 
 
-def remove_comment(user: dict, comment_id: str) -> dict:
+def remove_comment(user: dict, comment_id: str, reason: str = "") -> dict:
     if not is_admin(user):
         raise SocialForbidden("Solo Capital Humano modera.")
     c = repo.get("comments", comment_id) if re.fullmatch(r"[A-Za-z0-9_-]{1,40}", comment_id or "") else None
     if not c:
         raise SocialNotFound(comment_id)
-    saved = repo.save("comments", comment_id, {"status": "removed", "removed_at": _iso(), "removed_by": uname(user)}, expected_revision=c["revision"])
+    saved = repo.save("comments", comment_id, {"status": "removed", "removed_at": _iso(), "removed_by": uname(user),
+                                               "removed_reason": _text(reason, 300)}, expected_revision=c["revision"])
     log(user, "Retiró comentario", (c.get("body") or "")[:60])
     return saved
 
@@ -650,6 +656,20 @@ def notifications(user: dict | None, names: dict[str, str] | None = None) -> lis
             out.append({"at": post_when(p), "url": f"/cartelera/comunidad#post-{p['id']}", "text": f"{who} te mencionó en «{p.get('title') or 'una publicación'}»"})
         if pr["official"] and p.get("official") and p.get("pinned"):
             out.append({"at": post_when(p), "url": f"/cartelera/comunidad#post-{p['id']}", "text": f"Comunicación importante: {p.get('title') or 'Capital Humano'}"})
+    for p in list_posts():                                                             # lo que Capital Humano decidió sobre lo propio
+        if p.get("author") != me or p.get("official"):
+            continue
+        title = p.get("title") or "tu publicación"
+        if p.get("status") == "removed":
+            why = f" Motivo: {p['removed_reason']}." if p.get("removed_reason") else ""
+            verb = "rechazó" if p.get("removed_kind") == "rechazada" else "retiró"
+            out.append({"at": p.get("removed_at") or "", "url": "/cartelera/comunidad", "text": f"Capital Humano {verb} «{title}».{why}"})
+        elif p.get("approved_at") and p.get("status") == "published":
+            out.append({"at": p["approved_at"], "url": f"/cartelera/comunidad#post-{p['id']}", "text": f"Capital Humano aprobó «{title}»: ya está publicada."})
+    for c in list_comments():
+        if c.get("author") == me and c.get("status") == "removed":
+            why = f" Motivo: {c['removed_reason']}." if c.get("removed_reason") else ""
+            out.append({"at": c.get("removed_at") or "", "url": "/cartelera/comunidad", "text": f"Capital Humano retiró un comentario tuyo.{why}"})
     comments = [c for c in list_comments() if c.get("status") != "removed"]
     my_comments = {c["id"] for c in comments if c.get("author") == me}
     for c in comments:
@@ -687,8 +707,15 @@ def fmt_when(value: str) -> str:
     return svc.fmt_local(value, with_time=False)
 
 
+def wall_posts() -> list[dict]:
+    """Muro de Comunidad: EXCLUSIVAMENTE publicaciones publicadas y vigentes, para cualquier persona (Capital Humano incluido). Pendientes,
+    programadas, rechazadas y retiradas no se listan, no cuentan en las categorías ni aparecen en la búsqueda: se gestionan en la moderación."""
+    rows = [p for p in list_posts() if post_state(p) == "published"]
+    return sorted(rows, key=lambda p: (bool(p.get("pinned")), post_when(p)), reverse=True)
+
+
 def wall(user: dict | None, admin: bool, *, cat: str = "all", kind: str = "all", q: str = "", since: str = "") -> tuple[list[dict], dict]:
-    posts = visible_posts(user, admin)
+    posts = wall_posts()
     counts: dict[str, int] = {}
     for p in posts:
         counts[p["category"]] = counts.get(p["category"], 0) + 1
