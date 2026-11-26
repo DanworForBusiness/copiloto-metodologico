@@ -225,9 +225,8 @@ DEFAULT_EXECUTION_MODE = _env("DANWOR_EXECUTION_MODE", "API Real")
 # DEV/PRD controla la visibilidad operativa; la ejecucion conversacional se
 # define por DANWOR_EXECUTION_MODE (API Real por defecto).
 STATUS       = _env("DANWOR_STATUS", "DEV").upper()
-DIAGNOSTIC_MODE = _env("DANWOR_DIAGNOSTIC_MODE", "false").lower() in {"1", "true", "yes", "on"}
 
-# Usuario(s) con permiso operativo para ver el modo diagnóstico aun en PRD.
+# Usuario(s) dueños de la plataforma: ven y usan las herramientas de gestión (sin modo adicional que activar).
 # Acepta alias sin dominio ("joconnor") o mails completos separados por coma.
 APP_OWNER    = _env("APP_OWNER", "joconnor")
 

@@ -630,11 +630,9 @@ def test_the_graph_token_is_never_stored_or_logged(world, caplog):
 
 
 # ══ 9. autorización y rutas ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
-def _client(email: str, diagnostic: bool) -> TestClient:
+def _client(email: str) -> TestClient:
     c = TestClient(app)
     c.cookies.set(auth_service.COOKIE_NAME, auth_service.create_session({"email": email, "name": "T", "first_name": "T", "family_name": "U"}))
-    if diagnostic:
-        c.cookies.set("dw-diagnostic", "on")
     return c
 
 
@@ -642,16 +640,18 @@ def _client(email: str, diagnostic: bool) -> TestClient:
 def owner(monkeypatch):
     monkeypatch.setattr(access, "APP_OWNER", "owner@danwor.com", raising=False)
     monkeypatch.setattr(auth_service, "ALLOWED_USERS", "ALL", raising=False)
-    return _client("owner@danwor.com", True)
+    return _client("owner@danwor.com")
 
 
 FORM = {"scope": "apis_only", "step": "preflight", "graph_token": TOKEN}
 
 
-def test_only_the_owner_in_diagnostic_mode_can_use_the_apis_only_action(world, monkeypatch):
+def test_only_the_app_owner_can_use_the_apis_only_action(world, monkeypatch):
     monkeypatch.setattr(access, "APP_OWNER", "owner@danwor.com", raising=False)
     monkeypatch.setattr(auth_service, "ALLOWED_USERS", "ALL", raising=False)
-    for client in (_client("otro@danwor.com", True), _client("otro@danwor.com", False), _client("owner@danwor.com", False)):
+    forged = _client("otro@danwor.com")
+    forged.cookies.set("dw-diagnostic", "on")                                                           # la cookie del modo retirado no habilita nada
+    for client in (forged, _client("otro@danwor.com")):
         for step in ("preflight", "apply", "rollback"):
             assert client.post("/admin/catalog/generate", data={**FORM, "step": step}).status_code == 403
     assert world.graph.listed == [] and world.s3.ops == []                                              # ni siquiera se consultó Graph
@@ -661,7 +661,7 @@ def test_the_self_service_route_ignores_the_apis_only_scope(world, monkeypatch):
     monkeypatch.setattr(auth_service, "ALLOWED_USERS", "ALL", raising=False)
     calls = []
     monkeypatch.setattr(admin_tools, "run_catalog_generation_locked", lambda graph_token="": (calls.append(graph_token) or (True, "regeneración completa")))
-    r = _client("cualquiera@danwor.com", False).post("/catalog/regenerate", data={"scope": "apis_only", "step": "apply", "graph_token": TOKEN})
+    r = _client("cualquiera@danwor.com").post("/catalog/regenerate", data={"scope": "apis_only", "step": "apply", "graph_token": TOKEN})
     assert r.status_code == 200 and calls == [TOKEN] and world.graph.listed == []                      # sigue siendo la regeneración completa, sin modo APIs
 
 

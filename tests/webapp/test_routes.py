@@ -26,10 +26,10 @@ client = TestClient(app)
 # Las páginas de módulo están protegidas por sesión: el cliente lleva una cookie válida.
 client.cookies.set(auth_service.COOKIE_NAME, _SESSION)
 
-# Cliente en modo diagnóstico (habilita selector de marco + pestaña Analítica).
-diag_client = TestClient(app)
-diag_client.cookies.set(auth_service.COOKIE_NAME, _SESSION)
-diag_client.cookies.set("dw-diagnostic", "on")
+# Colaborador autorizado que NO es APP_OWNER: no ve las herramientas de gestión de plataforma (selector de marco, Analítica…).
+plain_client = TestClient(app)
+plain_client.cookies.set(auth_service.COOKIE_NAME, auth_service.create_session(
+    {"email": "colaborador@danwor.com", "name": "Colaborador", "first_name": "Cola", "family_name": "Borador"}))
 
 def test_health():
     response = client.get("/health")
@@ -70,7 +70,7 @@ def test_telemetry_event_logs_whitelisted_event_when_verbose(monkeypatch):
     assert calls == []
 
 # ── Auth/session API (Fase 2B: webapp/routers/auth.py) ─────────────────────
-# /api/diagnostic ya está cubierto más abajo. Estas protegen el contrato
+# El retiro de /api/diagnostic está cubierto más abajo. Estas protegen el contrato
 # observable de las rutas sin cobertura HTTP previa (config/me/logout).
 
 def test_auth_config_returns_azure_ids():
@@ -564,23 +564,23 @@ def test_readonly_profile_does_not_offer_explicame_vos_without_local_evidence(mo
     assert "Explicame vos" not in response.text
 
 
-def test_pack_selector_only_in_diagnostic_mode():
-    # Fuera de diagnóstico no hay selector y el marco se fuerza al productivo.
-    standard = client.get("/modules/01_Arquitectura_y_Conectividad?pack=bdc_next")
+def test_pack_selector_only_for_the_app_owner():
+    # Para quien no es APP_OWNER no hay selector y el marco se fuerza al productivo.
+    standard = plain_client.get("/modules/01_Arquitectura_y_Conectividad?pack=bdc_next")
     assert "pack-select" not in standard.text
 
-    # En diagnóstico aparece el selector y se puede ver el contenido BDC.
-    response = diag_client.get("/modules/01_Estrategia_y_Readiness_BDC?pack=bdc_next")
+    # Para el owner aparece el selector (hay más de un marco), sin activar ningún modo.
+    response = client.get("/modules/01_Estrategia_y_Readiness_BDC?pack=bdc_next")
     assert response.status_code == 200
     assert "Estrategia y Readiness BDC" in response.text
     assert "pack-select" in response.text
     assert "selected>BDC</option>" in response.text
 
 
-def test_diagnostic_mode_adds_gestion_group():
-    standard = client.get("/modules/01_Arquitectura_y_Conectividad")
+def test_app_owner_sees_gestion_group():
+    standard = plain_client.get("/modules/01_Arquitectura_y_Conectividad")
     assert "Herramientas de gestión" not in standard.text
-    diag = diag_client.get("/modules/01_Arquitectura_y_Conectividad")
+    diag = client.get("/modules/01_Arquitectura_y_Conectividad")
     assert "Herramientas de gestión" in diag.text
     assert "gestionOpen" in diag.text
 
@@ -588,7 +588,6 @@ def test_diagnostic_mode_adds_gestion_group():
 def test_module_page_has_theme_navigation_and_resize_controls():
     response = client.get("/modules/01_Arquitectura_y_Conectividad")
     assert "theme-toggle" in response.text
-    assert "module-pager" in response.text
     assert response.text.count("data-resize=") == 2
     assert "/brand/dancing/datasphere_core" in response.text
     assert "tools.css?v=" in response.text
@@ -842,9 +841,8 @@ def test_academy_group_present_on_module_pages_but_out_of_pager():
     # El grupo Academy aparece en el nav (links a /academy/…, ruta distinta de /modules/).
     assert "Danwor Academy" in response.text
     assert 'href="/academy/ACAD01_Paradigmas' in response.text
-    # Desconexión: el pager superior nunca apunta a Academy.
-    pager = response.text.split('class="module-pager"', 1)[1].split("</div>", 1)[0]
-    assert "/academy/" not in pager
+    # Desconexión: la navegación interna («Continuar») nunca apunta a Academy.
+    assert "/academy/" not in response.text.split('class="module-continue"', 1)[-1].split("</a>", 1)[0]
 
 
 def test_academy_page_has_standalone_button_pointing_to_non_embedded_asset():
@@ -1162,21 +1160,16 @@ def test_root_still_serves_module_flow_untouched():
     assert "Arquitectura y Conectividad" in response.text
 
 
-# ── Modo diagnóstico y actividad ──────────────────────────────────────────
+# ── Herramientas de gestión y actividad ──────────────────────────────────────────
 
-def test_diagnostic_toggle_sets_cookie_server_side():
-    # La cookie la emite el server (con los atributos de la de sesión): desde el
-    # JS del iframe enmascarado una cookie Lax no viaja y el modo se apagaba solo.
-    try:
-        response = client.post("/api/diagnostic", data={"on": "on"})
-        assert response.status_code == 200
-        assert "dw-diagnostic=on" in response.headers.get("set-cookie", "")
-        off = client.post("/api/diagnostic", data={"on": "off"})
-        assert "dw-diagnostic=off" in off.headers.get("set-cookie", "")
-        anonymous = TestClient(app).post("/api/diagnostic", data={"on": "on"})
-        assert anonymous.status_code == 401
-    finally:
-        client.cookies.delete("dw-diagnostic")
+def test_the_diagnostic_mode_no_longer_exists():
+    # Se retiró el «Modo diagnóstico»: sin ruta para activarlo, sin control en la UI y su cookie no habilita nada a quien no es APP_OWNER.
+    assert client.post("/api/diagnostic", data={"on": "on"}).status_code in (404, 405)
+    assert 'class="diag-toggle"' not in client.get("/modules/01_Arquitectura_y_Conectividad").text
+    forged = TestClient(app)
+    forged.cookies.set(auth_service.COOKIE_NAME, plain_client.cookies.get(auth_service.COOKIE_NAME))
+    forged.cookies.set("dw-diagnostic", "on")
+    assert forged.get("/admin/runtime/inventory").status_code == 403
 
 
 def test_activity_log_records_module_and_academy_views(monkeypatch, tmp_path):
@@ -1618,7 +1611,7 @@ def test_regular_module_is_not_immersive():
 
 def test_intro_has_no_panel_even_in_diagnostic_mode():
     # 00 Intro es solo lectura (inmersivo, sin IA): nunca panel derecho, ni con diagnóstico.
-    response = diag_client.get("/modules/00_Intro")
+    response = client.get("/modules/00_Intro")
     assert response.status_code == 200
     assert 'class="academy-stage"' in response.text
     assert "copilot-panel" not in response.text

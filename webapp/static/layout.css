@@ -79,7 +79,7 @@
 .workspace-switch { position: relative; }
 .workspace-switch > summary.theme-toggle { list-style: none; cursor: pointer; }
 .workspace-switch > summary.theme-toggle::-webkit-details-marker { display: none; }
-.workspace-switch > summary.theme-toggle:hover { opacity: .88; }
+.workspace-switch > summary.theme-toggle:hover { opacity: 1; }
 .workspace-switch-menu {
   /* Anclado a la DERECHA del trigger (owner: en verticales sin panel derecho
      -- p.ej. Capital Humano -- el switcher queda pegado al borde derecho, y un
@@ -102,13 +102,6 @@
   color: var(--dim); font-size: .7rem;
 }
 
-.module-pager { display: flex; gap: 5px; padding-right: 10px; border-right: 1px solid var(--line); }
-.module-pager a, .module-pager span {
-  display: grid; place-items: center; width: 34px; height: 34px;
-  border: 1px solid var(--line); color: var(--soft); font-family: var(--mono);
-}
-.module-pager a:hover { color: var(--gold); border-color: rgba(231,176,8,.45); }
-.module-pager span { opacity: .28; }
 .pack-selector { display: grid; grid-template-columns: auto auto; align-items: center; gap: 9px; }
 .pack-selector label { color: var(--soft); font: 500 .62rem var(--mono); text-transform: uppercase; letter-spacing: .08em; }
 .pack-selector select {
@@ -116,11 +109,29 @@
   border: 1px solid var(--line); border-radius: 0; background: var(--card); color: var(--ink);
   font: 500 .7rem var(--sans); cursor: pointer;
 }
+/* Botones icon-only del topbar (espacios, campana, perfil, tema, salir): integrados a la barra, SIN recuadro ni borde
+   permanente; el ícono conserva el oro del Hub y el hover solo cambia su tono. Área de clic 36px e íconos +10 % (17 → 19 px). Foco
+   accesible visible solo con teclado. */
 .theme-toggle {
-  display: grid; place-items: center; width: 34px; height: 34px; padding: 0;
-  border: 1px solid var(--line); background: var(--card); color: var(--gold); cursor: pointer;
+  display: grid; place-items: center; width: 36px; height: 36px; padding: 0;
+  border: 0; border-radius: 8px; background: transparent; color: var(--gold); cursor: pointer;
+  transition: color .15s, background-color .15s, opacity .15s;
 }
-.theme-toggle svg { width: 17px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.theme-toggle svg { width: 19px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.theme-toggle:hover { color: #f5c842; }
+.theme-toggle:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+/* Selector de tema: sol y luna superpuestos en la MISMA caja (sin cambiar dimensiones ni mover vecinos). Reposo = tema activo; hover/foco =
+   anticipa el destino; `.is-settled` (tras el click) sostiene el nuevo estado mientras el cursor siga encima. */
+.dw-theme-switch svg { grid-area: 1 / 1; transition: opacity .22s ease, transform .22s cubic-bezier(.3, .7, .4, 1); }
+.dw-theme-switch [data-dw-theme-icon="light"],
+html.content-theme-light .dw-theme-switch:is(:hover, :focus-visible):not(.is-settled) [data-dw-theme-icon="light"] { opacity: 0; transform: rotate(-90deg) scale(.55); }
+.dw-theme-switch [data-dw-theme-icon="dark"],
+html.content-theme-light .dw-theme-switch:is(:hover, :focus-visible):not(.is-settled) [data-dw-theme-icon="dark"] { opacity: 1; transform: none; }
+html.content-theme-light .dw-theme-switch [data-dw-theme-icon="light"],
+.dw-theme-switch:is(:hover, :focus-visible):not(.is-settled) [data-dw-theme-icon="light"] { opacity: 1; transform: none; }
+html.content-theme-light .dw-theme-switch [data-dw-theme-icon="dark"],
+.dw-theme-switch:is(:hover, :focus-visible):not(.is-settled) [data-dw-theme-icon="dark"] { opacity: 0; transform: rotate(90deg) scale(.55); }
+@media (prefers-reduced-motion: reduce) { .dw-theme-switch svg { transition: opacity .12s linear; transform: none !important; } }
 
 .module-nav { grid-column: 1; }
 .resize-left { grid-column: 2; }
@@ -292,7 +303,6 @@
 }
 
 @media (max-width: 640px) {
-  .module-pager { display: none; }
   .animated-brand { --brand-scale: .28; width: 175px; }
   .animated-brand iframe { width: 620px; transform: translateY(-20px) scale(var(--brand-fit, var(--brand-scale))); }
   .pack-selector select { width: 112px; min-width: 0; }

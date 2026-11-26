@@ -538,17 +538,6 @@ function stopSectionAnalysisMessages() {
   sectionAnalysisLoadingTimer = null;
 }
 
-// Modo diagnóstico: persiste en cookie y recarga (el server re-renderiza el
-// selector de marco y la pestaña Analítica según corresponda). La cookie la
-// setea el SERVER: enmascarada en el frame de danwor.com, una cookie puesta
-// por JS (SameSite=Lax implícito) no viaja en requests cross-site y el modo
-// "se apagaba solo"; el server la emite con los mismos atributos que la
-// cookie de sesión (SameSite=None; Secure en producción).
-window.dwToggleDiagnostic = function (on) {
-  const body = new URLSearchParams({ on: on ? "on" : "off" });
-  fetch("/api/diagnostic", { method: "POST", body }).finally(() => window.location.reload());
-};
-
 // Logout: limpia la cookie de sesión en el backend y vuelve a la entrada del
 // Hub PRESERVANDO desde dónde se salió, en `next`. Antes iba a "/" a secas, así
 // que al volver a autenticarse el usuario aterrizaba siempre en el destino por
@@ -566,7 +555,7 @@ window.dwToggleDiagnostic = function (on) {
 //
 // `URLSearchParams` da el encoding exacto que el server espera
 // ("/comercial" → "%2Fcomercial") sin doble-encodear, y es el mismo helper que
-// ya usa `dwToggleDiagnostic`. Transversal por construcción: el destino se lee
+// usan los formularios del Hub. Transversal por construcción: el destino se lee
 // de la ubicación actual, así que no hay una rama por capability.
 // HIGIENE DE AUTH (auditoría cross-vertical, owner 2026-08-23): el logout
 // borraba la cookie de sesión y dejaba VIVO el artefacto de Graph. Un token

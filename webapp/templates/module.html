@@ -10,21 +10,13 @@
   class="app-shell{% if not show_panel %} no-copilot{% endif %}"
 >
   {% set _identity_html %}<iframe src="/brand/dancing/{{ pack }}?title={{ config.APP_TITLE | urlencode }}&subtitle={{ config.APP_SUBTITLE | urlencode }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
-  {% set _pager_previous = {"href": "/modules/" ~ previous_module.stem ~ "?pack=" ~ pack, "label": "Módulo anterior"} if previous_module else None %}
-  {% set _pager_next = {"href": "/modules/" ~ next_module.stem ~ "?pack=" ~ pack, "label": "Módulo siguiente"} if next_module else None %}
-  {% call platform_topbar(current_workspace, available_workspaces, "/?pack=" ~ pack, _identity_html, "Módulos", _pager_previous, _pager_next) %}
-    {% if diagnostic %}
+  {% call platform_topbar(current_workspace, available_workspaces, "/?pack=" ~ pack, _identity_html, "Módulos") %}
+    {% if diagnostic and packs | length > 1 %}{# selector de marco: solo con una alternativa real #}
     <select class="pack-select" aria-label="Marco metodológico" onchange="if(this.value)location.href=this.value">
       {% for item in packs %}
       <option value="{{ item.home }}" {% if item.name == pack %}selected{% endif %}>{{ item.label }}</option>
       {% endfor %}
     </select>
-    {% endif %}
-    {% if is_owner %}
-    <label class="diag-toggle" title="Modo diagnóstico — habilita el selector de marco y la pestaña Analítica">
-      <input type="checkbox" {% if diagnostic %}checked{% endif %} onchange="dwToggleDiagnostic(this.checked)" aria-label="Modo diagnóstico">
-      <span class="diag-track"></span>
-    </label>
     {% endif %}
   {% endcall %}
 

@@ -76,7 +76,7 @@ _MODULE_TABS = {"section", "tree", "catalogo", "assistant"}
 @router.get("/modules/{stem}", response_class=HTMLResponse)
 def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK), tab: str = "", tool: str = "", catalog_action: str = "", catalog_kind: str = ""):
     diagnostic = access.is_diagnostic(request)
-    # Fuera de modo diagnóstico, el marco es siempre el productivo (Datasphere).
+    # Para quien no es APP_OWNER, el marco es siempre el productivo (Datasphere).
     selected = resolve_pack(pack) if diagnostic else DEFAULT_PACK
     user = auth_service.session_user(request)
     if not user:  # sin sesión válida → al landing/acceso
@@ -226,7 +226,7 @@ def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK), ta
             "ia_enabled": ia_enabled,
             "is_appendix": is_appendix,
             "diagnostic": diagnostic,
-            # Usuarios del runtime para el dropdown del Borrado selectivo (solo en modo diagnóstico, que es donde
+            # Usuarios del runtime para el dropdown del Borrado selectivo (solo para APP_OWNER, que es donde
             # se renderiza el panel de Gestión): evita escanear feedback_log/activity_log en cada render de módulo.
             "runtime_users": admin_tools.runtime_users() if diagnostic else [],
             "is_owner": access.is_owner(request),
@@ -234,7 +234,7 @@ def module_page(request: Request, stem: str, pack: str = Query(DEFAULT_PACK), ta
             "iframe_src": iframe_src,
             "readonly": readonly,
             # El panel derecho se muestra si el módulo tiene IA (grupo Decisión) o
-            # si está el modo diagnóstico activo (grupo Gestión). Nunca en módulos
+            # si es APP_OWNER (grupo Gestión). Nunca en módulos
             # inmersivos (p. ej. 00 Intro). Para el perfil de solo lectura se muestra
             # si hay asistente (router determinista) o árbol; la salida LLM queda gateada.
             "show_panel": (

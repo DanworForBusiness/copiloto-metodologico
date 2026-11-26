@@ -169,57 +169,42 @@ def test_dancing_logo_route_escapes_newlines_and_unicode_passes_through():
     assert "·" in response.text and "ó" in response.text
 
 
-# --- C: back/forward reales de módulo, preservados --------------------------
+# --- C: sin flechas anterior/siguiente en el topbar ---------------------------
 
-def test_module_page_pager_links_to_real_previous_and_next_module():
-    response = _full_client().get(_MODULE_URL)
-    assert response.status_code == 200
-    assert 'aria-label="Módulo anterior"' in response.text
-    assert 'aria-label="Módulo siguiente"' in response.text
-    assert 'href="/modules/00_Intro?pack=datasphere_core"' in response.text
-
-
-def test_intro_module_pager_disables_previous_when_no_earlier_module():
-    response = _full_client().get(_INTRO_URL)
-    assert response.status_code == 200
-    # Sin módulo anterior real: NUNCA se fabrica un destino — el control
-    # queda deshabilitado exactamente como module.html ya hacía.
-    assert 'aria-label="Módulo anterior"' not in response.text
-    assert '<span aria-hidden="true">&larr;</span>' in response.text
+def test_topbar_has_no_previous_next_arrows_on_any_surface():
+    # Se retiraron (sin valor suficiente): ni flechas ni contenedor residual, aunque exista un módulo anterior/siguiente.
+    for url in (_MODULE_URL, _INTRO_URL, "/whats-new", "/operaciones/staffing/asignaciones"):
+        text = _full_client().get(url).text
+        tools = text.split('class="header-tools"', 1)[1].split("</header>", 1)[0]
+        assert "module-pager" not in text and "&larr;" not in tools and "&rarr;" not in tools
+        assert 'aria-label="Módulo anterior"' not in text and 'aria-label="Módulo siguiente"' not in text
 
 
-def test_non_module_copilot_pages_render_pager_disabled_both_sides():
-    # Academy/Catalog/Admin/What's New nunca tuvieron secuencia real de
-    # páginas — el topbar compartido NO debe inventar una.
-    response = _full_client().get("/whats-new")
-    assert response.status_code == 200
-    assert '<span aria-hidden="true">&larr;</span>' in response.text
-    assert '<span aria-hidden="true">&rarr;</span>' in response.text
-    assert "aria-label=\"Módulo anterior\"" not in response.text
-    assert "aria-label=\"Módulo siguiente\"" not in response.text
+def test_module_internal_navigation_is_preserved():
+    text = _full_client().get(_MODULE_URL).text
+    assert 'class="module-continue"' in text                                               # «Continuar» al módulo siguiente (navegación interna)
 
 
-def test_operations_page_renders_pager_disabled_both_sides():
-    # Staffing/Asignaciones es la única página real hoy — ambos controles
-    # deshabilitados, sin fabricar orden.
-    response = _full_client().get("/operaciones/staffing/asignaciones")
-    assert response.status_code == 200
-    assert '<span aria-hidden="true">&larr;</span>' in response.text
-    assert '<span aria-hidden="true">&rarr;</span>' in response.text
+def test_theme_switch_previews_the_target_icon_only_via_css():
+    text = _full_client().get(_MODULE_URL).text
+    btn = text.split('class="theme-toggle dw-theme-switch"', 1)[1].split("</button>", 1)[0]
+    assert btn.count("data-dw-theme-icon=") == 2 and "x-show" not in btn                # ambos SVG existentes, superpuestos
+    assert "toggleTheme()" in btn and "is-settled" in btn and "@mouseleave" not in btn.split("@click", 1)[0]
+    css = open("webapp/static/layout.css", encoding="utf-8").read()
+    assert ".dw-theme-switch:is(:hover, :focus-visible):not(.is-settled)" in css and "prefers-reduced-motion" in css
 
 
 # --- D: orden interno de RIGHT (.header-tools) -------------------------------
 
-def test_operations_right_zone_order_pager_switch_context_theme_logout():
+def test_operations_right_zone_order_switch_context_theme_logout():
     response = _full_client().get("/operaciones/staffing/asignaciones")
     text = response.text
     tools_idx = text.index('class="header-tools"')
-    pager_idx = text.index('class="module-pager"')
     switch_idx = text.index('class="workspace-switch"')
     context_idx = text.index('aria-label="Área operativa"')
-    theme_idx = text.index('@click="toggleTheme()"')
+    theme_idx = text.index('class="theme-toggle dw-theme-switch"')
     logout_idx = text.index('class="theme-toggle logout-btn"')
-    assert tools_idx < pager_idx < switch_idx < context_idx < theme_idx < logout_idx
+    assert tools_idx < switch_idx < context_idx < theme_idx < logout_idx
 
 
 # --- E/F: workspace switching es un botón-ícono más (RIGHT), no la identidad ---
@@ -311,15 +296,13 @@ def test_no_duplicate_standalone_switcher_remains():
 
 # --- I: selector interno (Copilot pack / Operaciones área) ------------------
 
-def test_copilot_pack_selector_still_renders_in_diagnostic_mode(monkeypatch):
+def test_copilot_pack_selector_renders_for_the_app_owner_without_any_mode(monkeypatch):
     from webapp import access
     monkeypatch.setattr(access, "APP_OWNER", "topbar-full@danwor.com")
-    diag_client = _full_client()
-    diag_client.cookies.set("dw-diagnostic", "on")
-    response = diag_client.get(_MODULE_URL)
+    response = _full_client().get(_MODULE_URL)
     assert response.status_code == 200
     assert 'class="pack-select"' in response.text
-    assert 'class="diag-toggle"' in response.text
+    assert 'class="diag-toggle"' not in response.text                                    # se retiró el «Modo diagnóstico»
 
 
 def test_operations_internal_selector_shows_staffing_identity_disabled():
@@ -341,3 +324,14 @@ def test_operations_internal_selector_shows_staffing_identity_disabled():
     # (nav plana Asignaciones/Reporting, ver operations_nav.html) — validamos
     # su presencia correcta en vez de solo borrar la vieja assertion negativa.
     assert '<a href="/operaciones/reporting/integral" class="module-link' in response.text
+
+
+# --- J: desplegables del topbar con UN mecanismo común ------------------------
+
+def test_topbar_dropdowns_share_a_single_open_close_controller():
+    text = _full_client().get(_MODULE_URL).text
+    assert text.count("/static/hub_topbar_menus.js") == 1                          # uno solo, cargado por el macro compartido
+    js = open("webapp/static/hub_topbar_menus.js", encoding="utf-8").read()
+    assert ".header-tools details.workspace-switch" in js and "Escape" in js       # selector de espacios, Perfil y campana por igual
+    for f in ("hub_profile.js", "hub_notifications.js"):
+        assert "addEventListener('keydown'" not in open(f"webapp/static/{f}", encoding="utf-8").read()   # sin listeners propios de cierre

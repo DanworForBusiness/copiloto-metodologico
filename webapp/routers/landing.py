@@ -105,7 +105,7 @@ def render_landing(request: Request, selected_pack: str, next: str, *, default_h
 
 
 def home_destination(request: Request, pack: str) -> str:
-    """ÚNICA decisión del destino post-login (perfil → Academy o módulo inicial; pack solo en modo diagnóstico), compartida por `/home` y por la raíz con sesión. Supone sesión
+    """ÚNICA decisión del destino post-login (perfil → Academy o módulo inicial; pack solo para APP_OWNER), compartida por `/home` y por la raíz con sesión. Supone sesión
     válida: quien la llama ya la verificó. Lanza el mismo 503 de `home_url` si no hay módulos."""
     selected = resolve_pack(pack) if access.is_diagnostic(request) else DEFAULT_PACK
     if access.is_readonly(request):

@@ -177,7 +177,6 @@
   "POST /admin/trees/propose",
   "POST /api/auth/logout",
   "POST /api/auth/microsoft/token",
-  "POST /api/diagnostic",
   "POST /assistant/responses/{reply_id}/feedback",
   "POST /assistant/responses/{reply_id}/feedback/cancel",
   "POST /assistant/responses/{reply_id}/feedback/submit",

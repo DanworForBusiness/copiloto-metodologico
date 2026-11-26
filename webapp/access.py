@@ -3,7 +3,7 @@ access.py — Access policy de la web actual (request-scoped).
 
 Concentra las DECISIONES DE ACCESO de la aplicación web: quién es el dueño
 (APP_OWNER), quién es perfil de solo-lectura (tier academy del Copiloto) y quién
-puede activar el modo diagnóstico. Se extrajo de ``webapp/main.py`` (gate
+ve las herramientas de gestión de plataforma. Se extrajo de ``webapp/main.py`` (gate
 distribuido pre-2D) para que los routers con templates puedan consultarlas sin
 importar ``webapp.main``.
 
@@ -40,7 +40,7 @@ from __future__ import annotations
 from fastapi import Request
 
 from webapp.services import auth_service
-from config import APP_OWNER, AUTH_DEFAULT_DOMAIN, DIAGNOSTIC_MODE
+from config import APP_OWNER, AUTH_DEFAULT_DOMAIN
 
 
 def owner_emails() -> set[str]:
@@ -92,12 +92,8 @@ def is_readonly(request: Request) -> bool:
 
 
 def is_diagnostic(request: Request) -> bool:
-    """Modo diagnóstico: solo el dueño (APP_OWNER) puede activarlo por cookie.
-
-    Habilita el selector de marco metodológico y la pestaña/grupo de gestión.
-    DANWOR_DIAGNOSTIC_MODE lo fuerza por entorno (dev). Para usuarios no-owner
-    queda siempre off, aunque tengan la cookie seteada a mano.
-    """
-    if DIAGNOSTIC_MODE:
-        return True
-    return is_owner(request) and request.cookies.get("dw-diagnostic") == "on"
+    """Herramientas de gestión de PLATAFORMA (selector de marco, Analítica, panel administrativo, prompt de diagnóstico…): visibles y
+    habilitadas SOLO para APP_OWNER, sin un modo adicional que activar (se retiró el «Modo diagnóstico»: su cookie, su ruta y su
+    forzado por entorno). Es también la validación del SERVIDOR que consultan las rutas de esas herramientas. No reemplaza los permisos
+    funcionales de cada vertical."""
+    return is_owner(request)
