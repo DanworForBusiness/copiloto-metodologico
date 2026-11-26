@@ -8,6 +8,7 @@
          con confirmación de la persistencia se muestra el aviso habitual; si no, el error (y la vista recupera lo ingresado).
     No hay actualización optimista: lo que se ve después es lo que la persistencia confirmó. Sin fuente remota el servidor ignora el campo. -#}
 <div class="dw-feedback-toast" data-ct-busy-box aria-live="polite"></div>
+<div class="dw-feedback-toast" data-dw-auto-dismiss data-dw-auto-dismiss-fade data-ct-result-box></div>
 <script>
 (() => {
   const uiState = window.sessionStorage, SCROLL = "ct-write-scroll";
@@ -46,7 +47,14 @@
     if (saved) {
       uiState.removeItem(SCROLL);
       if (saved.path === location.pathname) {
-        const go = () => setTimeout(() => { scroller().scrollTop = +saved.y || 0; }, 60);
+        const go = () => setTimeout(() => {
+          // Con la pantalla en su lugar, el aviso habitual (confirmación o error) quedaría fuera de vista: se muestra en el aviso
+          // flotante transversal del Hub (`.dw-feedback-toast` + `data-dw-auto-dismiss`), el mismo de «Actualizar catálogos». Se mueve
+          // ANTES de restaurar la posición, para que el contenido quede exactamente donde estaba.
+          const notice = document.querySelector("#hc-cartelera-panel > .callout--feedback"), box = document.querySelector("[data-ct-result-box]");
+          if (+saved.y > 0 && notice && box) box.appendChild(notice);
+          scroller().scrollTop = +saved.y || 0;
+        }, 60);
         if (document.readyState === "complete") go(); else window.addEventListener("load", go, { once: true });
       }
     }
