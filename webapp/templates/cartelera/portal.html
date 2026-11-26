@@ -27,7 +27,12 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Cartelera Virtual · {{ {'inicio': 'Inicio', 'novedades': 'Novedades', 'nosotros': 'Nosotros', 'comunidad': 'Comunidad', 'saludo': 'Cumpleaños'}.get(page, 'Inicio') }} | Danwor</title>
 <link rel="icon" href="{{ url_for('static', path='favicon.ico') }}">
+{#- Montserrat (Google Fonts) es variable: UN solo woff2 latino sirve todos los pesos. Se precarga en paralelo con las hojas para que el primer
+    render ya la tenga (en refresh con o sin caché); si Google cambia la versión del archivo, la hoja sigue funcionando igual y el respaldo
+    métrico de `cartelera_portal.css` evita cualquier salto. -#}
 <link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preload" as="font" type="font/woff2" crossorigin href="https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459Wlhyw.woff2">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap">
 <link rel="stylesheet" href="{{ url_for('static', path='cartelera_portal.css') }}?v={{ static_version }}">
 {% if social_on %}<link rel="stylesheet" href="{{ url_for('static', path='cartelera_social.css') }}?v={{ static_version }}"><script defer src="{{ url_for('static', path='cartelera_social.js') }}?v={{ static_version }}"></script>{% endif %}

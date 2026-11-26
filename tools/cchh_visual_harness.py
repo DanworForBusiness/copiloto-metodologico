@@ -152,7 +152,22 @@ def _configure_env() -> None:
     #     tokenless, sin Graph, y no depende de esto.
 
 
-def _merge_qa_identity_into_allowlists() -> None:
+# Autorizaciones que el arnés toma del `.env` del checkout desde el que se lanza (cwd). SOLO estas claves y sin tocar `os.environ`: el resto
+# de ese archivo (Spaces, Odoo, notificaciones, SharePoint) trae integraciones REALES que el arnés deja ausentes a propósito. Motivo: el
+# arnés corre desde un worktree y `load_dotenv()` de config.py busca `.env` hacia arriba desde ESE directorio, donde no hay ninguno.
+AUTH_ENV_KEYS = ("COMMUNITY_OWNER",)
+
+
+def _auth_values_from_env_file(path: str | None) -> tuple[str, dict[str, str]]:
+    from dotenv import dotenv_values, find_dotenv
+    path = path or find_dotenv(usecwd=True)
+    if not path or not Path(path).is_file():
+        return "", {}
+    values = dotenv_values(path)
+    return str(Path(path).resolve()), {k: (values.get(k) or "").strip() for k in AUTH_ENV_KEYS if (values.get(k) or "").strip()}
+
+
+def _merge_qa_identity_into_allowlists(auth_env_file: str | None = None) -> None:
     """APÉNDICE, nunca reemplazo (bug real corregido -- ver docstring del
     módulo): lee lo que `auth_service` YA resolvió de `config`/`.env` para
     cada allowlist por-vertical, y le suma el email sintético si todavía no
@@ -170,7 +185,11 @@ def _merge_qa_identity_into_allowlists() -> None:
         if HARNESS_USER["email"] not in emails:
             emails.append(HARNESS_USER["email"])
         setattr(auth_service, attr, ",".join(emails))
-    owners = [e.strip() for e in (auth_service.COMMUNITY_OWNER or "").split(",") if e.strip() and e.strip().upper() != "ALL"]
+    source, file_values = _auth_values_from_env_file(auth_env_file)
+    print(f"[harness] autorizaciones leídas de {source or '(ningún .env encontrado)'}: "
+          f"{', '.join(f'{k}={v}' for k, v in file_values.items()) or 'sin valores'}")
+    raw = ",".join(x for x in ((auth_service.COMMUNITY_OWNER or ""), file_values.get("COMMUNITY_OWNER", "")) if x)
+    owners = list(dict.fromkeys(e.strip() for e in raw.split(",") if e.strip() and e.strip().upper() != "ALL"))
     if COMMUNITY_MODERATOR[0] not in owners:
         owners.append(COMMUNITY_MODERATOR[0])
     auth_service.COMMUNITY_OWNER = ",".join(owners)
@@ -354,6 +373,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--keep", action="store_true", help="No reseedear si ya existe estado de una corrida previa")
+    parser.add_argument("--auth-env-file", default=None,
+                        help="`.env` del que se toman SOLO las autorizaciones de AUTH_ENV_KEYS (por defecto, el del directorio de lanzamiento)")
     args = parser.parse_args()
 
     if args.port == 8505:
@@ -362,7 +383,7 @@ def main() -> None:
 
     _configure_env()
     runtime_dir = _seed_runtime(args.keep)  # importa config -> corre load_dotenv() -> ya sabemos qué hay REALMENTE configurado
-    _merge_qa_identity_into_allowlists()    # recién ACÁ, nunca antes -- apéndice, nunca reemplazo
+    _merge_qa_identity_into_allowlists(args.auth_env_file)    # recién ACÁ, nunca antes -- apéndice, nunca reemplazo
 
     owner_emails = _resolve_owner_emails()
     synthetic_token = _mint_session_for(HARNESS_USER["email"], label=HARNESS_USER["name"])
