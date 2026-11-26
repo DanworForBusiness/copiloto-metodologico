@@ -244,3 +244,4 @@ a.ct-space:hover { border-color: var(--ct-gold); }
 .cartelera-greet-cta:hover { text-decoration: underline; }
 .cartelera-greet-cta.is-done { color: var(--soft); }
 .table-action-btn.is-disabled { opacity: .35; cursor: default; }
+#bd-dialog .cartelera-check--spaced { margin: 14px 0 10px; }

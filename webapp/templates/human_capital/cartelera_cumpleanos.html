@@ -10,7 +10,7 @@
 {% macro cake() %}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21h16"/><path d="M5 21v-7h14v7"/><path d="M8 14v-3M12 14v-3M16 14v-3"/><path d="M12 7a1.5 1.5 0 0 0 0-3"/></svg>{% endmacro %}
 {% macro greeting_href(b, g) %}/cchh/cartelera/cumpleanos/{{ b.id }}/saludo?anio={{ g.year }}{% endmacro %}
 {#- Datos para el MISMO diálogo de edición que abre el lápiz de la tabla (y ahora también cada tarjeta de próximos). -#}
-{% macro edit_data(b) %}data-bd-edit data-bd-id="{{ b.id }}" data-bd-rev="{{ b.revision }}" data-bd-name="{{ b.name }}" data-bd-day="{{ b.day }}" data-bd-month="{{ b.month }}" data-bd-auth="{{ '1' if b.authorized else '' }}" data-bd-auth-trace="{{ (b.authorization.by ~ ' · ' ~ svc.fmt_local(b.authorization.at, with_time=False)) if b.authorization else '' }}"{% endmacro %}
+{% macro edit_data(b) %}data-bd-edit data-bd-id="{{ b.id }}" data-bd-rev="{{ b.revision }}" data-bd-name="{{ b.name }}" data-bd-day="{{ b.day }}" data-bd-month="{{ b.month }}" data-bd-auth="{{ '1' if b.authorized else '' }}"{% endmacro %}
 
 <div class="dashboard-sections" data-dashboard-key="cchh-cartelera-cumpleanos">
   {# Próximos 30 días: MISMO primitivo `.activity-kpi` del Hub, interactivo como los tiles del CRM (`.activity-kpi--clickable`: cursor, hover,
@@ -138,8 +138,7 @@
         <div class="feedback-field"><label for="bd-day">Día</label><input id="bd-day" name="day" type="number" min="1" max="31" required></div>
         <div class="feedback-field"><label for="bd-month">Mes</label><select id="bd-month" name="month">{% for m in months %}<option value="{{ loop.index }}">{{ m }}</option>{% endfor %}</select></div>
       </div>
-      <label class="cartelera-check"><input type="checkbox" name="authorized" value="1"> La persona autorizó publicar su cumpleaños</label>
-      <p class="dashboard-empty__hint" data-bd-trace hidden></p>
+      <label class="cartelera-check cartelera-check--spaced"><input type="checkbox" name="authorized" value="1"> La persona autorizó publicar su cumpleaños</label>
       <p class="dashboard-empty__hint">Solo se guardan día y mes, nunca el año de nacimiento. Sin autorización, el cumpleaños no aparece en la Cartelera.</p>
     </div>
     <div class="dw-confirm__actions">
@@ -152,7 +151,6 @@
 (() => {
   const dialog = document.getElementById("bd-dialog"), form = dialog.querySelector("form");
   const currentMonth = {{ svc.month_key()[5:7] | int }};
-  const trace = dialog.querySelector("[data-bd-trace]");
   // Al guardar o eliminar se vuelve a ESTA vista: mismos filtros y estado de navegación (el servidor solo acepta una query de esta página).
   const syncReturn = () => document.querySelectorAll("[data-bd-return]").forEach(i => { i.value = location.search; });
   const open = data => {
@@ -160,13 +158,12 @@
     form.birthday_id.value = data.id || ""; form.revision.value = data.rev || "";
     form.elements.name.value = data.name || ""; form.day.value = data.day || ""; form.month.value = data.month || currentMonth;
     form.authorized.checked = data.auth === "1";
-    trace.hidden = !data.trace; trace.textContent = data.trace ? "Última modificación de la autorización: " + data.trace : "";
     dialog.querySelector("#bd-dialog-title").textContent = data.id ? "Editar cumpleaños" : "Nuevo cumpleaños";
     dialog.querySelector("[data-bd-submit]").textContent = data.id ? "Guardar cambios" : "Agregar";
     syncReturn();
     dialog.showModal();
   };
-  const fromEl = el => ({ id: el.dataset.bdId, rev: el.dataset.bdRev, name: el.dataset.bdName, day: el.dataset.bdDay, month: el.dataset.bdMonth, auth: el.dataset.bdAuth, trace: el.dataset.bdAuthTrace });
+  const fromEl = el => ({ id: el.dataset.bdId, rev: el.dataset.bdRev, name: el.dataset.bdName, day: el.dataset.bdDay, month: el.dataset.bdMonth, auth: el.dataset.bdAuth });
   document.addEventListener("click", e => {
     if (e.target.closest("[data-bd-new]")) { open({}); return; }
     if (e.target.closest("a")) return;                                     // el enlace del saludo dentro de la tarjeta navega a su editor
