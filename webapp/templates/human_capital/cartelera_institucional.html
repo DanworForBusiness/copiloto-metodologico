@@ -7,6 +7,10 @@
     formularios permanentes. Valores, enlaces y álbumes en tablas del Hub; el organigrama se edita sobre el propio árbol (cada caja abre su
     diálogo). Todo persiste en el MISMO documento institucional con su revisión (endpoint de siempre); al guardar se recarga con el aviso. -#}
 {% macro ico(name) -%}<svg viewBox="0 0 24 24" aria-hidden="true">{% if name == 'edit' %}<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/>{% elif name == 'trash' %}<path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/>{% elif name == 'up' %}<path d="M12 19V5"/><path d="m5 12 7-7 7 7"/>{% elif name == 'down' %}<path d="M12 5v14"/><path d="m19 12-7 7-7-7"/>{% elif name == 'left' %}<path d="M19 12H5"/><path d="m12 5-7 7 7 7"/>{% elif name == 'right' %}<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>{% elif name == 'plus' %}<path d="M12 5v14"/><path d="M5 12h14"/>{% elif name == 'out' %}<path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 14v6H4V6h6"/>{% endif %}</svg>{%- endmacro %}
+{#- Ayuda contextual: MISMO `(i)` del Hub que Cumpleaños (`.chart-tooltip-anchor` + `.activity-kpi__info` + `.chart-tooltip`). -#}
+{% macro help_tip(text) -%}
+<span class="chart-tooltip-anchor"><button type="button" class="activity-kpi__info" aria-label="{{ text }}"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 7.8v.2"/></svg></button><span class="chart-tooltip"><p>{{ text }}</p></span></span>
+{%- endmacro %}
 {% macro act(name, label, attrs, danger=false, disabled=false) -%}
 <button type="button" class="table-action-btn{{ ' table-action-btn--danger' if danger }} chart-tooltip-anchor" {{ attrs | safe }} aria-label="{{ label }}"{% if disabled %} disabled{% endif %}>{{ ico(name) }}<span class="chart-tooltip" aria-hidden="true"><p>{{ label }}</p></span></button>
 {%- endmacro %}
@@ -27,7 +31,7 @@
         {{ text_field('mission', 'Misión') }}
         {{ text_field('vision', 'Visión') }}
       </div>
-      <div class="ct-inst-subhead"><h3>Enlaces del encabezado</h3><span class="field-hint">El primero se destaca en Nosotros. Hasta 4.</span>
+      <div class="ct-inst-subhead"><h3>Enlaces del encabezado {{ help_tip("El primero se destaca en Nosotros. Hasta 4.") }}</h3>
         {% if (data.links or []) | length < 4 %}<button type="button" class="btn-secondary" data-in-link-new>+ Agregar enlace</button>{% endif %}</div>
       {% if data.links %}
       {% call dw_table('nos-enlaces', [{'key': 'nombre', 'label': 'Nombre', 'width': '28%', 'sort': false}, {'key': 'url', 'label': 'Dirección', 'width': '72%', 'sort': false}], actions_width='170px') %}
@@ -48,7 +52,7 @@
       <span class="dashboard-section__count">{{ (data['values'] or []) | length }}</span></summary>
     <div class="dashboard-section__body">
       {{ text_field('values_intro', 'Introducción', 3) }}
-      <div class="ct-inst-subhead"><h3>Valores</h3><span class="field-hint">Se numeran en este orden (01, 02…).</span><button type="button" class="btn-secondary" data-in-value-new>+ Nuevo valor</button></div>
+      <div class="ct-inst-subhead"><h3>Valores {{ help_tip("Se numeran en este orden (01, 02…).") }}</h3><button type="button" class="btn-secondary" data-in-value-new>+ Nuevo valor</button></div>
       {% if data['values'] %}
       {% call dw_table('nos-valores', [{'key': 'n', 'label': 'N.º', 'width': '7%', 'sort': false}, {'key': 'valor', 'label': 'Valor', 'width': '20%', 'sort': false}, {'key': 'descripcion', 'label': 'Descripción', 'width': '73%', 'sort': false}], actions_width='170px') %}
         {% for v in data['values'] %}<tr>
@@ -78,9 +82,10 @@
   {%- endmacro %}
   <details class="dashboard-section" data-section-id="organigrama" data-persist-collapse open>
     <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Organigrama</span>
+      {{ help_tip("Lo ven todos en Nosotros. Tocá una caja para editarla. Persona muestra nombre y cargo; Área se ve en amarillo y Puesto en gris.") }}
       <span class="dashboard-section__count">{{ (data.org or []) | length }} cajas</span></summary>
     <div class="dashboard-section__body">
-      <div class="ct-inst-subhead"><span class="field-hint">Lo ven todos en Nosotros. Tocá una caja para editarla. <b>Persona</b> muestra nombre y cargo; <b>Área</b> se ve en amarillo y <b>Puesto</b> en gris.</span>
+      <div class="ct-inst-subhead"><span></span>
         <button type="button" class="btn-secondary" data-in-node-add="">+ Nueva caja principal</button></div>
       <div class="ct-orgtree"><div class="ct-orgtree__root">Danwor</div>
         {% set tree = svc.org_tree(data.org or []) %}{% if tree %}<ul>{% for n in tree %}{{ og_node(n) }}{% endfor %}</ul>{% else %}<p class="field-hint">Sin cajas.</p>{% endif %}</div>
@@ -89,9 +94,9 @@
 
   <details class="dashboard-section" data-section-id="galeria" data-persist-collapse open>
     <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Galería</span>
+      {{ help_tip("Las fotos de cada álbum se suben a la carpeta SharePoint de Cartelera Virtual: disponible cuando se habilite la integración documental (acceso en verificación). Mientras tanto podés preparar los álbumes; en Nosotros solo se muestran los que tienen al menos una foto.") }}
       <span class="dashboard-section__count">{{ (data.albums or []) | length }} álbum{{ 'es' if (data.albums or []) | length != 1 else '' }}</span></summary>
     <div class="dashboard-section__body">
-      <p class="cartelera-pending" data-pending="sharepoint">Las fotos de cada álbum se suben a la carpeta SharePoint de Cartelera Virtual: disponible cuando se habilite la integración documental (acceso en verificación). Mientras tanto podés preparar los álbumes; en Nosotros solo se muestran los que tienen al menos una foto.</p>
       <div class="ct-inst-subhead"><span></span><button type="button" class="btn-secondary" data-in-album-new>+ Nuevo álbum</button></div>
       {% if data.albums %}
       {% call dw_table('nos-albumes', [{'key': 'album', 'label': 'Álbum', 'width': '30%'}, {'key': 'fecha', 'label': 'Fecha', 'width': '14%'}, {'key': 'descripcion', 'label': 'Descripción', 'width': '36%'}, {'key': 'fotos', 'label': 'Fotos', 'width': '20%', 'sort': false}], actions_width='110px') %}

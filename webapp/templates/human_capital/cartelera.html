@@ -1,7 +1,7 @@
 {% extends "human_capital/_cartelera_layout.html" %}
 {% block page_title %}Ediciones{% endblock %}
 {% block hero_actions %}
-  <a href="/cartelera" class="btn-secondary" target="_blank" rel="noopener">Ver portal de colaboradores ↗</a>
+  <a href="/cartelera" class="btn-secondary" target="_blank" rel="noopener">Abrir Cartelera ↗</a>
   <button type="button" class="btn-primary" data-ct-new-open>+ Nueva cartelera</button>
 {% endblock %}
 {% block cartelera_body %}
@@ -64,28 +64,19 @@
 {%- endmacro %}
 
 <div class="dashboard-sections" data-dashboard-key="cchh-cartelera-ediciones">
-  <details class="dashboard-section" data-section-id="vigente" open>
+  {#- «Carteleras vigentes»: la publicada y las que están en preparación en una sola tabla; el badge de Estado las diferencia. -#}
+  {% set _live = ([current] if current else []) + (preparing or []) %}
+  <details class="dashboard-section" data-section-id="vigentes" open>
     <summary class="dashboard-section__head">
       <span class="dashboard-section__caret"></span>
-      <span class="dashboard-section__title">Cartelera vigente</span>
-      <span class="dashboard-section__count">{{ 'Publicada' if current else 'Sin publicar' }}</span>
+      <span class="dashboard-section__title">Carteleras vigentes</span>
+      <span class="dashboard-section__count">{{ 1 if current else 0 }} publicada · {{ (preparing or []) | length }} en preparación</span>
     </summary>
     <div class="dashboard-section__body">
-      {% if current %}{{ editions_table([current], 'current') }}
-      {% else %}<div class="dashboard-empty" data-empty-kind="dataset_empty"><span class="dashboard-empty__label">Sin cartelera vigente</span><p>Todavía no hay una edición publicada. Creá una con «+ Nueva cartelera» y publicala o programala.</p></div>{% endif %}
+      {% if _live %}{{ editions_table(_live, 'vigentes') }}
+      {% else %}<div class="dashboard-empty" data-empty-kind="dataset_empty"><span class="dashboard-empty__label">Sin cartelera vigente</span><p>Todavía no hay una edición publicada ni en preparación. Creá una con «+ Nueva cartelera» y publicala o programala.</p></div>{% endif %}
     </div>
   </details>
-
-  {% if preparing %}
-  <details class="dashboard-section" data-section-id="preparacion" open>
-    <summary class="dashboard-section__head">
-      <span class="dashboard-section__caret"></span>
-      <span class="dashboard-section__title">Ediciones en preparación</span>
-      <span class="dashboard-section__count">{{ preparing | length }} edici{{ 'ón' if preparing | length == 1 else 'ones' }}</span>
-    </summary>
-    <div class="dashboard-section__body">{{ editions_table(preparing, 'preparing') }}</div>
-  </details>
-  {% endif %}
 
   <details class="dashboard-section" data-section-id="historico">
     <summary class="dashboard-section__head">
