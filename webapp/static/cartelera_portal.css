@@ -400,5 +400,8 @@ a.chip{text-decoration:none}
    Solo CSS (se recalcula al instante en el editor, al mover, ordenar o cambiar el ancho); sin alturas fijas ni datos en el modelo. */
 .cat-sec:not(.wide):not(.duo){display:flex;flex-direction:column}
 .cat-sec:not(.wide):not(.duo)>.item:last-of-type{flex:1 1 auto}
-.cat-sec:not(.wide):not(.duo) .item{display:flex;flex-direction:column}
-.cat-sec:not(.wide):not(.duo) .item>.ct-social{margin-top:auto}
+/* Cualquier tile de Novedades que comparta fila con otro (dos columnas `.duo`, grilla de Proyectos o secciones lado a lado) ya mide lo
+   mismo por la grilla; como columna flex, su botonera (.ct-social) baja al pie y el contenido editorial queda arriba. Sin fila compartida
+   no hay espacio extra: alto natural. */
+.cat-sec .item{display:flex;flex-direction:column}
+.cat-sec .item>.ct-social{margin-top:auto}
