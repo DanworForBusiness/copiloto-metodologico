@@ -73,3 +73,15 @@ def test_stale_revision_never_overwrites(editions):
     cur, _, _ = editions
     with pytest.raises(repo.CarteleraConcurrentModificationError):
         svc.save_content(cur, 99, title="x", subtitle="", sections=[], actor="t")
+
+
+def test_the_portal_always_uses_its_light_identity_whatever_the_hub_content_theme(editions):
+    """Abrir la Cartelera desde el Hub con contenido oscuro (cookie `dw-content-theme=dark`) o desde el wrapper institucional: siempre clara."""
+    cchh = session_client(CCHH_EMAIL)
+    for path in ("/cartelera", "/cartelera/novedades", "/cartelera/nosotros", "/cartelera/comunidad"):
+        for theme in ("dark", "light", None):
+            cchh.cookies.delete("dw-content-theme")
+            if theme:
+                cchh.cookies.set("dw-content-theme", theme)
+            html = cchh.get(path).text
+            assert '<html lang="es" data-theme="light">' in html, (path, theme)

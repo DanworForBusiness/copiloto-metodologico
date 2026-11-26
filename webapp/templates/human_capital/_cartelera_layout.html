@@ -44,6 +44,9 @@
       {% if error %}<div class="callout callout--warn callout--feedback" role="alert"><div class="callout__body field-hint"><p>{{ error }}</p></div></div>{% endif %}
       {% endblock %}
       {% block cartelera_body %}{% endblock %}
+      {#- Cumpleaños persiste en el Excel de SharePoint: abrir CUALQUIER pestaña de Gestión (con Capital Humano) mantiene al día la copia que
+          leen el portal y todas las experiencias (token de lectura del hook transversal de `hub_auth.js`; sin recargar esta vista). -#}
+      {% if bd_source_on and _hc and tab != 'cumpleanos' %}<div hidden data-dw-graph-token hx-post="/cchh/cartelera/cumpleanos/fuente" hx-vals='{"reload": "0"}' hx-trigger="load" hx-swap="none"></div>{% endif %}
     </div>
   </main>
 </div>

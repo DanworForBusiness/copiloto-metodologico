@@ -109,7 +109,7 @@ def _shell(request: Request, user: dict, tab: str, **extra) -> dict:
     hc = human_capital_access.is_human_capital_authorized_user(user)
     return {"current_workspace": workspaces.HUMAN_CAPITAL, "hc_full": hc, "available_workspaces": workspaces.available_workspaces(user),
             "pack": DEFAULT_PACK, "user": user, "active_page": "cartelera", "tabs": _tabs_for(user), "tab": tab, "svc": svc,
-            "ok": request.query_params.get("ok", ""), "error": request.query_params.get("error", ""), **extra}
+            "ok": request.query_params.get("ok", ""), "error": request.query_params.get("error", ""), "bd_source_on": bd_source.ENABLED, **extra}
 
 
 def _back(path: str, *, ok: str = "", error: str = "") -> RedirectResponse:
@@ -350,7 +350,7 @@ def birthdays_page(request: Request, q: str = "", mes: str = "", autorizacion: s
 
 
 @router.post(f"{BASE}/cumpleanos/fuente", response_class=HTMLResponse, include_in_schema=False)
-def birthdays_source_refresh(request: Request, graph_token: str = Form(""), force: str = Form("")):
+def birthdays_source_refresh(request: Request, graph_token: str = Form(""), force: str = Form(""), reload: str = Form("1")):
     """Lee el Excel de SharePoint con el token DELEGADO de quien abre Gestión (inyectado por `data-dw-graph-token`, MISMO hook que la
     actualización de Catálogos CCHH). Si el contenido cambió, recarga la página; si no, devuelve el estado de la fuente."""
     user = _admin_write(request)
@@ -359,7 +359,7 @@ def birthdays_source_refresh(request: Request, graph_token: str = Form(""), forc
     error, headers = None, dict(_NO_STORE)
     try:
         result = bd_source.refresh(graph_token, actor=_actor(user), force=force == "1")
-        if result["changed"]:
+        if result["changed"] and reload != "0":
             headers["HX-Refresh"] = "true"
     except bd_source.SourceError as exc:
         error = {"kind": exc.kind, "message": str(exc), "detail": exc.detail}

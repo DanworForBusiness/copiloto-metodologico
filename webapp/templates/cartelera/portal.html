@@ -22,7 +22,10 @@
 {%- from 'cartelera/_social.html' import social_block with context -%}
 {%- macro ic(name, cls='') -%}<svg class="svg {{ cls }}" viewBox="0 0 24 24" aria-hidden="true"><path d="{{ ICONS.get(name, ICONS['star']) }}"/></svg>{%- endmacro -%}
 <!doctype html>
-<html lang="es" data-theme="{{ 'dark' if request.cookies.get('dw-content-theme') == 'dark' else 'light' }}">
+{#- Identidad visual CLARA homologada, siempre: el portal NO hereda la preferencia de contenido del Hub (cookie `dw-content-theme`, que solo
+    llega cuando se abre desde el Hub y no desde el wrapper institucional de danwor.com). Vale igual para Inicio, Novedades, Comunidad, Nosotros,
+    saludos y la vista del colaborador del editor (misma plantilla). La preferencia del Hub no se toca. -#}
+<html lang="es" data-theme="light">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Cartelera Virtual · {{ {'inicio': 'Inicio', 'novedades': 'Novedades', 'nosotros': 'Nosotros', 'comunidad': 'Comunidad', 'saludo': 'Cumpleaños'}.get(page, 'Inicio') }} | Danwor</title>

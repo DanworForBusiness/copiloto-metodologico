@@ -315,6 +315,8 @@ def test_the_marker_is_declarative_and_carries_no_credential():
         # Cartelera Virtual → Cumpleaños con el Excel de SharePoint como fuente (SOLO LECTURA): lectura automática al abrir Gestión (1) y
         # «Actualizar desde SharePoint» (1); token base de LECTURA (`Sites.Read.All`) en el cuerpo del POST, nada se guarda ni viaja en el markup.
         "human_capital/cartelera_cumpleanos.html": 2,
+        # …y la lectura silenciosa al abrir cualquier otra pestaña de Gestión de cartelera (1), sin recargar la vista.
+        "human_capital/_cartelera_layout.html": 1,
     }
     found = {}
     for path in sorted(_TEMPLATES.glob("**/*.html")):
