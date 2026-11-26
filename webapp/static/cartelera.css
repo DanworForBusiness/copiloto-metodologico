@@ -254,7 +254,11 @@ a.ct-space:hover { border-color: var(--ct-gold); }
 .ct-clip { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
 
 /* «Nosotros y galería»: textos institucionales de solo lectura con su lápiz (edición contextual) y subtítulos con la acción de alta. */
-.ct-inst-grid { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+.ct-inst-grid { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); align-items: stretch; }
+/* Mismo alto en la fila: cada campo se estira a la altura de la celda (la del texto más largo) y su recuadro ocupa el resto; el texto queda
+   arriba. Al apilarse, cada fila vuelve a su altura natural (grid). */
+.ct-inst-grid > .ct-inst-text { display: flex; flex-direction: column; }
+.ct-inst-grid > .ct-inst-text > .ct-inst-text__value { flex: 1 1 auto; }
 .ct-inst-text__head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .ct-inst-text__value { white-space: pre-wrap; line-height: 1.5; }
 .ct-inst-subhead { display: flex; align-items: center; gap: 12px; margin: 18px 0 10px; flex-wrap: wrap; }
