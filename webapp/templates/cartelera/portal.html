@@ -209,7 +209,7 @@
       {% if E and not layout_mode %}<div class="ct-ed ct-banner-tools" contenteditable="false"><button type="button" class="btn sm" disabled title="Disponible con la integración documental de SharePoint">{{ ic('image') }}Imagen de portada · pendiente</button></div>{% endif %}
     </section>
     <nav class="cart-nav" aria-label="Secciones de Novedades"{% if E %} data-ct-nav{% endif %}>
-      {% for sec in edition.sections %}{% set meta = svc.SECTION_BY_KEY[sec.key] %}{% if E or sec['items'] or meta.kind == 'birthdays' or (meta.kind == 'links' and links) %}<a class="chip" href="#sec-{{ sec.key }}"{% if E %} data-ct-chip="{{ sec.key }}"{% endif %}>{{ ic(SECTION_ICON.get(sec.key, 'star')) }}{{ meta.title }}</a>{% endif %}{% endfor %}
+      {% for sec in edition.sections %}{% set meta = svc.SECTION_BY_KEY[sec.key] %}{% if E or sec['items'] or meta.kind == 'birthdays' or (meta.kind == 'links' and links) %}<a class="chip" href="#sec-{{ sec.key }}" title="{{ meta.title }}"{% if E %} data-ct-chip="{{ sec.key }}"{% endif %}>{{ ic(SECTION_ICON.get(sec.key, 'star')) }}<span class="chip-t">{{ meta.title }}</span></a>{% endif %}{% endfor %}
     </nav>
     <div class="cart-grid"{% if E %} data-ct-grid{% endif %}>
     {% for sec in edition.sections %}{% set meta = svc.SECTION_BY_KEY[sec.key] %}

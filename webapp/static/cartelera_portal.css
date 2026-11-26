@@ -183,7 +183,15 @@ label.f span.h{font-weight:400;color:var(--muted);font-size:12px}
 .cart-banner .txt .eyebrow{color:var(--gold)}
 .cart-banner .txt p{color:#CFCFCC;margin:0;max-width:52ch}
 .cart-banner img{height:100%;max-height:260px;width:auto;max-width:100%;object-fit:cover;display:block}
-.cart-nav{display:flex;gap:8px;flex-wrap:wrap;margin:20px 0}
+/* Chips de secciones de Novedades: una sola línea. Si no entran, primero se acorta el ÚLTIMO con «…» (factor de encogimiento alto, piso de
+   ícono + unas letras); recién después, en pantallas angostas, se acortan los demás. El título completo queda en `title`. */
+.cart-nav{display:flex;gap:8px;flex-wrap:nowrap;margin:20px 0;min-width:0}
+.cart-nav .chip{flex:0 1 auto;min-width:0;overflow:hidden}
+.cart-nav .chip:last-child{flex-shrink:1000;min-width:72px}
+.cart-nav .chip .svg{flex:none}
+.cart-nav .chip-t{min-width:0;overflow:hidden;text-overflow:ellipsis}
+/* Celular: misma línea, pero con desplazamiento horizontal y textos completos (patrón de las categorías de Comunidad), para no quedar en solo íconos. */
+@media (max-width:760px){.cart-nav{overflow-x:auto;padding-bottom:4px;scrollbar-width:none}.cart-nav::-webkit-scrollbar{display:none}.cart-nav .chip,.cart-nav .chip:last-child{flex:none;min-width:auto}}
 .cart-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}
 .cat-sec{display:grid;gap:12px;align-content:start}
 .cat-sec.wide{grid-column:1/-1}
