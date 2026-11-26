@@ -193,7 +193,8 @@ async def edition_save_content(request: Request, month: str):
         before = social.item_targets(svc.get_edition(month))
         saved = svc.save_content(month, revision, title=body.get("title", ""), subtitle=body.get("subtitle", ""),
                                  sections=list(body.get("sections") or []), actor=_actor(user),
-                                 home=body.get("home") if isinstance(body.get("home"), dict) else None)
+                                 home=body.get("home") if isinstance(body.get("home"), dict) else None,
+                                 about=body.get("about") if isinstance(body.get("about"), dict) else None)
         social.purge_targets(sorted(before - social.item_targets(saved)))             # contenidos quitados: sin interacciones huérfanas
     except repo.CarteleraNotFoundError:
         raise HTTPException(404, "La edición no existe") from None
@@ -250,7 +251,8 @@ async def edition_live_preview(request: Request, month: str):
         body = await request.json()
         build = svc.draft_edition if edit else svc.preview_edition
         edition = build(month, title=body.get("title", ""), subtitle=body.get("subtitle", ""), sections=list(body.get("sections") or []),
-                        home=body.get("home") if isinstance(body.get("home"), dict) else None)
+                        home=body.get("home") if isinstance(body.get("home"), dict) else None,
+                        about=body.get("about") if isinstance(body.get("about"), dict) else None)
     except repo.CarteleraNotFoundError:
         raise HTTPException(404, "La edición no existe") from None
     except (svc.CarteleraValidationError, ValueError, TypeError, AttributeError) as exc:
@@ -684,6 +686,8 @@ def _render_portal(request: Request, page: str, *, edition: dict | None = None, 
            "clean_view": clean_view,
            "edition": edition, "links": svc.site_links(), "brand_logo_url": BRAND_LOGO_URL,
            "editions": svc.visible_editions(), "inst": svc.institutional(), "org_tree": svc.org_tree, "today_month": svc.month_key(),
+           # Nosotros de ESTA edición (herencia institucional + personalizaciones); sin edición en contexto, la vigente.
+           "about": svc.about_view(edition if edition is not None else svc.current_edition()),
            "today_day": svc.now_utc().astimezone(svc.BUSINESS_TZ).day,
            "upcoming": svc.upcoming_birthdays(7), "can_manage": human_capital_access.is_human_capital_authorized_user(user),
            "live_greetings": svc.live_greetings(svc.now_utc().astimezone(svc.BUSINESS_TZ).year),

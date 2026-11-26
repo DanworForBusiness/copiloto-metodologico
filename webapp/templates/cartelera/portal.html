@@ -17,7 +17,7 @@
   'plus': 'M12 5v14M5 12h14', 'trash': 'M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6', 'swap': 'M7 7h11l-3-3M17 17H6l3 3', 'edit': 'M4 20h4L19 9l-4-4L4 16zM14 6l4 4',
   'bell': 'M6 16V11a6 6 0 1 1 12 0v5l2 2H4zM10 21h4', 'chat': 'M4 5h16v11H9l-5 4z', 'flag': 'M5 21V4M5 4h11l-2 4 2 4H5',
   'shield': 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z', 'pin': 'M9 4h6l-1 6 3 3H7l3-3zM12 13v8', 'poll': 'M4 20V12M9 20V6M14 20v-9M19 20V9',
-  'x': 'M6 6l12 12M18 6L6 18', 'search': 'M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM20 20l-4-4', 'clock': 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2'} -%}
+  'x': 'M6 6l12 12M18 6L6 18', 'undo': 'M9 14L4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11', 'search': 'M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM20 20l-4-4', 'clock': 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2'} -%}
 {%- set SECTION_ICON = {'comunicados': 'megaphone', 'proyectos': 'rocket', 'bienestar': 'heart', 'aprendizaje': 'bulb', 'cumpleanos': 'cake', 'otros': 'star', 'beneficios': 'gift'} -%}
 {%- from 'cartelera/_social.html' import social_block with context -%}
 {%- macro ic(name, cls='') -%}<svg class="svg {{ cls }}" viewBox="0 0 24 24" aria-hidden="true"><path d="{{ ICONS.get(name, ICONS['star']) }}"/></svg>{%- endmacro -%}
@@ -72,6 +72,13 @@
 {% macro home_edit(key, ph) -%}
   {%- if edition and edit_mode and not layout_mode -%}<span class="ct-edit" contenteditable="plaintext-only" spellcheck="true" data-ct-home="{{ key }}" data-ph="{{ ph }}">{{ svc.home_text(edition, key) }}</span>
   {%- else -%}{{ svc.home_text(edition, key) }}{%- endif -%}
+{%- endmacro %}
+
+{#- Nosotros en el lienzo: texto editable (mismo `.ct-edit`) con el institucional en `data-inst`; si difiere, queda marcado «Personalizado»
+    con la acción de restablecer. Fuera del lienzo (o en modo Ordenar), texto plano sin marcas. -#}
+{% macro about_edit(key, value, base, custom, multi=False, ph='', vkey='', vf='') -%}
+  {%- if edit_mode and not layout_mode and edition -%}<span class="ct-about{{ ' is-custom' if custom else '' }}" data-ct-about-wrap><span class="ct-edit" contenteditable="plaintext-only" spellcheck="true" data-ct-about="{{ key }}"{% if vkey %} data-vkey="{{ vkey }}" data-vf="{{ vf }}"{% endif %} data-inst="{{ base }}" data-ph="{{ ph }}"{% if multi %} data-multi{% endif %}>{{ value }}</span><span class="ct-ed ct-custom-tag" contenteditable="false"{% if not custom %} hidden{% endif %}>Personalizado<button type="button" class="icon-btn ct-ed-btn" data-ct-act="about-reset" title="Restablecer el contenido institucional" aria-label="Restablecer el contenido institucional">{{ ic('undo') }}</button></span></span>
+  {%- else -%}{{ value }}{%- endif -%}
 {%- endmacro %}
 
 {% macro links_html(items) -%}
@@ -380,23 +387,27 @@
 {% endif %}
 {% if 'nosotros' in pages %}{{ page_open('nosotros') }}
 <div class="stack">
-  {% if edit_mode %}<p class="ct-ed ct-note" contenteditable="false">{{ ic('star') }}Nosotros no forma parte de la edición del mes: misión, visión, valores y galería se administran en la pestaña «Nosotros y galería».</p>{% endif %}
+  {#- Textos de Nosotros = `about` (svc.about_view): institucional vigente heredado o personalizado para ESTA edición. Organigrama, galería y
+      enlaces siguen saliendo de `inst` (siempre globales). En el lienzo, `about_edit` los hace editables y marca/restablece lo personalizado. -#}
+  {% set AB = about.fields %}{% set AE = edit_mode and not layout_mode and edition %}
+  {% if edit_mode %}<p class="ct-ed ct-note" contenteditable="false">{{ ic('star') }}Nosotros hereda el contenido institucional de «Nosotros y galería». Podés personalizar sus textos solo para esta edición: lo personalizado se marca y se puede restablecer. Organigrama, galería y enlaces se administran en esa pestaña.</p>{% endif %}
   <section class="hero-main mv-hero">
     <span class="eyebrow" style="color:var(--gold)">Nosotros</span>
-    <h1>Misión, visión y valores</h1>
-    {% if inst.intro %}<p>{{ inst.intro }}</p>{% endif %}
+    <h1>{{ about_edit('title', AB.title, about.base.title, 'title' in about.custom, ph='Título') }}</h1>
+    {% if AB.intro or AE %}<p>{{ about_edit('intro', AB.intro, about.base.intro, 'intro' in about.custom, multi=True, ph='Presentación') }}</p>{% endif %}
     {% if inst.links %}<div class="row" style="position:relative;z-index:1">{% for l in inst.links %}<a class="btn{{ ' primary' if loop.first else '' }}"{% if not loop.first %} style="background:transparent;color:#F5F5F3;border-color:#5A5A5B"{% endif %} href="{{ l.url }}" target="_blank" rel="noopener">{{ ic('out') }}{{ l.label }}</a>{% endfor %}</div>{% endif %}
   </section>
-  {% if inst.mission or inst.vision %}
+  {% if AB.mission or AB.vision or AE %}
   <section class="mv-grid">
-    {% if inst.mission %}<div class="card pad mv-item"><span class="eyebrow">Misión</span><p>{{ inst.mission }}</p></div>{% endif %}
-    {% if inst.vision %}<div class="card pad mv-item"><span class="eyebrow">Visión</span><p>{{ inst.vision }}</p></div>{% endif %}
+    {% if AB.mission or AE %}<div class="card pad mv-item"><span class="eyebrow">Misión</span><p>{{ about_edit('mission', AB.mission, about.base.mission, 'mission' in about.custom, multi=True, ph='Misión') }}</p></div>{% endif %}
+    {% if AB.vision or AE %}<div class="card pad mv-item"><span class="eyebrow">Visión</span><p>{{ about_edit('vision', AB.vision, about.base.vision, 'vision' in about.custom, multi=True, ph='Visión') }}</p></div>{% endif %}
   </section>{% endif %}
-  {% if inst['values'] %}
+  {% if about['values'] %}
   <section class="stack" style="gap:12px">
     <h2 style="margin:8px 0 0">Nuestros valores</h2>
-    {% if inst.values_intro %}<p class="muted" style="margin:0;max-width:80ch">{{ inst.values_intro }}</p>{% endif %}
-    <div class="val-grid">{% for v in inst['values'] %}<div class="card pad val"><h3><span class="val-n">{{ '%02d' | format(loop.index) }}</span>{{ v.title }}</h3><p>{{ v.text }}</p></div>{% endfor %}</div>
+    {% if AB.values_intro or AE %}<p class="muted" style="margin:0;max-width:80ch">{{ about_edit('values_intro', AB.values_intro, about.base.values_intro, 'values_intro' in about.custom, multi=True, ph='Introducción de los valores') }}</p>{% endif %}
+    {#- Solo nombre y descripción de los valores existentes: sin altas, bajas ni orden desde el editor mensual. -#}
+    <div class="val-grid">{% for v in about['values'] %}<div class="card pad val"><h3><span class="val-n">{{ '%02d' | format(loop.index) }}</span>{{ about_edit('value', v.title, v.base_title, v.custom_title, ph='Nombre del valor', vkey=v.key, vf='title') }}</h3><p>{{ about_edit('value', v.text, v.base_text, v.custom_text, multi=True, ph='Descripción', vkey=v.key, vf='text') }}</p></div>{% endfor %}</div>
   </section>{% endif %}
   {#- Organigrama y galería: MISMO marcado que `orgChartHtml` y `galleryHtml` de la app original (clases `.org`, `.og-*`, `.gal-*` de
       cartelera_portal.css), sin los accesos de administración. El organigrama es contenido estructurado de «Nosotros y galería»; en su raíz va

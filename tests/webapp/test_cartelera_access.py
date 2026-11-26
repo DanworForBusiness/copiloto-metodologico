@@ -120,3 +120,37 @@ def test_home_texts_are_editorial_content_of_each_edition_with_defaults_copy_and
     draft = svc.draft_edition(cur, title="Portada", subtitle="", sections=[], home={"welcome": "Borrador local"})
     assert draft["home"]["welcome"] == "Borrador local" and draft["home"]["about"] == "Quiénes somos."
     assert svc.preview_edition(cur, title="Portada", subtitle="", sections=[], home={"about": "Vista previa"})["home"]["about"] == "Vista previa"
+
+
+def test_about_inherits_institutional_content_with_optional_per_edition_personalization(editions):
+    """Nosotros por edición: hereda el institucional; guarda SOLO lo personalizado; restablecer = dejar de enviarlo; nunca toca el institucional;
+    los valores se identifican por su nombre institucional; se copia con la edición; el portal respeta la edición del contexto."""
+    cur, _, prv = editions
+    svc.save_institutional(None, mission="Misión global", vision="Visión global", values=[{"title": "Integridad", "text": "Ser íntegros"},
+                           {"title": "Empatía", "text": "Ponerse en el lugar"}], albums=[], actor="t", intro="Intro global", values_intro="Intro valores")
+    assert svc.about_view(repo.get("editions", cur))["custom"] == set()
+    rev = repo.get("editions", cur)["revision"]
+    about = {"title": "Nuestra esencia", "mission": "Misión de noviembre", "vision": "Visión global",            # igual al institucional: no se guarda
+             "values": {"integridad": {"title": "Integridad siempre", "text": "Ser íntegros"}, "inexistente": {"title": "x"}}}
+    saved = svc.save_content(cur, rev, title="P", subtitle="", sections=[], actor="t", about=about)
+    assert saved["about"] == {"title": "Nuestra esencia", "mission": "Misión de noviembre", "values": {"integridad": {"title": "Integridad siempre"}}}
+    inst = svc.institutional()
+    assert inst["mission"] == "Misión global" and inst["values"][0]["title"] == "Integridad"                      # el institucional, intacto
+    view = svc.about_view(saved)
+    assert view["fields"]["vision"] == "Visión global" and view["custom"] == {"title", "mission"}
+    assert view["values"][0]["title"] == "Integridad siempre" and view["values"][0]["text"] == "Ser íntegros" and view["values"][1]["title"] == "Empatía"
+    cchh = session_client(CCHH_EMAIL)
+    html = cchh.get("/cartelera/nosotros").text                                                                      # sin edición: la vigente
+    assert "Nuestra esencia" in html and "Misión de noviembre" in html and "data-ct-about" not in html
+    copy = svc.copy_edition(cur, "2031-02", actor="t")
+    assert copy["about"] == saved["about"]
+    svc.save_institutional(svc.institutional()["revision"], mission="Misión global 2", vision="Visión nueva", values=inst["values"], albums=[],
+                           actor="t", intro="Intro global", values_intro="Intro valores")
+    view = svc.about_view(repo.get("editions", "2031-02"))
+    assert view["fields"]["vision"] == "Visión nueva" and view["fields"]["mission"] == "Misión de noviembre"        # hereda lo no personalizado
+    saved = svc.save_content(cur, saved["revision"], title="P", subtitle="", sections=[], actor="t", about={"title": "Nuestra esencia"})
+    assert saved["about"] == {"title": "Nuestra esencia"}                                                            # restablecer = ya no se envía
+    saved = svc.save_content(cur, saved["revision"], title="P", subtitle="", sections=[], actor="t")
+    assert saved["about"] == {"title": "Nuestra esencia"}                                                            # sin `about` (Ordenar): se conserva
+    draft = svc.draft_edition(cur, title="P", subtitle="", sections=[], about={"mission": "Borrador"})
+    assert svc.about_view(draft)["fields"]["mission"] == "Borrador"

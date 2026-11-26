@@ -31,6 +31,16 @@
     return { id: item.dataset.id, title: field(item, "title"), body: field(item, "body"), link, link_label: link ? field(item, "link_label") : "" };
   }
   function sections() { return $$("[data-ct-sec]", canvas); }
+  const instText = el => (el.dataset.inst || "").replace(/\r\n/g, "\n").trim();
+  // Campos de una línea por `textContent` (innerText devuelve lo que muestra el CSS, p. ej. los nombres de valores en mayúsculas).
+  const aboutText = el => el.hasAttribute("data-multi") ? text(el) : el.textContent.replace(/ /g, " ").trim();
+  const aboutCustom = el => { const v = aboutText(el); return !!v && v !== instText(el); };
+  function aboutMark(el) {                                                          // marca discreta «Personalizado» + restablecer
+    const wrap = el.closest("[data-ct-about-wrap]"); if (!wrap) return;
+    const on = aboutCustom(el);
+    wrap.classList.toggle("is-custom", on);
+    const tag = $(".ct-custom-tag", wrap); if (tag) tag.hidden = !on;
+  }
   function serialize() {
     const greet = $("[data-ct-greeting] [data-ct-item]");
     if (greet) { const it = readItem(greet, "general"); delete it.id; return it; }
@@ -38,9 +48,17 @@
     // (en modo Ordenar no viajan y el servidor conserva los guardados).
     const homeEls = $$("[data-ct-home]"), home = {};
     homeEls.forEach(el => { home[el.dataset.ctHome] = text(el); });
+    // Nosotros: SOLO lo personalizado (distinto del institucional y no vacío); el resto se hereda. Valores por su clave institucional.
+    const aboutEls = $$("[data-ct-about]"), about = {};
+    aboutEls.forEach(el => {
+      if (!aboutCustom(el)) return;
+      if (el.dataset.vkey) { const v = (about.values = about.values || {}); (v[el.dataset.vkey] = v[el.dataset.vkey] || {})[el.dataset.vf] = aboutText(el); }
+      else about[el.dataset.ctAbout] = aboutText(el);
+    });
     return {
       title: text($('.cart-banner [data-ct-f="title"]')), subtitle: text($('.cart-banner [data-ct-f="subtitle"]')),
       ...(homeEls.length ? { home } : {}),
+      ...(aboutEls.length ? { about } : {}),
       sections: sections().map(sec => ({ key: sec.dataset.ctSec, wide: sec.dataset.ctKind === "general" && sec.classList.contains("wide"),
         items: $$("[data-ct-item]", sec).map(it => readItem(it, sec.dataset.ctKind)) })),
     };
@@ -149,7 +167,7 @@
 
   // ── textos: texto plano, Enter solo donde corresponde, sin navegación ───────────────────────────────────────────────────────────
   function wireText(root) {
-    $$("[data-ct-f], [data-ct-mirror], [data-ct-home]", root).forEach(el => {
+    $$("[data-ct-f], [data-ct-mirror], [data-ct-home], [data-ct-about]", root).forEach(el => {
       if (el.dataset.ctWired) return;
       el.dataset.ctWired = "1";
       el.addEventListener("keydown", ev => {
@@ -166,6 +184,7 @@
         if (!el.textContent.trim() && el.innerHTML !== "") el.innerHTML = "";
         const f = el.dataset.ctMirror || (el.closest(".cart-banner") ? el.dataset.ctF : "");
         if (f === "title" || f === "subtitle") syncMirror(f, el);
+        if (el.dataset.ctAbout) aboutMark(el);
         changed();
       });
     });
@@ -209,6 +228,11 @@
 
   async function act(btn) {
     const a = btn.dataset.ctAct, item = btn.closest("[data-ct-item]"), sec = btn.closest("[data-ct-sec]"), H = host();
+    if (a === "about-reset") {                                                      // Nosotros: vuelve al institucional (deja de personalizarse)
+      const wrap = btn.closest("[data-ct-about-wrap]"), el = wrap && $("[data-ct-about]", wrap);
+      if (el) { el.textContent = instText(el); aboutMark(el); changed(); }
+      return;
+    }
     if (a === "wide") { sec.classList.toggle("wide"); changed(); return; }
     if (a === "secup" || a === "secdown") {
       const all = sections().filter(s => s.dataset.ctKind !== "links"), i = all.indexOf(sec), j = a === "secup" ? i - 1 : i + 1;
