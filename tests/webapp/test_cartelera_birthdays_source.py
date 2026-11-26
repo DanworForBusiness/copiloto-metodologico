@@ -113,12 +113,13 @@ def test_parser_reads_structure_identity_and_consent_without_keeping_the_year_or
     out = sp.parse_workbook(_xlsx([["Nombre y apellido", "Fecha de nacimiento", "Email", "Autoriza publicación"],
                                    ["Ana Pérez", datetime(1990, 3, 14), "ana@danwor.com", "Sí"],
                                    ["Juan Gómez", "02/11/1985", "", ""]]))
-    assert out["identity_basis"] == "mixed" and out["consent_column"] == "Autoriza publicación"
-    ana, juan = out["rows"]
+    assert out["identity_basis"] == "email" and out["consent_column"] == "Autoriza publicación"
+    [ana] = out["rows"]                                                                        # Juan no tiene Email: no se incorpora
     assert (ana["name"], ana["day"], ana["month"], ana["authorized"]) == ("Ana Pérez", 14, 3, True)
-    assert (juan["day"], juan["month"], juan["authorized"]) == (2, 11, False)                 # vacío ≠ autorizado
-    assert set(ana) == {"id", "name", "day", "month", "authorized", "row"}                     # sin año ni correo
-    assert any("sin correo ni legajo" in w for w in out["warnings"])                           # solo Juan: identidad débil, informada
+    assert "year" not in ana and any("sin Email" in w for w in out["warnings"])
+    plain = sp.parse_workbook(_xlsx([HEAD, ["Juan", "Gómez", "02/11", ""]]))["rows"][0]
+    assert (plain["day"], plain["month"], plain["authorized"]) == (2, 11, False)              # vacío ≠ autorizado
+    assert "email" not in plain and any("sin correo ni legajo" in w for w in sp.parse_workbook(_xlsx([HEAD, ["Juan", "Gómez", "02/11", ""]]))["warnings"])
 
 
 def test_identity_is_stable_across_row_order_and_does_not_depend_on_the_row_number():
@@ -162,7 +163,7 @@ def test_read_errors_keep_the_last_valid_read_model(wb, monkeypatch):
 # ── escritura ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 def test_edit_writes_only_the_changed_cells_keeping_format_and_identity_for_the_greetings(wb):
     ana = _by_name("Ana Pérez")
-    svc.save_birthday(ana["id"], ana["revision"], name="Ana Pérez", day=14, month=3, authorized=False, actor="qa", write_token="w")
+    svc.save_birthday(ana["id"], ana["revision"], first_name="Ana", last_name="Pérez", day=14, month=3, authorized=False, actor="qa", write_token="w")
     assert len([c for c in wb.calls if c[0] == "PATCH"]) == 1                                   # una sola celda
     assert wb.grid[1] == ["Ana", "Pérez", "14/03", "NO"]                                       # solo «Autorizo», con el vocabulario del Excel
     assert wb.grid[3] == ["Notas", "", "", ""]                                                  # el resto del contenido intacto
@@ -171,7 +172,7 @@ def test_edit_writes_only_the_changed_cells_keeping_format_and_identity_for_the_
 
 def test_date_is_written_in_the_same_format_the_excel_uses(wb):
     juan = _by_name("Juan Gómez")
-    svc.save_birthday(juan["id"], juan["revision"], name="Juan Gómez", day=5, month=1, authorized=False, actor="qa", write_token="w")
+    svc.save_birthday(juan["id"], juan["revision"], first_name="Juan", last_name="Gómez", day=5, month=1, authorized=False, actor="qa", write_token="w")
     assert wb.grid[2][2] == "05/01"
 
 
@@ -179,20 +180,20 @@ def test_a_change_made_in_excel_after_opening_the_dialog_is_never_overwritten(wb
     ana = _by_name("Ana Pérez")
     wb.grid[1][3] = "NO"                                                                       # un tercero la cambió en el Excel
     with pytest.raises(repo.CarteleraConcurrentModificationError):
-        svc.save_birthday(ana["id"], ana["revision"], name="Ana Pérez", day=20, month=3, authorized=True, actor="qa", write_token="w")
+        svc.save_birthday(ana["id"], ana["revision"], first_name="Ana", last_name="Pérez", day=20, month=3, authorized=True, actor="qa", write_token="w")
     assert wb.grid[1] == ["Ana", "Pérez", "14/03", "NO"] and not [c for c in wb.calls if c[0] == "PATCH"]
 
 
 def test_add_appends_a_row_after_the_used_range_and_refreshes_gestion_and_portal(wb):
-    svc.save_birthday(None, None, name="María José Ruiz", day=1, month=12, authorized=True, actor="qa", write_token="w")
-    assert wb.grid[4] == ["María", "José Ruiz", "01/12", "SI"]
+    svc.save_birthday(None, None, first_name="María José", last_name="Ruiz", day=1, month=12, authorized=True, actor="qa", write_token="w")
+    assert wb.grid[4] == ["María José", "Ruiz", "01/12", "SI"]                                 # cada campo en su columna, sin inferir
     assert [b["name"] for b in svc.public_birthdays()] == ["Ana Pérez", "María José Ruiz"]
     with pytest.raises(svc.CarteleraValidationError):                                          # duplicado
-        svc.save_birthday(None, None, name="María José Ruiz", day=1, month=12, authorized=True, actor="qa", write_token="w")
+        svc.save_birthday(None, None, first_name="María José", last_name="Ruiz", day=1, month=12, authorized=True, actor="qa", write_token="w")
 
 
 def test_bulk_import_writes_all_new_rows_in_one_write(wb):
-    created, rejected = svc.import_birthdays("Pedro Sosa;03/04\nAna Pérez;14/03\nmal", "qa", authorized=False, write_token="w")
+    created, rejected = svc.import_birthdays(chr(10).join(["Pedro;Sosa;03/04", "Ana;Pérez;14/03", "mal"]), "qa", authorized=False, write_token="w")
     assert (created, rejected) == (1, ["mal"]) and len([c for c in wb.calls if c[0] == "PATCH"]) == 1
     assert wb.grid[4] == ["Pedro", "Sosa", "03/04", "NO"]
 
@@ -206,10 +207,53 @@ def test_delete_removes_the_row_and_its_greetings(wb):
 def test_without_write_token_or_permission_nothing_is_confirmed(wb):
     ana = _by_name("Ana Pérez")
     with pytest.raises(sp.SourceError) as exc:
-        svc.save_birthday(ana["id"], ana["revision"], name="Ana Pérez", day=14, month=3, authorized=False, actor="qa", write_token="")
+        svc.save_birthday(ana["id"], ana["revision"], first_name="Ana", last_name="Pérez", day=14, month=3, authorized=False, actor="qa", write_token="")
     assert exc.value.kind == "auth_required"
     wb.fail_write = urllib.error.HTTPError("u", 403, "Forbidden", {}, io.BytesIO(b'{"error":{"code":"accessDenied"}}'))
     with pytest.raises(sp.SourceError) as exc:
-        svc.save_birthday(ana["id"], ana["revision"], name="Ana Pérez", day=14, month=3, authorized=False, actor="qa", write_token="w")
+        svc.save_birthday(ana["id"], ana["revision"], first_name="Ana", last_name="Pérez", day=14, month=3, authorized=False, actor="qa", write_token="w")
     assert exc.value.kind == "forbidden" and "edición" in str(exc.value)
     assert _by_name("Ana Pérez")["authorized"] is True                                         # el read-model no cambió
+
+
+# ── identidad por Email ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+@pytest.fixture
+def wb_email(monkeypatch):
+    w = FakeWorkbook([["Nombre", "Apellido", "Email", "Cumpleaños", "Autorizo"],
+                      ["Ana", "Pérez", "ana.perez@danwor.com", "14/03", "SI"],
+                      ["Juan", "Gómez", "", "02/11", "SI"],
+                      ["Juana", "Gómez", "ana.perez@danwor.com", "03/11", "SI"],
+                      ["Leo", "Paz", "leo@gmail.com", "04/11", "SI"]]).install(monkeypatch)
+    sp.refresh("tok", actor="qa")
+    w.calls.clear()
+    return w
+
+
+def test_with_an_email_column_rows_without_email_duplicates_or_external_mail_are_not_incorporated(wb_email):
+    assert [b["name"] for b in svc.list_birthdays()] == ["Ana Pérez"]
+    warnings = " ".join(sp.status()["warnings"])
+    assert "sin Email" in warnings and "repite el Email" in warnings and "no es un correo corporativo" in warnings
+    assert all("email" not in b for b in svc.list_birthdays() + svc.public_birthdays())       # el correo nunca llega al consumo
+    assert sp.emails() == {_by_name("Ana Pérez")["id"]: "ana.perez@danwor.com"}                 # solo para la gestión
+
+
+def test_email_identity_survives_renaming_and_date_changes_so_greetings_stay_linked(wb_email):
+    ana = _by_name("Ana Pérez")
+    svc.save_birthday(ana["id"], ana["revision"], first_name="Ana María", last_name="Pérez Soto", day=15, month=4, authorized=True,
+                      actor="qa", write_token="w")
+    renamed = _by_name("Ana María Pérez Soto")
+    assert renamed["id"] == ana["id"] and (renamed["day"], renamed["month"]) == (15, 4)
+    assert wb_email.grid[1][:4] == ["Ana María", "Pérez Soto", "ana.perez@danwor.com", "15/04"]  # el Email no se reescribe
+
+
+def test_new_people_need_a_unique_corporate_email_when_the_excel_identifies_by_email(wb_email):
+    with pytest.raises(svc.CarteleraValidationError, match="correo corporativo"):
+        svc.save_birthday(None, None, first_name="Sol", last_name="Otero", day=1, month=2, authorized=True, actor="qa", write_token="w")
+    with pytest.raises(svc.CarteleraValidationError, match="Ya hay una persona"):
+        svc.save_birthday(None, None, first_name="Sol", last_name="Otero", email="ana.perez@danwor.com", day=1, month=2, authorized=True,
+                          actor="qa", write_token="w")
+    svc.save_birthday(None, None, first_name="Sol", last_name="Otero", email="Sol.Otero@danwor.com", day=1, month=2, authorized=True,
+                      actor="qa", write_token="w")
+    assert wb_email.grid[-1] == ["Sol", "Otero", "sol.otero@danwor.com", "01/02", "SI"]
+    rows = svc.preview_birthday_import(chr(10).join(["Pía;Ríos;05/05;pia@danwor.com", "Pía;Ríos;05/05", "X;Y;06/06;sol.otero@danwor.com"]))
+    assert [r["status"] for r in rows] == ["valid", "invalid", "duplicate"]

@@ -345,7 +345,8 @@ def birthdays_page(request: Request, q: str = "", mes: str = "", autorizacion: s
         request, user, "cumpleanos", birthdays=pager["items"], pager=pager, filtered=pager["total"], total=len(all_rows),
         sort_cols=_birthday_sort_state({**params, **sizing}, orden, direction),
         greetings=greetings, upcoming=svc.upcoming_birthdays(30), months=svc.MONTHS, q=q, mes=mes, autorizacion=autorizacion,
-        sp_status=bd_source.status() if bd_source.ENABLED else None))
+        sp_status=bd_source.status() if bd_source.ENABLED else None,
+        bd_emails=bd_source.emails() if bd_source.ENABLED else {}, email_required=svc._email_required()))
 
 
 @router.post(f"{BASE}/cumpleanos/fuente", response_class=HTMLResponse, include_in_schema=False)
@@ -390,12 +391,13 @@ def _birthdays_return(volver: str) -> str:
 
 
 @router.post(f"{BASE}/cumpleanos", include_in_schema=False)
-def birthday_save(request: Request, birthday_id: str = Form(""), revision: str = Form(""), name: str = Form(""), day: str = Form(""),
-                  month: str = Form(""), authorized: str = Form(""), volver: str = Form(""), write_token: str = Form("")):
+def birthday_save(request: Request, birthday_id: str = Form(""), revision: str = Form(""), first_name: str = Form(""), last_name: str = Form(""),
+                  email: str = Form(""), day: str = Form(""), month: str = Form(""), authorized: str = Form(""), volver: str = Form(""),
+                  write_token: str = Form("")):
     user = _admin_write(request)
     try:
-        svc.save_birthday(birthday_id or None, int(revision) if revision else None, name=name, day=day, month=month,
-                          authorized=authorized == "1", actor=_actor(user), write_token=write_token)
+        svc.save_birthday(birthday_id or None, int(revision) if revision else None, first_name=first_name, last_name=last_name, email=email,
+                          day=day, month=month, authorized=authorized == "1", actor=_actor(user), write_token=write_token)
     except repo.CarteleraNotFoundError:
         raise HTTPException(404, "No existe") from None
     except _ERRORS as exc:
@@ -409,7 +411,7 @@ def birthday_import_page(request: Request):
     if redirect:
         return redirect
     return templates.TemplateResponse(request=request, name="human_capital/cartelera_cumpleanos_importar.html", headers=_NO_STORE, context=_shell(
-        request, user, "cumpleanos", rows=None, bulk="", volver=_volver_qs(request.query_params.get("volver", "")),
+        request, user, "cumpleanos", rows=None, bulk="", import_format=svc.import_format(), volver=_volver_qs(request.query_params.get("volver", "")),
         back_url=_birthdays_return(request.query_params.get("volver", ""))))
 
 
@@ -427,7 +429,7 @@ async def birthday_import_preview(request: Request):
     rows = svc.preview_birthday_import(text)
     volver = str(form.get("volver") or "")
     return templates.TemplateResponse(request=request, name="human_capital/cartelera_cumpleanos_importar.html", headers=_NO_STORE, context=_shell(
-        request, user, "cumpleanos", rows=rows, bulk=text, volver=_volver_qs(volver), back_url=_birthdays_return(volver)))
+        request, user, "cumpleanos", rows=rows, bulk=text, import_format=svc.import_format(), volver=_volver_qs(volver), back_url=_birthdays_return(volver)))
 
 
 @router.post(f"{BASE}/cumpleanos/importar", include_in_schema=False)
@@ -439,7 +441,11 @@ async def birthday_import(request: Request):
         created, rejected = svc.import_birthdays(chr(10).join(lines), _actor(user), authorized=form.get("authorized") == "1",
                                                  write_token=str(form.get("write_token") or ""))
     except _ERRORS as exc:
-        return _back(_birthdays_return(str(form.get("volver") or "")), error=_storage_message(exc))
+        # Sin confirmación de la persistencia: se vuelve a la vista previa con las MISMAS líneas para reintentar sin recargarlas.
+        volver = str(form.get("volver") or "")
+        return templates.TemplateResponse(request=request, name="human_capital/cartelera_cumpleanos_importar.html", headers=_NO_STORE, context=_shell(
+            request, user, "cumpleanos", rows=svc.preview_birthday_import(chr(10).join(lines)), bulk=chr(10).join(lines),
+            import_format=svc.import_format(), volver=_volver_qs(volver), back_url=_birthdays_return(volver), error=_storage_message(exc)))
     message = f"{created} cumpleaños importado{'' if created == 1 else 's'}."
     return _back(_birthdays_return(str(form.get("volver") or "")), ok=message, error=f"{len(rejected)} líneas no se pudieron importar." if rejected else "")
 

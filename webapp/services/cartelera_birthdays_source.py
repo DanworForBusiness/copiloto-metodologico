@@ -79,12 +79,22 @@ def fingerprint(row: dict) -> int:
 
 def rows() -> list[dict]:
     snap = snapshot() or {}
-    out = [{k: v for k, v in r.items() if k != "row"} | {"revision": fingerprint(r), "source": "sharepoint"} for r in snap.get("rows") or []]
+    out = [{k: v for k, v in r.items() if k not in ("row", "email")} | {"revision": fingerprint(r), "source": "sharepoint"}
+           for r in snap.get("rows") or []]
     return sorted(out, key=lambda b: (int(b.get("month", 0)), int(b.get("day", 0)), b.get("name", "").lower()))
 
 
 def get(birthday_id: str) -> dict | None:
     return next((r for r in rows() if r["id"] == birthday_id), None)
+
+
+def emails() -> dict[str, str]:
+    """{id: correo} SOLO para la gestión (diálogo de edición). El portal de consumo nunca lo recibe."""
+    return {r["id"]: r["email"] for r in (snapshot() or {}).get("rows") or [] if r.get("email")}
+
+
+def email_required() -> bool:
+    return "email" in (((snapshot() or {}).get("structure") or {}).get("roles") or {})
 
 
 def status() -> dict:
@@ -235,6 +245,16 @@ def _day_month(date_value, day_value, month_value) -> tuple[int, int] | None:
     return int(d), int(m)
 
 
+CORPORATE_DOMAIN = "danwor.com"
+_EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def valid_email(email: str) -> bool:
+    """Correo corporativo: formato válido y dominio de Danwor."""
+    e = (email or "").strip().lower()
+    return bool(_EMAIL.match(e)) and e.endswith("@" + CORPORATE_DOMAIN)
+
+
 def _identity(basis: str, key: str) -> str:
     return "sp" + hashlib.sha256(f"cartelera-birthday|{basis}|{key}".encode("utf-8")).hexdigest()[:30]
 
@@ -272,6 +292,7 @@ def _parse_sheet(sheet: str, sheet_rows: list[tuple[int, list]]) -> dict | None:
     warnings: list[str] = []
     if "consent" not in roles:
         warnings.append("El Excel no tiene una columna de autorización de publicación: ningún cumpleaños se muestra en la Cartelera hasta que exista.")
+    email_required = "email" in roles                                    # con columna Email: es el identificador funcional único
     out, seen, skipped, bases = [], {}, 0, Counter()
     for n, cells in body:
         name = _full_name(cells, roles)
@@ -281,16 +302,29 @@ def _parse_sheet(sheet: str, sheet_rows: list[tuple[int, list]]) -> dict | None:
             continue
         email = str(_cell(cells, roles, "email") or "").strip().lower()
         legajo = str(_cell(cells, roles, "employee_id") or "").strip().lower()
-        basis, key = ("email", email) if email else (("employee_id", legajo) if legajo else ("name_date", f"{_norm(name)}|{dm[0]:02d}{dm[1]:02d}"))
+        if email_required:
+            if not email:
+                warnings.append(f"Fila {n} ({name}): sin Email; no se incorpora hasta que tenga su correo corporativo.")
+                continue
+            if not valid_email(email):
+                warnings.append(f"Fila {n} ({name}): el Email «{email}» no es un correo corporativo válido; no se incorpora.")
+                continue
+            basis, key = "email", email
+        else:
+            basis, key = ("employee_id", legajo) if legajo else ("name_date", f"{_norm(name)}|{dm[0]:02d}{dm[1]:02d}")
         bid = _identity(basis, key)
         if bid in seen:
-            warnings.append(f"Fila {n}: duplica la identidad de la fila {seen[bid]}; se conserva la primera.")
+            what = f"el Email {email}" if basis == "email" else "la identidad"
+            warnings.append(f"Fila {n} ({name}): repite {what} de la fila {seen[bid]}; se conserva la primera.")
             continue
         seen[bid] = n
         bases[basis] += 1
         consent = _cell(cells, roles, "consent")
         authorized = bool(consent) if isinstance(consent, bool) else _norm(consent) in _YES
-        out.append({"id": bid, "name": name[:120], "day": dm[0], "month": dm[1], "authorized": authorized, "row": n})
+        first = str(_cell(cells, roles, "first_name") or "").strip() if "first_name" in roles else ""
+        last = str(_cell(cells, roles, "last_name") or "").strip() if "last_name" in roles else ""
+        out.append({"id": bid, "name": name[:120], "first_name": first[:80], "last_name": last[:80], "day": dm[0], "month": dm[1],
+                    "authorized": authorized, "row": n, **({"email": email} if basis == "email" else {})})
     if bases.get("name_date"):
         warnings.append(f"{bases['name_date']} persona{'s' if bases['name_date'] != 1 else ''} sin correo ni legajo: su identidad se deriva de "
                         "nombre + día + mes (si cambia el nombre o la fecha, sus saludos e interacciones anteriores no se trasladan).")
@@ -493,28 +527,21 @@ def _consent_tokens(parsed: dict) -> tuple[str, str]:
     return y, n
 
 
-def _split_name(name: str, old_first: str = "", old_last: str = "") -> tuple[str, str]:
-    if old_first and name.lower().startswith(old_first.lower() + " "):
-        return old_first, name[len(old_first):].strip()
-    if old_last and name.lower().endswith(" " + old_last.lower()):
-        return name[: -len(old_last)].strip(), old_last
-    first, _, last = name.partition(" ")
-    return first, last.strip()
-
-
-def _row_cells(parsed: dict, *, name: str, d: int, m: int, authorized: bool, n: int | None) -> dict[int, str]:
-    """{columna: texto} a escribir. `n` = fila existente (edición: conserva formato de fecha/año y la división nombre/apellido)."""
+def _row_cells(parsed: dict, *, first: str, last: str, d: int, m: int, authorized: bool, n: int | None, email: str = "") -> dict[int, str]:
+    """{columna: texto} a escribir. `n` = fila existente (edición: conserva el formato de fecha y el año si lo hubiera). Nombre y apellido
+    van cada uno a su columna tal como se cargaron (nunca se infiere la separación); con una sola columna de nombre, se concatenan."""
     roles = parsed["roles"]
     texts = (parsed["texts"].get(n) or []) if n else []
     old = lambda role: (str(texts[roles[role]]) if role in roles and roles[role] < len(texts) and texts[roles[role]] is not None else "")  # noqa: E731
     cells: dict[int, str] = {}
     if "full_name" in roles:
-        cells[roles["full_name"]] = name
+        cells[roles["full_name"]] = f"{first} {last}".strip()
     else:
-        first, last = _split_name(name, old("first_name"), old("last_name"))
         cells[roles["first_name"]] = first
         if "last_name" in roles:
             cells[roles["last_name"]] = last
+    if email and "email" in roles and n is None:                        # el Email se fija en el alta; nunca se reescribe (es la identidad)
+        cells[roles["email"]] = email
     if "birth_date" in roles:
         cells[roles["birth_date"]] = _date_text(old("birth_date") or _dominant_date_sample(parsed), d, m, keep_year=bool(n))
     else:
@@ -554,9 +581,12 @@ def _find(parsed: dict, birthday_id: str) -> dict | None:
     return next((r for r in parsed["rows"] if r["id"] == birthday_id), None)
 
 
-def save(birthday_id: str | None, revision: int | None, *, name: str, day: int, month: int, authorized: bool, token: str, actor: str) -> dict:
+def save(birthday_id: str | None, revision: int | None, *, first_name: str, last_name: str, day: int, month: int, authorized: bool,
+         token: str, actor: str, email: str = "") -> dict:
     """Alta (sin id) o modificación de UNA persona en el Excel. Concurrencia: el registro vivo debe coincidir con el que se editó."""
+    from webapp.services.cartelera_service import CarteleraValidationError
     _require_write_token(token)
+    name = f"{first_name} {last_name}".strip()
     with _write_lock:
         parsed = _live(token)
         if birthday_id:
@@ -566,18 +596,29 @@ def save(birthday_id: str | None, revision: int | None, *, name: str, day: int, 
             if revision is not None and fingerprint(current) != int(revision):
                 raise repo.CarteleraConcurrentModificationError("Ese cumpleaños cambió en el Excel desde que abriste el diálogo. Recargá para ver el valor actual.")
             n = current["row"]
-            wanted = _row_cells(parsed, name=name, d=day, m=month, authorized=authorized, n=n)
+            wanted = _row_cells(parsed, first=first_name, last=last_name, d=day, m=month, authorized=authorized, n=n)
             texts = parsed["texts"].get(n) or []
             for col, text in wanted.items():
                 if (str(texts[col]) if col < len(texts) and texts[col] is not None else "") != text:
                     _patch_cell(token, parsed["sheet"], f"{_col(col)}{n}", text)
         else:
-            if any(_norm(r["name"]) == _norm(name) and (r["day"], r["month"]) == (day, month) for r in parsed["rows"]):
-                from webapp.services.cartelera_service import CarteleraValidationError
-                raise CarteleraValidationError("Esa persona ya está cargada con esa fecha en el Excel.")
-            _append(token, parsed, [_row_cells(parsed, name=name, d=day, m=month, authorized=authorized, n=None)])
+            _check_new(parsed, name=name, day=day, month=month, email=email)
+            _append(token, parsed, [_row_cells(parsed, first=first_name, last=last_name, d=day, m=month, authorized=authorized, n=None,
+                                               email=email)])
         _after_write(token, actor)
     return get(birthday_id) or {} if birthday_id else {}
+
+
+def _check_new(parsed: dict, *, name: str, day: int, month: int, email: str) -> None:
+    """Alta: con columna Email, el correo corporativo es obligatorio y único; sin ella, no se repite nombre + fecha."""
+    from webapp.services.cartelera_service import CarteleraValidationError
+    if "email" in parsed["roles"]:
+        if not valid_email(email):
+            raise CarteleraValidationError(f"Ingresá el correo corporativo (@{CORPORATE_DOMAIN}): identifica a la persona en la Cartelera.")
+        if any(r.get("email") == email.lower() for r in parsed["rows"]):
+            raise CarteleraValidationError(f"Ya hay una persona cargada con el correo {email.lower()}.")
+    elif any(_norm(r["name"]) == _norm(name) and (r["day"], r["month"]) == (day, month) for r in parsed["rows"]):
+        raise CarteleraValidationError("Esa persona ya está cargada con esa fecha en el Excel.")
 
 
 def add_many(items: list[dict], *, token: str, actor: str) -> int:
@@ -587,10 +628,18 @@ def add_many(items: list[dict], *, token: str, actor: str) -> int:
         return 0
     with _write_lock:
         parsed = _live(token)
-        existing = {(_norm(r["name"]), r["day"], r["month"]) for r in parsed["rows"]}
-        fresh = [i for i in items if (_norm(i["name"]), i["day"], i["month"]) not in existing]
+        by_email = "email" in parsed["roles"]
+        existing = {r.get("email") for r in parsed["rows"]} if by_email else {(_norm(r["name"]), r["day"], r["month"]) for r in parsed["rows"]}
+        fresh, seen = [], set()
+        for i in items:
+            key = (i.get("email") or "").lower() if by_email else (_norm(f"{i['first_name']} {i['last_name']}"), i["day"], i["month"])
+            if (by_email and not valid_email(key)) or key in existing or key in seen:
+                continue
+            seen.add(key)
+            fresh.append(i)
         if fresh:
-            _append(token, parsed, [_row_cells(parsed, name=i["name"], d=i["day"], m=i["month"], authorized=i["authorized"], n=None) for i in fresh])
+            _append(token, parsed, [_row_cells(parsed, first=i["first_name"], last=i["last_name"], d=i["day"], m=i["month"],
+                                               authorized=i["authorized"], n=None, email=i.get("email", "")) for i in fresh])
             _after_write(token, actor)
         return len(fresh)
 

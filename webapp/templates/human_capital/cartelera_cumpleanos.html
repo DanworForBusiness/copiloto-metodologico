@@ -23,7 +23,9 @@
 {% macro cake() %}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21h16"/><path d="M5 21v-7h14v7"/><path d="M8 14v-3M12 14v-3M16 14v-3"/><path d="M12 7a1.5 1.5 0 0 0 0-3"/></svg>{% endmacro %}
 {% macro greeting_href(b, g) %}/cchh/cartelera/cumpleanos/{{ b.id }}/saludo?anio={{ g.year }}{{ '&' ~ _volver if _volver }}{% endmacro %}
 {#- Datos para el MISMO diálogo de edición que abre el lápiz de la tabla (y ahora también cada tarjeta de próximos). -#}
-{% macro edit_data(b) %}data-bd-edit data-bd-id="{{ b.id }}" data-bd-rev="{{ b.revision }}" data-bd-name="{{ b.name }}" data-bd-day="{{ b.day }}" data-bd-month="{{ b.month }}" data-bd-auth="{{ '1' if b.authorized else '' }}"{% endmacro %}
+{#- Nombre y Apellido viajan por separado (registros heredados sin esa división: el nombre completo va a «Nombre», sin inferir nada). El
+    correo solo existe en la gestión cuando el registro se identifica por Email; nunca llega al portal. -#}
+{% macro edit_data(b) %}data-bd-edit data-bd-id="{{ b.id }}" data-bd-rev="{{ b.revision }}" data-bd-first="{{ b.first_name or (b.name if not b.last_name else '') }}" data-bd-last="{{ b.last_name or '' }}" data-bd-email="{{ (bd_emails or {}).get(b.id, '') }}" data-bd-day="{{ b.day }}" data-bd-month="{{ b.month }}" data-bd-auth="{{ '1' if b.authorized else '' }}"{% endmacro %}
 
 <div class="dashboard-sections" data-dashboard-key="cchh-cartelera-cumpleanos">
   {# Próximos 30 días: MISMO primitivo `.activity-kpi` del Hub, interactivo como los tiles del CRM (`.activity-kpi--clickable`: cursor, hover,
@@ -117,7 +119,7 @@
                     </button>
                     {% if g.can_prepare %}<a href="{{ greeting_href(b, g) }}" class="table-action-btn chart-tooltip-anchor" aria-label="{{ g_labels[g.state] }} de {{ b.name }}">{{ cake() }}<span class="chart-tooltip" aria-hidden="true"><p>{{ g_labels[g.state] }} · {{ '%02d' | format(g.date.day) }}/{{ '%02d' | format(g.date.month) }}/{{ g.year }}</p></span></a>
                     {% else %}<span class="table-action-btn chart-tooltip-anchor is-disabled" aria-disabled="true" tabindex="0" aria-label="Preparar saludo no disponible">{{ cake() }}<span class="chart-tooltip" aria-hidden="true"><p>Para preparar el saludo, la persona tiene que tener la autorización de publicación.</p></span></span>{% endif %}
-                    <form method="post" action="/cchh/cartelera/cumpleanos/{{ b.id }}/eliminar" class="dw-row-actions__form"
+                    <form method="post" action="/cchh/cartelera/cumpleanos/{{ b.id }}/eliminar" class="dw-row-actions__form" data-ct-busy="Eliminando el cumpleaños…"
                           data-dw-confirm-form data-dw-confirm-title="Eliminar cumpleaños" data-dw-confirm-message="¿Eliminar a {{ b.name }} del calendario? También se eliminan sus saludos. Esta acción no se puede deshacer." data-dw-confirm-ok="Eliminar">
                       <input type="hidden" name="volver" data-bd-return><input type="hidden" name="write_token" data-ct-write-token>
                       <button type="submit" class="table-action-btn table-action-btn--danger chart-tooltip-anchor" aria-label="Eliminar a {{ b.name }}">
@@ -145,11 +147,15 @@
 {# Alta y edición: MISMO diálogo `dw-confirm` que Ediciones. Solo día y mes; la autorización de publicación es el único atributo de
    publicación y NO viene marcada en las altas. Lo abren el lápiz de la tabla y las tarjetas de próximos cumpleaños. #}
 <dialog class="dw-confirm" id="bd-dialog" aria-labelledby="bd-dialog-title">
-  <form method="post" action="/cchh/cartelera/cumpleanos" class="tree-feedback-form">
+  <form method="post" action="/cchh/cartelera/cumpleanos" class="tree-feedback-form" data-ct-busy="Guardando el cumpleaños…">
     <input type="hidden" name="birthday_id" value=""><input type="hidden" name="revision" value=""><input type="hidden" name="volver" data-bd-return><input type="hidden" name="write_token" data-ct-write-token>
     <div class="dw-confirm__body">
       <h2 class="dw-confirm__title" id="bd-dialog-title">Nuevo cumpleaños</h2>
-      <div class="feedback-field"><label for="bd-name">Nombre y apellido</label><input id="bd-name" name="name" type="text" maxlength="120" required></div>
+      <div class="cartelera-dialog-row">
+        <div class="feedback-field"><label for="bd-first">Nombre</label><input id="bd-first" name="first_name" type="text" maxlength="80" required></div>
+        <div class="feedback-field"><label for="bd-last">Apellido</label><input id="bd-last" name="last_name" type="text" maxlength="80" required></div>
+      </div>
+      {% if email_required %}<div class="feedback-field"><label for="bd-email">Correo corporativo</label><input id="bd-email" name="email" type="email" maxlength="120" required autocomplete="off"></div>{% endif %}
       <div class="cartelera-dialog-row">
         <div class="feedback-field"><label for="bd-day">Día</label><input id="bd-day" name="day" type="number" min="1" max="31" required></div>
         <div class="feedback-field"><label for="bd-month">Mes</label><select id="bd-month" name="month">{% for m in months %}<option value="{{ loop.index }}">{{ m }}</option>{% endfor %}</select></div>
@@ -172,14 +178,24 @@
   const open = data => {
     form.reset();
     form.birthday_id.value = data.id || ""; form.revision.value = data.rev || "";
-    form.elements.name.value = data.name || ""; form.day.value = data.day || ""; form.month.value = data.month || currentMonth;
+    form.first_name.value = data.first || ""; form.last_name.value = data.last || "";
+    if (form.email) { form.email.value = data.email || ""; form.email.readOnly = !!data.id; }   // el correo es la identidad: no se edita
+    form.day.value = data.day || ""; form.month.value = data.month || currentMonth;
     form.authorized.checked = data.auth === "1";
     dialog.querySelector("#bd-dialog-title").textContent = data.id ? "Editar cumpleaños" : "Nuevo cumpleaños";
     dialog.querySelector("[data-bd-submit]").textContent = data.id ? "Guardar cambios" : "Agregar";
     syncReturn();
     dialog.showModal();
   };
-  const fromEl = el => ({ id: el.dataset.bdId, rev: el.dataset.bdRev, name: el.dataset.bdName, day: el.dataset.bdDay, month: el.dataset.bdMonth, auth: el.dataset.bdAuth });
+  const fromEl = el => ({ id: el.dataset.bdId, rev: el.dataset.bdRev, first: el.dataset.bdFirst, last: el.dataset.bdLast, email: el.dataset.bdEmail,
+                          day: el.dataset.bdDay, month: el.dataset.bdMonth, auth: el.dataset.bdAuth });
+  // Reintento sin volver a cargar: al enviar se guarda lo ingresado; si la persistencia no lo confirmó (vuelve con error), se reabre el
+  // diálogo con esos datos. Con confirmación se descarta.
+  const uiState = window.sessionStorage, RETRY = "ct-bd-retry";
+  form.addEventListener("submit", () => {
+    try { uiState.setItem(RETRY, JSON.stringify({ id: form.birthday_id.value, rev: form.revision.value, first: form.first_name.value, last: form.last_name.value,
+      email: form.email ? form.email.value : "", day: form.day.value, month: form.month.value, auth: form.authorized.checked ? "1" : "" })); } catch (e) {}
+  }, true);
   document.addEventListener("click", e => {
     if (e.target.closest("[data-bd-new]")) { open({}); return; }
     if (e.target.closest("a")) return;                                     // el enlace del saludo dentro de la tarjeta navega a su editor
@@ -192,6 +208,10 @@
   });
   document.addEventListener("submit", e => { if (e.target.closest("#ct-birthdays-panel, #bd-dialog")) syncReturn(); }, true);
   dialog.querySelector("[data-bd-cancel]").addEventListener("click", () => dialog.close());
+  try {
+    const q = new URLSearchParams(location.search), pending = uiState.getItem(RETRY);
+    if (pending) { uiState.removeItem(RETRY); if (q.get("error")) open(JSON.parse(pending)); }
+  } catch (e) {}
 })();
 </script>
 {% include "human_capital/_cartelera_write_token.html" %}
