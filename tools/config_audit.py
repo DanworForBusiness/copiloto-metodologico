@@ -118,6 +118,7 @@ VAR_METADATA: dict[str, tuple[str, str]] = {
     # Commercial
     "COMMERCIAL_ALLOWED_USERS": ("Commercial", CAPABILITY_OPTIONAL),
     "CONTENT_OWNER": ("Commercial", CAPABILITY_OPTIONAL),
+    "COMMUNITY_OWNER": ("Human Capital", CAPABILITY_OPTIONAL),
     "ODOO_URL": ("Commercial", CAPABILITY_OPTIONAL),
     "ODOO_DB": ("Commercial", CAPABILITY_OPTIONAL),
     "ODOO_USERNAME": ("Commercial", CAPABILITY_OPTIONAL),

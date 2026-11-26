@@ -9,13 +9,15 @@ app original). Lo que NO es target no recibe interacciones (portada, calendario,
 
 Reglas tomadas de la app original, con las correcciones de seguridad del discovery:
   - Cualquier persona admitida al Hub participa (F11): publica en las categorías habilitadas para colaboradores, reacciona, comenta,
-    responde, menciona, vota y reporta. Capital Humano (autorización EXISTENTE de la vertical) publica comunicaciones oficiales, fija,
-    programa, aprueba, retira y resuelve reportes. Sin roles nuevos.
+    responde, menciona, vota y reporta lo ajeno. Capital Humano (autorización EXISTENTE de la vertical) publica comunicaciones oficiales y
+    las programa. La MODERACIÓN es una autorización aparte y ortogonal: `COMMUNITY_OWNER` (allowlist explícita, patrón de CONTENT_OWNER)
+    aprueba, rechaza, retira, elimina y fija lo ajeno y resuelve reportes. Capital Humano NO modera por serlo; moderar NO da Capital Humano.
   - Categorías con aprobación previa: lo publicado por un colaborador queda PENDIENTE. Corrección: CUALQUIER edición posterior de un
     colaborador en una categoría con aprobación vuelve a dejarla pendiente (en la original solo el cambio de categoría lo hacía, y editar
     el texto de algo aprobado eludía la moderación).
   - Pendiente, programado y retirado no se exponen a quien no corresponde: la visibilidad se resuelve SIEMPRE acá (servidor).
-  - Propiedad: solo la autoría edita o elimina lo propio; Capital Humano edita lo oficial y modera lo ajeno (retira, no reescribe).
+  - Propiedad: SOLO la autoría edita lo propio (nadie reescribe contenido ajeno, tampoco la moderación); la autoría elimina lo propio y la
+    moderación retira o elimina lo ajeno, con registro.
   - Integridad: al eliminar una publicación, un contenido de una edición o un saludo, se eliminan sus interacciones; al copiar una edición
     los contenidos reciben ids nuevos (no se copian interacciones).
   - Notificaciones INTERNAS de Comunidad (menciones, respuestas, comentarios en lo propio, comunicaciones fijadas), calculadas y con
@@ -33,6 +35,7 @@ from datetime import datetime, timezone
 from markupsafe import Markup, escape
 
 from webapp import human_capital_access
+from webapp.services import auth_service
 from webapp.services import cartelera_repository as repo
 from webapp.services import cartelera_service as svc
 
@@ -49,7 +52,7 @@ CATEGORIES = (
 )
 CATEGORY_BY_ID = {c["id"]: c for c in CATEGORIES}
 RULES = ("Publicá con respeto y buena fe. Pedí permiso antes de compartir información o fotos de otras personas. No compartas información "
-         "confidencial de clientes ni proyectos. Capital Humano puede retirar contenido que no cumpla estas pautas.")
+         "confidencial de clientes ni proyectos. La moderación de Comunidad puede retirar contenido que no cumpla estas pautas.")
 REPORT_REASONS = ("Contenido ofensivo o inapropiado", "Información confidencial", "Información personal sin consentimiento",
                   "Spam o fuera de tema", "Otro")
 POLL_RESULTS = {"after_vote": "Después de votar", "always": "Siempre", "after_close": "Al cierre"}
@@ -82,9 +85,17 @@ def uname(user: dict) -> str:
     return str((user or {}).get("name") or uid(user)).strip()
 
 
-def is_admin(user: dict | None) -> bool:
-    """Capital Humano modera con su autorización EXISTENTE (misma regla que toda la vertical)."""
-    return human_capital_access.is_human_capital_authorized_user(user)
+def is_moderator(user: dict | None) -> bool:
+    """Moderación de Comunidad: admisión al Hub + allowlist EXPLÍCITA `COMMUNITY_OWNER` (fail-closed, sin bypass de APP_OWNER). Independiente
+    de Capital Humano en los dos sentidos."""
+    email = uid(user)
+    return bool(email) and auth_service.is_authorized(email) and auth_service.is_community_owner_user(email)
+
+
+def can_publish_official(user: dict | None) -> bool:
+    """Comunicaciones oficiales (categorías no habilitadas para colaboradores, marca oficial y programación): Capital Humano —su voz
+    institucional, con su autorización existente— y la moderación de Comunidad."""
+    return bool(user) and (human_capital_access.is_human_capital_authorized_user(user) or is_moderator(user))
 
 
 def _hid(value: str) -> str:
@@ -193,28 +204,27 @@ def post_state(p: dict, now: datetime | None = None) -> str:
     return "published"
 
 
-def post_visible(p: dict | None, user: dict | None, admin: bool) -> bool:
+def post_visible(p: dict | None, user: dict | None, mod: bool) -> bool:
     if not p:
         return False
     state = post_state(p)
-    if state == "published":
+    if state == "published" or mod:
         return True
-    if admin:
-        return True
-    return state == "pending" and p.get("author") == uid(user)                         # la autoría ve su pendiente; nadie más
+    return state in ("pending", "scheduled") and p.get("author") == uid(user)          # la autoría ve lo suyo aún no publicado; nadie más
 
 
-def visible_posts(user: dict | None, admin: bool) -> list[dict]:
-    rows = [p for p in list_posts() if post_visible(p, user, admin)]
+def visible_posts(user: dict | None, mod: bool) -> list[dict]:
+    rows = [p for p in list_posts() if post_visible(p, user, mod)]
     return sorted(rows, key=lambda p: (bool(p.get("pinned")) and post_state(p) == "published", post_when(p)), reverse=True)
 
 
-def can_edit_post(p: dict, user: dict, admin: bool) -> bool:
-    if p.get("status") == "removed":
-        return False
-    if p.get("official"):
-        return admin                                                                    # lo oficial lo edita Capital Humano
-    return p.get("author") == uid(user)                                                 # lo de colaboradores, solo su autoría
+def can_edit_post(p: dict, user: dict) -> bool:
+    """SOLO la autoría edita (también lo oficial): la moderación retira o elimina lo ajeno, nunca lo reescribe."""
+    return p.get("status") != "removed" and bool(uid(user)) and p.get("author") == uid(user)
+
+
+def can_delete_post(p: dict, user: dict, mod: bool) -> bool:
+    return p.get("author") == uid(user) or mod
 
 
 def _clean_poll(raw) -> dict | None:
@@ -230,12 +240,15 @@ def _clean_poll(raw) -> dict | None:
     return {"options": options, "closes_at": closes or None, "results": results}
 
 
-def save_post(user: dict, admin: bool, data: dict, post_id: str | None = None) -> dict:
+def save_post(user: dict, data: dict, post_id: str | None = None) -> dict:
+    """Roles resueltos ACÁ (servidor): oficial/programación para Capital Humano o moderación; fijar y publicar sin aprobación, solo
+    moderación. Editar, solo la autoría."""
+    mod, official_ok = is_moderator(user), can_publish_official(user)
     cat = CATEGORY_BY_ID.get(str(data.get("category") or ""))
     if not cat:
         raise SocialError("Elegí una categoría.")
-    if not cat["collab"] and not admin:
-        raise SocialForbidden("Esa categoría es solo para Capital Humano.")
+    if not cat["collab"] and not official_ok:
+        raise SocialForbidden("Esa categoría es solo para comunicaciones oficiales.")
     title, body = _text(data.get("title"), 140), _text(data.get("body"), 4000)
     if not (title or body):
         raise SocialError("Escribí un título o un mensaje.")
@@ -248,23 +261,26 @@ def save_post(user: dict, admin: bool, data: dict, post_id: str | None = None) -
     fields = {"category": cat["id"], "title": title, "body": body, "mentions": mention_ids(body), "link": link or None,
               "link_label": _text(data.get("link_label"), 120) if link else "", "poll": poll,
               "consent": True if cat["id"] == "personales" else None}
-    if admin:                                                                          # opciones de Capital Humano
+    if official_ok:                                                                    # opciones oficiales (Capital Humano o moderación)
         fields["official"] = bool(data.get("official"))
-        fields["pinned"] = bool(data.get("pinned")) and fields["official"]
         when = str(data.get("publish_at") or "").strip()
         fields["publish_at"] = svc.local_input_to_utc(when).isoformat() if when else None
     current = get_post(post_id) if post_id else None
+    if mod:                                                                            # fijar: solo moderación, y solo lo oficial
+        fields["pinned"] = bool(data.get("pinned")) and bool(fields.get("official"))
+    elif current:
+        fields["pinned"] = bool(current.get("pinned")) and bool(fields.get("official", current.get("official")))
     if post_id:
-        if not current or not post_visible(current, user, admin):
+        if not current or not post_visible(current, user, mod):
             raise SocialNotFound(post_id)
-        if not can_edit_post(current, user, admin):
+        if not can_edit_post(current, user):
             raise SocialForbidden("Solo podés editar tus publicaciones.")
-        if not admin:                                                                  # nunca se escalan privilegios editando
+        if not official_ok:                                                            # nunca se escalan privilegios editando
             fields.update({"official": False, "pinned": False, "publish_at": current.get("publish_at")})
         # Corrección del discovery: un colaborador que edita en una categoría con aprobación vuelve a la cola de moderación.
-        if not admin and cat["approval"]:
+        if not mod and cat["approval"]:
             fields["status"] = "pending"
-        elif current.get("status") == "pending" and not cat["approval"] and not admin:
+        elif current.get("status") == "pending" and not cat["approval"] and not mod:
             fields["status"] = "published"
         fields["edited_at"] = _iso()
         if (current.get("poll") or {}).get("options") != (poll or {}).get("options"):
@@ -274,35 +290,40 @@ def save_post(user: dict, admin: bool, data: dict, post_id: str | None = None) -
             _modlog_system("Volvió a moderación por edición", title or body[:60])
         return saved
     fields.update({"author": uid(user), "author_name": uname(user),
-                   "status": "pending" if cat["approval"] and not admin else "published"})
+                   "status": "pending" if cat["approval"] and not mod else "published"})
     fields.setdefault("official", False)
     fields.setdefault("pinned", False)
     fields.setdefault("publish_at", None)
     return repo.save("posts", uuid.uuid4().hex[:16], fields, expected_revision=None)
 
 
-def delete_post(user: dict, admin: bool, post_id: str) -> None:
+def delete_post(user: dict, post_id: str) -> None:
+    """La autoría elimina lo propio; la moderación elimina lo ajeno (queda en el registro)."""
+    mod = is_moderator(user)
     p = get_post(post_id)
-    if not p or not post_visible(p, user, admin):
+    if not p or not post_visible(p, user, mod):
         raise SocialNotFound(post_id)
-    if not can_edit_post(p, user, admin):
+    if not can_delete_post(p, user, mod):
         raise SocialForbidden("Solo podés eliminar tus publicaciones.")
     repo.delete("posts", post_id)
     purge_targets([f"post:{post_id}"])
-    if admin and p.get("author") != uid(user):
-        log(user, "Eliminó publicación oficial", p.get("title") or p.get("body", "")[:60])
+    if p.get("author") != uid(user):
+        log(user, "Eliminó publicación", p.get("title") or p.get("body", "")[:60])
 
 
 MODERATION_REASONS = REPORT_REASONS
 
 
 def moderate_post(user: dict, post_id: str, action: str, reason: str = "") -> dict:
-    """Solo Capital Humano: aprobar · rechazar · retirar (con motivo, que se le informa a la autoría) · fijar/desfijar (lo oficial)."""
-    if not is_admin(user):
-        raise SocialForbidden("Solo Capital Humano modera.")
+    """Solo moderación (COMMUNITY_OWNER): aprobar · rechazar · retirar (con motivo, que se le informa a la autoría) · fijar/desfijar (lo
+    oficial). Lo propio no se retira ni se rechaza: se edita o se elimina."""
+    if not is_moderator(user):
+        raise SocialForbidden("Solo la moderación de Comunidad puede hacer esto.")
     p = get_post(post_id)
     if not p:
         raise SocialNotFound(post_id)
+    if action in ("rechazar", "retirar") and p.get("author") == uid(user):
+        raise SocialError("Lo propio no se retira: editalo o eliminalo.")
     label = p.get("title") or (p.get("body") or "")[:60]
     if action == "aprobar" and p.get("status") == "pending":
         saved = repo.save("posts", post_id, {"status": "published", "approved_at": _iso(), "approved_by": uname(user)}, expected_revision=p["revision"])
@@ -342,14 +363,14 @@ def _item_edition(item_id: str) -> dict | None:
     return None
 
 
-def target_visible(target: str, user: dict | None, admin: bool) -> bool:
+def target_visible(target: str, user: dict | None, mod: bool) -> bool:
     try:
         kind, ident = parse_target(target)
     except SocialNotFound:
         return False
     if kind == "post":
         p = get_post(ident)
-        return post_visible(p, user, admin) and post_state(p) == "published"           # se interactúa solo con lo publicado
+        return post_visible(p, user, mod) and post_state(p) == "published"           # se interactúa solo con lo publicado
     if kind == "item":
         return _item_edition(ident) is not None
     return svc.greeting_visible(svc.get_greeting(ident))
@@ -372,8 +393,8 @@ def target_label(target: str) -> tuple[str, str, str]:
     return "Saludo", g.get("title") or "Saludo", f"/cartelera/saludos/{ident}"
 
 
-def _require_target(target: str, user: dict, admin: bool) -> None:
-    if not target_visible(target, user, admin):
+def _require_target(target: str, user: dict, mod: bool) -> None:
+    if not target_visible(target, user, mod):
         raise SocialNotFound(target)
 
 
@@ -382,7 +403,7 @@ def react(user: dict, target: str, kind: str) -> str | None:
     """Agrega, cambia o retira (si es la misma) la reacción de la persona. Devuelve la reacción vigente."""
     if kind not in REACTION_IDS:
         raise SocialError("Reacción inválida.")
-    _require_target(target, user, is_admin(user))
+    _require_target(target, user, is_moderator(user))
     me, result = uid(user), {}
 
     def apply(doc):
@@ -405,8 +426,8 @@ def list_comments(target: str | None = None) -> list[dict]:
 
 
 def add_comment(user: dict, target: str, body: str, parent_id: str = "") -> dict:
-    admin = is_admin(user)
-    _require_target(target, user, admin)
+    mod = is_moderator(user)
+    _require_target(target, user, mod)
     body = _text(body, 2000)
     if not body:
         raise SocialError("Escribí un comentario.")
@@ -447,8 +468,8 @@ def delete_comment(user: dict, comment_id: str) -> None:
 
 
 def remove_comment(user: dict, comment_id: str, reason: str = "") -> dict:
-    if not is_admin(user):
-        raise SocialForbidden("Solo Capital Humano modera.")
+    if not is_moderator(user):
+        raise SocialForbidden("Solo la moderación de Comunidad puede hacer esto.")
     c = repo.get("comments", comment_id) if re.fullmatch(r"[A-Za-z0-9_-]{1,40}", comment_id or "") else None
     if not c:
         raise SocialNotFound(comment_id)
@@ -466,7 +487,7 @@ def poll_closed(p: dict) -> bool:
 
 def vote(user: dict, post_id: str, option: int) -> None:
     p = get_post(post_id)
-    if not p or not target_visible(f"post:{post_id}", user, is_admin(user)) or not p.get("poll"):
+    if not p or not target_visible(f"post:{post_id}", user, is_moderator(user)) or not p.get("poll"):
         raise SocialNotFound(post_id)
     if poll_closed(p):
         raise SocialError("La encuesta está cerrada.")
@@ -477,7 +498,7 @@ def vote(user: dict, post_id: str, option: int) -> None:
             {"post": post_id, "by": {}})
 
 
-def poll_state(p: dict, user: dict | None, admin: bool) -> dict | None:
+def poll_state(p: dict, user: dict | None, mod: bool) -> dict | None:
     poll = p.get("poll")
     if not poll:
         return None
@@ -488,24 +509,24 @@ def poll_state(p: dict, user: dict | None, admin: bool) -> dict | None:
             n[int(v["i"])] += 1
     mine = (by.get(uid(user)) or {}).get("i")
     closed, total = poll_closed(p), sum(n)
-    show = closed or poll.get("results") == "always" or (poll.get("results") != "after_close" and mine is not None) or admin
+    show = closed or poll.get("results") == "always" or (poll.get("results") != "after_close" and mine is not None) or mod
     return {"n": n, "total": total, "mine": mine, "closed": closed, "show": show,
             "pct": [round(x / total * 100) if total else 0 for x in n]}
 
 
 # ── reportes ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 def report(user: dict, kind: str, ident: str, reason: str, note: str) -> dict:
-    admin = is_admin(user)
+    mod = is_moderator(user)
     if kind == "post":
         p = get_post(ident)
-        if not p or not target_visible(f"post:{ident}", user, admin):
+        if not p or not target_visible(f"post:{ident}", user, mod):
             raise SocialNotFound(ident)
         if p.get("author") == uid(user):
             raise SocialError("No podés reportar tu propia publicación.")
         target, owner = f"post:{ident}", p.get("author")
     elif kind == "comment":
         c = repo.get("comments", ident) if re.fullmatch(r"[A-Za-z0-9_-]{1,40}", ident or "") else None
-        if not c or c.get("status") == "removed" or not target_visible(c.get("target", ""), user, admin):
+        if not c or c.get("status") == "removed" or not target_visible(c.get("target", ""), user, mod):
             raise SocialNotFound(ident)
         if c.get("author") == uid(user):
             raise SocialError("No podés reportar tu propio comentario.")
@@ -525,8 +546,8 @@ def open_reports() -> list[dict]:
 
 
 def resolve_report(user: dict, report_id: str) -> None:
-    if not is_admin(user):
-        raise SocialForbidden("Solo Capital Humano modera.")
+    if not is_moderator(user):
+        raise SocialForbidden("Solo la moderación de Comunidad puede hacer esto.")
     r = repo.get("reports", report_id) if re.fullmatch(r"[A-Za-z0-9_-]{1,40}", report_id or "") else None
     if not r:
         raise SocialNotFound(report_id)
@@ -598,12 +619,12 @@ def item_targets(edition: dict | None) -> set[str]:
 
 
 # ── vista: lo que necesita la plantilla para un conjunto de targets ─────────────────────────────────────────────────────────────
-def snapshot(targets: list[str], user: dict | None, admin: bool, names: dict[str, str] | None = None) -> dict[str, dict]:
+def snapshot(targets: list[str], user: dict | None, mod: bool, names: dict[str, str] | None = None) -> dict[str, dict]:
     names = names if names is not None else people()
     me = uid(user)
     by_target: dict[str, list] = {}
     for c in list_comments():
-        if c.get("target") in targets and (c.get("status") != "removed" or admin):
+        if c.get("target") in targets and (c.get("status") != "removed" or mod):
             by_target.setdefault(c["target"], []).append(c)
     out = {}
     for t in targets:
@@ -646,7 +667,7 @@ def notifications(user: dict | None, names: dict[str, str] | None = None) -> lis
     if not user or not uid(user):
         return []
     names = names if names is not None else people()
-    me, pr, admin = uid(user), prefs(user)["notif"], is_admin(user)
+    me, pr, mod = uid(user), prefs(user)["notif"], is_moderator(user)
     posts = [p for p in list_posts() if post_state(p) == "published"]
     mine_posts = {f"post:{p['id']}" for p in posts if p.get("author") == me}
     out = []
@@ -656,24 +677,24 @@ def notifications(user: dict | None, names: dict[str, str] | None = None) -> lis
             out.append({"at": post_when(p), "url": f"/cartelera/comunidad#post-{p['id']}", "text": f"{who} te mencionó en «{p.get('title') or 'una publicación'}»"})
         if pr["official"] and p.get("official") and p.get("pinned"):
             out.append({"at": post_when(p), "url": f"/cartelera/comunidad#post-{p['id']}", "text": f"Comunicación importante: {p.get('title') or 'Capital Humano'}"})
-    for p in list_posts():                                                             # lo que Capital Humano decidió sobre lo propio
-        if p.get("author") != me or p.get("official"):
+    for p in list_posts():                                                             # lo que la moderación decidió sobre lo propio
+        if p.get("author") != me:
             continue
         title = p.get("title") or "tu publicación"
         if p.get("status") == "removed":
             why = f" Motivo: {p['removed_reason']}." if p.get("removed_reason") else ""
             verb = "rechazó" if p.get("removed_kind") == "rechazada" else "retiró"
-            out.append({"at": p.get("removed_at") or "", "url": "/cartelera/comunidad", "text": f"Capital Humano {verb} «{title}».{why}"})
+            out.append({"at": p.get("removed_at") or "", "url": "/cartelera/comunidad", "text": f"La moderación de Comunidad {verb} «{title}».{why}"})
         elif p.get("approved_at") and p.get("status") == "published":
-            out.append({"at": p["approved_at"], "url": f"/cartelera/comunidad#post-{p['id']}", "text": f"Capital Humano aprobó «{title}»: ya está publicada."})
+            out.append({"at": p["approved_at"], "url": f"/cartelera/comunidad#post-{p['id']}", "text": f"La moderación de Comunidad aprobó «{title}»: ya está publicada."})
     for c in list_comments():
         if c.get("author") == me and c.get("status") == "removed":
             why = f" Motivo: {c['removed_reason']}." if c.get("removed_reason") else ""
-            out.append({"at": c.get("removed_at") or "", "url": "/cartelera/comunidad", "text": f"Capital Humano retiró un comentario tuyo.{why}"})
+            out.append({"at": c.get("removed_at") or "", "url": "/cartelera/comunidad", "text": f"La moderación de Comunidad retiró un comentario tuyo.{why}"})
     comments = [c for c in list_comments() if c.get("status") != "removed"]
     my_comments = {c["id"] for c in comments if c.get("author") == me}
     for c in comments:
-        if c.get("author") == me or not target_visible(c.get("target", ""), user, admin):
+        if c.get("author") == me or not target_visible(c.get("target", ""), user, mod):
             continue
         who = names.get(c.get("author", ""), c.get("author_name") or "Colaborador/a")
         url = target_label(c["target"])[2]
@@ -714,7 +735,7 @@ def wall_posts() -> list[dict]:
     return sorted(rows, key=lambda p: (bool(p.get("pinned")), post_when(p)), reverse=True)
 
 
-def wall(user: dict | None, admin: bool, *, cat: str = "all", kind: str = "all", q: str = "", since: str = "") -> tuple[list[dict], dict]:
+def wall(user: dict | None, mod: bool, *, cat: str = "all", kind: str = "all", q: str = "", since: str = "") -> tuple[list[dict], dict]:
     posts = wall_posts()
     counts: dict[str, int] = {}
     for p in posts:

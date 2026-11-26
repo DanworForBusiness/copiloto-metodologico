@@ -1,7 +1,7 @@
 {#- MOTOR DE INTERACCIÓN — componente COMPARTIDO por Comunidad (publicaciones) y Cartelera (contenidos de Novedades, saludos).
     Mismo marcado y clases que la app original (`.reacts`, `.rbtn`, `.who-reacted`, `.comments`, `.cmt`, `.bub`, `.acts`, `.cinput`):
     `cartelera_portal.css` ya los estiliza. Lo que se puede hacer lo decide el servidor; esto solo lo dibuja.
-    Contexto: `social` (snapshot por target), `me` (id de la persona), `can_manage` (Capital Humano). Interacción: `cartelera_social.js`. -#}
+    Contexto: `social` (snapshot por target), `me` (id de la persona), `can_moderate` (COMMUNITY_OWNER). Interacción: `cartelera_social.js`. -#}
 {%- set SOC_ICONS = {
   'like': 'M7 10v10H4V10zM7 10l4-7c1.5 0 2.5 1 2 3l-1 4h6a2 2 0 0 1 2 2.3l-1.2 6A2 2 0 0 1 16.8 20H7',
   'party': 'M4 20l4-12 8 8zM14 4l1 2M19 9l-2 1M17 4l-1 3M20 14l-3-1',
@@ -20,7 +20,7 @@
         {% if c.status != 'removed' %}<button type="button" data-sx="reply" data-id="{{ c.parent_id or c.id }}" data-name="{{ c.name }}">Responder</button>{% endif %}
         {% if c.mine and c.status != 'removed' %}<button type="button" data-sx="editcmt" data-id="{{ c.id }}">Editar</button><button type="button" data-sx="delcmt" data-id="{{ c.id }}">Eliminar</button>{% endif %}
         {% if not c.mine and c.status != 'removed' %}<button type="button" data-sx="report" data-kind="comment" data-id="{{ c.id }}">Reportar</button>{% endif %}
-        {% if can_manage and not c.mine and c.status != 'removed' %}<button type="button" data-sx="modcmt" data-id="{{ c.id }}">Retirar</button>{% endif %}
+        {% if can_moderate and not c.mine and c.status != 'removed' %}<button type="button" data-sx="modcmt" data-id="{{ c.id }}">Retirar</button>{% endif %}
       </div>
     </div>
   </div>

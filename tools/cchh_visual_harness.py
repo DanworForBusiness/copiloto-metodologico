@@ -121,6 +121,9 @@ HARNESS_USER = {
 # Colaboradores sintéticos para Comunidad: admitidos al Hub (ALLOWED_USERS=ALL en el harness) pero SIN Capital Humano, para comparar la
 # experiencia de un colaborador con la de quien modera. Mismo mecanismo de sesión que las otras identidades (create_session).
 COMMUNITY_USERS = (("lucia.colaboradora@danwor.local", "Lucía Colaboradora"), ("martin.colaborador@danwor.local", "Martín Colaborador"))
+# Moderación de Comunidad: en COMMUNITY_OWNER (apéndice) y SIN Capital Humano, para comprobar que moderar no requiere la vertical CCHH. La
+# identidad de QA de Capital Humano, a la inversa, NO se suma a COMMUNITY_OWNER (Capital Humano no modera por serlo).
+COMMUNITY_MODERATOR = ("sofia.moderadora@danwor.local", "Sofía Moderadora")
 
 # Puerto dedicado del harness -- NUNCA 8505 (runtime canónico local) ni 8096
 # (usado transitoriamente por otros worktrees de este mismo programa CCHH).
@@ -167,6 +170,10 @@ def _merge_qa_identity_into_allowlists() -> None:
         if HARNESS_USER["email"] not in emails:
             emails.append(HARNESS_USER["email"])
         setattr(auth_service, attr, ",".join(emails))
+    owners = [e.strip() for e in (auth_service.COMMUNITY_OWNER or "").split(",") if e.strip() and e.strip().upper() != "ALL"]
+    if COMMUNITY_MODERATOR[0] not in owners:
+        owners.append(COMMUNITY_MODERATOR[0])
+    auth_service.COMMUNITY_OWNER = ",".join(owners)
 
 
 def _resolve_owner_emails() -> list[str]:
@@ -386,6 +393,9 @@ def main() -> None:
     for email, name in COMMUNITY_USERS:
         lines += ["", f"     // colaborador/a sin Capital Humano ({name} · {email}):",
                   f'     document.cookie = "{_auth_service_mod.COOKIE_NAME}={_mint_session_for(email, label=name)}; path=/"']
+    email, name = COMMUNITY_MODERATOR
+    lines += ["", f"     // moderación de Comunidad (COMMUNITY_OWNER) sin Capital Humano ({name} · {email}):",
+              f'     document.cookie = "{_auth_service_mod.COOKIE_NAME}={_mint_session_for(email, label=name)}; path=/"']
     if owner_sessions:
         for email, token in owner_sessions:
             lines += [

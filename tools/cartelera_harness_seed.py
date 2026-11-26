@@ -104,37 +104,42 @@ def seed() -> None:
 def seed_social() -> None:
     """Comunidad e interacciones ficticias, creadas con el MISMO servicio que usa la app (reglas de aprobación incluidas)."""
     from webapp.services import cartelera_repository as repo, cartelera_service as svc, cartelera_social as social
-    ch = {"sub": "cchh.visual.qa@danwor.local", "name": "CCHH Visual QA"}                     # Capital Humano (modera)
+    ch = {"sub": "cchh.visual.qa@danwor.local", "name": "CCHH Visual QA"}                     # Capital Humano (publica lo oficial; NO modera)
+    mod = {"sub": "sofia.moderadora@danwor.local", "name": "Sofía Moderadora"}               # COMMUNITY_OWNER (modera; sin Capital Humano)
     lucia = {"sub": "lucia.colaboradora@danwor.local", "name": "Lucía Colaboradora"}
     martin = {"sub": "martin.colaborador@danwor.local", "name": "Martín Colaborador"}
-    for u in (ch, lucia, martin):
+    for u in (ch, mod, lucia, martin):
         social.touch_person(u)
-    # La semilla corre ANTES de que el harness sume la identidad de QA a Capital Humano: solo acá, esa identidad modera.
+    # La semilla corre ANTES de que el harness sume las identidades a Capital Humano y a COMMUNITY_OWNER: solo acá se fijan los roles.
     from unittest import mock
-    with mock.patch.object(social, "is_admin", lambda u: bool(u) and u.get("sub") == ch["sub"]):
-        _seed_social_content(svc, repo, social, ch, lucia, martin)
-    print("[harness] Comunidad sembrada: 8 publicaciones (oficial fijada, encuesta, pendiente, retirada, programada), comentarios, reacciones, votos y un reporte")
+    with mock.patch.object(social, "is_moderator", lambda u: bool(u) and u.get("sub") == mod["sub"]), \
+            mock.patch.object(social, "can_publish_official", lambda u: bool(u) and u.get("sub") in (ch["sub"], mod["sub"])):
+        _seed_social_content(svc, repo, social, ch, mod, lucia, martin)
+    print("[harness] Comunidad sembrada: 9 publicaciones (oficial fijada por la moderación, encuesta, pendiente, retirada, programada), comentarios, reacciones, votos y un reporte")
 
 
-def _seed_social_content(svc, repo, social, ch, lucia, martin) -> None:
+def _seed_social_content(svc, repo, social, ch, mod, lucia, martin) -> None:
     L, M = "@{u:lucia.colaboradora@danwor.local}", "@{u:martin.colaborador@danwor.local}"
-    welcome = social.save_post(ch, True, {"category": "oficial", "title": "Bienvenida a Comunidad Danwor", "official": True, "pinned": True,
+    welcome = social.save_post(ch, {"category": "oficial", "title": "Bienvenida a Comunidad Danwor", "official": True,
                                           "body": "Este es el nuevo espacio para compartir logros, agradecimientos e ideas. Leé las pautas de la comunidad y ¡sumate!"})
-    bi = social.save_post(lucia, False, {"category": "reconocimientos", "title": "¡Felicitaciones al equipo BI!",
+    bi = social.save_post(lucia, {"category": "reconocimientos", "title": "¡Felicitaciones al equipo BI!",
                                          "body": f"Cerraron el tablero regional de ventas en tiempo récord. Gracias {M} por la mano con los datos."})
-    social.save_post(martin, False, {"category": "comunidad", "title": "Damos la bienvenida a Carla",
+    social.save_post(martin, {"category": "comunidad", "title": "Damos la bienvenida a Carla",
                                      "body": "Carla se suma al equipo de Datasphere. ¡Bienvenida!"})
-    poll = social.save_post(ch, True, {"category": "ideas", "title": "¿Qué charla interna te gustaría el mes próximo?", "official": True,
+    poll = social.save_post(ch, {"category": "ideas", "title": "¿Qué charla interna te gustaría el mes próximo?", "official": True,
                                        "body": "Votá y dejá tu propuesta en los comentarios.",
                                        "poll": {"options": ["Gobierno de datos maestros", "SAP Datasphere avanzado", "IA aplicada a reporting"],
                                                 "results": "after_vote"}})
-    social.save_post(lucia, False, {"category": "proyectos", "title": "Go-live de la plataforma de datos",
+    social.save_post(lucia, {"category": "proyectos", "title": "Go-live de la plataforma de datos",
                                     "body": "Ayer salimos en producción con la plataforma de datos corporativa. ¡Gracias a todo el equipo!"})
-    social.save_post(martin, False, {"category": "personales", "title": "¡Nació mi hija Emma!", "consent": True,
+    social.save_post(martin, {"category": "personales", "title": "¡Nació mi hija Emma!", "consent": True,
                                      "body": "Quería compartirles la alegría: el martes nació Emma. Estamos todos muy bien."})   # queda PENDIENTE
-    removed = social.save_post(martin, False, {"category": "comunidad", "title": "Vendo bicicleta", "body": "Si a alguien le interesa, escríbanme."})
-    social.moderate_post(ch, removed["id"], "retirar", "Spam o fuera de tema · Comunidad no es un espacio de compraventa")
-    social.save_post(ch, True, {"category": "oficial", "title": "Cronograma de vacaciones de verano", "official": True,
+    removed = social.save_post(martin, {"category": "comunidad", "title": "Vendo bicicleta", "body": "Si a alguien le interesa, escríbanme."})
+    social.moderate_post(mod, welcome["id"], "fijar")                                  # fijar: solo la moderación
+    social.save_post(mod, {"category": "comunidad", "title": "Club de lectura de los jueves",
+                           "body": "Arrancamos un club de lectura informal. Si te suma, dejá un comentario."})
+    social.moderate_post(mod, removed["id"], "retirar", "Spam o fuera de tema · Comunidad no es un espacio de compraventa")
+    social.save_post(ch, {"category": "oficial", "title": "Cronograma de vacaciones de verano", "official": True,
                                 "body": "Compartimos el cronograma de turnos de vacaciones.",
                                 "publish_at": (svc.now_utc() + timedelta(days=1)).astimezone(svc.BUSINESS_TZ).date().isoformat() + "T09:00"})
     # interacciones sobre Comunidad

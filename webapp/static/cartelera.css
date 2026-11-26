@@ -249,3 +249,7 @@ a.ct-space:hover { border-color: var(--ct-gold); }
 .ct-mod-table { table-layout: auto; width: 100%; }
 .ct-mod-table td { white-space: normal; overflow-wrap: anywhere; vertical-align: top; }
 .ct-mod-table td:last-child { white-space: nowrap; }
+
+/* Moderación de Comunidad: shell del Hub sin navegación de vertical (no pertenece a Capital Humano) */
+.app-shell.ct-modshell { grid-template-columns: minmax(0, 1fr); }
+.app-shell.ct-modshell .module-content { grid-column: 1; width: min(100%, 1280px); margin: 0 auto; }

@@ -24,6 +24,7 @@ from config import (
     AZURE_TENANT_ID,
     COMMERCIAL_ALLOWED_USERS,
     CONTENT_OWNER,
+    COMMUNITY_OWNER,
     HUB_METRICS_ALLOWED_USERS,
     HC_SENSITIVE_DATA_ALLOWED_USERS,
     HUMAN_CAPITAL_ALLOWED_USERS,
@@ -203,6 +204,22 @@ def _content_owner_set() -> set[str]:
     del parser compartido ni configurando `CONTENT_OWNER=ALL`."""
     result = _csv_users(CONTENT_OWNER, empty_is_all=False)
     return result if result is not None else set()
+
+
+def _community_owner_set() -> set[str]:
+    """Allowlist EXPLÍCITA de moderación de Comunidad — MISMO contrato que `_content_owner_set()`: siempre un `set[str]` concreto y "ALL"
+    rechazado (nadie modera por accidente)."""
+    result = _csv_users(COMMUNITY_OWNER, empty_is_all=False)
+    return result if result is not None else set()
+
+
+def is_community_owner_user(email: str) -> bool:
+    """True si `email` (o su alias compacto) está EXPLÍCITAMENTE en `COMMUNITY_OWNER`. Ortogonal a Capital Humano y a `APP_OWNER` (sin bypass):
+    un caller debe exigir además la admisión al Hub (`is_authorized`). Ver `webapp.services.cartelera_social.is_moderator`."""
+    email = (email or "").strip().lower()
+    if not email:
+        return False
+    return email in _community_owner_set()
 
 
 def is_content_owner_user(email: str) -> bool:

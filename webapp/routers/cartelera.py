@@ -28,8 +28,7 @@ _log = logging.getLogger("danwor.cartelera")
 BASE = "/cchh/cartelera"
 _NO_STORE = {"Cache-Control": "no-store"}
 TABS = (("ediciones", "Ediciones", BASE), ("cumpleanos", "Cumpleaños", f"{BASE}/cumpleanos"),
-        ("institucional", "Nosotros y galería", f"{BASE}/institucional"), ("accesos", "Accesos directos", f"{BASE}/accesos"),
-        ("comunidad", "Comunidad", f"{BASE}/comunidad"))
+        ("institucional", "Nosotros y galería", f"{BASE}/institucional"), ("accesos", "Accesos directos", f"{BASE}/accesos"))
 
 
 # ── guardas ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -534,13 +533,14 @@ def _selected_edition(request: Request) -> dict | None:
 def _social_context(user: dict | None, ctx: dict, *, social_on: bool) -> dict:
     """Motor de interacción en el portal: solo en consumo real (nunca en el lienzo, vistas previas ni la vista del colaborador).
     Targets de la página: contenidos de la edición mostrada, el saludo y las publicaciones de Comunidad."""
-    admin = bool(ctx.get("can_manage"))
-    out = {"social_on": social_on, "social": {}, "social_reactions": social.REACTIONS, "social_when": social.fmt_when,
+    # Roles de Comunidad resueltos en el servidor y ORTOGONALES a Capital Humano (`can_manage` sigue siendo solo la gestión editorial).
+    mod = social.is_moderator(user)
+    out = {"social_on": social_on, "social": {}, "can_moderate": mod, "can_publish_official": social.can_publish_official(user), "social_reactions": social.REACTIONS, "social_when": social.fmt_when,
            "me": social.uid(user or {}), "me_name": social.uname(user or {}), "notif_unseen": 0, "social_names": {},
            "community_count": sum(1 for p in social.list_posts() if social.post_state(p) == "published"),
            "social_categories": social.CATEGORIES, "social_categories_by_id": social.CATEGORY_BY_ID, "social_post_state": social.post_state,
            "social_post_json": social.post_json, "social_render": social.render_text, "social_rules": social.RULES,
-           "social_wall_types": social.WALL_TYPES, "social_poll": lambda p: social.poll_state(p, user, admin)}
+           "social_wall_types": social.WALL_TYPES, "social_poll": lambda p: social.poll_state(p, user, mod)}
     if not social_on:
         return out
     social.touch_person(user)
@@ -549,7 +549,7 @@ def _social_context(user: dict | None, ctx: dict, *, social_on: bool) -> dict:
     if ctx.get("greeting"):
         targets.append(f"greeting:{ctx['greeting']['id']}")
     targets += [f"post:{p['id']}" for p in ctx.get("posts") or []]
-    out["social"] = social.snapshot(targets, user, admin, names)
+    out["social"] = social.snapshot(targets, user, mod, names)
     out["notif_unseen"] = sum(1 for n in social.notifications(user, names) if n["new"])
     out["social_names"] = names
     return out

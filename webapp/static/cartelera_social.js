@@ -133,7 +133,7 @@
       $("[data-cp-title]", m).textContent = "Editar publicación"; $('[data-sx="publish"]', m).textContent = "Guardar cambios";
       $("#cp-cat", m).value = post.category; $("#cp-title", m).value = post.title; body.value = post.body; body.__picks = post.mentions || {};
       $("#cp-link", m).value = post.link || "";
-      if ($("#cp-official", m)) { $("#cp-official", m).checked = post.official; $("#cp-pin", m).checked = post.pinned; $("#cp-when", m).value = post.publish_at || ""; }
+      if ($("#cp-official", m)) { $("#cp-official", m).checked = post.official; if ($("#cp-pin", m)) $("#cp-pin", m).checked = post.pinned; $("#cp-when", m).value = post.publish_at || ""; }
       if ($("#cp-consentchk", m)) $("#cp-consentchk", m).checked = !!post.consent;
     }
     const consent = () => { $("#cp-consent", m).style.display = $("#cp-cat", m).value === "personales" ? "" : "none"; };
@@ -145,11 +145,11 @@
     const m = $("#layer .modal"), err = $("[data-cp-error]", m);
     const data = { category: $("#cp-cat", m).value, title: $("#cp-title", m).value.trim(), body: toStored($("#cp-body", m)), link: $("#cp-link", m).value.trim(),
                    poll: composer.poll, consent: $("#cp-consentchk", m) && $("#cp-consentchk", m).checked };
-    if ($("#cp-official", m)) Object.assign(data, { official: $("#cp-official", m).checked, pinned: $("#cp-pin", m).checked, publish_at: $("#cp-when", m).value });
+    if ($("#cp-official", m)) Object.assign(data, { official: $("#cp-official", m).checked, pinned: !!$("#cp-pin", m)?.checked, publish_at: $("#cp-when", m).value });
     btn.disabled = true; err.textContent = "";
     try {
       const j = await api(composer.post ? `/cartelera/comunidad/publicaciones/${composer.post.id}` : "/cartelera/comunidad/publicaciones", data);
-      sessionStorage.setItem("ct-toast", j.post.status === "pending" ? "Enviado. Capital Humano lo revisa antes de publicarlo." : (composer.post ? "Cambios guardados." : "Publicado en Comunidad."));
+      sessionStorage.setItem("ct-toast", j.post.status === "pending" ? "Enviado. La moderación de Comunidad lo revisa antes de publicarlo." : (composer.post ? "Cambios guardados." : "Publicado en Comunidad."));
       if (location.pathname + location.search === "/cartelera/comunidad") { location.hash = "post-" + j.post.id; location.reload(); }
       else location.assign("/cartelera/comunidad#post-" + j.post.id);
     } catch (e) { err.textContent = e.message; btn.disabled = false; }
@@ -264,12 +264,12 @@
       else if (a === "report") {
         const kind = el.dataset.kind, id = el.dataset.id;
         modal(`<div class="modal-h"><h2>Reportar ${kind === "post" ? "publicación" : "comentario"}</h2><button type="button" class="icon-btn" data-sx="close" aria-label="Cerrar">✕</button></div>
-          <p class="muted" style="margin:0">El reporte lo ve solo Capital Humano.</p>
+          <p class="muted" style="margin:0">El reporte lo ve solo la moderación de Comunidad.</p>
           <label class="f">Motivo<select id="rp-reason"><option>Contenido ofensivo o inapropiado</option><option>Información confidencial</option><option>Información personal sin consentimiento</option><option>Spam o fuera de tema</option><option>Otro</option></select></label>
           <label class="f">Comentario (opcional)<textarea id="rp-note" rows="3"></textarea></label>
           <div class="row" style="justify-content:flex-end"><button type="button" class="btn" data-sx="close">Cancelar</button><button type="button" class="btn primary" data-sx="sendreport" data-kind="${kind}" data-id="${esc(id)}">Enviar reporte</button></div>`);
       }
-      else if (a === "sendreport") { await api("/cartelera/social/reportes", { kind: el.dataset.kind, id: el.dataset.id, reason: $("#rp-reason").value, note: $("#rp-note").value }); closeModal(); toast("Reporte enviado a Capital Humano."); }
+      else if (a === "sendreport") { await api("/cartelera/social/reportes", { kind: el.dataset.kind, id: el.dataset.id, reason: $("#rp-reason").value, note: $("#rp-note").value }); closeModal(); toast("Reporte enviado a la moderación."); }
       else if (a === "vote") { await api("/cartelera/social/voto", { post: el.dataset.id, i: Number(el.dataset.i) }); keep(); location.reload(); }
       else if (a === "compose") openComposer(null);
       else if (a === "editpost") openComposer(JSON.parse(el.dataset.postJson));
@@ -277,9 +277,9 @@
       else if (a === "addopt") { syncPoll(); composer.poll.options.push(""); pollBox(composer.poll); }
       else if (a === "rmopt") { syncPoll(); composer.poll.options.splice(Number(el.dataset.i), 1); pollBox(composer.poll); }
       else if (a === "publish") await publish(el);
-      else if (a === "delpost") { if (await confirmBox("¿Eliminar esta publicación? Se eliminan también sus comentarios y reacciones. No se puede deshacer.", "Eliminar")) { await api(`/cartelera/comunidad/publicaciones/${el.dataset.id}/eliminar`, {}); sessionStorage.setItem("ct-toast", "Publicación eliminada."); location.reload(); } }
+      else if (a === "delpost") { if (await confirmBox(el.dataset.mod ? "¿Eliminar esta publicación de otra persona? Se eliminan también sus comentarios y reacciones, queda en el registro de moderación y no se puede deshacer." : "¿Eliminar esta publicación? Se eliminan también sus comentarios y reacciones. No se puede deshacer.", "Eliminar")) { await api(`/cartelera/comunidad/publicaciones/${el.dataset.id}/eliminar`, {}); sessionStorage.setItem("ct-toast", "Publicación eliminada."); location.reload(); } }
       else if (a === "modpost") {                                                    // en el muro solo hay publicaciones vigentes: retirar, con motivo
-        const reason = await askReason("Retirar publicación", "Deja de verse en Comunidad. Capital Humano la conserva en la moderación y la autoría recibe un aviso con el motivo.");
+        const reason = await askReason("Retirar publicación", "Deja de verse en Comunidad. Queda en la moderación y la autoría recibe un aviso con el motivo.");
         if (reason !== null) { await api(`/cartelera/comunidad/publicaciones/${el.dataset.id}/moderar`, { action: el.dataset.action, reason }); sessionStorage.setItem("ct-toast", "Publicación retirada."); keep(); location.reload(); }
       }
       else if (a === "pin") {                                                        // la publicación cambia de lugar en el muro: se la sigue y se la resalta

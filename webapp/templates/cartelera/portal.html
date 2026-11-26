@@ -45,6 +45,7 @@
     </nav>
     {% if hdr_tools or social_on %}<div class="hdr-tools">
       {% if social_on %}<button type="button" class="icon-btn" data-sx="notif" aria-label="Notificaciones{{ ', ' ~ notif_unseen ~ ' nuevas' if notif_unseen }}">{{ ic('bell') }}{% if notif_unseen %}<span class="badge-dot">{{ '9+' if notif_unseen > 9 else notif_unseen }}</span>{% endif %}</button>{% endif %}
+      {% if social_on and can_moderate %}<a class="hdr-link" href="/cartelera/comunidad/moderacion">Moderar</a>{% endif %}
       {% if hdr_tools %}{% if can_manage %}<a class="hdr-link" href="/cchh/cartelera">Gestionar</a>{% endif %}
       <a class="hdr-link" href="/onedanwor">Volver al Hub</a>{% endif %}
     </div>{% endif %}
@@ -280,22 +281,25 @@
 {% if 'comunidad' in pages %}
 {#- COMUNIDAD — muro de la app original: categorías a la izquierda, publicador + filtros + publicaciones al centro, cumpleaños próximos y
     pautas a la derecha. El servidor entrega SOLO publicaciones publicadas y vigentes (pendientes, programadas, rechazadas y retiradas se
-    gestionan en la moderación de Capital Humano); acá solo se dibuja. -#}
+    gestionan en la moderación de Comunidad); acá solo se dibuja. Acciones por rol, decididas por el servidor (`can_moderate` =
+    COMMUNITY_OWNER, ortogonal a Capital Humano) y validadas otra vez en cada API: lo propio se edita o elimina; lo ajeno se reporta, y la
+    moderación además lo retira, lo elimina o lo fija (lo oficial). Nadie edita contenido ajeno. -#}
 {% macro post_card(p) -%}
   {%- set cat = social_categories_by_id.get(p.category, {'name': p.category, 'icon': 'wall'}) -%}
   {%- set st = social_post_state(p) -%}
   {%- set mine = p.author == me -%}
-  {%- set editable = (p.official and can_manage) or (mine and not p.official) -%}
+  {%- set live = st != 'removed' -%}
   {%- set author = 'Capital Humano' if p.official else social_names.get(p.author, p.author_name or 'Colaborador/a') -%}
   <article class="card post{{ ' pinned' if p.pinned and st == 'published' else '' }}{{ ' removed' if st == 'removed' else '' }}" id="post-{{ p.id }}" data-post="{{ p.id }}">
     <div class="post-h">
       <span class="avatar{{ ' ch' if p.official else '' }}" aria-hidden="true">{{ 'CH' if p.official else ((author.split() | map('first') | list)[:2] | join('') | upper) }}</span>
       <div class="who"><b>{{ author }}</b><span>{{ social_when(p.publish_at or p.created_at) }}{{ ' · editado' if p.edited_at }}</span></div>
       <div class="row" style="gap:2px">
-        {% if can_manage and p.official and st != 'removed' %}<button type="button" class="icon-btn" data-sx="pin" data-id="{{ p.id }}" aria-label="{{ 'Desfijar' if p.pinned else 'Fijar arriba' }}" title="{{ 'Desfijar' if p.pinned else 'Fijar arriba' }}">{{ ic('pin') }}</button>{% endif %}
-        {% if editable and st != 'removed' %}<button type="button" class="icon-btn" data-sx="editpost" data-id="{{ p.id }}" data-post-json="{{ social_post_json(p) }}" aria-label="Editar" title="Editar">{{ ic('edit') }}</button>
+        {% if can_moderate and p.official and live %}<button type="button" class="icon-btn" data-sx="pin" data-id="{{ p.id }}" aria-label="{{ 'Desfijar' if p.pinned else 'Fijar arriba' }}" title="{{ 'Desfijar' if p.pinned else 'Fijar arriba' }}">{{ ic('pin') }}</button>{% endif %}
+        {% if mine and live %}<button type="button" class="icon-btn" data-sx="editpost" data-id="{{ p.id }}" data-post-json="{{ social_post_json(p) }}" aria-label="Editar" title="Editar">{{ ic('edit') }}</button>
         <button type="button" class="icon-btn" data-sx="delpost" data-id="{{ p.id }}" aria-label="Eliminar" title="Eliminar">{{ ic('trash') }}</button>{% endif %}
-        {% if can_manage and not editable and st != 'removed' %}<button type="button" class="icon-btn" data-sx="modpost" data-action="retirar" data-id="{{ p.id }}" aria-label="Retirar publicación" title="Retirar (moderación)">{{ ic('shield') }}</button>{% endif %}
+        {% if can_moderate and not mine and live %}<button type="button" class="icon-btn" data-sx="modpost" data-action="retirar" data-id="{{ p.id }}" aria-label="Retirar por moderación" title="Retirar por moderación">{{ ic('shield') }}</button>
+        <button type="button" class="icon-btn" data-sx="delpost" data-mod="1" data-id="{{ p.id }}" aria-label="Eliminar (moderación)" title="Eliminar (moderación)">{{ ic('trash') }}</button>{% endif %}
         {% if not mine and st == 'published' %}<button type="button" class="icon-btn" data-sx="report" data-kind="post" data-id="{{ p.id }}" aria-label="Reportar" title="Reportar contenido">{{ ic('flag') }}</button>{% endif %}
       </div>
     </div>
@@ -345,7 +349,7 @@
 {# Publicador (alta y edición): el modal de la app original. Imágenes y adjuntos: integración documental (F5) pendiente. #}
 <template id="ct-composer-tpl">
   <div class="modal-h"><h2 data-cp-title>Nueva publicación</h2><button type="button" class="icon-btn" data-sx="close" aria-label="Cerrar">{{ ic('x') }}</button></div>
-  <label class="f">Categoría<select id="cp-cat">{% for c in social_categories if c.collab or can_manage %}<option value="{{ c.id }}">{{ c.name }}{{ ' (requiere aprobación)' if c.approval and not can_manage else '' }}</option>{% endfor %}</select></label>
+  <label class="f">Categoría<select id="cp-cat">{% for c in social_categories if c.collab or can_publish_official %}<option value="{{ c.id }}">{{ c.name }}{{ ' (requiere aprobación)' if c.approval and not can_moderate else '' }}</option>{% endfor %}</select></label>
   <label class="f">Título<input type="text" id="cp-title" maxlength="140" placeholder="Ej.: ¡Felicitaciones al equipo de BI!"></label>
   <label class="f">Mensaje <span class="h">Escribí @ para mencionar a alguien de Danwor.</span><textarea id="cp-body" data-mention rows="5"></textarea></label>
   <div class="grid2">
@@ -354,9 +358,9 @@
   </div>
   <div id="cp-pollbox"></div>
   <label class="check notice gold" id="cp-consent" hidden><input type="checkbox" id="cp-consentchk"> Confirmo que las personas involucradas están de acuerdo con que se comparta esta novedad.</label>
-  {% if can_manage %}<div class="card pad stack" style="gap:10px;background:var(--surface-2)"><span class="eyebrow">Opciones de Capital Humano</span>
+  {% if can_publish_official %}<div class="card pad stack" style="gap:10px;background:var(--surface-2)"><span class="eyebrow">Comunicación oficial</span>
     <label class="check"><input type="checkbox" id="cp-official" checked> Publicar como Capital Humano (oficial)</label>
-    <label class="check"><input type="checkbox" id="cp-pin"> Fijar arriba en Comunidad</label>
+    {% if can_moderate %}<label class="check"><input type="checkbox" id="cp-pin"> Fijar arriba en Comunidad</label>{% endif %}
     <label class="f">Programar publicación <span class="h">Dejalo vacío para publicar ahora.</span><input type="datetime-local" id="cp-when"></label></div>{% endif %}
   <p class="muted" style="margin:0;font-size:12px" data-cp-error></p>
   <div class="row" style="justify-content:space-between"><button type="button" class="btn ghost sm" data-sx="togglepoll">{{ ic('poll') }}<span>Agregar encuesta</span></button>

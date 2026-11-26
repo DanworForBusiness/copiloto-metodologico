@@ -441,6 +441,11 @@ HC_CV_INBOX_PARENT_NAME = "Perfiles"
 # (Comercial → Presentaciones: puede editar CUALQUIER instancia, sin importar quién la creó, siempre dentro de la autorización de Comercial; ver
 # webapp.services.commercial_presentations.can_edit_presentation_user). Los seeds/templates institucionales NO se editan desde la UI con esta capacidad: se gobiernan por código/deploy.
 CONTENT_OWNER = _env("CONTENT_OWNER", "")
+# Moderación de COMUNIDAD (Cartelera Virtual): MISMO patrón que CONTENT_OWNER — allowlist EXPLÍCITA, fail-closed (ausente/vacío/"ALL" = nadie
+# modera), sin bypass de APP_OWNER. Pregunta ORTOGONAL a Capital Humano: moderar Comunidad NO da acceso a la vertical CCHH y estar en
+# HUMAN_CAPITAL_ALLOWED_USERS NO da moderación. Habilita retirar y eliminar publicaciones ajenas, fijar, aprobar/rechazar, retirar comentarios y
+# resolver reportes (ver webapp.services.cartelera_social). Ejemplo: COMMUNITY_OWNER=joconnor,mperez
+COMMUNITY_OWNER = _env("COMMUNITY_OWNER", "")
 # Usage Metrics como capacidad de HUB (owner ticket "HUB METRICS — CENTRALIZE
 # ACCESS AND ENABLE BY VERTICAL"): DOS preguntas independientes — "¿puedo
 # entrar al vertical?" (ALLOWED_USERS/OPERATIONS_ALLOWED_USERS/
