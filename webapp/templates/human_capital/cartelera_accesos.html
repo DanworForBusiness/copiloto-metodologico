@@ -14,7 +14,7 @@
   <details class="dashboard-section" data-section-id="accesos" data-persist-collapse open>
     <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Accesos directos</span>
       {{ help_tip("Enlaces a políticas, formularios, beneficios y herramientas. Se muestran en todas las ediciones, al final de «Beneficios e información útil». No se copian documentos: se enlazan donde ya están.") }}
-      <span class="dashboard-section__count">{{ links | length }}</span></summary>
+      <span class="dashboard-section__count">{{ links | length }} acceso{{ '' if links | length == 1 else 's' }} directo{{ '' if links | length == 1 else 's' }}</span></summary>
     <div class="dashboard-section__body">
       {% if links %}
       {% call dw_table('accesos', [{'key': 'nombre', 'label': 'Nombre', 'width': '30%'}, {'key': 'grupo', 'label': 'Grupo', 'width': '20%'}, {'key': 'enlace', 'label': 'Enlace', 'width': '38%'}], actions_width='130px') %}
