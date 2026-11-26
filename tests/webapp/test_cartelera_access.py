@@ -188,7 +188,7 @@ def test_fallback_preview_sends_human_capital_to_the_latest_edition_in_preparati
     assert cchh.get("/cartelera?fallback=preview", follow_redirects=False).status_code == 200                   # hay vigente: normal
     repo.save("editions", cur, {"state": "draft", "published_at": None}, expected_revision=repo.get("editions", cur)["revision"])
     r = cchh.get("/cartelera?fallback=preview", follow_redirects=False)
-    assert r.status_code == 303 and r.headers["location"] == f"/cchh/cartelera/ediciones/{nxt}/vista-previa?pagina=novedades"
+    assert r.status_code == 303 and r.headers["location"] == f"/cchh/cartelera/ediciones/{nxt}/vista-previa?pagina=inicio"
     assert cchh.get("/cartelera", follow_redirects=False).status_code == 200                                    # sin el parámetro: igual que hoy
     router_launched = router.PORTAL_LAUNCHED
     try:

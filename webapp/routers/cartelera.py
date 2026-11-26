@@ -709,11 +709,11 @@ def portal_home(request: Request):
     selected = _selected_edition(request)
     edition = selected or svc.current_edition()
     # `?fallback=preview` (iframe del wrapper institucional): sin edición vigente publicada, Capital Humano (HUMAN_CAPITAL_ALLOWED_USERS)
-    # va a la vista previa de la edición en preparación más reciente por período, en Novedades. El resto ve el estado vacío de siempre.
+    # va a la vista previa de la edición en preparación más reciente por período, en Inicio. El resto ve el estado vacío de siempre.
     if edition is None and request.query_params.get("fallback") == "preview" and human_capital_access.is_human_capital_authorized_user(user):
         preparing = next((e for e in svc.list_editions() if svc.effective_state(e) in ("draft", "scheduled")), None)   # ya ordenadas desc.
         if preparing:
-            return RedirectResponse(f"{BASE}/ediciones/{preparing['id']}/vista-previa?pagina=novedades", status_code=303)
+            return RedirectResponse(f"{BASE}/ediciones/{preparing['id']}/vista-previa?pagina=inicio", status_code=303)
     return _render_portal(request, "inicio", edition=edition, user=user, context="edition" if selected else "general")
 
 
