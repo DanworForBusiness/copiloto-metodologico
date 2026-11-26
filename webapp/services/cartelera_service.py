@@ -365,6 +365,18 @@ def run_due(now: datetime | None = None) -> int:
     return done
 
 
+# URL INSTITUCIONAL de la Cartelera (enmascaramiento de dominio de danwor.com: su index.html con iframe abre el Hub en
+# `/onedanwor?next=/cartelera/novedades[/<mes>]`). Es un contrato fijo de publicación, no configuración de entorno: el correo enlaza SIEMPRE a
+# danwor.com con `?edicion=<mes>` y el ingreso, la autenticación y la visibilidad los resuelve el Hub con sus rutas y guardas de siempre.
+INSTITUTIONAL_URL = "https://danwor.com/cchh/cartelera/"
+
+
+def institutional_url(month: str | None = None) -> str:
+    """Enlace público de la Cartelera: sin mes, la última edición vigente; con mes, esa edición (`?edicion=AAAA-MM`)."""
+    from urllib.parse import urlencode
+    return INSTITUTIONAL_URL + (f"?{urlencode({'edicion': month})}" if month else "")
+
+
 def notify_published(edition: dict) -> str:
     """Aviso por correo con el servicio existente (`notifications.emit`): clave «<mes>:<published_at>», nunca dos correos por la misma
     publicación efectiva. Registra en la edición la clave notificada para que el programador no vuelva a intentarlo."""
@@ -372,7 +384,7 @@ def notify_published(edition: dict) -> str:
     key = f"{edition['id']}:{edition.get('published_at') or ''}"
     result = notifications.emit("human_capital.cartelera.published", key, {
         "label": month_label(edition["id"]), "headline": edition.get("title") or "",
-        "url": notifications.hub_link(f"/cartelera/novedades/{edition['id']}"),
+        "url": institutional_url(edition["id"]),                                        # danwor.com/cchh/cartelera/?edicion=<mes>
     })
     try:
         repo.save("editions", edition["id"], {"notified_key": key, "notification_result": result}, expected_revision=edition.get("revision", 1))
