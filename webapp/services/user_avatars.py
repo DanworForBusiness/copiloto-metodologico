@@ -9,8 +9,11 @@ colaborador sincroniza la suya al usar el Hub (como mucho una vez por día); los
 o comentario. (Leer la foto de OTROS exigiría `User.ReadBasic.All`, que no está consentido: no se usa.)
 
 Procesamiento: la MISMA validación del servicio multimedia (Pillow: formato real, límites, orientación, sin metadatos) + recorte cuadrado
-256 px en WebP. Persistencia: `user-profiles/<hash>/{meta.json, custom.webp, corporate.webp}` con `remote_store` (Spaces PRIVADO; nunca
-URLs públicas) y recuperación BAJO DEMANDA (el arranque no baja las fotos). Cada colaborador administra solo la suya (lo exige la ruta).
+256 px en WebP. Persistencia: `notifications/hub-profiles/<hash>/{meta.json, custom.webp, corporate.webp}` con `remote_store` (Spaces
+PRIVADO; nunca URLs públicas) y recuperación BAJO DEMANDA (el arranque no baja las fotos). Cada colaborador administra solo la suya.
+Ubicación = decisión de INFRAESTRUCTURA, no de pertenencia funcional (mismo criterio que Presentaciones bajo `commercial_strategy_runtime/`):
+`notifications/` ya es un directorio PERSISTIDO de plataforma (default de código y valor documentado de `SPACES_PERSIST_PATHS`; el registro de
+correos del Hub depende de él), así que no se agrega ninguna ruta de persistencia ni variable de entorno.
 """
 from __future__ import annotations
 
@@ -27,7 +30,7 @@ import config
 from core import microsoft365, remote_store
 from webapp.services import cartelera_media as media     # procesamiento multimedia compartido (Pillow); no se duplica
 
-REL = "user-profiles"
+REL = "notifications/hub-profiles"
 SIZE = 256
 CORPORATE_REFRESH = timedelta(hours=24)
 remote_store.register_lazy_dir(REL)
