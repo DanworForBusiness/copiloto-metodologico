@@ -268,6 +268,26 @@ def _clean_content(title: str, subtitle: str, sections: list[dict]) -> dict:
     return {"title": _text(title, limit=160), "subtitle": _text(subtitle, limit=300), "sections": normalize_sections(clean)}
 
 
+def draft_edition(month: str, *, title: str, subtitle: str, sections: list[dict]) -> dict:
+    """Edición con el borrador del lienzo SIN validar (para volver a dibujarlo en modo edición, p. ej. al recuperar cambios locales): los
+    textos se recortan y se escapan al renderizar; los enlaces inválidos se conservan para que el editor los marque. Nunca se persiste."""
+    edition = get_edition(month)
+    if edition is None:
+        raise repo.CarteleraNotFoundError(month)
+    clip = lambda v, n=MAX_TEXT: str(v or "")[:n]                                          # noqa: E731
+    clean = []
+    for sec in sections or []:
+        meta = SECTION_BY_KEY.get((sec or {}).get("key"))
+        if not meta:
+            continue
+        fields = PROJECT_FIELDS if meta["kind"] == "projects" else GENERAL_FIELDS
+        items = [] if meta["kind"] == "birthdays" else [
+            {**{k: clip(row.get(k)) for k in fields}, "id": clip(row.get("id"), 24) or uuid.uuid4().hex[:12]}
+            for row in (sec.get("items") or []) if isinstance(row, dict)]
+        clean.append({"key": meta["key"], "wide": bool(sec.get("wide")) and meta["kind"] == "general", "items": items})
+    return {**edition, "title": clip(title, 160), "subtitle": clip(subtitle, 300), "sections": normalize_sections(clean)}
+
+
 def preview_edition(month: str, *, title: str, subtitle: str, sections: list[dict]) -> dict:
     """Edición tal como quedaría con el contenido EN PANTALLA del editor (sin guardar): MISMA validación que `save_content`, nada se persiste.
     Conserva estado y fechas de la guardada: la vista previa nunca cambia qué ven los colaboradores."""

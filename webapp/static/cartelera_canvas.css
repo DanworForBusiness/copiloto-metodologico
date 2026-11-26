@@ -1,0 +1,62 @@
+/* cartelera_canvas.css — capa de EDICIÓN del lienzo de Cartelera Virtual. Solo se carga con `edit_mode` (nunca en el portal de consumo).
+   No redefine el diseño de `cartelera_portal.css`: usa sus tokens (--gold, --gold-soft, --line, --muted, --surface…) y sus controles de
+   la app original (.btn, .icon-btn, .grip, .dropover, .dragging, .drop-empty, .arr-tools). Solo agrega affordances discretas de edición,
+   con el criterio de Estrategia (`.cs-inline`): contorno punteado suave, dorado al pasar o enfocar, placeholder en lo vacío. */
+
+/* Textos editables */
+.ct-edit { outline: 1px dashed color-mix(in srgb, var(--muted) 45%, transparent); outline-offset: 3px; border-radius: 4px; cursor: text; min-width: 3ch; transition: outline-color .15s; }
+.ct-edit:hover, .ct-edit:focus { outline: 1px solid var(--gold); }
+.ct-edit:empty::before { content: attr(data-ph); color: var(--muted); font-weight: 400; font-style: italic; pointer-events: none; }
+.cart-banner .ct-edit { outline-color: rgba(245,245,243,.28); }
+.cart-banner .ct-edit:empty::before { color: rgba(245,245,243,.55); }
+.cart-banner h1.ct-edit { display: block; margin: 0; }
+.cart-banner p.ct-edit { display: block; min-height: 1.4em; }
+.pmeta .ct-edit, .item > .ct-edit { display: block; }
+.ct-techline { display: block; margin-top: 4px; font-size: 12px; color: var(--muted); }
+[data-ct-chips][hidden] { display: none; }
+
+/* Herramientas (nunca editables ni parte del contenido) */
+.ct-ed { user-select: none; }
+.ct-banner-tools { align-self: end; padding: 16px; }
+.ct-banner-tools .btn { opacity: .85; }
+.cart-banner { position: relative; }
+.cat-head .grip { cursor: grab; }
+.cat-head .arr-tools .icon-btn, .ct-item-tools .icon-btn { width: 28px; height: 28px; }
+.ct-ed-btn svg { width: 16px; height: 16px; }
+.ct-ed-btn:disabled { opacity: .3; cursor: default; }
+.ct-ed-btn:disabled:hover { background: transparent; }
+.ct-ed-btn.is-on { color: var(--gold-ink); background: var(--gold-soft); }
+
+/* Contenido: barra de herramientas flotante (aparece al pasar o al editar), como las acciones de los posts de la app original */
+.ct-editing .item[data-ct-item] { position: relative; transition: border-color .15s, box-shadow .15s; }
+.ct-editing .item[data-ct-item]:hover, .ct-editing .item[data-ct-item]:focus-within { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold); }
+.ct-item-tools { position: absolute; top: -15px; right: 10px; z-index: 3; display: flex; gap: 2px; padding: 2px 4px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); box-shadow: 0 4px 14px rgba(0,0,0,.12); opacity: 0; transform: translateY(4px); transition: opacity .15s, transform .15s; }
+.item[data-ct-item]:hover > .ct-item-tools, .item[data-ct-item]:focus-within > .ct-item-tools { opacity: 1; transform: none; }
+.ct-item-tools .grip { display: inline-grid; place-items: center; width: 28px; height: 28px; }
+.ct-feat { justify-self: start; }
+.item.ct-is-empty { border-style: dashed; }
+.item.ct-has-error { border-color: var(--crit, #c0392b); box-shadow: 0 0 0 1px var(--crit, #c0392b); }
+.ct-linkpanel { display: grid; gap: 4px; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); }
+.ct-linkpanel[hidden] { display: none; }
+.ct-linkerr { color: var(--crit, #c0392b); font-size: 12px; font-weight: 600; }
+.ct-linkerr[hidden] { display: none; }
+button.ct-kind { border: 0; cursor: pointer; font: inherit; font-size: 11px; font-weight: 700; }
+button.ct-kind:hover { filter: brightness(.95); outline: 1px dashed var(--gold); outline-offset: 2px; }
+
+/* Secciones: estado y lugar para agregar */
+.ct-items { display: grid; gap: 12px; }
+.ct-items:empty, .proj-grid[data-ct-items]:empty { display: none; }
+.ct-add { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; background: transparent; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.ct-add:hover { border-color: var(--gold); color: var(--gold-ink); background: var(--gold-soft); }
+.ct-add svg { width: 16px; height: 16px; }
+.cat-sec[data-ct-sec] { position: relative; border-radius: 14px; outline: 1px dashed transparent; outline-offset: 8px; transition: outline-color .15s; }
+.cat-sec[data-ct-sec]:hover { outline-color: color-mix(in srgb, var(--muted) 40%, transparent); }
+.cat-sec.ct-is-hidden > .cat-head h2, .cat-sec.ct-is-hidden > .cat-head .ic { opacity: .55; }
+.cat-sec.dropover { outline: 2px dashed var(--gold); }
+.ct-note { display: flex; align-items: center; gap: 8px; margin: 0; padding: 8px 12px; border-radius: 10px; background: var(--surface-2); color: var(--muted); font-size: 12px; }
+.ct-note svg { width: 14px; height: 14px; flex: none; }
+.cart-nav .chip.ct-is-hidden { opacity: .45; border-style: dashed; }
+.ct-hidden-tag[hidden] { display: none; }
+.ct-feat[hidden] { display: none; }
+[data-ct-linkcard][hidden], [data-ct-chips][hidden], .ct-item-tools[hidden] { display: none !important; }
+.cat-head .arr-tools .btn { white-space: nowrap; } .cat-head { flex-wrap: wrap; row-gap: 6px; }

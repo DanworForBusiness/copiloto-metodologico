@@ -203,15 +203,27 @@ async def edition_live_preview(request: Request, month: str):
     """Vista previa del contenido EN PANTALLA (sin guardar), renderizada con la MISMA plantilla del portal. No persiste nada ni cambia la
     visibilidad; es POST porque viaja el borrador completo (y exige el mismo origen verificado que cualquier escritura de gestión)."""
     _admin_write(request)
+    edit = request.query_params.get("edit") == "1"
     try:
         body = await request.json()
-        edition = svc.preview_edition(month, title=body.get("title", ""), subtitle=body.get("subtitle", ""),
-                                      sections=list(body.get("sections") or []))
+        build = svc.draft_edition if edit else svc.preview_edition
+        edition = build(month, title=body.get("title", ""), subtitle=body.get("subtitle", ""), sections=list(body.get("sections") or []))
     except repo.CarteleraNotFoundError:
         raise HTTPException(404, "La edición no existe") from None
-    except (svc.CarteleraValidationError, ValueError, TypeError) as exc:
+    except (svc.CarteleraValidationError, ValueError, TypeError, AttributeError) as exc:
         return JSONResponse({"error": str(exc) or "Datos inválidos."}, status_code=422, headers=_NO_STORE)
-    return _render_portal(request, "novedades", edition=edition, preview=True, preview_note="Vista previa del editor · incluye los cambios sin guardar")
+    return _render_portal(request, "novedades", edition=edition, preview=True, edit_mode=edit,
+                          preview_note="Vista del colaborador · incluye los cambios sin guardar")
+
+
+@router.get(f"{BASE}/ediciones/{{month}}/lienzo", response_class=HTMLResponse, include_in_schema=False)
+def edition_canvas(request: Request, month: str):
+    """LIENZO de edición: la MISMA plantilla del portal (`cartelera/portal.html`) con `edit_mode`, que agrega la capa de edición (textos
+    `contenteditable`, herramientas de sección y de contenido, arrastre). Solo gestión de Capital Humano; nada de esto llega al portal."""
+    user, redirect = _admin(request)
+    if redirect:
+        return redirect
+    return _render_portal(request, "novedades", edition=_edition_or_404(month), preview=True, edit_mode=True, user=user)
 
 
 @router.post(f"{BASE}/proyectos", include_in_schema=False)
@@ -371,9 +383,10 @@ def _calendar(month_key: str) -> dict:
 
 
 def _render_portal(request: Request, page: str, *, edition: dict | None = None, preview: bool = False, user: dict | None = None,
-                   preview_note: str = ""):
+                   preview_note: str = "", edit_mode: bool = False):
     user = user or auth_service.session_user(request)
-    ctx = {"page": page, "svc": svc, "user": user, "preview": preview, "preview_note": preview_note, "edition": edition, "links": svc.site_links(),
+    ctx = {"page": page, "svc": svc, "user": user, "preview": preview, "preview_note": preview_note, "edit_mode": edit_mode,
+           "edition": edition, "links": svc.site_links(),
            "editions": svc.visible_editions(), "inst": svc.institutional(), "today_month": svc.month_key(),
            "today_day": svc.now_utc().astimezone(svc.BUSINESS_TZ).day,
            "upcoming": svc.upcoming_birthdays(7), "can_manage": human_capital_access.is_human_capital_authorized_user(user)}

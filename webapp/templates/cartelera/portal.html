@@ -12,7 +12,9 @@
   'rocket': 'M5 15c-1 1-1.5 4-1.5 4s3-.5 4-1.5M9 15l-2-2c1.5-5 6-9 11-9 0 5-4 9.5-9 11zM14 9.5a1 1 0 1 0 0-.01',
   'users': 'M16 19v-1a4 4 0 0 0-8 0v1M12 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM20 19v-1a3 3 0 0 0-2.5-3M17 5.5a3 3 0 0 1 0 5',
   'link': 'M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1',
-  'out': 'M14 4h6v6M20 4l-9 9M18 14v6H4V6h6', 'check': 'M5 12l5 5 9-10', 'image': 'M4 5h16v14H4zM4 16l5-5 4 4 2-2 5 5M15 9.5a1 1 0 1 0 0-.01'} -%}
+  'out': 'M14 4h6v6M20 4l-9 9M18 14v6H4V6h6', 'check': 'M5 12l5 5 9-10', 'image': 'M4 5h16v14H4zM4 16l5-5 4 4 2-2 5 5M15 9.5a1 1 0 1 0 0-.01',
+  'move': 'M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3', 'up': 'M12 19V5M5 12l7-7 7 7', 'down': 'M12 5v14M19 12l-7 7-7-7',
+  'plus': 'M12 5v14M5 12h14', 'trash': 'M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6', 'swap': 'M7 7h11l-3-3M17 17H6l3 3'} -%}
 {%- set SECTION_ICON = {'comunicados': 'megaphone', 'proyectos': 'rocket', 'bienestar': 'heart', 'aprendizaje': 'bulb', 'cumpleanos': 'cake', 'otros': 'star', 'beneficios': 'gift'} -%}
 {%- macro ic(name, cls='') -%}<svg class="svg {{ cls }}" viewBox="0 0 24 24" aria-hidden="true"><path d="{{ ICONS.get(name, ICONS['star']) }}"/></svg>{%- endmacro -%}
 <!doctype html>
@@ -24,8 +26,9 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap">
 <link rel="stylesheet" href="{{ url_for('static', path='cartelera_portal.css') }}?v={{ static_version }}">
+{% if edit_mode %}<link rel="stylesheet" href="{{ url_for('static', path='cartelera_canvas.css') }}?v={{ static_version }}"><script defer src="{{ url_for('static', path='cartelera_canvas.js') }}?v={{ static_version }}"></script>{% endif %}
 </head>
-<body>
+<body{% if edit_mode %} class="ct-editing"{% endif %}>
 <header class="top">
   <div class="wrap">
     <a class="brand" href="/cartelera" aria-label="Danwor, inicio"><img src="{{ url_for('static', path='cartelera/logo-danwor.png') }}" alt="Danwor" class="brand-logo"></a>
@@ -40,7 +43,7 @@
     </div>
   </div>
 </header>
-{% if preview %}<div class="preview-bar">{{ preview_note ~ ' · ' if preview_note else 'Vista previa de Capital Humano · ' }}{{ svc.STATE_LABELS[svc.effective_state(edition)] }} — los colaboradores {{ 'ya la ven' if svc.is_visible(edition) else 'todavía no la ven' }}.</div>{% endif %}
+{% if preview and not edit_mode %}<div class="preview-bar">{{ preview_note ~ ' · ' if preview_note else 'Vista previa de Capital Humano · ' }}{{ svc.STATE_LABELS[svc.effective_state(edition)] }} — los colaboradores {{ 'ya la ven' if svc.is_visible(edition) else 'todavía no la ven' }}.</div>{% endif %}
 
 <main class="wrap" id="content">
 {% macro item_html(it) -%}
@@ -100,7 +103,60 @@
 </div>
 
 {% elif page == 'novedades' %}
-<div class="stack">
+{#- NOVEDADES: UNA sola representación para consumo y edición. Con `edit_mode` (solo el lienzo del editor de Capital Humano) la MISMA estructura
+    suma la capa de edición: textos `contenteditable` (`data-ct-f`), herramientas `contenteditable=false` (`.ct-ed`), secciones vacías visibles y
+    las plantillas de contenidos nuevos. Las herramientas reutilizan los controles de la app original (`.btn sm`, `.icon-btn`, `.arr-tools`,
+    `.grip`, `.dropover`, `.dragging`, `.drop-empty`), que ya viven en esta hoja. Sin `edit_mode` el HTML es el de siempre. -#}
+{% set E = edit_mode %}
+{% macro ed_btn(act, icon_name, label, extra='') -%}<button type="button" class="icon-btn ct-ed-btn" data-ct-act="{{ act }}" title="{{ label }}" aria-label="{{ label }}" {{ extra }}>{{ ic(icon_name) }}</button>{%- endmacro %}
+{% macro ed_text(field, value, tag='span', ph='', multi=False, cls='') -%}
+  {%- if edit_mode -%}<{{ tag }} class="ct-edit {{ cls }}" contenteditable="plaintext-only" spellcheck="true" data-ct-f="{{ field }}" data-ph="{{ ph }}"{% if multi %} data-multi{% endif %}>{{ value or '' }}</{{ tag }}>
+  {%- elif value -%}<{{ tag }}{% if cls %} class="{{ cls }}"{% endif %}>{{ value }}</{{ tag }}>{%- endif -%}
+{%- endmacro %}
+{% macro item_tools(kind) -%}
+  <div class="ct-ed ct-item-tools" contenteditable="false">
+    <span class="grip" draggable="true" data-ct-grip="item" title="Arrastrar para ordenar (también a otra sección)">{{ ic('move') }}</span>
+    {{ ed_btn('up', 'up', 'Subir') }}{{ ed_btn('down', 'down', 'Bajar') }}
+    {{ ed_btn('link', 'link', 'Enlace') }}
+    {% if kind == 'projects' %}{{ ed_btn('swap', 'swap', 'Cambiar el proyecto de Operaciones') }}{% endif %}
+    {{ ed_btn('', 'image', 'Imagen: disponible con la integración documental de SharePoint', 'disabled') }}
+    {{ ed_btn('del', 'trash', 'Quitar') }}
+  </div>
+  <span class="tag off ct-ed ct-feat" contenteditable="false" hidden>{{ ic('star') }}Destacado en Inicio</span>
+{%- endmacro %}
+{% macro link_panel(it, label=True) -%}
+  <div class="ct-ed ct-linkpanel" contenteditable="false" hidden>
+    <label class="f">Enlace <span class="h">empieza con https://{% if label %} · el texto del botón se edita sobre la cartelera{% endif %}</span><input type="url" data-ct-link value="{{ it.link or '' }}" placeholder="https://"></label>
+    <span class="ct-linkerr" hidden>Tiene que empezar con https://</span>
+  </div>
+{%- endmacro %}
+{% macro general_item(it) -%}
+  {% if edit_mode %}
+  <article class="item" data-ct-item data-id="{{ it.id }}" data-link="{{ it.link or '' }}">
+    {{ item_tools('general') }}
+    {{ ed_text('title', it.title, 'h3', 'Título') }}
+    {{ ed_text('body', it.body, 'p', 'Texto del contenido', True) }}
+    <a class="linkcard" data-ct-linkcard{% if not it.link %} hidden{% endif %}>{{ ic('out') }}{{ ed_text('link_label', it.link_label, 'span', it.link or 'Ver más') }}</a>
+    {{ link_panel(it) }}
+  </article>
+  {% else %}{{ item_html(it) }}{% endif %}
+{%- endmacro %}
+{% macro project_item(it) -%}
+  <article class="item proj"{% if edit_mode %}  data-ct-item data-id="{{ it.id }}" data-link="{{ it.link or '' }}" data-project-id="{{ it.project_id }}" data-kind="{{ 'fin' if it.kind == 'fin' else 'inicio' }}"{% endif %}>
+    {% if edit_mode %}{{ item_tools('projects') }}{% endif %}
+    <div class="row" style="gap:6px">{% if edit_mode %}<button type="button" class="tag {{ 'done' if it.kind == 'fin' else 'off' }} ct-ed ct-kind" contenteditable="false" data-ct-act="kind" title="Cambiar entre nuevo y finalizado">{{ ic('check' if it.kind == 'fin' else 'rocket') }}<span>{{ 'Proyecto finalizado' if it.kind == 'fin' else 'Nuevo proyecto' }}</span></button>{% else %}<span class="tag {{ 'done' if it.kind == 'fin' else 'off' }}">{{ ic('check' if it.kind == 'fin' else 'rocket') }}{{ 'Proyecto finalizado' if it.kind == 'fin' else 'Nuevo proyecto' }}</span>{% endif %}</div>
+    <div class="pmeta"><span class="eyebrow">Cliente</span><h3{% if edit_mode %} data-ct-ro="client_name"{% endif %}>{{ it.client_name or '—' }}</h3></div>
+    <div class="pmeta"><span class="eyebrow">Proyecto</span><b{% if edit_mode %} data-ct-ro="project_name"{% endif %}>{{ it.project_name }}</b></div>
+    {% if it.service or edit_mode %}<div class="pmeta"><span class="eyebrow">Tipo de servicio</span>{{ ed_text('service', it.service, 'b', 'Ej.: Implementación SAP Datasphere') }}</div>{% endif %}
+    {% if it.tech or edit_mode %}<div class="pmeta"><span class="eyebrow">Tecnología</span><div class="row" style="gap:6px"{% if edit_mode %} data-ct-chips{% endif %}>{% for t in (it.tech or '').split(',') if t.strip() %}<span class="chip" style="cursor:default">{{ t.strip() }}</span>{% endfor %}</div>{% if edit_mode %}{{ ed_text('tech', it.tech, 'span', 'Tecnologías separadas por coma', cls='ct-techline') }}{% endif %}</div>{% endif %}
+    {% if it.body or edit_mode %}<div class="pmeta"><span class="eyebrow">Solución</span>{{ ed_text('body', it.body, 'p', 'Qué necesidad resuelve y qué entrega', True) }}</div>{% endif %}
+    {% if it.team or edit_mode %}<div class="pmeta"><span class="eyebrow">Equipo</span>{{ ed_text('team', it.team, 'p', 'Ej.: Equipo Datasphere') }}</div>{% endif %}
+    {% if it.thanks or edit_mode %}{{ ed_text('thanks', it.thanks, 'p', 'Agradecimiento (opcional)', True, 'thanks') }}{% endif %}
+    {% if edit_mode %}<a class="linkcard" data-ct-linkcard{% if not it.link %} hidden{% endif %}>{{ ic('out') }}<span>Ver más</span></a>{{ link_panel(it, False) }}
+    {% elif it.link %}<a class="linkcard" href="{{ it.link }}" target="_blank" rel="noopener">{{ ic('out') }}<span>Ver más</span></a>{% endif %}
+  </article>
+{%- endmacro %}
+<div class="stack"{% if E %} data-ct-canvas data-month="{{ edition.id }}"{% endif %}>
   {% if not edition %}
     <div class="row" style="justify-content:space-between;margin-bottom:16px"><div><span class="eyebrow">Novedades del mes</span><h1>Novedades</h1></div></div>
     <div class="card empty">Capital Humano todavía no publicó las novedades de este mes.</div>
@@ -109,17 +165,30 @@
       {% if editions | length > 1 and not preview %}<div class="row"><label for="cartMonthSel" style="position:absolute;left:-9999px">Mes</label>
         <select id="cartMonthSel" style="width:auto" onchange="location.href='/cartelera/novedades/' + this.value">{% for e in editions %}<option value="{{ e.id }}"{% if e.id == edition.id %} selected{% endif %}>{{ svc.month_label(e.id) }}</option>{% endfor %}</select></div>{% endif %}
     </div>
-    <section class="cart-banner"><div class="txt"><span class="eyebrow">{{ svc.month_label(edition.id) }}{{ ' · borrador' if preview and not svc.is_visible(edition) else '' }}</span><h1>{{ edition.title or ('Novedades de ' ~ svc.month_label(edition.id)) }}</h1>{% if edition.subtitle %}<p>{{ edition.subtitle }}</p>{% endif %}</div></section>
-    <nav class="cart-nav" aria-label="Secciones de Novedades">
-      {% for sec in edition.sections %}{% set meta = svc.SECTION_BY_KEY[sec.key] %}{% if sec['items'] or meta.kind == 'birthdays' or (meta.kind == 'links' and links) %}<a class="chip" href="#sec-{{ sec.key }}">{{ ic(SECTION_ICON.get(sec.key, 'star')) }}{{ meta.title }}</a>{% endif %}{% endfor %}
+    <section class="cart-banner"><div class="txt"><span class="eyebrow">{{ svc.month_label(edition.id) }}{{ ' · borrador' if preview and not E and not svc.is_visible(edition) else '' }}</span>
+      {% if E %}{{ ed_text('title', edition.title, 'h1', 'Título de portada') }}{{ ed_text('subtitle', edition.subtitle, 'p', 'Bajada (opcional)') }}
+      {% else %}<h1>{{ edition.title or ('Novedades de ' ~ svc.month_label(edition.id)) }}</h1>{% if edition.subtitle %}<p>{{ edition.subtitle }}</p>{% endif %}{% endif %}</div>
+      {% if E %}<div class="ct-ed ct-banner-tools" contenteditable="false"><button type="button" class="btn sm" disabled title="Disponible con la integración documental de SharePoint">{{ ic('image') }}Imagen de portada · pendiente</button></div>{% endif %}
+    </section>
+    <nav class="cart-nav" aria-label="Secciones de Novedades"{% if E %} data-ct-nav{% endif %}>
+      {% for sec in edition.sections %}{% set meta = svc.SECTION_BY_KEY[sec.key] %}{% if E or sec['items'] or meta.kind == 'birthdays' or (meta.kind == 'links' and links) %}<a class="chip" href="#sec-{{ sec.key }}"{% if E %} data-ct-chip="{{ sec.key }}"{% endif %}>{{ ic(SECTION_ICON.get(sec.key, 'star')) }}{{ meta.title }}</a>{% endif %}{% endfor %}
     </nav>
-    <div class="cart-grid">
+    <div class="cart-grid"{% if E %} data-ct-grid{% endif %}>
     {% for sec in edition.sections %}{% set meta = svc.SECTION_BY_KEY[sec.key] %}
-      {% set show = sec['items'] or meta.kind == 'birthdays' or (meta.kind == 'links' and links) %}
+      {% set show = E or sec['items'] or meta.kind == 'birthdays' or (meta.kind == 'links' and links) %}
       {% if show %}
-      <section class="cat-sec{{ ' wide' if sec.wide or meta.kind in ('birthdays', 'links', 'projects') else '' }}" id="sec-{{ sec.key }}">
-        <div class="cat-head"><span class="ic">{{ ic(SECTION_ICON.get(sec.key, 'star')) }}</span><h2>{{ meta.title }}</h2></div>
+      <section class="cat-sec{{ ' wide' if sec.wide or meta.kind in ('birthdays', 'links', 'projects') else '' }}" id="sec-{{ sec.key }}"{% if E %} data-ct-sec="{{ sec.key }}" data-ct-kind="{{ meta.kind }}"{% endif %}>
+        <div class="cat-head">{% if E and meta.kind != 'links' %}<span class="grip ct-ed" contenteditable="false" draggable="true" data-ct-grip="sec" title="Arrastrar sección">{{ ic('move') }}</span>{% endif %}<span class="ic">{{ ic(SECTION_ICON.get(sec.key, 'star')) }}</span><h2>{{ meta.title }}</h2>
+          {% if E %}<div class="arr-tools ct-ed" contenteditable="false">
+            <span class="tag cat ct-hidden-tag" hidden>No se muestra: sin contenidos</span>
+            {% if meta.kind == 'general' %}<button type="button" class="btn sm" data-ct-act="wide">{{ 'Poner al costado' if sec.wide else 'Ancho completo' }}</button>
+            {% elif meta.kind == 'links' %}<span class="muted" style="font-size:12px">Siempre al final</span>
+            {% else %}<span class="muted" style="font-size:12px">Ancho completo</span>{% endif %}
+            {% if meta.kind != 'links' %}{{ ed_btn('secup', 'up', 'Subir sección') }}{{ ed_btn('secdown', 'down', 'Bajar sección') }}{% endif %}
+          </div>{% endif %}
+        </div>
         {% if meta.kind == 'birthdays' %}
+          {% if E %}<p class="ct-ed ct-note" contenteditable="false">{{ ic('cake') }}Automático: muestra los cumpleaños autorizados y visibles del mes. Se gestionan en la pestaña Cumpleaños.</p>{% endif %}
           <div class="card pad"><div class="cal" role="grid" aria-label="Cumpleaños de {{ svc.month_label(edition.id) }}">
             {% for d in ('Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom') %}<div class="dow">{{ d }}</div>{% endfor %}
             {% for week in calendar.weeks %}{% for day in week %}
@@ -129,28 +198,24 @@
           <div class="bday-list">{% for day, names in calendar.by_day | dictsort %}{% for n in names %}<div class="item" style="padding:10px 14px;display:flex;gap:10px;align-items:center"><b style="width:28px;font-variant-numeric:tabular-nums">{{ day }}</b><span style="flex:1">{{ n }}</span></div>{% endfor %}{% else %}<p class="muted">Sin cumpleaños cargados este mes.</p>{% endfor %}</div>
           <p class="muted" style="font-size:12px;margin:10px 0 0">{{ calendar.count }} cumpleaños en {{ svc.MONTHS[edition.id[5:7] | int - 1] | lower }}.</p></div>
         {% elif meta.kind == 'projects' %}
-          <div class="proj-grid">{% for it in sec['items'] %}
-            <article class="item proj">
-              <div class="row" style="gap:6px"><span class="tag {{ 'done' if it.kind == 'fin' else 'off' }}">{{ ic('check' if it.kind == 'fin' else 'rocket') }}{{ 'Proyecto finalizado' if it.kind == 'fin' else 'Nuevo proyecto' }}</span></div>
-              <div class="pmeta"><span class="eyebrow">Cliente</span><h3>{{ it.client_name or '—' }}</h3></div>
-              <div class="pmeta"><span class="eyebrow">Proyecto</span><b>{{ it.project_name }}</b></div>
-              {% if it.service %}<div class="pmeta"><span class="eyebrow">Tipo de servicio</span><b>{{ it.service }}</b></div>{% endif %}
-              {% if it.tech %}<div class="pmeta"><span class="eyebrow">Tecnología</span><div class="row" style="gap:6px">{% for t in it.tech.split(',') if t.strip() %}<span class="chip" style="cursor:default">{{ t.strip() }}</span>{% endfor %}</div></div>{% endif %}
-              {% if it.body %}<div class="pmeta"><span class="eyebrow">Solución</span><p>{{ it.body }}</p></div>{% endif %}
-              {% if it.team %}<div class="pmeta"><span class="eyebrow">Equipo</span><p>{{ it.team }}</p></div>{% endif %}
-              {% if it.thanks %}<p class="thanks">{{ it.thanks }}</p>{% endif %}
-              {% if it.link %}<a class="linkcard" href="{{ it.link }}" target="_blank" rel="noopener">{{ ic('out') }}<span>Ver más</span></a>{% endif %}
-            </article>{% endfor %}</div>
-        {% elif meta.kind == 'links' %}
-          {% for it in sec['items'] %}{{ item_html(it) }}{% endfor %}
-          {% if links %}<div class="links">{{ links_html(links) }}</div>{% endif %}
+          <div class="proj-grid"{% if E %} data-ct-items{% endif %}>{% for it in sec['items'] %}{{ project_item(it) }}{% endfor %}</div>
+          {% if E %}<button type="button" class="drop-empty ct-ed ct-add" contenteditable="false" data-ct-act="addproj">{{ ic('plus') }}Agregar proyecto desde Operaciones</button>{% endif %}
         {% else %}
-          {% for it in sec['items'] %}{{ item_html(it) }}{% endfor %}
+          {% if E %}<div class="ct-items" data-ct-items>{% endif %}{% for it in sec['items'] %}{{ general_item(it) }}{% endfor %}{% if E %}</div>
+          <button type="button" class="drop-empty ct-ed ct-add" contenteditable="false" data-ct-act="add">{{ ic('plus') }}Agregar contenido</button>{% endif %}
+          {% if meta.kind == 'links' %}
+            {% if links %}<div class="links">{{ links_html(links) }}</div>{% endif %}
+            {% if E %}<p class="ct-ed ct-note" contenteditable="false">{{ ic('link') }}{{ 'Accesos directos permanentes del portal: se administran en la pestaña Accesos directos.' if links else 'Todavía no hay accesos directos permanentes (pestaña Accesos directos).' }}</p>{% endif %}
+          {% endif %}
         {% endif %}
       </section>
       {% endif %}
     {% endfor %}
     </div>
+    {% if E %}
+    <template data-ct-tpl="general">{{ general_item({'id': '', 'title': '', 'body': '', 'link': '', 'link_label': ''}) }}</template>
+    <template data-ct-tpl="projects">{{ project_item({'id': '', 'project_id': '', 'project_name': '', 'client_name': '', 'kind': 'inicio', 'service': '', 'tech': '', 'body': '', 'team': '', 'thanks': '', 'link': ''}) }}</template>
+    {% endif %}
   {% endif %}
 </div>
 
