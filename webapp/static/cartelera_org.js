@@ -51,6 +51,17 @@
     apply(leaf, neighbor, side, lo);
   }
 
+  // El tronco del padre puede quedar justo sobre el primer o el último hijo (el límite del corrimiento): ese conector va recto.
+  function markStem(ul) {
+    var kids = ul.querySelectorAll(':scope > li');
+    if (kids.length < 2) return;
+    var u = rect(ul), c = u.left + u.width / 2;
+    [kids[0], kids[kids.length - 1]].forEach(function (li) {
+      var n = rect(nodeOf(li) || li);
+      li.classList.toggle('og-stem-through', Math.abs(n.left + n.width / 2 - c) <= 2);
+    });
+  }
+
   function run(org) {
     var uls = Array.prototype.slice.call(org.querySelectorAll('ul'));
     uls.sort(function (a, b) { return depth(b) - depth(a); });                       // de lo más profundo a la raíz
@@ -63,6 +74,7 @@
         else if (next && !isLeaf(next)) compact(li, next, 'next');
       });
     });
+    uls.forEach(markStem);
   }
   function depth(el) { var n = 0; while (el && !el.classList.contains('org')) { el = el.parentElement; n++; } return n; }
 
