@@ -394,3 +394,11 @@ a.chip{text-decoration:none}
 .text-link{color:var(--gold);font-weight:600;font-size:12px;text-decoration:none;white-space:nowrap}
 .text-link span{opacity:.75}
 .text-link:hover{text-decoration:underline;text-underline-offset:2px}
+/* Secciones de Novedades lado a lado: la grilla ya estira ambas al alto de la fila; acá el ÚLTIMO contenido de cada sección crece hasta
+   el borde inferior y la barra de interacción (Me gusta, Comentar, contadores) baja al pie, así los tiles terminan alineados. Una sección
+   sola en su fila, con ancho completo, en dos columnas (.duo) o apilada (celular) conserva su alto natural: no hay nada que estirar.
+   Solo CSS (se recalcula al instante en el editor, al mover, ordenar o cambiar el ancho); sin alturas fijas ni datos en el modelo. */
+.cat-sec:not(.wide):not(.duo){display:flex;flex-direction:column}
+.cat-sec:not(.wide):not(.duo)>.item:last-of-type{flex:1 1 auto}
+.cat-sec:not(.wide):not(.duo) .item{display:flex;flex-direction:column}
+.cat-sec:not(.wide):not(.duo) .item>.ct-social{margin-top:auto}
