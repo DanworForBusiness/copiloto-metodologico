@@ -355,3 +355,16 @@
 .dw-profile-id span, .dw-profile-id small { color: var(--soft); font-size: .72rem; overflow: hidden; text-overflow: ellipsis; }
 .dw-profile-menu .btn-secondary { width: 100%; }
 .dw-profile-menu .dashboard-empty__hint, .dw-profile-menu .feedback-error { margin: 0; }
+
+/* Campana del Hub (hub_notifications.js): mismo botón y desplegable del topbar; contador con el acento del Hub. */
+.dw-notif-btn { position: relative; }
+.dw-notif-badge { position: absolute; top: -4px; right: -4px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px; background: var(--gold); color: #0c0c0d; font: 700 .58rem/16px var(--sans); text-align: center; }
+.dw-notif-menu { width: min(360px, 92vw); max-height: 70vh; overflow: auto; gap: 2px; padding: 8px; }
+.dw-notif-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 6px 8px; border-bottom: 1px solid var(--line); }
+.dw-notif-head b { color: var(--ink); font-size: .8rem; }
+.dw-notif-all { border: 0; background: transparent; color: var(--gold); font: 600 .72rem var(--sans); cursor: pointer; padding: 0; }
+.dw-notif-all:hover { text-decoration: underline; }
+.workspace-switch-menu a.dw-notif-item { display: grid; gap: 2px; padding: 9px 10px; color: var(--soft); line-height: 1.35; }
+.workspace-switch-menu a.dw-notif-item.is-unread { color: var(--ink); font-weight: 650; box-shadow: inset 2px 0 0 var(--gold); }
+.dw-notif-item small { color: var(--soft); font-weight: 400; font-size: .68rem; }
+.dw-notif-empty { padding: 10px 6px; }
