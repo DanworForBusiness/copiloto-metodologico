@@ -29,6 +29,7 @@ roadmap:
       - "¿Qué es una API?"
       - "Modelo de Integración Danwor"
       - "Contrato de Datos vs. Data Product"
+      - "Descubrimiento de contratos SAP"
       - "Arquitectura de Integración"
       - "Integración Legacy vs. Moderna"
   - stage: "Extracción"
@@ -260,6 +261,40 @@ Cuando el Data Product se publica en BDC como **Delta Share**, el destino fija c
 
 
 {{tree_button: Resolución de Contrato}}
+
+## {dw-black}Descubrimiento de {dw-gold}contratos SAP
+{{section_meta: keywords="SAP Business Accelerator Hub, api.sap.com, API Business Hub, descubrir APIs SAP, contratos estándar SAP, buscar CDS estándar, catálogo de APIs SAP, data products SAP, contrato estándar antes de desarrollar"}}
+{{support: SAP Business Accelerator Hub="https://api.sap.com/"}}
+{{subtitle: no-gap}}
+> Antes de desarrollar una interfaz propia, explorá los contratos estándar que SAP ya publica y evaluá si son idóneos técnica y funcionalmente para tu caso.
+
+{{callout_row}}
+{{callout: title="APIs" tone="note" icon="🔌"}}
+Interfaces estándar para integración de procesos y datos.
+
+<link url="https://api.sap.com/content-type/API">Explorar APIs ↗</link>
+{{/callout}}
+{{callout: title="CDS Views" tone="note" icon="🧩"}}
+Vistas CDS y contratos semánticos estándar del modelo de datos de SAP.
+
+<link url="https://api.sap.com/content-type/CDSViews">Explorar CDS Views ↗</link>
+{{/callout}}
+{{callout: title="Data Products" tone="note" icon="📦"}}
+Productos de datos reutilizables que SAP publica listos para consumo.
+
+<link url="https://api.sap.com/dataproducts">Explorar Data Products ↗</link>
+{{/callout}}
+{{/callout_row}}
+
+{{callout: title="Descubrir no es habilitar" tone="punch" icon="🔎"}}
+Que un activo figure en Business Accelerator Hub no demuestra por sí solo:
+- compatibilidad con el release del sistema SAP del cliente
+- habilitación para extracción o consumo desde Datasphere
+- capacidad incremental o CDC
+- autorización de consumo o derechos sobre un Data Product
+
+**Es el punto de partida del contrato: la decisión de extracción se valida con evidencia en la etapa siguiente.**
+{{/callout}}
 
 ## {dw-black}Arquitectura de {dw-gold}Integración
 {{section_meta: keywords="arquitectura integración, arquitectura de integración, diagrama integración, componentes integración, flujo integración, cómo integra datasphere, landscape integración, visión general integración"}}
