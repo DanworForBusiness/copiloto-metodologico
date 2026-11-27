@@ -2,7 +2,7 @@
 
    Header transversal para el chrome autenticado de CUALQUIER workspace
    (Copiloto, Operaciones). Owns SOLO presentación: identidad animada,
-   back/forward, switcher de workspace, theme, logout, mobile-menu. NO
+   switcher de workspace, notificaciones, theme, perfil (con «Cerrar sesión»), mobile-menu. NO
    decide autorización, NO conoce Graph/pack/Staffing/secuencia de rutas —
    todo eso lo provee quien llama el macro.
 
@@ -15,7 +15,8 @@
      trigger del switcher — es identidad pura, no acción.
      DERECHA (`.header-tools`): switcher de workspace (botón-ícono,
      MISMA caja visual que theme/logout — ver `.theme-toggle`, NO el logo
-     completo) → selector interno (caller) → theme → logout → mobile-menu.
+     completo) → selector interno (caller) → notificaciones → theme → perfil/avatar (ÚLTIMO ícono, patrón habitual de
+     aplicaciones; «Cerrar sesión» vive dentro de su menú) → mobile-menu.
 
    Sin flechas anterior/siguiente: la navegación es la nativa del navegador más la interna del Hub (menú lateral, «Continuar» de
    module.html).
@@ -117,21 +118,19 @@
     </details>
     {% endif %}
     {{ caller() }}
-    {#- Perfil del usuario (transversal): lo arma `hub_profile.js` desde `/perfil/yo` (el macro no recibe al usuario: no se tocan sus llamadas). -#}
     {#- Centro de Notificaciones del Hub: campana unificada (`hub_notifications.js`, `/notificaciones`), mismo desplegable del topbar. -#}
     {#- Apertura/cierre homogéneo de TODOS los desplegables del topbar (uno activo a la vez, click fuera y Escape cierran). -#}
     <script defer src="/static/hub_topbar_menus.js?v={{ static_version }}"></script>
     <div class="dw-profile-slot" data-dw-notif></div><script defer src="/static/hub_notifications.js?v={{ static_version }}"></script>
-    <div class="dw-profile-slot" data-dw-profile></div><script defer src="/static/hub_profile.js?v={{ static_version }}"></script>
     {#- Tema: en reposo, el ícono del tema ACTIVO; al pasar el mouse (o con foco de teclado) anticipa el destino (sol ↔ luna). Cambia SOLO con
         el click; después del click `is-settled` sostiene el ícono del nuevo estado hasta que el cursor o el foco salen (sin inversión inmediata).
         El estado visual sale de la clase `content-theme-*` de <html> (hub_theme.js), así no hay parpadeo antes de que arranque Alpine. -#}
     <button class="theme-toggle dw-theme-switch" type="button" @click="toggleTheme(); $el.classList.add('is-settled')" @mouseleave="$el.classList.remove('is-settled')" @blur="$el.classList.remove('is-settled')" :title="contentTheme === 'light' ? 'Usar contenido oscuro' : 'Usar contenido claro'" aria-label="Alternar tema del contenido">
       {{ theme_icon("light") }}{{ theme_icon("dark") }}
     </button>
-    <button class="theme-toggle logout-btn" type="button" onclick="dwLogout()" title="Cerrar sesión" aria-label="Cerrar sesión">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-    </button>
+    {#- Perfil del usuario (transversal), ÚLTIMO ícono: lo arma `hub_profile.js` desde `/perfil/yo` (el macro no recibe al usuario) e incluye
+        «Cerrar sesión» como acción del contenedor de usuario (el mismo logout compartido de app.js; ya no hay ícono de logout suelto). -#}
+    <div class="dw-profile-slot" data-dw-profile></div><script defer src="/static/hub_profile.js?v={{ static_version }}"></script>
     <button class="mobile-menu" @click="navOpen=!navOpen">{{ mobile_menu_label }}</button>
   </div>
 </header>

@@ -3,6 +3,7 @@
   - `GET  /notificaciones`               → ítems del usuario (más nuevo primero) + contador de no leídas.
   - `POST /notificaciones/leida`         → marcar UNA como leída (`{"id": …}`).
   - `POST /notificaciones/todas`         → marcar todas como leídas.
+  - `POST /notificaciones/descartar`     → quitar UNA de la lista del usuario (`{"id": …}`); leer ≠ descartar, el origen no se toca.
   - `GET  /notificaciones/abrir/{id}`    → la marca leída y navega a su contexto; solo ítems de la PROPIA bandeja (sus autorizaciones).
 Identidad = la sesión; escrituras con origen verificado. No envía correos (canal aparte).
 """
@@ -65,6 +66,18 @@ async def inbox_read(request: Request):
     except ValueError:
         body = {}
     if not hub_inbox.mark_read(user, str((body or {}).get("id") or "")):
+        raise HTTPException(404, "Notificación no disponible")
+    return JSONResponse({"unread": hub_inbox.unread_count(user)}, headers=_NO_STORE)
+
+
+@router.post("/notificaciones/descartar", include_in_schema=False)
+async def inbox_dismiss(request: Request):
+    user = _user(request, write=True)
+    try:
+        body = await request.json()
+    except ValueError:
+        body = {}
+    if not hub_inbox.dismiss(user, str((body or {}).get("id") or "")):
         raise HTTPException(404, "Notificación no disponible")
     return JSONResponse({"unread": hub_inbox.unread_count(user)}, headers=_NO_STORE)
 

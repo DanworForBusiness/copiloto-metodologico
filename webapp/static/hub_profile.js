@@ -1,7 +1,9 @@
 /* Hub · perfil del usuario (transversal): menú del header con la identidad corporativa (Entra ID, solo lectura) y la foto efectiva
    (personalizada → corporativa → iniciales). Cargar/sustituir/quitar la foto PERSONALIZADA propia. Una vez por día sincroniza la foto
    corporativa PROPIA con el token delegado ya consentido (`User.Read`); los demás la ven sin llamadas a Graph.
-   Reutiliza el desplegable del topbar (`.workspace-switch` / `.workspace-switch-menu`) y el botón `.theme-toggle`; apertura y cierre los gobierna `hub_topbar_menus.js`. */
+   Reutiliza el desplegable del topbar (`.workspace-switch` / `.workspace-switch-menu`) y el botón `.theme-toggle`; apertura y cierre los gobierna `hub_topbar_menus.js`.
+   «Cerrar sesión» es una acción del contenedor de usuario: se ofrece donde existe el logout del chrome del Hub (`window.dwLogout`, app.js); el portal
+   de Cartelera (presentación limpia, sin app.js) conserva su menú sin esa acción. */
 (function () {
   'use strict';
   var root = document.querySelector('[data-dw-profile]');
@@ -26,6 +28,7 @@
           '<p class="dashboard-empty__hint">La foto personalizada se usa solo en el Hub; no cambia tu cuenta de Microsoft 365. Tu nombre y correo los administra Microsoft 365.</p>' +
           (msg ? '<p class="dashboard-empty__hint" role="status">' + esc(msg) + '</p>' : '') +
           (err ? '<p class="feedback-error" role="alert">' + esc(err) + '</p>' : '') +
+          (typeof window.dwLogout === 'function' ? '<div class="dw-profile-logout"><button type="button" class="btn-secondary" data-dw-logout>Cerrar sesión</button></div>' : '') +
         '</div>' +
       '</details>';
   }
@@ -35,6 +38,8 @@
       .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { if (!r.ok) throw new Error(j.error || 'No se pudo completar la acción.'); return j; }); });
   }
   root.addEventListener('click', function (e) {
+    var out = e.target.closest && e.target.closest('[data-dw-logout]');
+    if (out && typeof window.dwLogout === 'function') { out.disabled = true; window.dwLogout(); return; }
     var b = e.target.closest && e.target.closest('[data-dw-photo]');
     if (!b || b.disabled) return;
     if (b.getAttribute('data-dw-photo') === 'remove') {

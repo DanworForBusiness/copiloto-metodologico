@@ -32,7 +32,7 @@ def test_the_editor_page_is_a_workspace_without_the_hub_side_navigation_and_keep
     assert not page.select("aside.module-nav, .resize-handle, [data-resize]"), "sin menú lateral ni su handle: el ancho queda libre para el workspace"
     assert "commercial_nav" not in TEMPLATE.replace("`commercial_nav`", "") and "sidebar_resize_handle" not in TEMPLATE.replace("`commercial_nav` y su handle", "")      # la plantilla ya no los incluye
     top = page.select_one("header.topbar")                                                                      # la barra superior transversal se conserva: marca, workspace, tema y sesión
-    assert top and top.select_one('button.theme-toggle[aria-label^="Alternar tema"]') and top.select_one("button.logout-btn") and top.select_one("a.animated-brand") and top.select_one("button.mobile-menu")
+    assert top and top.select_one('button.theme-toggle[aria-label^="Alternar tema"]') and top.select_one("[data-dw-profile]") and top.select_one("a.animated-brand") and top.select_one("button.mobile-menu")
     assert page.select_one("main#content.module-content [data-cp-editor] iframe[data-cp-frame]")
 
 

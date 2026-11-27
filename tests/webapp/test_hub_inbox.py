@@ -44,6 +44,51 @@ def test_unified_inbox_read_state_and_migration(editions, monkeypatch):  # noqa:
     assert ops.get(foreign, follow_redirects=False).status_code == 404                     # nunca la bandeja de otro
 
 
+def test_dismiss_hides_the_item_for_that_user_only_and_adjusts_the_counter(editions):  # noqa: F811
+    user, other = {"sub": OPS_A, "email": OPS_A, "name": "Ops A"}, {"sub": CCHH_EMAIL, "email": CCHH_EMAIL, "name": "CH QA"}
+    for k in ("d-1", "d-2"):
+        hub_inbox.notify(OPS_A, source="operaciones", feature="solicitud", key=k, text=k, url="/operaciones/solicitudes")
+    hub_inbox.notify(CCHH_EMAIL, source="operaciones", feature="solicitud", key="d-1", text="d-1", url="/operaciones/solicitudes")
+    ops = session_client(OPS_A)
+    r = ops.get("/notificaciones").json()
+    assert r["unread"] == 2
+    assert ops.post("/notificaciones/descartar", json={"id": "operaciones:d-1"}).status_code == 403          # sin origen verificado
+    assert ops.post("/notificaciones/descartar", headers=ORIGIN, json={"id": "operaciones:d-1"}).json()["unread"] == 1   # no leída ⇒ baja el contador
+    ids = [i["id"] for i in ops.get("/notificaciones").json()["items"]]
+    assert "operaciones:d-1" not in ids and "operaciones:d-2" in ids                                         # deja de mostrarse
+    assert ops.post("/notificaciones/descartar", headers=ORIGIN, json={"id": "operaciones:d-1"}).status_code == 404    # ya no está en su bandeja
+    assert ops.get("/notificaciones/abrir/operaciones:d-1", follow_redirects=False).status_code == 404
+    hub_inbox.notify(OPS_A, source="operaciones", feature="solicitud", key="d-1", text="otra vez", url="/x")    # el evento sigue existiendo: no se re-crea
+    assert "operaciones:d-1" not in [n["id"] for n in hub_inbox.items(user)]                                   # y no vuelve a aparecer
+    assert ops.post("/notificaciones/todas", headers=ORIGIN).json()["unread"] == 0
+    assert "operaciones:d-1" not in [n["id"] for n in hub_inbox.items(user)]                                   # «todas leídas» no lo resucita
+    assert "operaciones:d-1" in [n["id"] for n in hub_inbox.items(other)]                                      # descartar es POR usuario
+    assert hub_inbox.mark_read(user, "operaciones:d-2") and hub_inbox.items(user)                              # leer ≠ descartar: sigue en la lista
+    assert ops.post("/notificaciones/descartar", headers=ORIGIN, json={"id": "operaciones:ajena"}).status_code == 404
+
+
+def test_dismissals_are_permanent_even_with_many_of_them(editions):  # noqa: F811
+    user = {"sub": OPS_A, "email": OPS_A, "name": "Ops A"}
+    hub_inbox.notify(OPS_A, source="operaciones", feature="solicitud", key="vieja", text="vieja", url="/operaciones/solicitudes", at="2020-01-01T00:00:00+00:00")
+    assert hub_inbox.dismiss(user, "operaciones:vieja")
+    state = hub_inbox._state(user)                                                        # muchísimos descartes posteriores (más que cualquier ventana)
+    state["dismissed"].update({f"operaciones:x{i}": f"2026-11-27T00:{i // 60:02d}:{i % 60:02d}+00:00" for i in range(1500)})
+    hub_inbox._save_state(OPS_A.lower(), state)
+    hub_inbox.notify(OPS_A, source="operaciones", feature="solicitud", key="nueva", text="nueva", url="/operaciones/solicitudes")
+    assert hub_inbox.dismiss(user, "operaciones:nueva")                                   # otro descarte más: no poda los anteriores
+    persisted = hub_inbox._state(user)["dismissed"]
+    assert "operaciones:vieja" in persisted and len(persisted) == 1502
+    assert not [n for n in hub_inbox.items(user) if n["id"] in ("operaciones:vieja", "operaciones:nueva")]   # ninguna reaparece
+
+
+def test_the_cartelera_bell_dismisses_with_the_same_hub_endpoint():
+    js = open("webapp/static/cartelera_social.js", encoding="utf-8").read()
+    assert 'data-sx="notifdismiss"' in js and 'api("/notificaciones/descartar", { id: el.dataset.id })' in js    # MISMO descarte, sin lógica propia
+    assert "setBadge(r.unread || 0)" in js                                                                     # el contador del portal se ajusta
+    hub = open("webapp/static/hub_notifications.js", encoding="utf-8").read()
+    assert "'/notificaciones/descartar'" in hub                                                                # y la campana del Hub usa el mismo
+
+
 def test_persisted_events_are_idempotent_and_appear_in_the_inbox(editions):  # noqa: F811
     user = {"sub": OPS_A, "email": OPS_A, "name": "Ops A"}
     assert hub_inbox.notify(OPS_A, source="operaciones", feature="solicitud", key="sol-1", text="Tu solicitud fue rechazada", url="/operaciones/solicitudes")
