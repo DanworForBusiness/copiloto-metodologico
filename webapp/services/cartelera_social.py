@@ -39,7 +39,8 @@ from webapp.services import auth_service
 from webapp.services import cartelera_media as media, cartelera_repository as repo
 from webapp.services import cartelera_service as svc
 
-REACTIONS = (("like", "Me gusta", "like"), ("celebrate", "Celebrar", "party"), ("support", "Apoyo", "heart"), ("thanks", "Gracias", "hands"))
+REACTIONS = (("like", "Me gusta", "like"), ("celebrate", "Celebrar", "party"), ("support", "Apoyo", "heart"), ("thanks", "Gracias", "hands"),
+             ("idea", "Idea", "idea"), ("funny", "Divertido", "funny"))
 REACTION_IDS = {r[0] for r in REACTIONS}
 CATEGORIES = (
     {"id": "oficial", "name": "Comunicaciones oficiales", "icon": "megaphone", "collab": False, "approval": False},

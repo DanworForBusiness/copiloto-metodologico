@@ -188,7 +188,7 @@
   }
 
   // ── reacciones: selector flotante (mouse, toque prolongado y teclado) + detalle ──
-  const RX = { like: "Me gusta", celebrate: "Celebrar", support: "Apoyo", thanks: "Gracias" };
+  const RX = { like: "Me gusta", celebrate: "Celebrar", support: "Apoyo", thanks: "Gracias", idea: "Idea", funny: "Divertido" };
   const rxIcon = (block, r) => { const svg = block && $(`.ct-rx-opt[data-r="${r}"] svg`, block); return svg ? svg.outerHTML : ""; };
   const initials = n => esc(String(n || "?").split(/\s+/).slice(0, 2).map(w => w[0] || "").join("").toUpperCase());
   function openReactions(block, who) {
