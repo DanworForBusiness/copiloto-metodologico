@@ -155,8 +155,9 @@ def test_logout_remains_a_separate_intent(monkeypatch):
     # Y el botón del topbar sigue siendo el del logout, no el de reautenticar.
     topbar = (_ROOT / "webapp" / "templates" / "partials" / "platform_topbar.html") \
         .read_text(encoding="utf-8")
-    assert topbar.count("dwLogout()") == 1
-    assert "dwGraphReauthenticate" not in topbar
+    profile = (_ROOT / "webapp" / "static" / "hub_profile.js").read_text(encoding="utf-8")
+    assert topbar.count("dwLogout()") == 0 and profile.count("window.dwLogout();") == 1   # «Cerrar sesión» vive en el menú de usuario
+    assert "dwGraphReauthenticate" not in topbar and "dwGraphReauthenticate" not in profile
     # La limpieza baja cuenta Y cache de MSAL (las dos, o algo queda vivo).
     authority = _js_code(_AUTHORITY.read_text(encoding="utf-8"))
     clear = _fn_body(authority, "window.dwClearGraphAuth = function ()")

@@ -196,15 +196,26 @@ def test_theme_switch_previews_the_target_icon_only_via_css():
 
 # --- D: orden interno de RIGHT (.header-tools) -------------------------------
 
-def test_operations_right_zone_order_switch_context_theme_logout():
+def test_operations_right_zone_order_switch_context_notifications_theme_profile():
     response = _full_client().get("/operaciones/staffing/asignaciones")
     text = response.text
     tools_idx = text.index('class="header-tools"')
     switch_idx = text.index('class="workspace-switch"')
     context_idx = text.index('aria-label="Área operativa"')
+    notif_idx = text.index("data-dw-notif")
     theme_idx = text.index('class="theme-toggle dw-theme-switch"')
-    logout_idx = text.index('class="theme-toggle logout-btn"')
-    assert tools_idx < switch_idx < context_idx < theme_idx < logout_idx
+    profile_idx = text.index("data-dw-profile")
+    menu_idx = text.index('class="mobile-menu"')
+    assert tools_idx < switch_idx < context_idx < notif_idx < theme_idx < profile_idx < menu_idx   # el avatar cierra la secuencia de íconos
+    assert "logout-btn" not in text                                                                 # sin ícono de logout suelto
+
+
+def test_logout_lives_in_the_user_menu_only_where_the_hub_logout_exists():
+    js = open("webapp/static/hub_profile.js", encoding="utf-8").read()
+    assert "typeof window.dwLogout === 'function' ? '<div class=\"dw-profile-logout\">" in js and ">Cerrar sesión</button>" in js
+    assert "data-dw-photo=\"upload\"" in js                                       # conserva la estructura de perfil (foto, nombre, mail, acciones)
+    css = open("webapp/static/layout.css", encoding="utf-8").read()
+    assert ".dw-profile-logout .btn-secondary:hover" in css                         # hover diferenciado: acción de salida
 
 
 # --- E/F: workspace switching es un botón-ícono más (RIGHT), no la identidad ---

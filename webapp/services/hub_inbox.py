@@ -4,7 +4,8 @@ Modelo híbrido (sin framework, sin colas ni schedulers):
   - PROVEEDORES: cada vertical registra una función que, para un usuario, calcula sus notificaciones a partir de su propio estado funcional
     (`register_provider`). La vertical decide qué es notificable y para quién (y respeta sus autorizaciones al calcular).
   - EVENTOS PERSISTIDOS: para lo que no puede derivarse del estado (`notify`), guardados por destinatario con deduplicación por clave.
-El Hub gobierna: identidad estable de cada notificación (`<origen>:<id>`), estado de lectura (individual + «todas leídas»), contador de no
+El Hub gobierna: identidad estable de cada notificación (`<origen>:<id>`), estado de lectura (individual + «todas leídas»), DESCARTE por usuario
+(«quitar de la lista»: leer ≠ descartar; el evento o el estado de origen no se tocan, solo deja de mostrarse en SU bandeja y no vuelve), contador de no
 leídas compartido (campana del header y portal de Cartelera) y la navegación al contexto (`/notificaciones/abrir/<id>`, solo ítems de la propia
 bandeja). El correo es un canal aparte (`notifications.py`): una notificación interna nunca implica un correo.
 Persistencia: `notifications/inbox/<hash>.json` (estado) y `<hash>.events.json` (eventos) — `notifications/` ya es un directorio persistido
@@ -59,7 +60,7 @@ def _state(user: dict) -> dict:
     email = _email(user)
     path = Path(f"{_base(email)}.json")
     state = _load(path, {}) or {}
-    state.setdefault("read", {}); state.setdefault("all_read_at", ""); state.setdefault("migrated", [])
+    state.setdefault("read", {}); state.setdefault("all_read_at", ""); state.setdefault("migrated", []); state.setdefault("dismissed", {})
     pending = [s for s in _PROVIDERS if s not in state["migrated"]]
     if pending:
         for source in pending:
@@ -95,9 +96,10 @@ def items(user: dict | None) -> list[dict]:
                  "at": r.get("at") or "", "text": r.get("text", ""), "url": r.get("url", "")} for r in rows if r.get("id")]
     for ev in _load(Path(f"{_base(email)}.events.json"), []):
         out.append({**ev, "source_label": (_PROVIDERS.get(ev.get("source")) or {}).get("label", ev.get("source", ""))})
+    state = _state(user)
+    out = [n for n in out if n["id"] not in state["dismissed"]]                   # descartadas: fuera de la lista (y del contador) para siempre
     out.sort(key=lambda n: n["at"], reverse=True)
     out = out[:MAX_ITEMS]
-    state = _state(user)
     for n in out:
         n["unread"] = n["at"] > state["all_read_at"] and n["id"] not in state["read"]
     return out
@@ -122,10 +124,24 @@ def mark_read(user: dict, notification_id: str) -> bool:
     return True
 
 
+def dismiss(user: dict, notification_id: str) -> bool:
+    """Quita UNA notificación de la bandeja del usuario (no borra el evento ni el estado de origen). Solo ítems de la PROPIA bandeja; idempotente
+    en efecto (una ya descartada deja de estar en la bandeja ⇒ ``False``). El descarte es PERMANENTE: se recuerda sin límite (un id por descarte,
+    en el mismo archivo de estado), porque un proveedor puede volver a calcular una notificación vieja y no debe reaparecer."""
+    if not resolve(user, notification_id):
+        return False
+    with _lock:
+        state = _state(user)
+        state["dismissed"][notification_id] = _now()
+        state["read"].pop(notification_id, None)
+        _save_state(_email(user), state)
+    return True
+
+
 def mark_all_read(user: dict) -> None:
     with _lock:
         state = _state(user)
-        state["all_read_at"], state["read"] = _now(), {}                          # lo leído individualmente queda cubierto por el sello
+        state["all_read_at"], state["read"] = _now(), {}                          # lo leído individualmente queda cubierto por el sello (los descartes se conservan)
         _save_state(_email(user), state)
 
 

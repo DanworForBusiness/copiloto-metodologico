@@ -189,6 +189,12 @@ label.f span.h{font-weight:400;color:var(--muted);font-size:12px}
 .home-grid{display:grid;grid-template-columns:1.6fr 1fr;gap:20px;margin-top:20px}
 .mini-post{display:grid;gap:4px;padding:12px 0;border-top:1px solid var(--line)}
 .mini-post:first-child{border-top:0}
+/* Campana del portal: «✕» por ítem = quitar de la lista (mismo descarte que la campana del Hub) */
+.notif-row{display:flex;align-items:flex-start;gap:4px;border-top:1px solid var(--line)}
+.notif-row:first-child{border-top:0}
+.notif-row .mini-post{flex:1;min-width:0;border-top:0}
+.notif-row .icon-btn{width:28px;height:28px;margin-top:8px;opacity:.55;font-size:12px}
+.notif-row:hover .icon-btn,.notif-row .icon-btn:focus-visible{opacity:1}
 .mini-post a{color:var(--text);text-decoration:none;font-weight:600}
 .bday-today{display:flex;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
 

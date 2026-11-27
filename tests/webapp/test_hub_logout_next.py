@@ -147,7 +147,9 @@ def test_logout_is_resolved_once_in_the_shared_chrome():
     # transversal — no hay una versión por workspace.
     assert _APP_JS.count("window.dwLogout = function () {") == 1
     topbar = (_ROOT / "webapp" / "templates" / "partials" / "platform_topbar.html").read_text(encoding="utf-8")
-    assert topbar.count("dwLogout()") == 1
+    assert topbar.count("dwLogout()") == 0 and "logout-btn" not in topbar          # sin ícono suelto: vive en el menú de usuario
+    profile = (_STATIC / "hub_profile.js").read_text(encoding="utf-8")
+    assert profile.count("window.dwLogout();") == 1 and "data-dw-logout" in profile  # UNA invocación, desde el contenedor de usuario
     # Ninguna vertical DEFINE un logout. INVOCARLO sí está permitido y es lo
     # que se busca: Reporting ofrece "Renovar sesión" cuando la autorización
     # de Graph murió, y eso tiene que resolverse con el logout compartido en

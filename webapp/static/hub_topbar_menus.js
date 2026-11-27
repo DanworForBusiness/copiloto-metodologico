@@ -3,7 +3,7 @@
    también gobierna los desplegables que `hub_profile.js` / `hub_notifications.js` re-renderizan.
      - click sobre el control: abre; segundo click sobre el mismo: cierra (comportamiento nativo de `<details>`);
      - abrir uno cierra el que estuviera abierto: nunca hay más de un desplegable activo;
-     - click fuera o Escape: cierra el activo (con Escape el foco vuelve a su control);
+     - click fuera o Escape: cierra el activo (con Escape el foco vuelve a su control); «fuera» incluye un iframe del contenido;
      - click dentro del panel: lo preserva (las acciones que navegan lo cierran solas al cambiar de página). */
 (function () {
   'use strict';
@@ -21,6 +21,14 @@
     var t = e.target;
     if (!t || !t.isConnected) return;                                    // el panel se re-renderizó durante su propia acción: sigue siendo «dentro»
     closeOthers(t.closest ? t.closest(SEL) : null);
+  });
+  // Click dentro de un iframe del contenido (Intro, Academy, embebidos): el evento NO llega a este documento, pero el foco pasa al iframe y la
+  // ventana del Hub recibe `blur`. Si el foco quedó en un iframe, cuenta como «click fuera» y se cierra el desplegable activo.
+  window.addEventListener('blur', function () {
+    setTimeout(function () {
+      var a = document.activeElement;
+      if (a && a.tagName === 'IFRAME') closeOthers(null);
+    }, 0);
   });
   document.addEventListener('keydown', function (e) {
     if (e.key !== 'Escape') return;

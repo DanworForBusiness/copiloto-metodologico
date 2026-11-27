@@ -27,7 +27,10 @@
     root.remove("content-theme-light", "content-theme-dark");
     root.add("content-theme-" + theme);
     document.querySelectorAll("[data-dw-theme-icon]").forEach(function (icon) {
-      if (!icon.hasAttribute("x-show")) icon.style.display = icon.getAttribute("data-dw-theme-icon") === theme ? "" : "none";   // (`hidden` no oculta SVG)
+      // El interruptor del topbar (`.dw-theme-switch`) alterna sol/luna por CSS (anticipa el destino al pasar el mouse): sus dos íconos deben
+      // quedar SIEMPRE en el DOM; ocultar uno con `display:none` cortaba la transición después del primer click.
+      if (icon.hasAttribute("x-show") || icon.closest(".dw-theme-switch")) return;
+      icon.style.display = icon.getAttribute("data-dw-theme-icon") === theme ? "" : "none";   // (`hidden` no oculta SVG)
     });
     return theme;
   }

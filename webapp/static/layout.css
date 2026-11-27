@@ -99,8 +99,13 @@
 .workspace-switch-menu a.is-active { color: var(--ink); background: #e7b00818; box-shadow: inset 2px 0 0 var(--gold); }
 .workspace-switch-menu a.workspace-switch-platform {
   margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--line);
-  color: var(--dim); font-size: .7rem;
+  color: var(--soft); font-size: .7rem;                               /* mismo color que las verticales del selector */
 }
+/* Textos de apoyo de los desplegables del topbar (leyenda de la foto del perfil, «No tenés notificaciones»): MISMO color que las verticales
+   del selector de espacios (`var(--soft)`), en vez del gris fijo de `.dashboard-empty__hint` de las vistas de contenido. */
+.workspace-switch-menu.dw-profile-menu .dashboard-empty__hint,
+.workspace-switch-menu .dashboard-empty__hint.dw-notif-empty { color: var(--soft); }
+.workspace-switch-menu.dw-profile-menu .dashboard-empty__hint { font-size: .7rem; }   /* leyenda de la foto: mismo tamaño que «Todos los espacios», en cualquier tema */
 
 .pack-selector { display: grid; grid-template-columns: auto auto; align-items: center; gap: 9px; }
 .pack-selector label { color: var(--soft); font: 500 .62rem var(--mono); text-transform: uppercase; letter-spacing: .08em; }
@@ -365,6 +370,9 @@ html.content-theme-light .dw-theme-switch [data-dw-theme-icon="dark"],
 .dw-profile-id span, .dw-profile-id small { color: var(--soft); font-size: .72rem; overflow: hidden; text-overflow: ellipsis; }
 .dw-profile-menu .btn-secondary { width: 100%; }
 .dw-profile-menu .dashboard-empty__hint, .dw-profile-menu .feedback-error { margin: 0; }
+.dw-profile-logout { padding-top: 8px; border-top: 1px solid var(--line); }   /* «Cerrar sesión»: acción del contenedor de usuario, separada de la foto */
+.dw-profile-logout .btn-secondary { transition: color .15s ease, border-color .15s ease, background-color .15s ease; }
+.dw-profile-logout .btn-secondary:hover, .dw-profile-logout .btn-secondary:focus-visible { color: #ff8a8a; border-color: rgba(255,138,138,.45); background: rgba(255,138,138,.08); }   /* hover diferenciado: salida (mismo tono que tenía el ícono de logout) */
 
 /* Campana del Hub (hub_notifications.js): mismo botón y desplegable del topbar; contador con el acento del Hub. */
 .dw-notif-btn { position: relative; }
@@ -378,3 +386,7 @@ html.content-theme-light .dw-theme-switch [data-dw-theme-icon="dark"],
 .workspace-switch-menu a.dw-notif-item.is-unread { color: var(--ink); font-weight: 650; box-shadow: inset 2px 0 0 var(--gold); }
 .dw-notif-item small { color: var(--soft); font-weight: 400; font-size: .68rem; }
 .dw-notif-empty { padding: 10px 6px; }
+.dw-notif-row { display: flex; align-items: flex-start; gap: 2px; }
+.dw-notif-row > a.dw-notif-item { flex: 1; min-width: 0; }
+.dw-notif-dismiss { margin-top: 6px; opacity: .5; }                          /* «×» = quitar de la lista (botón de acción de tabla del Hub) */
+.dw-notif-row:hover .dw-notif-dismiss, .dw-notif-dismiss:focus-visible { opacity: 1; }

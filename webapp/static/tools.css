@@ -501,8 +501,6 @@
   text-transform: uppercase;
   letter-spacing: .1em;
 }
-.logout-btn { text-decoration: none; transition: color .15s ease, border-color .15s ease; }
-.logout-btn:hover { color: #ff8a8a; border-color: rgba(255,138,138,.45); }
 
 /* ── Selector de marco (solo APP_OWNER y con más de un marco). ── */
 .pack-select {

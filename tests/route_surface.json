@@ -332,6 +332,7 @@
   "POST /modules/{stem}/sections/{section_slug}/feedback/cancel",
   "POST /modules/{stem}/sections/{section_slug}/feedback/submit",
   "POST /modules/{stem}/trees/start",
+  "POST /notificaciones/descartar",
   "POST /notificaciones/leida",
   "POST /notificaciones/todas",
   "POST /operaciones/busquedas/nueva",
