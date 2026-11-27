@@ -8,7 +8,9 @@
 :root{
   --gold:#EBBF08; --gold-ink:#7A6000; --gold-soft:#FBF3CF;
   --ink:#1C1C1C; --gray:#5A5A5B;
-  --bg:#F3F3F1; --surface:#FFFFFF; --surface-2:#F8F8F6; --line:#E2E1DC; --text:#1C1C1C; --muted:#5A5A5B;
+  /* --bg = MISMO canvas claro del Hub (`--content-canvas` de content.css en tema claro). Se fija el valor y no la variable: en el Hub
+     esa variable cambia con el tema y el portal standalone es siempre claro. */
+  --bg:#F6F7F9; --surface:#FFFFFF; --surface-2:#F8F8F6; --line:#E2E1DC; --text:#1C1C1C; --muted:#5A5A5B;
   --hdr:#1C1C1C; --hdr-text:#F5F5F3; --hdr-muted:#B9B9B7;
   --good:#1E7F4F; --warn:#9A5B00; --crit:#B3261E; --crit-soft:#FBE9E7; --demo:#6B4FBB; --demo-soft:#EFEAFB;
   --shadow:0 1px 2px rgba(28,28,28,.06),0 4px 16px rgba(28,28,28,.05);
@@ -419,3 +421,25 @@ a.chip{text-decoration:none}
 /* Avatar transversal del Hub dentro del portal: la foto efectiva llena el círculo existente (iniciales cuando no hay foto). */
 .avatar{overflow:hidden}
 .avatar>img{width:100%;height:100%;object-fit:cover;border-radius:50%;display:block}
+
+/* Perfil y avatar del Hub en el header del portal: MISMO menú (`hub_profile.js`, `/perfil/*`); acá solo la piel del portal. */
+.dw-profile-slot{display:contents}
+.hdr-tools .workspace-switch{position:relative}
+.hdr-tools .workspace-switch>summary{list-style:none}
+.hdr-tools .workspace-switch>summary::-webkit-details-marker{display:none}
+.hdr-tools .dw-profile-btn{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;padding:0;cursor:pointer}
+.hdr-tools .dw-profile-btn:hover .dw-avatar,.hdr-tools .dw-profile[open] .dw-profile-btn .dw-avatar{box-shadow:0 0 0 2px var(--gold)}
+.dw-avatar{display:inline-grid;place-items:center;flex:none;border-radius:50%;overflow:hidden;background:var(--gold);color:#1C1C1C;font-weight:700;line-height:1;transition:box-shadow .15s}
+.dw-avatar img{width:100%;height:100%;object-fit:cover;display:block}
+.dw-avatar--sm{width:30px;height:30px;font-size:11px}
+.dw-avatar--lg{width:56px;height:56px;font-size:16px}
+.hdr-tools .dw-profile-menu{position:absolute;right:0;top:calc(100% + 10px);z-index:40;display:grid;gap:8px;width:min(300px,calc(100vw - 32px));padding:14px;background:var(--surface);color:var(--text);border:1px solid var(--line);border-radius:14px;box-shadow:0 12px 32px rgba(0,0,0,.18)}
+.dw-profile-id{display:flex;align-items:center;gap:12px;padding-bottom:10px;border-bottom:1px solid var(--line)}
+.dw-profile-id div{display:grid;gap:2px;min-width:0}
+.dw-profile-id b{font-size:14px}
+.dw-profile-id span,.dw-profile-id small{color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis}
+.dw-profile-menu .btn-secondary{display:flex;justify-content:center;width:100%;border:1px solid var(--line);background:var(--surface);color:var(--text);border-radius:999px;padding:8px 14px;font:inherit;font-weight:600;font-size:13px;cursor:pointer}
+.dw-profile-menu .btn-secondary:hover{border-color:var(--muted)}
+.dw-profile-menu .btn-secondary[disabled]{opacity:.5;cursor:not-allowed}
+.dw-profile-menu .dashboard-empty__hint{margin:0;color:var(--muted);font-size:12px;line-height:1.45}
+.dw-profile-menu .feedback-error{margin:0;color:var(--crit);font-size:12px}

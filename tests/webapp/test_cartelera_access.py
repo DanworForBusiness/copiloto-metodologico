@@ -219,3 +219,13 @@ def test_home_birthdays_tile_uses_the_month_of_the_edition_without_past_dates(mo
     past = svc.home_birthdays("2026-10", today)
     assert past["mode"] == "past" and [b["name"] for b in past["month_list"]] == ["Fede"] and not past["upcoming"]
     assert svc.home_birthdays(None, today)["mode"] == "current"
+
+
+def test_portal_background_is_the_hub_light_canvas():
+    import re
+    portal = open("webapp/static/cartelera_portal.css", encoding="utf-8").read()
+    hub = open("webapp/static/content.css", encoding="utf-8").read()
+    light = hub[hub.index("html.content-theme-light"):]
+    canvas = re.search(r"--content-canvas:\s*(#[0-9A-Fa-f]{6})", light).group(1)
+    root = portal[portal.index(":root{"):portal.index("}", portal.index(":root{"))]
+    assert re.search(r"--bg:(#[0-9A-Fa-f]{6})", root).group(1).lower() == canvas.lower()      # mismo fondo base que el Hub en claro

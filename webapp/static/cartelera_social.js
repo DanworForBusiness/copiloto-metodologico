@@ -202,11 +202,11 @@
   const rxIcon = (block, r) => { const svg = block && $(`.ct-rx-opt[data-r="${r}"] svg`, block); return svg ? svg.outerHTML : ""; };
   const initials = n => esc(String(n || "?").split(/\s+/).slice(0, 2).map(w => w[0] || "").join("").toUpperCase());
   function openReactions(block, who) {
-    const rows = [].concat(...Object.entries(who).map(([r, names]) => names.map(n => ({ r, n })))).sort((a, b) => a.n.localeCompare(b.n, "es"));
+    const rows = [].concat(...Object.entries(who).map(([r, list]) => list.map(x => ({ r, n: x.n, a: x.a || "" })))).sort((a, b) => a.n.localeCompare(b.n, "es"));
     const types = Object.keys(RX).filter(r => (who[r] || []).length);
     modal(`<div class="modal-h"><h2>Reacciones · ${rows.length}</h2><button type="button" class="icon-btn" data-sx="close" aria-label="Cerrar">✕</button></div>
       <div class="ct-rx-tabs" role="tablist"><button type="button" class="chip" role="tab" data-sx="rxtab" data-r="all" aria-pressed="true">Todas ${rows.length}</button>${types.map(r => `<button type="button" class="chip" role="tab" data-sx="rxtab" data-r="${r}" aria-pressed="false" aria-label="${RX[r]}: ${who[r].length}" title="${RX[r]}">${rxIcon(block, r)}${who[r].length}</button>`).join("")}</div>
-      <div class="ct-rx-list">${rows.map(x => `<div class="ct-rx-row" data-rx-row="${x.r}"><span class="avatar" aria-hidden="true">${initials(x.n)}<span class="ct-rx-ic ct-rx-ic--${x.r}">${rxIcon(block, x.r)}</span></span><span><b>${esc(x.n)}</b><small>${RX[x.r]}</small></span></div>`).join("") || `<p class="muted">Sin reacciones.</p>`}</div>`);
+      <div class="ct-rx-list">${rows.map(x => `<div class="ct-rx-row" data-rx-row="${x.r}"><span class="avatar" aria-hidden="true">${x.a ? `<img src="${esc(x.a)}" alt="">` : initials(x.n)}<span class="ct-rx-ic ct-rx-ic--${x.r}">${rxIcon(block, x.r)}</span></span><span><b>${esc(x.n)}</b><small>${RX[x.r]}</small></span></div>`).join("") || `<p class="muted">Sin reacciones.</p>`}</div>`);
   }
   function filterReactions(r) {
     $$("#layer [data-sx='rxtab']").forEach(b => b.setAttribute("aria-pressed", b.dataset.r === r ? "true" : "false"));

@@ -38,6 +38,7 @@ from webapp import human_capital_access
 from webapp.services import auth_service
 from webapp.services import cartelera_media as media, cartelera_repository as repo
 from webapp.services import cartelera_service as svc
+from webapp.services import user_avatars
 
 REACTIONS = (("like", "Me gusta", "like"), ("celebrate", "Celebrar", "party"), ("support", "Apoyo", "heart"), ("thanks", "Gracias", "hands"),
              ("idea", "Idea", "idea"), ("funny", "Divertido", "funny"))
@@ -644,7 +645,7 @@ def snapshot(targets: list[str], user: dict | None, mod: bool, names: dict[str, 
         for person, r in by.items():
             if r.get("t") in counts:
                 counts[r["t"]] += 1
-                who[r["t"]].append(names.get(person, "Colaborador/a"))
+                who[r["t"]].append({"n": names.get(person, "Colaborador/a"), "a": user_avatars.avatar_url(person)})   # misma foto efectiva
         cmts = by_target.get(t, [])
         rows = [{**c, "html": render_text(c.get("body", ""), names), "raw": editable_text(c.get("body", ""), names),
                  "mine": c.get("author") == me, "name": names.get(c.get("author", ""), c.get("author_name") or "Colaborador/a")} for c in cmts]

@@ -51,10 +51,15 @@
       <a href="/cartelera/comunidad"{% if page == 'comunidad' %} aria-current="page"{% endif %}>{{ ic('wall') }}Comunidad</a>
       <a href="{{ urls.nosotros }}"{% if page == 'nosotros' %} aria-current="page"{% endif %}>{{ ic('star') }}Nosotros</a>
     </nav>
-    {% if social_on %}<div class="hdr-tools">
+    <div class="hdr-tools">
       {% if social_on %}<button type="button" class="icon-btn" data-sx="notif" aria-label="Notificaciones{{ ', ' ~ notif_unseen ~ ' nuevas' if notif_unseen }}">{{ ic('bell') }}{% if notif_unseen %}<span class="badge-dot">{{ '9+' if notif_unseen > 9 else notif_unseen }}</span>{% endif %}</button>{% endif %}
+      {#- Perfil y avatar transversales del Hub: MISMO menú (`hub_profile.js` → `/perfil/*`, foto personalizada → corporativa → iniciales)
+          y MISMO controlador de desplegables; acá solo cambia la piel (identidad del portal en `cartelera_portal.css`). -#}
+      <div class="dw-profile-slot" data-dw-profile></div>
+      <script defer src="{{ url_for('static', path='hub_topbar_menus.js') }}?v={{ static_version }}"></script>
+      <script defer src="{{ url_for('static', path='hub_profile.js') }}?v={{ static_version }}"></script>
       {#- Presentación limpia en CUALQUIER recorrido (consumo, Presentar, edición): sin controles administrativos ni «Volver al Hub». -#}
-    </div>{% endif %}
+    </div>
   </div>
 </header>
 {% if preview and not edit_mode %}<div class="preview-bar">{{ preview_note ~ ' · ' if preview_note else 'Vista previa de Capital Humano · ' }}{{ svc.STATE_LABELS[svc.effective_state(edition or greeting)] }} — los colaboradores {{ 'ya lo ven' if svc.is_visible(edition or greeting) else 'todavía no lo ven' }}.</div>{% endif %}

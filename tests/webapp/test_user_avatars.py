@@ -60,3 +60,26 @@ def test_routes_only_manage_the_own_photo_and_community_uses_it(editions, monkey
     assert url in cchh.get("/cartelera/comunidad").text                                                  # Comunidad sin llamadas a Graph
     me = ops.post("/perfil/foto/quitar", headers=ORIGIN).json()
     assert me["source"] is None and me["avatar"] == "" and me["initials"]
+
+
+def test_portal_header_offers_the_same_profile_menu_and_every_community_avatar_is_the_effective_one(editions, monkeypatch):  # noqa: F811
+    from webapp.routers import cartelera as router
+    monkeypatch.setattr(router, "PORTAL_LAUNCHED", True)
+    ops, cchh = session_client(OPS_A), session_client(CCHH_EMAIL)
+    av.set_custom(OPS_A, _png())
+    url = av.avatar_url(OPS_A)
+    author = {"sub": OPS_A, "email": OPS_A, "name": "Ops A"}
+    post = social.save_post(author, {"category": "reconocimientos", "title": "Con avatar en todas partes"})
+    target = f"post:{post['id']}"
+    assert cchh.post("/cartelera/social/reaccion", headers=ORIGIN, json={"target": target, "r": "like"}).status_code == 200
+    assert ops.post("/cartelera/social/reaccion", headers=ORIGIN, json={"target": target, "r": "like"}).status_code == 200
+    html = ops.get("/cartelera/comunidad").text
+    tools = html.split('class="hdr-tools"', 1)[1].split("</header>", 1)[0]
+    assert tools.index('data-sx="notif"') < tools.index("data-dw-profile")                 # el avatar, a la derecha de la campana
+    assert "hub_profile.js" in tools and "hub_topbar_menus.js" in tools                      # MISMO menú y MISMO controlador del Hub
+    composer = html.split('class="card composer-cta"', 1)[1].split("</div>", 1)[0]
+    assert url in composer                                                                    # publicador: la foto efectiva, no «OA»
+    who = cchh.get("/cartelera/comunidad").text.split(f'data-social="{target}"', 1)[1].split('data-who="', 1)[1].split('"', 1)[0]
+    assert url.replace("&", "&amp;") in who or url in who                                      # detalle de reacciones con la misma foto
+    social.save_post({"sub": CCHH_EMAIL, "email": CCHH_EMAIL, "name": "CH QA"}, {"category": "oficial", "title": "Oficial", "official": True})
+    assert 'class="avatar ch"' in cchh.get("/cartelera/comunidad").text                     # lo oficial conserva la identidad «CH»
