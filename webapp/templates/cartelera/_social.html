@@ -15,7 +15,7 @@
 
 {%- macro comment(c, target) -%}
   <div class="cmt" id="cmt-{{ c.id }}" data-cmt="{{ c.id }}">
-    <span class="avatar sm" aria-hidden="true">{{ initials(c.name) }}</span>
+    {% set cav = avatar_url(c.author) %}<span class="avatar sm" aria-hidden="true">{% if cav %}<img src="{{ cav }}" alt="">{% else %}{{ initials(c.name) }}{% endif %}</span>
     <div style="flex:1;min-width:0">
       <div class="bub"><b>{{ c.name }}</b>{% if c.status == 'removed' %} <span class="tag warn">Retirado</span>{% endif %}<div class="t" data-raw="{{ c.raw }}">{{ c.html }}</div></div>
       <div class="acts"><span>{{ social_when(c.created_at) }}{{ ' · editado' if c.edited_at }}</span>
@@ -56,7 +56,7 @@
   {%- set composer_html -%}
     <div class="stack" style="gap:4px">
       <span class="muted" style="font-size:12px" data-sx-replying hidden>Respondiendo a <b></b> · <button type="button" class="who-reacted" data-sx="cancelreply">cancelar</button></span>
-      <div class="cinput"><span class="avatar sm" aria-hidden="true">{{ initials(me_name) }}</span><textarea data-sx-input data-mention placeholder="{{ 'Escribí tu saludo de cumpleaños…' if greet else 'Escribí un comentario… usá @ para mencionar' }}" aria-label="{{ 'Escribir saludo de cumpleaños' if greet else 'Escribir comentario' }}"></textarea><button type="button" class="btn primary sm" data-sx="sendcmt">{{ 'Enviar saludo' if greet else 'Enviar' }}</button></div>
+      {% set mav = avatar_url(me) %}<div class="cinput"><span class="avatar sm" aria-hidden="true">{% if mav %}<img src="{{ mav }}" alt="">{% else %}{{ initials(me_name) }}{% endif %}</span><textarea data-sx-input data-mention placeholder="{{ 'Escribí tu saludo de cumpleaños…' if greet else 'Escribí un comentario… usá @ para mencionar' }}" aria-label="{{ 'Escribir saludo de cumpleaños' if greet else 'Escribir comentario' }}"></textarea><button type="button" class="btn primary sm" data-sx="sendcmt">{{ 'Enviar saludo' if greet else 'Enviar' }}</button></div>
     </div>
   {%- endset -%}
   <div class="comments" data-sx-comments{% if not open %} hidden{% endif %}>
