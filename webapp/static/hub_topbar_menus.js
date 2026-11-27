@@ -7,9 +7,9 @@
      - click dentro del panel: lo preserva (las acciones que navegan lo cierran solas al cambiar de página). */
 (function () {
   'use strict';
-  var SEL = '.header-tools details.workspace-switch';
+  var SEL = '.header-tools details.workspace-switch, .hdr-tools details.workspace-switch';   // topbar del Hub y header del portal
   function others(keep) {
-    return Array.prototype.filter.call(document.querySelectorAll(SEL + '[open]'), function (d) { return d !== keep; });
+    return Array.prototype.filter.call(document.querySelectorAll(SEL), function (d) { return d.open && d !== keep; });
   }
   function closeOthers(keep) { others(keep).forEach(function (d) { d.open = false; }); }
 
