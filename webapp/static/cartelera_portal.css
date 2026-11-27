@@ -416,3 +416,6 @@ a.chip{text-decoration:none}
 .cp-img[hidden],[data-cp-imgadd][hidden]{display:none}
 .cp-img.is-uploading img{opacity:.45}
 .cart-banner img[hidden]{display:none}
+/* Avatar transversal del Hub dentro del portal: la foto efectiva llena el círculo existente (iniciales cuando no hay foto). */
+.avatar{overflow:hidden}
+.avatar>img{width:100%;height:100%;object-fit:cover;border-radius:50%;display:block}

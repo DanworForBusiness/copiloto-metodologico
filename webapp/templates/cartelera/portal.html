@@ -333,7 +333,8 @@
   {%- set author = 'Capital Humano' if p.official else social_names.get(p.author, p.author_name or 'Colaborador/a') -%}
   <article class="card post{{ ' pinned' if p.pinned and st == 'published' else '' }}{{ ' removed' if st == 'removed' else '' }}" id="post-{{ p.id }}" data-post="{{ p.id }}">
     <div class="post-h">
-      <span class="avatar{{ ' ch' if p.official else '' }}" aria-hidden="true">{{ 'CH' if p.official else ((author.split() | map('first') | list)[:2] | join('') | upper) }}</span>
+      {#- Avatar transversal del Hub: foto efectiva del autor (personalizada → corporativa) o iniciales; las oficiales muestran «CH». -#}
+      {% set av = '' if p.official else avatar_url(p.author) %}<span class="avatar{{ ' ch' if p.official else '' }}" aria-hidden="true">{% if av %}<img src="{{ av }}" alt="">{% else %}{{ 'CH' if p.official else ((author.split() | map('first') | list)[:2] | join('') | upper) }}{% endif %}</span>
       <div class="who"><b>{{ author }}</b><span>{{ social_when(p.publish_at or p.created_at) }}{{ ' · editado' if p.edited_at }}</span></div>
       <div class="row" style="gap:2px">
         {% if mine and live %}<button type="button" class="icon-btn" data-sx="editpost" data-id="{{ p.id }}" data-post-json="{{ social_post_json(p) }}" aria-label="Editar" title="Editar">{{ ic('edit') }}</button>
@@ -370,7 +371,7 @@
       {% for c in social_categories %}<a class="catbtn" href="?cat={{ c.id }}" aria-pressed="{{ 'true' if wall_filter.cat == c.id else 'false' }}" style="text-decoration:none">{{ ic(c.icon) }}{{ c.name }}<span class="ct">{{ wall_counts.get(c.id, 0) }}</span></a>{% endfor %}
     </div></div></aside>
     <div class="stack">
-      <div class="card composer-cta"><span class="avatar" aria-hidden="true">{{ ((me_name.split() | map('first') | list)[:2] | join('') | upper) or '?' }}</span><button type="button" class="fake" data-sx="compose">Compartí un logro, un agradecimiento o una idea…</button><button type="button" class="btn primary" data-sx="compose">{{ ic('plus') }}Publicar</button></div>
+      {% set my_av = avatar_url(me) %}<div class="card composer-cta"><span class="avatar" aria-hidden="true">{% if my_av %}<img src="{{ my_av }}" alt="">{% else %}{{ ((me_name.split() | map('first') | list)[:2] | join('') | upper) or '?' }}{% endif %}</span><button type="button" class="fake" data-sx="compose">Compartí un logro, un agradecimiento o una idea…</button><button type="button" class="btn primary" data-sx="compose">{{ ic('plus') }}Publicar</button></div>
       <form class="toolbar" method="get">
         <input type="hidden" name="cat" value="{{ wall_filter.cat }}">
         <div class="searchbox">{{ ic('search') }}<label for="wallQ" style="position:absolute;left:-9999px">Buscar</label><input type="search" id="wallQ" name="q" autocomplete="off" placeholder="Buscar publicaciones, personas, temas…" value="{{ wall_filter.q }}"></div>

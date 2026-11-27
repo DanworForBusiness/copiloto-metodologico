@@ -46,6 +46,7 @@ from webapp.services import guides_service as guides
 from webapp.routers import system as system_router
 from webapp.routers import telemetry as telemetry_router
 from webapp.routers import auth as auth_router
+from webapp.routers import user_profile as user_profile_router
 from webapp.routers import whats_new as whats_new_router
 from webapp.templating import templates  # env Jinja compartida (Fase 2C); misma identidad
 from webapp import access  # access policy de la web (owner/readonly/diagnostic)
@@ -350,6 +351,7 @@ app.mount("/static", StaticFiles(directory=WEB_DIR / "static"), name="static")
 app.include_router(system_router.router)
 app.include_router(telemetry_router.router)
 app.include_router(auth_router.router)
+app.include_router(user_profile_router.router)
 app.include_router(whats_new_router.router)
 app.include_router(academy_router.router)
 app.include_router(pack_assets_router.router)
