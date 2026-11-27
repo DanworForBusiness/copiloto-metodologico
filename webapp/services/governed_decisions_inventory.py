@@ -92,6 +92,8 @@ def list_client_contracts(client: str, now: datetime) -> list[dict]:
             digests[tid] = None                                    # evidencia contradictoria → no verificable (UNKNOWN), no rompe
             ambiguous.add(tid)
     events = _load_all_client_events(client)                       # {tid: [events]}
+    from webapp.services import model_lifecycle
+    retired = model_lifecycle.retirements(client)                  # D-LC-01: consumidores retirados del Catálogo (la trazabilidad no se recorta)
     rows: list[dict] = []
     for tid in (set(evidence) | set(events)):
         evs = store._dedupe_and_check(events.get(tid, []))         # fail-closed ante contradicción del historial
@@ -105,6 +107,8 @@ def list_client_contracts(client: str, now: datetime) -> list[dict]:
             "evidence_digest": digests.get(tid),
             "evidence_ambiguous": tid in ambiguous,
             "consumers": sorted(evidence[tid]["consumers"]) if tid in evidence else [],
+            "active_consumers": sorted(c for c in (evidence[tid]["consumers"] if tid in evidence else ()) if not retired.is_retired(c)),
+            "retired_consumers": sorted(c for c in (evidence[tid]["consumers"] if tid in evidence else ()) if retired.is_retired(c)),
             "events_count": len(evs),
             **({"scoped": st["scoped"], "lanes": st["lanes"]} if st.get("scoped") else {}),
         })

@@ -25,6 +25,7 @@ from webapp.services import governed_decisions as gd
 from webapp.services import governed_decisions_inventory as inventory
 from webapp.services import governed_decisions_ops as ops
 from webapp.services import governed_decisions_presenter as presenter
+from webapp.services import model_lifecycle
 from webapp.services.content_service import academy_asset_for, list_academy, list_appendices, list_modules
 from webapp.templating import templates
 from webapp import workspaces
@@ -133,6 +134,8 @@ def governed_contract_detail(request: Request, client: str = "", remote_entity: 
         "status": recon["status"], "evidence_digest": recon.get("evidence_digest"),
         "consumers": recon.get("consumers", []), "events": recon["events"],
         "observed": observed, "observed_note": observed_note,
+        # D-LC-01: la trazabilidad se muestra COMPLETA; los consumidores retirados del Catálogo se marcan (no cuentan como activos). La decisión no cambia.
+        "retired_consumers": model_lifecycle.split_consumers(client, recon.get("consumers", []))[1],
     }
     if request.headers.get("HX-Request"):
         return templates.TemplateResponse(request=request, name="partials/governed_contract_detail.html",

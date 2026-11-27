@@ -43,6 +43,13 @@ except Exception:  # pragma: no cover
 _PORT_MATRIX_CACHE: dict = {}
 
 
+# D-LC-01 · LC-2: tiles retirados CON borrado de archivos (ver ``catalog_retirement``). Import defensivo, como portabilidad.
+try:
+    from catalog_retirement import RetiredSuppression, purged_retirements
+except Exception:  # pragma: no cover
+    from tools.catalog.catalog_retirement import RetiredSuppression, purged_retirements
+
+
 def _portability_matrix(pack: str = "datasphere_core") -> dict | None:
     """Matriz de portabilidad del pack (cacheada). None si el módulo no está disponible."""
     if _load_port_matrix is None:
@@ -1286,7 +1293,8 @@ def _write_flow(out_dir: Path, cliente: str, dom: str, sub: dict, folder: str) -
 
 
 def process_folder(src: Path, out_root: Path, cliente: str | None = None,
-                   dominio: str | None = None, *, json_files=None, txt_files=None, governed_names: dict[str, tuple[str, str]] | None = None) -> str:
+                   dominio: str | None = None, *, json_files=None, txt_files=None, governed_names: dict[str, tuple[str, str]] | None = None,
+                   retired: RetiredSuppression | None = None, reactivate: frozenset = frozenset()) -> str:
     """Procesa una carpeta de artefactos → escribe flujo + vistas, preservando
     el bloque `manual:` de los .md existentes (no pisa la curaduría del senior).
     cliente/dominio se pueden pasar explícitos (los calcula generate_all según la
@@ -1335,7 +1343,10 @@ def process_folder(src: Path, out_root: Path, cliente: str | None = None,
             folder = _slug_domain(dom)
             if folder in used:                       # colisión de nombre → desambiguar
                 folder = f"{folder}_{_slug_domain(cube.name)}"
-            used.add(folder)
+            used.add(folder)                         # un retirado conserva su carpeta si existe (no se borra nada): solo no se reescribe
+            if retired is not None and retired.applies(cli_dir.name, folder, cube.name, reactivate):
+                lines.append(f"  · [retirado] {cube.name}: retirado del Catálogo con borrado de archivos; no se regenera")
+                continue
             lines.append("  · " + _write_flow(cli_dir / folder, cliente, dom, sub, folder))
         # Limpieza de dominios viejos del mismo cliente. Cuando una carpeta plana
         # pasa a segmentarse por modelos analíticos, las salidas anteriores
@@ -1361,6 +1372,9 @@ def process_folder(src: Path, out_root: Path, cliente: str | None = None,
         for child in cli_dir.iterdir() if cli_dir.exists() else []:
             if child.is_dir() and child.name != folder and any(child.glob("flujo_*.md")):
                 shutil.rmtree(child, ignore_errors=True)
+    if (retired is not None and dominio == "General" and len(cubes) == 1
+            and retired.applies(cli_dir.name, folder, cubes[0].name, reactivate)):  # flujo PROPIO de un único modelo retirado con borrado
+        return f"[retirado] {cubes[0].name}: retirado del Catálogo con borrado de archivos; no se regenera"
     if legacy:
         _seed_legacy_manual(cli_dir / folder, folder, entities, *legacy)
     return "[OK] " + _write_flow(cli_dir / folder, cliente, dom_final, entities, folder)
@@ -1836,11 +1850,14 @@ def _governed_names(out_root: Path, client_dir: str) -> dict[str, tuple[str, str
     return names
 
 
-def generate_all(inbound_root, out_root, *, only_clients: set[str] | None = None) -> str:
+def generate_all(inbound_root, out_root, *, only_clients: set[str] | None = None, reactivate: set[str] | None = None) -> str:
     """Procesa las carpetas hoja con .json bajo inbound_root.
 
     ``only_clients`` (opcional, aditivo): nombres de carpeta de cliente (``cliente.replace(" ", "_")``). Si se pasa, SOLO se regeneran y podan esos clientes; los demás
     conservan sus salidas y sus entradas del manifiesto (una publicación no toca el Catálogo de otros clientes). Sin él, comportamiento de siempre.
+
+    ``reactivate`` (opcional, D-LC-01): AM terminales que SÍ se regeneran aunque su tile esté retirado con borrado de archivos (la publicación del propio
+    modelo: reactivación explícita). Sin él, ningún tile retirado con borrado vuelve a escribirse (ver ``purged_retirements``).
 
     Usa un manifest local por flujo para evitar regenerar dominios sin cambios.
     Si cambia este generador, se invalida el manifest completo para no dejar
@@ -1879,6 +1896,8 @@ def generate_all(inbound_root, out_root, *, only_clients: set[str] | None = None
     if not groups:
         return f"Sin .json bajo {inbound_root}. Nada que generar."
 
+    suppressions = purged_retirements(out_root)
+    keep = frozenset(reactivate or ())
     generator_sig = _catalog_generator_signature()
     manifest = _load_catalog_manifest(out_root)
     previous_sig = manifest.get("generator_sha256")
@@ -1920,8 +1939,10 @@ def generate_all(inbound_root, out_root, *, only_clients: set[str] | None = None
         # `src` es sólo referencia de mensajes; cliente/dominio van explícitos y el
         # pool se arma con la lista de archivos del grupo (todas sus carpetas-tipo).
         src = inbound_root / cliente_dir / dominio_dir
+        sup = suppressions.get(client_dir_key.casefold())
         lines.append(process_folder(src, out_root, cliente, dominio, governed_names=_governed_names(out_root, client_dir_key),
-                                    json_files=sorted(g["jsons"]), txt_files=sorted(g["txts"])))
+                                    json_files=sorted(g["jsons"]), txt_files=sorted(g["txts"]),
+                                    **({"retired": sup, "reactivate": keep} if sup is not None else {})))
         generated += 1
         next_entries[key] = {
             "cliente": cliente,

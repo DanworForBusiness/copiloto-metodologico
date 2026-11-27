@@ -384,7 +384,13 @@ def record_provenance(values: asd.FormValues, actor: str, operation_id: str) -> 
         mine = [e for e in _cs.load_catalog(str(catalog_governance.catalog_root()))
                 if str(e.cliente).strip().lower() == client and root in {str(a) for a in (e.artefactos or [])}]
         ids = catalog_governance.record_publication(mine, actor, operation_id)
-        if catalog_governance.lift_retirement(ids):
+        # D-LC-01: solo se REACTIVA el propio modelo publicado. Un tile retirado que apenas comparte el objeto publicado (p. ej. una vista raíz) sigue retirado.
+        from webapp.services import model_lifecycle
+        ret = model_lifecycle.retirements(values.client)
+        own = {m.entry_id for m in ret.models.values() if m.terminal_am == root}
+        resolved = {m.entry_id for m in ret.models.values()}                # sin identidad resoluble se conserva el criterio previo (el tile contiene lo publicado)
+        liftable = [i for i in ids if not catalog_governance.is_retired(i) or i in own or i not in resolved]
+        if catalog_governance.lift_retirement(liftable, actor=actor, operation_id=operation_id):
             try:
                 from webapp import main as hub_main
                 hub_main._invalidate_catalog_cache()

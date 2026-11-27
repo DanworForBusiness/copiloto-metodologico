@@ -41,7 +41,7 @@
         <td><span class="catalog-card__verdict catalog-card__verdict--{{ ct.chips.decision.tone }}">{{ ct.chips.decision.label }}</span></td>
         <td><span class="catalog-card__verdict catalog-card__verdict--{{ ct.chips.evidence.tone }}">{{ ct.chips.evidence.label }}</span>{% if ct.evidence_ambiguous %} <span class="catalog-note__ev" title="Evidencia contradictoria entre consumidores">(!)</span>{% endif %}</td>
         <td><span class="catalog-card__verdict catalog-card__verdict--{{ ct.chips.review.tone }}">{{ ct.chips.review.label }}</span></td>
-        <td>{{ ct.consumers|length }}</td>
+        <td>{{ (ct.active_consumers if ct.active_consumers is defined else ct.consumers)|length }}{% if ct.retired_consumers %} <span class="catalog-note__ev" title="Consumidores retirados del Catálogo: se conservan como trazabilidad histórica">(+{{ ct.retired_consumers|length }} retirado{{ "s" if ct.retired_consumers|length != 1 }})</span>{% endif %}</td>
       </tr>
       {% endfor %}
     </tbody>

@@ -39,6 +39,7 @@ log = logging.getLogger("danwor.catalog_governance")
 SCHEMA = 1
 PROVENANCE_DIR = ".publication_actors"
 RETIRED_DIR = ".retired"
+RETIREMENT_HISTORY_DIR = ".retired_history"          # D-LC-01: constancia de cada retiro LEVANTADO (reactivación trazable)
 _ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,200}$")
 
 
@@ -109,8 +110,21 @@ def is_retired(entry_id: str) -> bool:
     return valid_entry_id(entry_id) and (catalog_root() / RETIRED_DIR / f"{entry_id}.json").is_file()
 
 
-def retire(entry, actor: str) -> dict:
-    """Retira (lógicamente) el tile. Idempotente: un tile ya retirado conserva su registro original."""
+def _catalog_dir_of(entry) -> str | None:
+    """``<cliente>/<carpeta>`` del flujo del tile, relativo a la raíz del Catálogo (None si el flujo no cuelga de ella)."""
+    try:
+        rel = Path(str(getattr(entry, "path", "") or "")).resolve().relative_to(catalog_root())
+    except (OSError, ValueError):
+        return None
+    return Path(*rel.parts[:-1]).as_posix() if len(rel.parts) >= 2 else None
+
+
+def retire(entry, actor: str, *, terminal_am: str | None = None) -> dict:
+    """Retira (lógicamente) el tile. Idempotente: un tile ya retirado conserva su registro original.
+
+    D-LC-01 (aditivo): el registro ancla además la IDENTIDAD del modelo retirado — el AM terminal que el resolvedor canónico de Assessments asocia al tile
+    (``terminal_am``) y su carpeta en el Catálogo (``catalog_dir``) — para que el retiro lógico del Assessment (``model_lifecycle``) y el generador del Catálogo
+    no dependan del nombre del archivo. Los registros anteriores (sin estos campos) se resuelven por ``entry_id`` en ``model_lifecycle``."""
     entry_id = str(entry.entry_id)
     path = catalog_root() / RETIRED_DIR / f"{entry_id}.json"
     existing = _read(path)
@@ -118,8 +132,29 @@ def retire(entry, actor: str) -> dict:
         return existing
     record = {"schema": SCHEMA, "entry_id": entry_id, "cliente": entry.cliente, "dominio": entry.dominio, "retired_by": (actor or "").strip().lower(), "retired_at": _now(),
               "provenance_at_retirement": provenance(entry_id)}
+    if terminal_am:
+        record["terminal_am"] = str(terminal_am)
+    folder = _catalog_dir_of(entry)
+    if folder:
+        record["catalog_dir"] = folder
     _write(path, record)
     return record
+
+
+def retirement(entry_id: str) -> dict | None:
+    """El registro de retiro vigente del tile (solo lectura) o None."""
+    return _read(catalog_root() / RETIRED_DIR / f"{entry_id}.json") if valid_entry_id(entry_id) else None
+
+
+def retirement_history(entry_id: str | None = None) -> list[dict]:
+    """Retiros LEVANTADOS (reactivaciones), del más antiguo al más reciente. Solo lectura; sin directorio ⇒ lista vacía."""
+    base = catalog_root() / RETIREMENT_HISTORY_DIR
+    try:
+        files = sorted(base.glob(f"{entry_id}__*.json" if entry_id else "*.json"))
+    except OSError:
+        return []
+    out = [r for r in (_read(p) for p in files) if r]
+    return sorted(out, key=lambda r: (str(r.get("lifted_at") or ""), str(r.get("entry_id") or "")))
 
 
 def entry_directory(entry) -> Path | None:
@@ -183,12 +218,24 @@ def visible_entries(entries, root: str | Path | None = None) -> list:
     return [e for e in entries if e.entry_id not in gone] if gone else list(entries)
 
 
-def lift_retirement(entry_ids) -> list[str]:
-    """Levanta el retiro de los tiles que se acaban de VOLVER A PUBLICAR. Best-effort: nunca rompe la publicación."""
+def lift_retirement(entry_ids, *, actor: str = "", operation_id: str = "") -> list[str]:
+    """Levanta el retiro de los tiles que se acaban de VOLVER A PUBLICAR. Best-effort: nunca rompe la publicación.
+
+    D-LC-01: la reactivación es TRAZABLE — antes de quitar el registro vigente se deja su copia íntegra en ``.retired_history/<entry_id>__<instante>.json``
+    con quién y en qué operación se levantó. Si esa constancia no se puede escribir, el retiro NO se levanta (el tile sigue retirado y se reintenta en la
+    próxima publicación): nunca se pierde el rastro del retiro."""
     lifted: list[str] = []
     for entry_id in entry_ids:
         path = catalog_root() / RETIRED_DIR / f"{entry_id}.json"
         if not valid_entry_id(entry_id) or not path.is_file():
+            continue
+        record = _read(path) or {"entry_id": entry_id, "unreadable_record": True}
+        stamp = _now()
+        try:
+            _write(catalog_root() / RETIREMENT_HISTORY_DIR / f"{entry_id}__{re.sub(r'[^0-9T]', '', stamp)}.json",
+                   {**record, "lifted_at": stamp, "lifted_by": (actor or "").strip().lower(), "lift_operation_id": operation_id or "", "lift_cause": "REPUBLISHED"})
+        except GovernanceStorageError:
+            log.warning("catalog_governance: no se pudo dejar constancia del retiro levantado; el tile sigue retirado")
             continue
         try:
             path.unlink()
