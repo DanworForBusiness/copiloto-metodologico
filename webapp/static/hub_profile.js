@@ -1,7 +1,7 @@
 /* Hub · perfil del usuario (transversal): menú del header con la identidad corporativa (Entra ID, solo lectura) y la foto efectiva
    (personalizada → corporativa → iniciales). Cargar/sustituir/quitar la foto PERSONALIZADA propia. Una vez por día sincroniza la foto
    corporativa PROPIA con el token delegado ya consentido (`User.Read`); los demás la ven sin llamadas a Graph.
-   Reutiliza el desplegable del topbar (`.workspace-switch` / `.workspace-switch-menu`) y el botón redondo `.theme-toggle`. */
+   Reutiliza el desplegable del topbar (`.workspace-switch` / `.workspace-switch-menu`) y el botón `.theme-toggle`; apertura y cierre los gobierna `hub_topbar_menus.js`. */
 (function () {
   'use strict';
   var root = document.querySelector('[data-dw-profile]');

@@ -17,17 +17,15 @@ FULL = "full@danwor.com"
 RO = "ro@danwor.com"
 
 
-def _client(email: str, *, diagnostic: bool = False) -> TestClient:
+def _client(email: str) -> TestClient:
     c = TestClient(app)
     c.cookies.set(auth_service.COOKIE_NAME, auth_service.create_session({"email": email, "name": "U", "first_name": "U", "family_name": "X"}))
-    if diagnostic:
-        c.cookies.set("dw-diagnostic", "on")
     return c
 
 
 @pytest.fixture(autouse=True)
 def profiles(monkeypatch):
-    monkeypatch.setattr(access, "APP_OWNER", FULL)                       # el dueño puede activar el modo diagnóstico
+    monkeypatch.setattr(access, "APP_OWNER", FULL)                       # el dueño ve el selector de marco (herramienta de gestión)
     monkeypatch.setattr(auth_service, "ALLOWED_USERS", FULL)             # perfil full solo para FULL…
     monkeypatch.setattr(auth_service, "ACADEMY_USERS", "ALL")            # …y el resto entra como solo lectura (Academy)
 
@@ -63,14 +61,12 @@ def test_readonly_profile_still_lands_on_academy_not_on_the_intro():
     assert r.status_code == 307 and r.headers["location"] == _expected_readonly() and "/academy/" in r.headers["location"]
 
 
-def test_the_pack_is_honoured_only_in_diagnostic_mode_exactly_like_home():
+def test_the_pack_is_honoured_only_for_the_app_owner_exactly_like_home():
     from core.content_registry import available_content_packs
-    other = next((p for p in available_content_packs() if p != DEFAULT_PACK), None)
-    plain = _client(FULL).get(f"/?pack={other or DEFAULT_PACK}", follow_redirects=False).headers["location"]
-    assert f"pack={DEFAULT_PACK}" in plain                                                       # sin modo diagnóstico el marco es siempre el productivo
-    diag_root = _client(FULL, diagnostic=True).get(f"/?pack={other or DEFAULT_PACK}", follow_redirects=False).headers["location"]
-    diag_home = _client(FULL, diagnostic=True).get(f"/home?pack={other or DEFAULT_PACK}", follow_redirects=False).headers["location"]
-    assert diag_root == diag_home
+    other = next((p for p in available_content_packs() if p != DEFAULT_PACK), None) or DEFAULT_PACK
+    root = _client(FULL).get(f"/?pack={other}", follow_redirects=False).headers["location"]
+    home = _client(FULL).get(f"/home?pack={other}", follow_redirects=False).headers["location"]
+    assert root == home                                                                          # el owner: misma decisión que /home, sin activar ningún modo
 
 
 def test_unauthenticated_visitors_still_get_the_landing_and_home_still_requires_a_session():

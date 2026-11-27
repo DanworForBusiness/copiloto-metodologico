@@ -8,8 +8,7 @@ from webapp.main import app
 from webapp import access
 from webapp.services import auth_service
 
-# Las herramientas de gestión solo las habilita el dueño (APP_OWNER) en modo
-# diagnóstico. En tests, el usuario de prueba ES el owner. El seam vive ahora en
+# Las herramientas de gestión solo las ve el dueño (APP_OWNER). En tests, el usuario de prueba ES el owner. El seam vive ahora en
 # webapp.access (access policy), no en webapp.main.
 access.APP_OWNER = "test@danwor.com"
 auth_service.ALLOWED_USERS = "ALL"  # baseline: perfil full (ver test_routes)
@@ -18,13 +17,13 @@ _SESSION = auth_service.create_session(
     {"email": "test@danwor.com", "name": "Test User", "first_name": "Test", "family_name": "User"}
 )
 
-# Cliente normal (logueado, sin diagnóstico) y cliente en modo diagnóstico.
+# Colaborador autorizado que NO es APP_OWNER y el owner: las herramientas de gestión dependen solo de APP_OWNER, sin modo extra.
 client = TestClient(app)
-client.cookies.set(auth_service.COOKIE_NAME, _SESSION)
+client.cookies.set(auth_service.COOKIE_NAME, auth_service.create_session(
+    {"email": "colaborador@danwor.com", "name": "Colaborador", "first_name": "Cola", "family_name": "Borador"}))
 
-diag_client = TestClient(app)
-diag_client.cookies.set(auth_service.COOKIE_NAME, _SESSION)
-diag_client.cookies.set("dw-diagnostic", "on")
+owner_client = TestClient(app)
+owner_client.cookies.set(auth_service.COOKIE_NAME, _SESSION)
 
 
 # Caso mínimo REAL para analyze_cases: lo único que exige load_cases() es un dict
@@ -95,24 +94,24 @@ _ADMIN_POST = [
 # ── Gating ────────────────────────────────────────────────────────────────
 
 @pytest.mark.parametrize("path", _ADMIN_GET)
-def test_admin_get_requires_diagnostic(path):
+def test_admin_get_requires_app_owner(path):
     assert client.get(path).status_code == 403
-    assert diag_client.get(path).status_code == 200
+    assert owner_client.get(path).status_code == 200
 
 
 @pytest.mark.parametrize("path,data", _ADMIN_POST)
-def test_admin_post_requires_diagnostic(path, data):
+def test_admin_post_requires_app_owner(path, data):
     assert client.post(path, data=data).status_code == 403
-    assert diag_client.post(path, data=data).status_code == 200
+    assert owner_client.post(path, data=data).status_code == 200
 
 
 # ── Panel en la página de módulo ──────────────────────────────────────────
 
-def test_gestion_group_shows_tools_only_in_diagnostic_mode():
+def test_gestion_group_shows_tools_only_to_the_app_owner():
     standard = client.get("/modules/01_Arquitectura_y_Conectividad")
     assert "Export runtime" not in standard.text
 
-    diag = diag_client.get("/modules/01_Arquitectura_y_Conectividad")
+    diag = owner_client.get("/modules/01_Arquitectura_y_Conectividad")
     assert diag.status_code == 200
     assert "Export runtime" in diag.text
     assert "Case Library" in diag.text
@@ -124,7 +123,7 @@ def test_gestion_group_shows_tools_only_in_diagnostic_mode():
 # ── Export runtime ────────────────────────────────────────────────────────
 
 def test_runtime_export_returns_zip_with_manifest():
-    response = diag_client.get("/admin/runtime/export.zip")
+    response = owner_client.get("/admin/runtime/export.zip")
     assert response.status_code == 200
     assert response.headers["content-type"] == "application/zip"
     assert "attachment" in response.headers["content-disposition"]
@@ -146,25 +145,25 @@ def test_runtime_purge_preview_then_delete_respects_range(monkeypatch, tmp_path)
             "date_from": "2026-01-01", "date_to": "2026-01-31"}
 
     # Previsualizar: reporta pero NO borra.
-    preview = diag_client.post("/admin/runtime/purge", data={**data, "mode": "preview"})
+    preview = owner_client.post("/admin/runtime/purge", data={**data, "mode": "preview"})
     assert preview.status_code == 200
     assert "PREVISUALIZACI" in preview.text and "Nada fue borrado" in preview.text
     assert in_range.exists() and case_in.exists()
 
     # Eliminar: borra solo lo del rango en las carpetas elegidas.
-    delete = diag_client.post("/admin/runtime/purge", data={**data, "mode": "delete"})
+    delete = owner_client.post("/admin/runtime/purge", data={**data, "mode": "delete"})
     assert delete.status_code == 200
     assert "BORRADO EJECUTADO" in delete.text
     assert not in_range.exists() and not case_in.exists()
     assert out_range.exists()  # fuera de rango, intacto
 
     # Sin carpetas elegidas: mensaje claro, sin acción.
-    empty = diag_client.post("/admin/runtime/purge", data={"mode": "delete"})
+    empty = owner_client.post("/admin/runtime/purge", data={"mode": "delete"})
     assert "al menos una carpeta" in empty.text
 
 
 def test_runtime_inventory_lists_the_three_folders():
-    response = diag_client.get("/admin/runtime/inventory")
+    response = owner_client.get("/admin/runtime/inventory")
     assert response.status_code == 200
     assert "feedback_log" in response.text
     assert "activity_log" in response.text
@@ -176,7 +175,7 @@ def test_runtime_inventory_lists_the_three_folders():
 def test_cases_analysis_renders_summary():
     # Con case_library controlado (fixture) analyze_cases corre la rama normal y
     # emite el encabezado del reporte: "REPORTE DE CASE LIBRARY — ...".
-    response = diag_client.post("/admin/cases/analyze", data={})
+    response = owner_client.post("/admin/cases/analyze", data={})
     assert response.status_code == 200
     assert "admin-result-output" in response.text
     assert "CASE LIBRARY" in response.text
@@ -192,21 +191,21 @@ def test_cases_analysis_empty_state_when_no_cases(monkeypatch, tmp_path):
     empty_dir.mkdir()
     monkeypatch.setattr(analyze_cases, "CASE_DIR", empty_dir, raising=False)
 
-    response = diag_client.post("/admin/cases/analyze", data={})
+    response = owner_client.post("/admin/cases/analyze", data={})
     assert response.status_code == 200
     assert "No hay casos para analizar" in response.text
 
 
 def test_feedback_analysis_renders_result():
-    response = diag_client.post("/admin/feedback/analyze", data={"kind": "all"})
+    response = owner_client.post("/admin/feedback/analyze", data={"kind": "all"})
     assert response.status_code == 200
     assert "Feedback" in response.text
 
 
 def test_tree_proposals_run_after_cases_analysis():
     # Las propuestas leen los reportes que escribe el análisis de casos.
-    diag_client.post("/admin/cases/analyze", data={})
-    response = diag_client.post("/admin/trees/propose", data={})
+    owner_client.post("/admin/cases/analyze", data={})
+    response = owner_client.post("/admin/trees/propose", data={})
     assert response.status_code == 200
     assert "Propuestas de árbol" in response.text
 
@@ -251,21 +250,21 @@ def test_feedback_analysis_recognizes_current_schema_incl_academy():
 
 
 def test_content_proposals_render_result():
-    response = diag_client.post("/admin/content/propose", data={})
+    response = owner_client.post("/admin/content/propose", data={})
     assert response.status_code == 200
     assert "Propuestas de contenido" in response.text
 
 
 # ── SharePoint (Fase 2) ───────────────────────────────────────────────────
 
-def test_sharepoint_requires_diagnostic():
+def test_sharepoint_requires_app_owner():
     assert client.post("/admin/sharepoint/seed", data={}).status_code == 403
     assert client.post("/admin/sharepoint/refresh-cache", data={}).status_code == 403
     assert client.get("/admin/sharepoint/seed.json").status_code == 403
 
 
 def test_sharepoint_seed_without_token_explains():
-    response = diag_client.post("/admin/sharepoint/seed", data={"graph_token": ""})
+    response = owner_client.post("/admin/sharepoint/seed", data={"graph_token": ""})
     assert response.status_code == 200
     assert "token de Microsoft Graph" in response.text
 
@@ -279,12 +278,12 @@ def test_sharepoint_seed_happy_path_and_download(monkeypatch):
     }]
     monkeypatch.setattr(sharepoint_cases, "fetch_sap_cases", lambda token, **kw: fake)
 
-    response = diag_client.post("/admin/sharepoint/seed", data={"graph_token": "FAKE"})
+    response = owner_client.post("/admin/sharepoint/seed", data={"graph_token": "FAKE"})
     assert response.status_code == 200
     assert "Seed generado" in response.text
     assert "/admin/sharepoint/seed.json" in response.text
 
-    download = diag_client.get("/admin/sharepoint/seed.json")
+    download = owner_client.get("/admin/sharepoint/seed.json")
     assert download.status_code == 200
     assert download.headers["content-type"].startswith("application/json")
     assert "00123" in download.text
@@ -322,14 +321,14 @@ def test_runtime_purge_user_filter_feedback_file_activity_line_case_zero(monkeyp
     data = {"folders": ["feedback_log", "activity_log", "case_library"], "date_from": "2026-01-01",
             "date_to": "2026-01-31", "user": "ana@danwor.com"}
     # Preview: refleja el filtro; feedback 1 archivo de ana, activity 2 eventos de ana, case 0; nada borrado.
-    preview = diag_client.post("/admin/runtime/purge", data={**data, "mode": "preview"}).text
+    preview = owner_client.post("/admin/runtime/purge", data={**data, "mode": "preview"}).text
     assert "usuario: ana@danwor.com" in preview and "Nada fue borrado" in preview
     assert "feedback_log: 1 archivo(s) de ana@danwor.com" in preview
     assert "activity_log: 2 evento(s) de ana@danwor.com" in preview
     assert "case_library: 0 (sin usuario asociado" in preview
     assert (fb / "feedback_20260110_120000_a1.yaml").exists()                      # preview no borra
     # Delete: borra solo lo de ana; beto intacto en feedback y en activity.
-    out = diag_client.post("/admin/runtime/purge", data={**data, "mode": "delete"}).text
+    out = owner_client.post("/admin/runtime/purge", data={**data, "mode": "delete"}).text
     assert "BORRADO EJECUTADO" in out
     assert not (fb / "feedback_20260110_120000_a1.yaml").exists()                  # feedback de ana borrado
     assert (fb / "feedback_20260110_130000_b1.yaml").exists()                      # feedback de beto intacto
@@ -342,7 +341,7 @@ def test_runtime_purge_user_filter_no_results_is_zero(monkeypatch, tmp_path):
     fb, al, cl = _seed_user_runtime(monkeypatch, tmp_path)
     data = {"folders": ["feedback_log", "activity_log"], "date_from": "2026-01-01", "date_to": "2026-01-31",
             "user": "nadie@danwor.com", "mode": "delete"}
-    out = diag_client.post("/admin/runtime/purge", data=data).text
+    out = owner_client.post("/admin/runtime/purge", data=data).text
     assert "feedback_log: 0 archivo(s) de nadie@danwor.com" in out
     assert "activity_log: 0 evento(s) de nadie@danwor.com" in out
     assert (al / "activity_20260110.jsonl").read_text(encoding="utf-8").count("\n") == 3   # nada se tocó
@@ -351,7 +350,7 @@ def test_runtime_purge_user_filter_no_results_is_zero(monkeypatch, tmp_path):
 def test_runtime_purge_all_users_unchanged_behaviour(monkeypatch, tmp_path):
     fb, al, cl = _seed_user_runtime(monkeypatch, tmp_path)
     # Sin usuario («Todos»): conducta histórica por archivo (incluye el día completo de activity_log).
-    out = diag_client.post("/admin/runtime/purge", data={"folders": ["activity_log"], "date_from": "2026-01-01",
+    out = owner_client.post("/admin/runtime/purge", data={"folders": ["activity_log"], "date_from": "2026-01-01",
                                                          "date_to": "2026-01-31", "mode": "preview"}).text
     assert "activity_log: 1 archivo(s) ·" in out and "usuario:" not in out
 
@@ -367,7 +366,7 @@ def test_runtime_purge_activity_keeps_other_users_and_unidentified_lines(monkeyp
         '{"event":"system_tick"}\n'                       # sin identidad reconocible: se conserva
         'esto-no-es-json\n', encoding="utf-8")            # línea corrupta: se conserva (nunca se asume del usuario)
     monkeypatch.setattr(at, "_RUNTIME_EXPORT_DIRS", (("feedback_log", tmp_path / "fb"), ("activity_log", al), ("case_library", tmp_path / "cl")))
-    out = diag_client.post("/admin/runtime/purge", data={"folders": ["activity_log"], "date_from": "2026-01-01",
+    out = owner_client.post("/admin/runtime/purge", data={"folders": ["activity_log"], "date_from": "2026-01-01",
           "date_to": "2026-01-31", "user": "ana@danwor.com", "mode": "delete"}).text
     assert "activity_log: 2 evento(s) de ana@danwor.com" in out
     remaining = day.read_text(encoding="utf-8")
@@ -384,7 +383,7 @@ def test_runtime_purge_case_library_user_abstains_without_global_fallback(monkey
     case = cl / "case_20260110_000000_x.yaml"; case.write_text("case_id: x\n", encoding="utf-8")
     monkeypatch.setattr(at, "_RUNTIME_EXPORT_DIRS", (("feedback_log", tmp_path / "fb"), ("activity_log", tmp_path / "al"), ("case_library", cl)))
     # Con usuario + SOLO case_library + Eliminar: se abstiene (0), NO vuelve al borrado global.
-    out = diag_client.post("/admin/runtime/purge", data={"folders": ["case_library"], "date_from": "2026-01-01",
+    out = owner_client.post("/admin/runtime/purge", data={"folders": ["case_library"], "date_from": "2026-01-01",
           "date_to": "2026-01-31", "user": "ana@danwor.com", "mode": "delete"}).text
     assert "case_library: 0 (sin usuario asociado" in out
     assert case.exists()                                     # el caso NO se borró (abstención, sin fallback global)
