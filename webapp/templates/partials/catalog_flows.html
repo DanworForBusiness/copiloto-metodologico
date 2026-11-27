@@ -55,7 +55,9 @@
     {# "XX artefactos" va ARRIBA para que los dos desplegables "+ VER FUENTES" y
        "+ VER NOTAS" queden juntos (antes el conteo se colaba entre ambos). #}
     {% set n_art = (logical_counts or {}).get(e.entry_id, e.artefactos|length) %}
-    <p class="catalog-card__meta">{{ n_art }} artefacto{{ "s" if n_art != 1 }}{% if g.freshness %} · {{ g.freshness }}{% endif %}</p>
+    {#- Última publicación exitosa registrada (`last_published_at`, hora de Argentina); sin registro histórico el dato se omite. -#}
+    {% set pub = (published or {}).get(e.entry_id) %}
+    <p class="catalog-card__meta">{{ n_art }} artefacto{{ "s" if n_art != 1 }}{% if g.freshness %} · {{ g.freshness }}{% endif %}{% if pub %} · <span title="Última publicación exitosa">Actualizado: {{ pub }}</span>{% endif %}</p>
     {# Línea de negocio (SOLO en la vista "Líneas de negocio", `lob_info`): asignación manual o sugerencia MEDIUM, discreta; no altera el grado ni el veredicto. En la MISMA línea que el foco para no agregar bytes a Dominios. #}{% if lob_info and (lob_info.get(e.entry_id) or {}).get("note") %}<p class="catalog-card__lob" title="Clasificación de línea de negocio (v2)">{{ lob_info[e.entry_id].note }}</p>{% endif %}{% if foco == "capas" and e.capas %}<p class="catalog-card__foco"><strong>Capas:</strong> {{ e.capas|join(" · ") }}</p>{% endif %}
     {% if foco == "fuentes" and e.origenes %}
     <details class="catalog-card__notes" onclick="event.stopPropagation()">

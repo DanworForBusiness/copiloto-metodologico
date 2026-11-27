@@ -215,6 +215,38 @@ def can_retire(user: dict | None, entry_id: str) -> bool:
     return bool(record and str(record.get("last_publisher") or "").strip().lower() == sub)
 
 
+try:                                                                              # fecha de NEGOCIO: misma zona que el resto del Hub
+    from zoneinfo import ZoneInfo
+    _BUSINESS_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
+except Exception:                                                                 # noqa: BLE001 — sin base tz: UTC−3 fijo
+    from datetime import timedelta
+    _BUSINESS_TZ = timezone(timedelta(hours=-3))
+
+
+def published_label(record: dict | None) -> str:
+    """«dd/mm/aaaa HH:MM» (hora de Argentina) de la ÚLTIMA publicación exitosa registrada (`last_published_at`, UTC). Sin registro o ilegible ⇒ ''."""
+    raw = str((record or {}).get("last_published_at") or "").strip()
+    if not raw:
+        return ""
+    try:
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return ""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(_BUSINESS_TZ).strftime("%d/%m/%Y %H:%M")
+
+
+def published_labels(flows) -> dict[str, str]:
+    """``entry_id → fecha`` de la última publicación de cada tile que TIENE registro (las que no, quedan fuera: la tarjeta omite el dato)."""
+    out = {}
+    for f in flows:
+        label = published_label(provenance(str(getattr(f, "entry_id", "") or "")))
+        if label:
+            out[f.entry_id] = label
+    return out
+
+
 def deletable_ids(user: dict | None, flows) -> set[str]:
     """Los ``entry_id`` de ``flows`` que ESTE usuario puede retirar (alimenta el ícono de cada tile: la UI y el endpoint usan el MISMO predicado)."""
     return {f.entry_id for f in flows if can_retire(user, f.entry_id)}

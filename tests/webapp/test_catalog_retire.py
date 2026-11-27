@@ -380,3 +380,13 @@ def test_the_confirmation_uses_the_shared_dialog_and_never_fires_the_tile_detail
 def test_route_surface_declares_the_new_endpoint():
     surface = json.loads((REPO / "tests" / "route_surface.json").read_text(encoding="utf-8"))
     assert "POST /catalog/flow/retire" in surface
+
+
+def test_the_card_shows_the_last_successful_publication_in_argentina_time_or_nothing(world, monkeypatch):
+    # Sin registro histórico: el dato se omite (la tarjeta no cambia).
+    assert "Actualizado:" not in _client_tiles(_client(OWNER))
+    publish_as(world, "Biogenesis", ANA)
+    monkeypatch.setattr(gov, "provenance", lambda eid: {"last_publisher": ANA, "last_published_at": "2026-11-25T15:56:50+00:00"} if eid == entry_id(world, "Biogenesis") else None)
+    html = _client_tiles(_client(BEA))                                                                # visible para cualquier lector del catálogo
+    assert 'title="Última publicación exitosa">Actualizado: 25/11/2026 12:56</span>' in html          # UTC−3
+    assert gov.published_label(None) == "" and gov.published_label({"last_published_at": "no-fecha"}) == ""

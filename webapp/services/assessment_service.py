@@ -1492,6 +1492,7 @@ def _regenerate_core(entry: Any, *, precondition: Any, postcheck: Any, log_label
     postcheck(doc, previous, res, versions)
     notes: dict = {}
     se_sidecar, se_in = _structural_for(meta, doc, am, sig)
+    closure_sig = closure_signature(res)                # vigencia por dependencias: enriquecer/migrar CONSERVA (recalcula) la firma, igual que generate (antes se perdía)
     if envelope_hook is None:
         try:                                            # P0.1: mismo contrato de reemplazo (replay verificado) que generate / publicación
             judgment, carried = judgment_for_replacement(doc, previous, **_se_kw(se_in))
@@ -1500,12 +1501,12 @@ def _regenerate_core(entry: Any, *, precondition: Any, postcheck: Any, log_label
         env = _envelope(client, am, status="OK", profile=doc, pool_signature=sig, versions=dict(doc["versions"]), judgment=judgment,
                         domain_classification=_derive_domain_classification(entry, am), business_classification=_derive_business_classification(entry, am),
                         review_evidence=(meta or {}).get("review_evidence"),      # sidecar del MISMO ciclo (no se descarta al enriquecer/regenerar)
-                        structural_evidence=se_sidecar)
+                        structural_evidence=se_sidecar, closure_signature=closure_sig)
         env.update(carried)
     else:                                                 # migracion estricta: el gancho decide el Juicio y los derivados hermanos (sin recalificar ni re-derivar a escondidas)
         overrides, notes = envelope_hook(doc, previous, **_se_kw(se_in))
         env = _envelope(client, am, status="OK", profile=doc, pool_signature=sig, versions=dict(doc["versions"]),
-                        **{"review_evidence": (meta or {}).get("review_evidence"), "structural_evidence": se_sidecar, **overrides})   # el gancho puede sobrescribir; por defecto, sidecar del mismo ciclo
+                        **{"review_evidence": (meta or {}).get("review_evidence"), "structural_evidence": se_sidecar, "closure_signature": closure_sig, **overrides})   # el gancho puede sobrescribir; por defecto, sidecar del mismo ciclo
     if not _envelope_resolves_current(env, res, versions):
         raise EnrichmentError("WOULD_NOT_BE_CURRENT")
     return RegeneratedAssessment(client, am, doc, env, (previous or {}).get("assessment_artifact_signature"), notes,

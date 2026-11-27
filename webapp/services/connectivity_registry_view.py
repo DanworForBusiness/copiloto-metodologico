@@ -59,6 +59,15 @@ def can_read(request) -> bool:
     return asd.can_execute(request)
 
 
+def published(request) -> bool:
+    """Exposición de «Tenants y ambientes» en el Catálogo de conectividad. DESPUBLICADA para consultores (2026-11-27): el registro no tiene
+    datos ni consumidores (la captura F2.2c se retiró de la extracción y la reconciliación F2.2d no se construyó), y la pantalla vacía confundía.
+    Queda visible SOLO para APP_OWNER; implementación, rutas, almacén y servicios se conservan para retomarla. `can_read` sigue siendo el
+    criterio de la captura (`options()`), que no cambia."""
+    from webapp import access
+    return can_read(request) and access.is_owner(request)
+
+
 def client_readable(request, client: str) -> bool:
     from webapp.services import datasphere_publication_service as pub
     return pub.client_authorized(request, client)

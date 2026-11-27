@@ -275,6 +275,21 @@ def test_apply_replaces_the_same_governed_record_with_the_complete_regenerated_a
     assert any(h["id"] == "views_in_closure" for a in st.profile["areas"] if a["id"] == "ANALYTIC_MODEL" for h in a["highlights"])   # puede renderizar el resumen de [02]
 
 
+def test_enrichment_keeps_the_dependency_signature_instead_of_dropping_it(world):
+    # Vigencia por dependencias: enriquecer (y migrar: mismo núcleo `_regenerate_core`) recalcula y CONSERVA `input_closure_signature`; antes el sobre
+    # reescrito la perdía y la próxima publicación de otro modelo lo dejaba STALE·UNCERTAIN aunque fuera independiente.
+    path = _make_historical(world)
+    env = json.loads(path.read_text(encoding="utf-8"))
+    env.pop("input_closure_signature", None); env.pop("dependency_rule_version", None)                      # sobre histórico, previo a la firma
+    path.write_text(json.dumps(env, ensure_ascii=False), encoding="utf-8")
+    restart()
+    assert _run(world, apply=True)["records"][0]["action"] == bf.REGENERATED
+    after = json.loads(path.read_text(encoding="utf-8"))
+    assert after.get("input_closure_signature") and after.get("dependency_rule_version") == svc.ma_dependencies.DEPENDENCY_RULE_VERSION
+    restart()
+    assert svc.status_for_entry(world.acme).state == svc.CURRENT
+
+
 def test_it_is_idempotent_a_second_run_skips_and_writes_nothing(world):
     path = _make_historical(world)
     _run(world, apply=True)

@@ -10,8 +10,11 @@ ninguna de sus entradas hubiera cambiado. Esta firma cubre SOLO lo que el assess
 Las entidades que CONSUMEN a la clausura sin pertenecer a ella (otro AM sobre la misma dimensión) no se arrastran por mención: su efecto sobre este AM es la contención, que ya está en la firma.
 Los sidecars ``.txt`` de una entidad (mismo nombre) pertenecen a esa entidad.
 
-Es una cota SUPERIOR conservadora (una mención textual cuenta, aunque no sea una referencia estructural): puede declarar «afectado» algo que no lo era, nunca al revés. Cuando no se
-puede asegurar la dependencia (un archivo no se puede leer, el mismo nombre de archivo existe en dos carpetas) la firma es ``None`` = INCIERTO y el llamador cae a la firma del pool.
+Es una cota SUPERIOR conservadora (una mención textual cuenta, aunque no sea una referencia estructural): puede declarar «afectado» algo que no lo era, nunca al revés.
+Nombre de archivo AMBIGUO (el mismo nombre en dos carpetas del pool, p. ej. export legacy en la raíz + export CLI en ``views/``): la entidad se cubre con TODOS los candidatos
+(el motor lee uno de ellos), así que un cambio en cualquiera de las copias cambia la firma; antes devolvía ``None`` y dejaba INCIERTO a todo AM que tocara un objeto duplicado.
+Sin duplicados el payload es idéntico al de siempre (las firmas ya guardadas siguen valiendo). Sigue siendo ``None`` = INCIERTO —y el llamador cae a la firma del pool— cuando un
+archivo no se puede leer o la entidad no tiene ningún archivo en el pool.
 No toca reglas metodológicas ni el perfil: es un dato de vigencia aparte, guardado en el sobre.
 """
 from __future__ import annotations
@@ -53,11 +56,13 @@ def dependency_signatures(root: Path, group: Mapping[str, list[Path]], entities:
         by_basename.setdefault(p.name, []).append(p)
     defined: dict[Path, set[str]] = {p: {p.stem} for p in files}
     entity_file: dict[str, Path | None] = {}
+    entity_candidates: dict[str, list[Path]] = {}            # entidad → TODOS los archivos con su nombre (cota superior ante nombres ambiguos)
     owned: dict[Path, str] = {}                              # archivo → entidad a la que pertenece (su CSN y sus sidecars de texto)
     for name, ent in entities.items():
         base = str(getattr(ent, "file", "") or "")
         hits = by_basename.get(base, [])
         entity_file[name] = hits[0] if len(hits) == 1 else None
+        entity_candidates[name] = sorted(hits, key=lambda h: rel[h])
         if len(hits) == 1:
             defined[hits[0]].add(name)
             owned[hits[0]] = name
@@ -66,11 +71,11 @@ def dependency_signatures(root: Path, group: Mapping[str, list[Path]], entities:
             owned[p] = p.stem
     out: dict[str, str | None] = {}
     for am in universe.terminal_ams:
-        out[am] = None if unreadable else _signature_for(am, universe, entity_file, owned, tokens, sha, rel, defined, files, entities)
+        out[am] = None if unreadable else _signature_for(am, universe, entity_file, owned, tokens, sha, rel, defined, files, entities, entity_candidates)
     return out
 
 
-def _signature_for(am, universe, entity_file, owned, tokens, sha, rel, defined, files, entities) -> str | None:
+def _signature_for(am, universe, entity_file, owned, tokens, sha, rel, defined, files, entities, entity_candidates=None) -> str | None:
     closure = tuple(universe.closure_of(am))
     names = set(closure)
     d0: set[Path] = set()
@@ -81,7 +86,12 @@ def _signature_for(am, universe, entity_file, owned, tokens, sha, rel, defined, 
             continue
         path = entity_file.get(name)
         if path is None:
-            return None                                     # el archivo de la entidad no es unívoco: dependencia incierta
+            hits = (entity_candidates or {}).get(name) or []
+            if not hits:
+                return None                                 # la entidad no tiene archivo en el pool: dependencia incierta
+            d0.update(hits)                                 # nombre ambiguo: TODAS las copias (cota superior; nunca un CURRENT de más)
+            closure_files.append((name, "|".join(rel[h] for h in hits)))
+            continue
         d0.add(path)
         closure_files.append((name, rel[path]))
     d0 |= {p for p, owner in owned.items() if owner in names}                       # sidecars de texto de las entidades de la clausura

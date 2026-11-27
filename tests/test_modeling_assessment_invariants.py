@@ -31,11 +31,27 @@ BRIDGE = PKG_DIR / "legacy_bridge.py"
 _SKIP_DIR_NAMES = {"node_modules", "site-packages", "__pycache__", "catalog_local", "reports", "case_library"}
 
 
+def _git_source_files(root: Path):
+    """Los ``.py`` que forman parte del CÓDIGO del repo según Git: versionados + nuevos NO ignorados (``--exclude-standard``). Un archivo nuevo que
+    todavía no se commiteó SÍ se inspecciona; lo que el repo declara ignorado (``_handoffs/`` locales, runtimes, venvs) no es código del repo.
+    ``None`` si Git no está disponible o ``root`` no es un árbol de trabajo: el llamador cae al recorrido completo."""
+    import subprocess
+    try:
+        out = subprocess.run(["git", "-C", str(root), "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "*.py"],
+                             capture_output=True, check=True, timeout=60).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return {(root / rel).resolve() for rel in out.decode("utf-8", "replace").split("\0") if rel}
+
+
 def _py_files(root: Path):
+    tracked = _git_source_files(root)
     for p in root.rglob("*.py"):
         parts = p.relative_to(root).parts
         if any(x.startswith(".") or x.startswith("venv") or x in _SKIP_DIR_NAMES for x in parts):
             continue
+        if tracked is not None and p.resolve() not in tracked:
+            continue                                   # ignorado por el repo (no es código): p. ej. scripts locales en `_handoffs/`
         yield p
 
 

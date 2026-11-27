@@ -1665,7 +1665,7 @@ def catalog_connectivity_registry(request: Request, pack: str = Query(DEFAULT_PA
     if not user:
         return _login_redirect(request, _pack(pack))
     from webapp.services import connectivity_registry_view as crv
-    if not crv.can_read(request):
+    if not crv.published(request):                                     # despublicada para consultores: solo APP_OWNER (ver crv.published)
         raise HTTPException(403, "No autorizado")
     if client and not crv.client_readable(request, client):
         raise HTTPException(403, "No autorizado para este cliente")
@@ -1949,7 +1949,7 @@ def catalog_domain(request: Request, dominio: str = "", modulo: str = "", pack: 
     return templates.TemplateResponse(
         request=request, name="partials/catalog_flows.html",
         context={"flows": flows, "dominio": dominio, "foco": foco, "pack": _pack(pack),
-                 "deletable": catalog_governance.deletable_ids(auth_service.session_user(request), flows),
+                 "deletable": catalog_governance.deletable_ids(auth_service.session_user(request), flows), "published": catalog_governance.published_labels(flows),
                  "grades": assessment_presenter.tile_grades(flows),
                  "logical_counts": {f.entry_id: _catalog_logical_artifact_count(f) for f in flows}},   # cantidad LÓGICA (mismo conjunto normalizado del linaje)   # grado PRIMARIO de la tile = Adopción metodológica persistida
     )
@@ -2192,7 +2192,7 @@ def catalog_lob(request: Request, lob: str = "", pack: str = Query(DEFAULT_PACK)
         return templates.TemplateResponse(request=request, name="partials/catalog_flows.html", context=ctx)
     flows = catalog_navigation.sort_flows_by_verdict(dcs.partition_by_lob(universe, eff)[wanted])
     n_unavailable = sum(1 for v in eff.values() if not v["available"])
-    ctx.update({"flows": flows, "grades": assessment_presenter.tile_grades(flows, statuses), "deletable": catalog_governance.deletable_ids(auth_service.session_user(request), flows),
+    ctx.update({"flows": flows, "grades": assessment_presenter.tile_grades(flows, statuses), "deletable": catalog_governance.deletable_ids(auth_service.session_user(request), flows), "published": catalog_governance.published_labels(flows),
                 "logical_counts": {f.entry_id: _catalog_logical_artifact_count(f) for f in flows},
                 "lob_info": {f.entry_id: {"note": _lob_note(eff[f.entry_id], is_owner=access.is_owner(request))} for f in flows},
                 "empty_kind": "empty", "empty_title": "Sin modelos disponibles", "empty_message": _LOB_EMPTY.get(wanted, "Todavía no hay modelos asociados a esta línea de negocio."),
@@ -2213,7 +2213,7 @@ def catalog_client(request: Request, cliente: str = "", pack: str = Query(DEFAUL
     return templates.TemplateResponse(
         request=request, name="partials/catalog_flows.html",
         context={"flows": flows, "dominio": "", "foco": None, "pack": selected,
-                 "deletable": catalog_governance.deletable_ids(auth_service.session_user(request), flows),
+                 "deletable": catalog_governance.deletable_ids(auth_service.session_user(request), flows), "published": catalog_governance.published_labels(flows),
                  "empty_kind": "empty" if name else "prompt",
                  "empty_title": "Sin modelos disponibles" if name else "Elegí un cliente.",
                  "empty_message": f"Todavía no hay modelos asociados al cliente «{name}»." if name else None,
