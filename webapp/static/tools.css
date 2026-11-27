@@ -2920,6 +2920,7 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 .callout__body p:last-child { margin-bottom: 0; }
 .callout-list { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
 .callout-list li { position: relative; padding-left: 19px; color: inherit; }
+.callout-list + p { margin-top: 12px; }                     /* un cierre en párrafo después de una lista no queda pegado a ella */
 .callout-list li::before { content: "✓"; position: absolute; left: 0; color: var(--callout-accent); font-weight: 800; }
 .callout-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; margin: 18px 0; }
 .callout-row .callout { height: 100%; margin: 0; }
