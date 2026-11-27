@@ -104,29 +104,43 @@ def test_write_requires_session_same_origin_and_owner(bucket, owner):
     assert _post(owner, "drop-everything").status_code == 404
 
 
-def test_read_policy_full_profile_consultant_yes_readonly_and_anonymous_no(bucket):
-    assert _client("consultor@danwor.com").get(VIEW, headers={"HX-Request": "true"}).status_code == 200
+def test_read_policy_unpublished_for_consultants_owner_only(bucket, owner):
+    # «Tenants y ambientes» quedó DESPUBLICADA para consultores (sin datos ni consumidores): solo APP_OWNER la ve; se conserva para retomarla.
+    assert _client("consultor@danwor.com").get(VIEW, headers={"HX-Request": "true"}).status_code == 403
     assert _client("lector@danwor.com").get(VIEW, headers={"HX-Request": "true"}).status_code == 403
+    assert owner.get(VIEW, headers={"HX-Request": "true"}).status_code == 200
     r = TestClient(app).get(VIEW, headers={"HX-Request": "true"}, follow_redirects=False)
     assert r.status_code in (302, 303, 307)
 
 
-def test_consultant_reads_without_forms_and_owner_sees_forms(bucket, owner):
+def test_owner_reads_with_forms_and_consultant_no_longer_reads(bucket, owner):
     assert _post(owner, "register-tenant").json()["status"] == "APPLIED"
     mine = _hx(owner, VIEW + "&client=Biogenesis")
-    theirs = _hx(_client("consultor@danwor.com"), VIEW + "&client=Biogenesis")
-    assert "TNT-BIO-1" in theirs and "data-cr-form" not in theirs and "data-cr-form" in mine
+    assert "TNT-BIO-1" in mine and "data-cr-form" in mine
+    assert _client("consultor@danwor.com").get(VIEW + "&client=Biogenesis", headers={"HX-Request": "true"}).status_code == 403
 
 
-def test_client_restriction_for_consultants_applies_to_reading(bucket, owner, monkeypatch):
+def test_consultants_cannot_read_any_client_while_unpublished(bucket, owner, monkeypatch):
     _post(owner, "register-tenant")
     _post(owner, "register-tenant", client="Loma", tenant_id="TNT-LOMA-1")
     monkeypatch.setenv("DANWOR_PUBLICATION_CONSULTANT_CLIENTS", "Loma")
     c = _client("consultor@danwor.com")
-    assert c.get(VIEW + "&client=Biogenesis", headers={"HX-Request": "true"}).status_code == 403
-    html = _hx(c, VIEW)
-    assert '<option value="Loma"' in html and '<option value="Biogenesis"' not in html
+    for client in ("Biogenesis", "Loma"):
+        assert c.get(VIEW + "&client=" + client, headers={"HX-Request": "true"}).status_code == 403
+    html = _hx(owner, VIEW)                                                   # el registro y su persistencia siguen intactos para el owner
+    assert '<option value="Loma"' in html and '<option value="Biogenesis"' in html
 
+
+def test_catalog_selector_offers_tenants_only_to_the_owner(bucket, owner):
+    from webapp.services import connectivity_registry_view as crv
+    req = lambda email: SimpleNamespace(cookies={auth_service.COOKIE_NAME: auth_service.create_session(
+        {"email": email, "name": email, "first_name": "T", "family_name": "U"})}, headers={})
+    assert crv.published(req("owner@danwor.com")) is True
+    assert crv.published(req("consultor@danwor.com")) is False
+    assert crv.can_read(req("consultor@danwor.com")) is True                 # la captura conserva su criterio (sin cambios)
+    tab = open("webapp/templates/partials/catalog_tab.html", encoding="utf-8").read()
+    assert "{% if registry_read %}<option value=\"registry\">Tenants y ambientes</option>{% endif %}" in tab
+    assert "_crv.published(request)" in open("webapp/templating.py", encoding="utf-8").read()
 
 # ═══════════════ flujo completo ═══════════════
 def test_full_lifecycle_register_bind_assign_reassign_revoke_unbind_deactivate(bucket, owner):

@@ -118,8 +118,25 @@ def test_an_unreadable_file_makes_every_signature_uncertain(two, monkeypatch):
     assert signatures(two) == {AM_A: None, AM_B: None}                                            # incierto => el llamador cae a la firma del pool (STALE explícito)
 
 
-def test_an_entity_file_that_is_not_unique_is_uncertain_for_the_ams_that_contain_it(two):
-    dup = two.pool / CLIENT / "views" / "RAW_OT.json"                                              # mismo nombre de archivo en otra carpeta del pool
+def test_an_ambiguous_entity_file_is_covered_by_every_candidate_instead_of_being_uncertain(two):
+    # Mismo nombre de archivo en dos carpetas del pool (export legacy + export CLI): la firma cubre TODAS las copias (cota superior), en vez de
+    # quedar incierta; un cambio en CUALQUIERA de las copias cambia la firma del AM que la contiene, y nunca la del AM que no la contiene.
+    before = signatures(two)
+    dup = two.pool / CLIENT / "views" / "RAW_OT.json"
     dup.write_text(json.dumps(local_table("RAW_OT")), encoding="utf-8")
-    sigs = signatures(two)
-    assert sigs[AM_B] is None and isinstance(sigs[AM_A], str)
+    with_dup = signatures(two)
+    assert isinstance(with_dup[AM_B], str) and with_dup[AM_B] != before[AM_B]                     # la copia nueva entra en la firma de B
+    assert with_dup[AM_A] == before[AM_A]                                                          # A no toca el objeto duplicado: payload idéntico (v1)
+    dup.write_text(json.dumps(local_table("RAW_OT")) + " ", encoding="utf-8")                    # cambia SOLO la copia duplicada
+    assert signatures(two)[AM_B] != with_dup[AM_B]
+    original = two.pool / CLIENT / "local-tables" / "RAW_OT.json"
+    dup.write_text(json.dumps(local_table("RAW_OT")), encoding="utf-8")
+    original.write_text(original.read_text(encoding="utf-8") + " ", encoding="utf-8")          # cambia SOLO la copia original
+    assert signatures(two)[AM_B] != with_dup[AM_B] and signatures(two)[AM_A] == before[AM_A]
+
+
+def test_an_ambiguous_entity_file_that_cannot_be_read_still_makes_the_signature_uncertain(two, monkeypatch):
+    (two.pool / CLIENT / "views" / "RAW_OT.json").write_text(json.dumps(local_table("RAW_OT")), encoding="utf-8")
+    real = dsig.bridge.file_sha256
+    monkeypatch.setattr(dsig.bridge, "file_sha256", lambda p: (_ for _ in ()).throw(OSError("denegado")) if p.parent.name == "views" and p.name == "RAW_OT.json" else real(p))
+    assert signatures(two) == {AM_A: None, AM_B: None}
