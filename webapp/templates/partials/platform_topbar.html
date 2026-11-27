@@ -126,6 +126,8 @@
     {% endif %}
     {{ caller() }}
     {#- Perfil del usuario (transversal): lo arma `hub_profile.js` desde `/perfil/yo` (el macro no recibe al usuario: no se tocan sus llamadas). -#}
+    {#- Centro de Notificaciones del Hub: campana unificada (`hub_notifications.js`, `/notificaciones`), mismo desplegable del topbar. -#}
+    <div class="dw-profile-slot" data-dw-notif></div><script defer src="/static/hub_notifications.js?v={{ static_version }}"></script>
     <div class="dw-profile-slot" data-dw-profile></div><script defer src="/static/hub_profile.js?v={{ static_version }}"></script>
     <button class="theme-toggle" @click="toggleTheme()" :title="contentTheme === 'light' ? 'Usar contenido oscuro' : 'Usar contenido claro'" aria-label="Alternar tema del contenido">
       {% set _light_attrs %}x-cloak x-show="contentTheme === 'light'"{% endset %}{% set _dark_attrs %}x-cloak x-show="contentTheme === 'dark'"{% endset %}

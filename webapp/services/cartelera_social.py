@@ -682,9 +682,9 @@ def notifications(user: dict | None, names: dict[str, str] | None = None) -> lis
     for p in posts:
         who = "Capital Humano" if p.get("official") else names.get(p.get("author", ""), p.get("author_name") or "Colaborador/a")
         if pr["mentions"] and me in (p.get("mentions") or []) and p.get("author") != me:
-            out.append({"at": post_when(p), "url": f"/cartelera/comunidad#post-{p['id']}", "text": f"{who} te mencionó en «{p.get('title') or 'una publicación'}»"})
+            out.append({"id": f"post-mention:{p['id']}", "feature": "mention", "at": post_when(p), "url": f"/cartelera/comunidad#post-{p['id']}", "text": f"{who} te mencionó en «{p.get('title') or 'una publicación'}»"})
         if pr["official"] and p.get("official") and p.get("pinned"):
-            out.append({"at": post_when(p), "url": f"/cartelera/comunidad#post-{p['id']}", "text": f"Comunicación importante: {p.get('title') or 'Capital Humano'}"})
+            out.append({"id": f"official:{p['id']}", "feature": "official", "at": post_when(p), "url": f"/cartelera/comunidad#post-{p['id']}", "text": f"Comunicación importante: {p.get('title') or 'Capital Humano'}"})
     for p in list_posts():                                                             # lo que la moderación decidió sobre lo propio
         if p.get("author") != me:
             continue
@@ -692,13 +692,13 @@ def notifications(user: dict | None, names: dict[str, str] | None = None) -> lis
         if p.get("status") == "removed":
             why = f" Motivo: {p['removed_reason']}." if p.get("removed_reason") else ""
             verb = "rechazó" if p.get("removed_kind") == "rechazada" else "retiró"
-            out.append({"at": p.get("removed_at") or "", "url": "/cartelera/comunidad", "text": f"La moderación de Comunidad {verb} «{title}».{why}"})
+            out.append({"id": f"post-removed:{p['id']}", "feature": "moderation", "at": p.get("removed_at") or "", "url": "/cartelera/comunidad", "text": f"La moderación de Comunidad {verb} «{title}».{why}"})
         elif p.get("approved_at") and p.get("status") == "published":
-            out.append({"at": p["approved_at"], "url": f"/cartelera/comunidad#post-{p['id']}", "text": f"La moderación de Comunidad aprobó «{title}»: ya está publicada."})
+            out.append({"id": f"post-approved:{p['id']}", "feature": "moderation", "at": p["approved_at"], "url": f"/cartelera/comunidad#post-{p['id']}", "text": f"La moderación de Comunidad aprobó «{title}»: ya está publicada."})
     for c in list_comments():
         if c.get("author") == me and c.get("status") == "removed":
             why = f" Motivo: {c['removed_reason']}." if c.get("removed_reason") else ""
-            out.append({"at": c.get("removed_at") or "", "url": "/cartelera/comunidad", "text": f"La moderación de Comunidad retiró un comentario tuyo.{why}"})
+            out.append({"id": f"cmt-removed:{c['id']}", "feature": "moderation", "at": c.get("removed_at") or "", "url": "/cartelera/comunidad", "text": f"La moderación de Comunidad retiró un comentario tuyo.{why}"})
     comments = [c for c in list_comments() if c.get("status") != "removed"]
     my_comments = {c["id"] for c in comments if c.get("author") == me}
     for c in comments:
@@ -707,11 +707,11 @@ def notifications(user: dict | None, names: dict[str, str] | None = None) -> lis
         who = names.get(c.get("author", ""), c.get("author_name") or "Colaborador/a")
         url = target_label(c["target"])[2]
         if pr["mentions"] and me in (c.get("mentions") or []):
-            out.append({"at": c.get("created_at", ""), "url": url, "text": f"{who} te mencionó en un comentario"})
+            out.append({"id": f"cmt-mention:{c['id']}", "feature": "mention", "at": c.get("created_at", ""), "url": url, "text": f"{who} te mencionó en un comentario"})
         elif pr["replies"] and c.get("parent_id") in my_comments:
-            out.append({"at": c.get("created_at", ""), "url": url, "text": f"{who} respondió tu comentario"})
+            out.append({"id": f"cmt-reply:{c['id']}", "feature": "reply", "at": c.get("created_at", ""), "url": url, "text": f"{who} respondió tu comentario"})
         elif pr["replies"] and c.get("target") in mine_posts:
-            out.append({"at": c.get("created_at", ""), "url": url, "text": f"{who} comentó tu publicación"})
+            out.append({"id": f"cmt-post:{c['id']}", "feature": "comment", "at": c.get("created_at", ""), "url": url, "text": f"{who} comentó tu publicación"})
     out.sort(key=lambda n: n["at"], reverse=True)
     seen = prefs(user)["seen_at"]
     for n in out:

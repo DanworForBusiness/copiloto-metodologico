@@ -15,7 +15,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from webapp import same_origin_guard
 from webapp.routers.cartelera import BASE, _NO_STORE, _back, _reader, _render_portal, _shell, portal_audience_ok, read_upload
-from webapp.services import auth_service, cartelera_media as media, cartelera_repository as repo, cartelera_service as svc, cartelera_social as social
+from webapp.services import auth_service, hub_inbox, cartelera_media as media, cartelera_repository as repo, cartelera_service as svc, cartelera_social as social
 from webapp.templating import templates
 
 router = APIRouter()
@@ -54,6 +54,20 @@ async def social_media_upload(request: Request):
     except media.MediaError as exc:
         return JSONResponse({"error": str(exc)}, status_code=422, headers=_NO_STORE)
     return JSONResponse(media.public_view(record), headers=_NO_STORE)
+
+
+# ── Centro de Notificaciones del Hub: Cartelera es PROVEEDOR (calcula desde su estado y con sus reglas) y consumidor (campana del portal) ──
+def _inbox_items(user: dict) -> list[dict]:
+    if not auth_service.is_authorized(str((user or {}).get("sub") or "")) or not portal_audience_ok(user):
+        return []                                                                     # sin acceso al portal: nada que notificar
+    return [{"id": n["id"], "at": n["at"], "text": n["text"], "url": n["url"], "feature": n.get("feature", "")} for n in social.notifications(user)]
+
+
+def _inbox_legacy_seen(user: dict) -> str:
+    return social.prefs(user)["seen_at"]                                              # migración: lo ya visto en Cartelera queda leído
+
+
+hub_inbox.register_provider("cartelera", "Cartelera Virtual", _inbox_items, _inbox_legacy_seen)
 
 
 MOD = f"{BASE}/comunidad"                                                             # pestaña «Comunidad» de Gestión de cartelera
