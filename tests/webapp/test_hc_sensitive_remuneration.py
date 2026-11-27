@@ -238,8 +238,8 @@ def test_masking_never_mutates_the_persisted_record_nor_the_input_row():
 
 
 # ═══ superficie documentada: /admin/runtime/export.zip ══════════════════════════════════════════════════════════
-def test_the_runtime_export_does_not_include_capital_humano_data_and_is_owner_diagnostic_only(monkeypatch):
-    """`/admin/runtime/export.zip` empaqueta SOLO `feedback_log/`, `activity_log/` y `case_library/` (no `human-capital/`), y exige modo diagnóstico: únicamente el owner con la cookie `dw-diagnostic=on`.
+def test_the_runtime_export_does_not_include_capital_humano_data_and_is_owner_only(monkeypatch):
+    """`/admin/runtime/export.zip` empaqueta SOLO `feedback_log/`, `activity_log/` y `case_library/` (no `human-capital/`), y es exclusivo de APP_OWNER (sin modo adicional).
     Se verifica que, tras guardar un importe real, el ZIP no lo contiene; el exportador NO se modifica."""
     import io
     import zipfile
@@ -252,12 +252,9 @@ def test_the_runtime_export_does_not_include_capital_humano_data_and_is_owner_di
     with zipfile.ZipFile(io.BytesIO(blob)) as z:
         everything = b"".join(z.read(n) for n in z.namelist())
     assert SECRET.encode() not in everything and CHANGED.encode() not in everything
-    monkeypatch.setattr(access, "DIAGNOSTIC_MODE", False)
-    for email in (AUTH, PLAIN, OWNER):
-        assert _client(email).get("/admin/runtime/export.zip").status_code == 403                  # sin la cookie de diagnóstico nadie lo descarga, ni el owner
-    owner = _client(OWNER)
-    owner.cookies.set("dw-diagnostic", "on")
-    assert owner.get("/admin/runtime/export.zip").status_code == 200
+    for email in (AUTH, PLAIN):
+        assert _client(email).get("/admin/runtime/export.zip").status_code == 403                  # ni siquiera quien está autorizado en CCHH
+    assert _client(OWNER).get("/admin/runtime/export.zip").status_code == 200
     plain = _client(PLAIN)
     plain.cookies.set("dw-diagnostic", "on")
-    assert plain.get("/admin/runtime/export.zip").status_code == 403                                 # la cookie sola no alcanza para no-owners
+    assert plain.get("/admin/runtime/export.zip").status_code == 403                                 # la cookie del modo retirado no habilita nada

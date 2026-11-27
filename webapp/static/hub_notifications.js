@@ -1,6 +1,6 @@
 /* Hub · campana del header (Centro de Notificaciones): bandeja unificada `/notificaciones`, contador de no leídas COMPARTIDO con la campana
    del portal de Cartelera, abrir = marcar leída y navegar al contexto (`/notificaciones/abrir/<id>`), «Marcar todas como leídas».
-   Reutiliza el desplegable del topbar (`.workspace-switch` / `.workspace-switch-menu`) y el botón redondo `.theme-toggle`. Sin sondeo:
+   Reutiliza el desplegable del topbar (`.workspace-switch` / `.workspace-switch-menu`) y el botón `.theme-toggle`; apertura y cierre los gobierna `hub_topbar_menus.js`. Sin sondeo:
    se actualiza al cargar la página y al abrirla. */
 (function () {
   'use strict';

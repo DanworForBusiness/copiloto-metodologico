@@ -504,7 +504,7 @@
 .logout-btn { text-decoration: none; transition: color .15s ease, border-color .15s ease; }
 .logout-btn:hover { color: #ff8a8a; border-color: rgba(255,138,138,.45); }
 
-/* ── Selector de marco (solo en diagnóstico) + switch de modo diagnóstico. ── */
+/* ── Selector de marco (solo APP_OWNER y con más de un marco). ── */
 .pack-select {
   min-width: 132px; height: 34px; padding: 0 28px 0 10px;
   border: 1px solid var(--line); background: var(--card); color: var(--ink);
@@ -514,20 +514,6 @@
    alternativas reales todavía; se muestra deshabilitado en vez de fingir
    un desplegable con una sola opción. */
 .pack-select:disabled { opacity: .55; cursor: default; }
-.diag-toggle { display: inline-flex; align-items: center; height: 34px; cursor: pointer; }
-.diag-toggle input { position: absolute; width: 1px; height: 1px; opacity: 0; }
-.diag-track {
-  position: relative; width: 38px; height: 20px; border-radius: 999px;
-  background: rgba(226,232,245,.14); border: 1px solid var(--line);
-  transition: background .18s, border-color .18s;
-}
-.diag-track::after {
-  content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px;
-  border-radius: 50%; background: var(--soft); transition: transform .18s, background .18s;
-}
-.diag-toggle input:checked + .diag-track { background: rgba(231,176,8,.28); border-color: rgba(231,176,8,.5); }
-.diag-toggle input:checked + .diag-track::after { transform: translateX(18px); background: var(--gold); }
-.diag-toggle input:focus-visible + .diag-track { outline: 2px solid var(--gold); outline-offset: 2px; }
 
 /* Nota de la pestaña Analítica (en portación). */
 .analytics-note { margin-top: 12px; padding: 13px; border: 1px solid var(--line); border-left: 2px solid var(--gold); }

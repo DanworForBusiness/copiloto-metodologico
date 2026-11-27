@@ -39,7 +39,7 @@ def _seed(monkeypatch, tmp_path):
     )
 
 
-def _owner_client(monkeypatch, *, diagnostic=True, email="owner@danwor.com", owner=True):
+def _owner_client(monkeypatch, *, email="owner@danwor.com", owner=True):
     # APP_OWNER vía monkeypatch (no asignación de módulo) para no pisar el owner
     # de otros archivos de test durante la colección.
     monkeypatch.setattr(access, "APP_OWNER", "owner@danwor.com" if owner else "someone-else@danwor.com")
@@ -61,8 +61,6 @@ def _owner_client(monkeypatch, *, diagnostic=True, email="owner@danwor.com", own
     )
     c = TestClient(app)
     c.cookies.set(auth_service.COOKIE_NAME, session)
-    if diagnostic:
-        c.cookies.set("dw-diagnostic", "on")
     return c
 
 
@@ -219,8 +217,7 @@ def test_full_page_includes_sidebar_resize_handle(monkeypatch, tmp_path):
 
 def test_access_gate_unchanged(monkeypatch, tmp_path):
     _seed(monkeypatch, tmp_path)
-    # Sin modo diagnóstico YA NO importa -- Metrics no depende de eso.
-    assert _owner_client(monkeypatch, diagnostic=False).get("/admin/activity").status_code == 200
+    assert _owner_client(monkeypatch).get("/admin/activity").status_code == 200
     # NO owner (y sin HUB_METRICS_ALLOWED_USERS configurado) → 403, MISMO
     # resultado observable que el gate histórico.
     assert _owner_client(monkeypatch, owner=False).get("/admin/activity").status_code == 403

@@ -73,7 +73,7 @@ contextual y detalle en el panel central.
 
 ## Operativo (importante)
 - Server SIN `--reload` (`.claude/launch.json`, uvicorn `webapp.main:app` :8082). **Cambios `.py` → reiniciar server** (css/js/templates y `.md` de `catalog_local` recargan solos; `_catalog_entries` relee fresco). La acción admin de regeneración recarga `generate_catalog` antes de ejecutar, pero cambios en `admin_tools.py` o `webapp/main.py` siguen requiriendo reinicio. **Reiniciar el server desloguea la sesión del preview.**
-- Regenerar: Herramientas de gestión → modo diagnóstico ON → botón "Regenerar catálogo" (logueado, manda `dw-graph-token`). Lee SharePoint CSN o, sin token, `catalog_inbound/`. Token Graph de corta vida: **HTTP 401 = vencido → re-loguear**, regenerar enseguida.
+- Regenerar: Herramientas de gestión (solo APP_OWNER) → botón "Regenerar catálogo" (logueado, manda `dw-graph-token`). Lee SharePoint CSN o, sin token, `catalog_inbound/`. Token Graph de corta vida: **HTTP 401 = vencido → re-loguear**, regenerar enseguida.
 - `generate_all` usa manifest local incremental (`catalog_local/.catalog_manifest.json`): regenera solo flujos con fuentes cambiadas y fuerza full regen si cambia el hash del generador. NO limpia stale → limpiar `catalog_local` a mano si cambia la estructura o desaparecen flujos.
 - Tests: `.venv/Scripts/python.exe -m pytest -q` (139 verdes). Usar `PYTHONIOENCODING=utf-8` para prints con emoji (Windows).
 - Verificar en browser: module 04 → pestaña Catálogo → dominio "Stock / Inventario" → ficha de cliente → detalle (diagrama + toggle + secciones).
@@ -892,7 +892,7 @@ Próximo del epic B: **1.2 loop diagnóstico⇄automatización** (se apoya sobre
 - **Automatización** = `evaluate_compliance` (audita el resultado de los flujos publicados).
 - **Diagnóstico** = árbol `03_extraction_options` (criterio prescriptivo: hojas con `decision`/`next_steps`/`notes`) + `reports/lessons.yaml` (lecciones de campo cosechadas) + el override del senior en cada flujo.
 
-Forma (elegida por Joe): **reporte en Analítica** (encaja con `reports/`, NO toca el render de flujos). Nuevo script raíz `analyze_reconciliation.py` (espeja `analyze_cases.py`: `main()` + `write_report`), escribe `reports/reconciliation.yaml` + `reports/reconciliation_summary.txt`. Wiring: `admin_tools.run_reconciliation_analysis()` → ruta `POST /admin/reconciliation/analyze` → botón "⚖️ Reconciliación criterio" en `admin_panel.html` (colapsable, modo diagnóstico).
+Forma (elegida por Joe): **reporte en Analítica** (encaja con `reports/`, NO toca el render de flujos). Nuevo script raíz `analyze_reconciliation.py` (espeja `analyze_cases.py`: `main()` + `write_report`), escribe `reports/reconciliation.yaml` + `reports/reconciliation_summary.txt`. Wiring: `admin_tools.run_reconciliation_analysis()` → ruta `POST /admin/reconciliation/analyze` → botón "⚖️ Reconciliación criterio" en `admin_panel.html` (colapsable, solo APP_OWNER).
 
 Cierra el bucle en ambas direcciones (determinístico):
 - **auto → DESAFÍA al diagnóstico:** `senior_divergences` (flujos donde veredicto-auto ≠ override-senior) + `catalog_audit` (sourcing ABAP agregado: desacople rate, crudas, name-vs-reality por flujo) contrastado contra el criterio prescriptivo del árbol.

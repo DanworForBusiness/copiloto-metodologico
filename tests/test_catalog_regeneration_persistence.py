@@ -233,11 +233,9 @@ access.APP_OWNER = "test@danwor.com"
 auth_service.ALLOWED_USERS = "ALL"
 
 
-def _client(diagnostic: bool = False) -> TestClient:
+def _client() -> TestClient:
     c = TestClient(app)
     c.cookies.set(auth_service.COOKIE_NAME, auth_service.create_session({"email": "test@danwor.com", "name": "T", "first_name": "T", "family_name": "U"}))
-    if diagnostic:
-        c.cookies.set("dw-diagnostic", "on")
     return c
 
 
@@ -248,7 +246,7 @@ def test_the_self_service_button_route_reports_the_persistence_outcome(world):
 
 
 def test_the_admin_panel_route_persists_too(world):
-    response = _client(diagnostic=True).post("/admin/catalog/generate", data={"graph_token": ""})
+    response = _client().post("/admin/catalog/generate", data={"graph_token": ""})
     assert response.status_code == 200 and "[persistencia] Spaces:" in response.text and MANIFEST in world.objects
 
 

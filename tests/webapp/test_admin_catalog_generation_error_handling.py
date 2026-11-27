@@ -38,7 +38,6 @@ _SESSION = auth_service.create_session(
 )
 diag_client = TestClient(app)
 diag_client.cookies.set(auth_service.COOKIE_NAME, _SESSION)
-diag_client.cookies.set("dw-diagnostic", "on")
 
 # tests/conftest.py redirige config.BASE_DIR a un tmp vacío en TODO test
 # (autouse, para que nadie escriba sobre el repo real). run_catalog_generation

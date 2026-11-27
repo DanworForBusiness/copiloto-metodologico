@@ -2,7 +2,7 @@
 auth.py — Autenticación Microsoft (Entra ID) + sesión propia (API JSON).
 
 Router de la capacidad PLATFORM / SHARED "identity + session": los endpoints
-`/api/auth/*` y `/api/diagnostic`. Extraído de ``webapp/main.py`` (Fase 2B) como
+`/api/auth/*`. Extraído de ``webapp/main.py`` (Fase 2B) como
 RELOCACIÓN pura — sin rediseño de OAuth/PKCE/verificación de id_token/cookie de
 sesión/atributos de cookie. Responde JSON (no usa templates).
 
@@ -86,25 +86,6 @@ def auth_me(request: Request):
     if not user:
         raise HTTPException(401, "Sin sesión")
     return {"name": user.get("name"), "first_name": user.get("first_name"), "email": user.get("sub")}
-
-
-@router.post("/api/diagnostic", include_in_schema=False)
-def diagnostic_toggle(request: Request, on: str = Form("")):
-    """Persiste el modo diagnóstico en cookie, emitida por el SERVER.
-
-    Desde el JS del iframe enmascarado (danwor.com) una cookie SameSite=Lax no
-    viaja en requests cross-site y el modo se "apagaba solo" en producción; acá
-    se emite con los mismos atributos que la cookie de sesión (None+Secure en
-    prod). El gate real sigue siendo _diagnostic() (cookie + APP_OWNER)."""
-    if not auth_service.session_user(request):
-        raise HTTPException(401, "Sin sesión")
-    enabled = on == "on"
-    response = JSONResponse({"ok": True, "diagnostic": enabled})
-    response.set_cookie(
-        "dw-diagnostic", "on" if enabled else "off", max_age=31536000, path="/",
-        httponly=False, samesite=SESSION_COOKIE_SAMESITE, secure=SESSION_COOKIE_SECURE,
-    )
-    return response
 
 
 @router.post("/api/auth/logout", include_in_schema=False)

@@ -413,7 +413,7 @@ def _truthy(value: str) -> bool:
 
 
 # ── Autenticación Microsoft (Entra ID) ─────────────────────────────────────────
-# /api/auth/microsoft/config|token, /api/auth/me, /api/diagnostic y /api/auth/logout
+# /api/auth/microsoft/config|token, /api/auth/me y /api/auth/logout
 # se movieron a webapp/routers/auth.py (Fase 2B), incluido vía
 # app.include_router(auth_router.router) arriba. _MsTokenBody se co-localizó allí
 # (su único consumidor era el token endpoint).
@@ -474,7 +474,7 @@ def _truthy(value: str) -> bool:
 
 def _require_diagnostic(request: Request) -> None:
     if not access.is_diagnostic(request):
-        raise HTTPException(403, "Solo disponible en modo diagnóstico")
+        raise HTTPException(403, "Solo disponible para APP_OWNER")
 
 
 def _require_hub_metrics(request: Request) -> None:
@@ -485,7 +485,7 @@ def _require_hub_metrics(request: Request) -> None:
     fallback a APP_OWNER cuando `HUB_METRICS_ALLOWED_USERS` no está
     configurado (ver ese módulo) — nunca un segundo chequeo de owner acá.
     Deliberadamente SIN `_require_diagnostic`: esta vista ahora también se
-    sirve desde Operations (fuera del modo diagnóstico del Copiloto, un
+    sirve desde Operations (fuera de las herramientas de gestión del Copiloto, un
     concepto de OTRO vertical) — MISMO mensaje/código 403 que el resto del
     Hub usa para "no autorizado"."""
     if not hub_metrics_access.can_access_hub_metrics_request(request):
