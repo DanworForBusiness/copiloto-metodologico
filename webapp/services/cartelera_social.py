@@ -36,7 +36,7 @@ from markupsafe import Markup, escape
 
 from webapp import human_capital_access
 from webapp.services import auth_service
-from webapp.services import cartelera_repository as repo
+from webapp.services import cartelera_media as media, cartelera_repository as repo
 from webapp.services import cartelera_service as svc
 
 REACTIONS = (("like", "Me gusta", "like"), ("celebrate", "Celebrar", "party"), ("support", "Apoyo", "heart"), ("thanks", "Gracias", "hands"))
@@ -262,7 +262,13 @@ def save_post(user: dict, data: dict, post_id: str | None = None) -> dict:
     if cat["id"] == "personales" and not data.get("consent"):
         raise SocialError("Confirmá que las personas involucradas están de acuerdo con que se comparta esta novedad.")
     poll = _clean_poll(data.get("poll"))
-    fields = {"category": cat["id"], "title": title, "body": body, "mentions": mention_ids(body), "link": link or None,
+    current_post = get_post(post_id) if post_id else None
+    image = str(data.get("image") or "").strip()
+    if image:                                                                          # imagen o flyer: del servicio multimedia, de Comunidad
+        rec = media.meta(image)                                                        # y subida por la misma autoría (o la que ya tenía)
+        if not rec or rec.get("scope") != "comunidad" or (rec.get("owner") != uid(user) and (current_post or {}).get("image") != image):
+            raise SocialError("La imagen no es válida para esta publicación.")
+    fields = {"category": cat["id"], "title": title, "body": body, "mentions": mention_ids(body), "link": link or None, "image": image or None,
               "link_label": _text(data.get("link_label"), 120) if link else "", "poll": poll,
               "consent": True if cat["id"] == "personales" else None}
     if official_ok:                                                                    # opciones oficiales: solo Capital Humano
@@ -769,6 +775,6 @@ def post_json(p: dict) -> str:
     names = people()
     return json.dumps({"id": p["id"], "category": p.get("category"), "title": p.get("title", ""), "body": editable_text(p.get("body", ""), names),
                        "mentions": {names.get(m, m): m for m in p.get("mentions") or []}, "link": p.get("link") or "",
-                       "link_label": p.get("link_label") or "", "poll": p.get("poll"), "official": bool(p.get("official")),
+                       "link_label": p.get("link_label") or "", "poll": p.get("poll"), "official": bool(p.get("official")), "image": p.get("image") or "",
                        "pinned": bool(p.get("pinned")), "consent": bool(p.get("consent")),
                        "publish_at": svc.to_local_input(p.get("publish_at")) if p.get("publish_at") else ""}, ensure_ascii=False)

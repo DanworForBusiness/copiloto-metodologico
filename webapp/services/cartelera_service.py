@@ -21,7 +21,7 @@ import re
 import uuid
 from datetime import date, datetime, timezone
 
-from webapp.services import cartelera_repository as repo
+from webapp.services import cartelera_media as media, cartelera_repository as repo
 from webapp.services.busqueda_repository import BUSINESS_TZ
 
 MONTHS = ("Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre")
@@ -40,7 +40,7 @@ SECTIONS = (
 SECTION_BY_KEY = {s["key"]: s for s in SECTIONS}
 
 STATE_LABELS = {"draft": "Borrador", "scheduled": "Programada", "published": "Publicada", "withdrawn": "Retirada"}
-GENERAL_FIELDS = ("title", "body", "link", "link_label")
+GENERAL_FIELDS = ("title", "body", "link", "link_label", "image")          # image = id del servicio multimedia (opcional)
 # Distribución horizontal: un contenido general puede llevar `"beside": True` = «a la derecha del anterior». Es preferencia de composición:
 # solo aplica en secciones SIN ancho completo (ahí la sección pasa a ocupar la fila y sus contenidos van en dos columnas); con ancho completo
 # se ignora pero se conserva. Efectiva solo si hay un anterior que no esté ya a la derecha (`beside_layout`).
@@ -319,7 +319,8 @@ def copy_edition(source_month: str, month: str, actor: str) -> dict:
     fields = {"month": month, "title": source.get("title", ""), "subtitle": source.get("subtitle", ""), "state": "draft",
               "publish_at": None, "published_at": None, "sections": sections, "copied_from": source_month,
               "home": dict(source.get("home") or {}),
-              "about": json.loads(json.dumps(source.get("about") or {})),          # solo personalizaciones: lo demás sigue heredándose
+              "about": json.loads(json.dumps(source.get("about") or {})),
+              "cover_image": source.get("cover_image") or "",                       # misma imagen (referencia compartida, no se duplica)          # solo personalizaciones: lo demás sigue heredándose
               "history": _history(None, actor, f"Creó la edición como copia de {month_label(source_month)}")}
     return repo.save("editions", month, fields, expected_revision=None)
 
@@ -344,7 +345,8 @@ def _items_from_form(kind: str, rows: list[dict]) -> list[dict]:
                 raise CarteleraValidationError("Cada proyecto del mes tiene que elegirse desde Operaciones.")
         else:
             item = {"title": _text(row.get("title"), limit=200), "body": _text(row.get("body")),
-                    "link": _url(row.get("link")), "link_label": _text(row.get("link_label"), limit=120)}
+                    "link": _url(row.get("link")), "link_label": _text(row.get("link_label"), limit=120),
+                    "image": media_ref(row.get("image"))}
             if not (item["title"] or item["body"]):
                 continue                                                  # fila vacía: se descarta, no es un error
             if row.get("beside") is True:                                 # «a la derecha del anterior» (solo se guarda si está activo)
@@ -355,17 +357,17 @@ def _items_from_form(kind: str, rows: list[dict]) -> list[dict]:
 
 
 def save_content(month: str, revision: int, *, title: str, subtitle: str, sections: list[dict], actor: str, home: dict | None = None,
-                 about: dict | None = None) -> dict:
+                 about: dict | None = None, cover: str | None = None) -> dict:
     """Guarda portada, textos de Inicio (`home`, si vienen) y secciones (orden, ancho e ítems). No cambia el estado de publicación."""
     edition = get_edition(month)
     if edition is None:
         raise repo.CarteleraNotFoundError(month)
-    fields = {**_clean_content(title, subtitle, sections, home, edition, about), "history": _history(edition, actor, EDIT_ACTION)}
+    fields = {**_clean_content(title, subtitle, sections, home, edition, about, cover), "history": _history(edition, actor, EDIT_ACTION)}
     return repo.save("editions", month, fields, expected_revision=revision)
 
 
 def _clean_content(title: str, subtitle: str, sections: list[dict], home: dict | None = None, edition: dict | None = None,
-                   about: dict | None = None) -> dict:
+                   about: dict | None = None, cover: str | None = None) -> dict:
     clean = []
     for sec in sections:
         meta = SECTION_BY_KEY.get(sec.get("key"))
@@ -378,11 +380,13 @@ def _clean_content(title: str, subtitle: str, sections: list[dict], home: dict |
         out["home"] = {**((edition or {}).get("home") or {}), **_clean_home(home)}
     if about is not None:                                                   # el lienzo envía TODAS las personalizaciones vigentes de Nosotros
         out["about"] = _clean_about(about)
+    if cover is not None:                                                   # imagen de portada (servicio multimedia); "" = sin portada
+        out["cover_image"] = media_ref(cover)
     return out
 
 
 def draft_edition(month: str, *, title: str, subtitle: str, sections: list[dict], home: dict | None = None,
-                  about: dict | None = None) -> dict:
+                  about: dict | None = None, cover: str | None = None) -> dict:
     """Edición con el borrador del lienzo SIN validar (para volver a dibujarlo en modo edición, p. ej. al recuperar cambios locales): los
     textos se recortan y se escapan al renderizar; los enlaces inválidos se conservan para que el editor los marque. Nunca se persiste."""
     edition = get_edition(month)
@@ -405,17 +409,19 @@ def draft_edition(month: str, *, title: str, subtitle: str, sections: list[dict]
         draft["home"] = {**(edition.get("home") or {}), **_clean_home(home, lambda v: clip(v, HOME_LIMIT))}
     if about is not None:
         draft["about"] = _clean_about(about, lambda v, n: clip(v, n))
+    if cover is not None:
+        draft["cover_image"] = media_ref(cover)
     return draft
 
 
 def preview_edition(month: str, *, title: str, subtitle: str, sections: list[dict], home: dict | None = None,
-                    about: dict | None = None) -> dict:
+                    about: dict | None = None, cover: str | None = None) -> dict:
     """Edición tal como quedaría con el contenido EN PANTALLA del editor (sin guardar): MISMA validación que `save_content`, nada se persiste.
     Conserva estado y fechas de la guardada: la vista previa nunca cambia qué ven los colaboradores."""
     edition = get_edition(month)
     if edition is None:
         raise repo.CarteleraNotFoundError(month)
-    return {**edition, **_clean_content(title, subtitle, sections, home, edition, about)}
+    return {**edition, **_clean_content(title, subtitle, sections, home, edition, about, cover)}
 
 
 def publish_now(month: str, revision: int, actor: str) -> dict:
@@ -1017,6 +1023,25 @@ def institutional() -> dict:
     return {**DEFAULT_INSTITUTIONAL, **(repo.get("settings", "institutional") or {})}
 
 
+def media_ref(value) -> str:
+    """Referencia a una imagen del servicio multimedia: solo ids que existen (nunca rutas ni URLs)."""
+    value = str(value or "").strip()
+    return value if media.valid_id(value) and media.meta(value) else ""
+
+
+MAX_ALBUM_PHOTOS = 60
+
+
+def _clean_photos(photos) -> list[dict]:
+    out, seen = [], set()
+    for ph in photos or []:
+        mid = media_ref((ph or {}).get("id") if isinstance(ph, dict) else ph)
+        if mid and mid not in seen:
+            seen.add(mid)
+            out.append({"id": mid, "caption": _text((ph or {}).get("caption") if isinstance(ph, dict) else "", limit=200)})
+    return out[:MAX_ALBUM_PHOTOS]
+
+
 def save_institutional(revision: int | None, *, mission: str, vision: str, values: list[dict], albums: list[dict], actor: str,
                        intro: str | None = None, values_intro: str | None = None, links: list[dict] | None = None,
                        org: list[dict] | None = None) -> dict:
@@ -1027,8 +1052,11 @@ def save_institutional(revision: int | None, *, mission: str, vision: str, value
         title = _text(a.get("title"), limit=120)
         if not title:
             continue
+        photos = _clean_photos(a.get("photos"))
+        cover = str(a.get("cover") or "")
         clean_albums.append({"id": str(a.get("id") or uuid.uuid4().hex[:12])[:24], "title": title,
-                             "date": _text(a.get("date"), limit=10), "description": _text(a.get("description"), limit=600)})
+                             "date": _text(a.get("date"), limit=10), "description": _text(a.get("description"), limit=600),
+                             "photos": photos, "cover": cover if any(p["id"] == cover for p in photos) else (photos[0]["id"] if photos else "")})
     current = repo.get("settings", "institutional")
     fields = {"mission": _text(mission, limit=1500), "vision": _text(vision, limit=1500), "values": clean_values, "albums": clean_albums,
               "updated_by": actor}

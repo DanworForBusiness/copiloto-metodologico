@@ -111,7 +111,7 @@
   function openComposer(post) {
     const tpl = $("#ct-composer-tpl"); if (!tpl) { location.href = "/cartelera/comunidad?publicar=1"; return; }
     const m = modal(tpl.innerHTML);
-    composer = { post, poll: post && post.poll ? JSON.parse(JSON.stringify(post.poll)) : null };
+    composer = { post, poll: post && post.poll ? JSON.parse(JSON.stringify(post.poll)) : null, image: (post && post.image) || "", uploading: false };
     const body = $("#cp-body", m);
     if (post) {
       $("[data-cp-title]", m).textContent = "Editar publicación"; $('[data-sx="publish"]', m).textContent = "Guardar cambios";
@@ -123,12 +123,44 @@
     const consent = () => { $("#cp-consent", m).style.display = $("#cp-cat", m).value === "personales" ? "" : "none"; };
     $("#cp-cat", m).addEventListener("change", consent); consent();
     pollBox(composer.poll);
+    imageBox(composer.image ? "/cartelera/media/" + composer.image + "/display" : "");
+  }
+  // Imagen o flyer: el SERVIDOR valida y procesa (Pillow); acá solo se previsualiza. Contenido nativo del Hub: se guarda en el almacenamiento
+  // privado del Hub, sin SharePoint ni permisos especiales del colaborador. La publicación solo guarda el id que devolvió el servidor.
+  function imageBox(src) {
+    const m = $("#layer .modal"); if (!m) return;
+    const fig = $("[data-cp-img]", m), add = $("[data-cp-imgadd]", m);
+    if (!fig) return;
+    $("img", fig).src = src || ""; fig.hidden = !src; add.hidden = !!src;
+  }
+  function pickImage() {
+    const m = $("#layer .modal"), err = $("[data-cp-error]", m), pub = $('[data-sx="publish"]', m);
+    const input = document.createElement("input"); input.type = "file"; input.accept = "image/jpeg,image/png,image/webp";
+    input.addEventListener("change", async () => {
+      const file = input.files && input.files[0]; if (!file) return;
+      const prev = composer.image, local = URL.createObjectURL(file);
+      imageBox(local); $("[data-cp-img]", m).classList.add("is-uploading"); composer.uploading = true; pub.disabled = true; err.textContent = "Subiendo imagen…";
+      try {
+        const fd = new FormData(); fd.append("file", file);
+        const r = await fetch("/cartelera/social/media", { method: "POST", body: fd, credentials: "same-origin" });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(j.error || "No se pudo subir la imagen.");
+        composer.image = j.id; imageBox(j.display); err.textContent = "";
+      } catch (e) {
+        composer.image = prev; imageBox(prev ? "/cartelera/media/" + prev + "/display" : ""); err.textContent = e.message;   // nada confirmado
+      } finally {
+        URL.revokeObjectURL(local); composer.uploading = false; pub.disabled = false;
+        const fig = $("[data-cp-img]", m); if (fig) fig.classList.remove("is-uploading");
+      }
+    });
+    input.click();
   }
   async function publish(btn) {
     syncPoll();
     const m = $("#layer .modal"), err = $("[data-cp-error]", m);
     const data = { category: $("#cp-cat", m).value, title: $("#cp-title", m).value.trim(), body: toStored($("#cp-body", m)), link: $("#cp-link", m).value.trim(),
-                   poll: composer.poll, consent: $("#cp-consentchk", m) && $("#cp-consentchk", m).checked };
+                   poll: composer.poll, consent: $("#cp-consentchk", m) && $("#cp-consentchk", m).checked, image: composer.image || "" };
+    if (composer.uploading) { err.textContent = "Esperá a que termine de subirse la imagen."; return; }
     if ($("#cp-official", m)) Object.assign(data, { official: $("#cp-official", m).checked, publish_at: $("#cp-when", m).value });
     btn.disabled = true; err.textContent = "";
     try {
@@ -264,6 +296,8 @@
       else if (a === "addopt") { syncPoll(); composer.poll.options.push(""); pollBox(composer.poll); }
       else if (a === "rmopt") { syncPoll(); composer.poll.options.splice(Number(el.dataset.i), 1); pollBox(composer.poll); }
       else if (a === "publish") await publish(el);
+      else if (a === "cpimg") pickImage();
+      else if (a === "cpimgdel") { composer.image = ""; imageBox(""); }
       else if (a === "delpost") { if (await confirmBox("¿Eliminar esta publicación? Se eliminan también sus comentarios y reacciones. No se puede deshacer.", "Eliminar")) { await api(`/cartelera/comunidad/publicaciones/${el.dataset.id}/eliminar`, {}); sessionStorage.setItem("ct-toast", "Publicación eliminada."); location.reload(); } }
       else if (a === "notif") await openNotif();
       else if (a === "savenotif") { await api("/cartelera/social/notificaciones", { notif: { mentions: $("#np-mentions").checked, replies: $("#np-replies").checked, official: $("#np-official").checked } }); closeModal(); toast("Preferencias guardadas."); }

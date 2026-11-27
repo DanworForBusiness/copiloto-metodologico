@@ -17,7 +17,7 @@
 
 /* Herramientas (nunca editables ni parte del contenido) */
 .ct-ed { user-select: none; }
-.ct-banner-tools { align-self: end; padding: 16px; }
+.ct-banner-tools { position: absolute; right: 0; bottom: 0; display: flex; gap: 6px; padding: 16px; }  /* sobre el banner: no ocupa celda de la grilla (la portada usa la columna de imagen) */
 .ct-banner-tools .btn { opacity: .85; }
 .cart-banner { position: relative; }
 .cat-head .grip { cursor: grab; }
@@ -104,3 +104,13 @@ button.ct-kind:hover { filter: brightness(.95); outline: 1px dashed var(--gold);
 /* Editor: misma igualación de alturas que el portal, sobre el contenedor de contenidos del lienzo. */
 .cat-sec:not(.wide):not(.duo) > .ct-items:not(:empty) { flex: 1 1 auto; display: flex; flex-direction: column; }
 .cat-sec:not(.wide):not(.duo) > .ct-items > .item:last-of-type { flex: 1 1 auto; }
+
+/* Imagen de un contenido en el lienzo: «Cambiar» / «Quitar» sobre la imagen; atenuada mientras sube. */
+.ct-img { position: relative; }
+.ct-img[hidden] { display: none; }
+.ct-img.is-uploading img { opacity: .45; }
+.ct-img-tools { position: absolute; top: 8px; right: 8px; display: flex; gap: 6px; opacity: 0; transition: opacity .15s; }
+.item[data-ct-item]:hover .ct-img-tools, .ct-img:focus-within .ct-img-tools { opacity: 1; }
+.ct-img-tools .btn { background: var(--surface); }
+.cart-banner img.is-uploading { opacity: .45; }
+.ct-banner-tools [hidden] { display: none; }

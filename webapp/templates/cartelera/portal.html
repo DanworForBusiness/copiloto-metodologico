@@ -62,6 +62,7 @@
 <main class="wrap" id="content">
 {% macro item_html(it, pos='') -%}
   <article class="item{{ ' pos-' ~ pos if pos else '' }}"{% if it.id %} id="it-{{ it.id }}"{% endif %}>
+    {% if it.image %}<figure class="item-fig"><img class="item-img" src="/cartelera/media/{{ it.image }}/display" alt="{{ it.title or '' }}" loading="lazy"></figure>{% endif %}
     {% if it.title %}<h3>{{ it.title }}</h3>{% endif %}
     {% if it.body %}<p>{{ it.body }}</p>{% endif %}
     {% if it.link %}<a class="linkcard" href="{{ it.link }}" target="_blank" rel="noopener">{{ ic('out') }}<span>{{ it.link_label or it.link }}</span></a>{% endif %}
@@ -104,7 +105,7 @@
     {% if kind == 'general' %}{{ ed_btn('beside', 'right', 'Ubicar a la derecha del anterior') }}{{ ed_btn('unbeside', 'left', 'Volver a la izquierda', 'hidden') }}{% endif %}
     {% if not layout_mode %}{{ ed_btn('link', 'link', 'Enlace') }}
     {% if kind == 'projects' %}{{ ed_btn('swap', 'swap', 'Cambiar el proyecto de Operaciones') }}{% endif %}
-    {{ ed_btn('', 'image', 'Imagen: disponible con la integración documental de SharePoint', 'disabled') }}
+    {% if kind == 'general' %}{{ ed_btn('image', 'image', 'Imagen') }}{% else %}{{ ed_btn('', 'image', 'Imagen: disponible para contenidos generales', 'disabled') }}{% endif %}
     {{ ed_btn('del', 'trash', 'Quitar') }}{% endif %}
   </div>
   <span class="tag off ct-ed ct-feat" contenteditable="false" hidden>{{ ic('star') }}Destacado en Inicio</span>
@@ -118,8 +119,11 @@
 {% endif %}{%- endmacro %}
 {% macro general_item(it, pos='') -%}
   {% if edit_mode %}
-  <article class="item{{ ' pos-' ~ pos if pos else '' }}" data-ct-item data-id="{{ it.id }}" data-link="{{ it.link or '' }}"{% if it.beside %} data-beside="1"{% endif %}>
+  <article class="item{{ ' pos-' ~ pos if pos else '' }}" data-ct-item data-id="{{ it.id }}" data-link="{{ it.link or '' }}"{% if it.beside %} data-beside="1"{% endif %}{% if it.image %} data-image="{{ it.image }}"{% endif %}>
     {{ item_tools('general') }}
+    {#- Imagen del contenido: misma presentación que el portal; «Cambiar» / «Quitar» son herramientas del lienzo (no se guardan como HTML). -#}
+    <figure class="item-fig ct-img" data-ct-img{% if not it.image %} hidden{% endif %}><img class="item-img" src="{{ '/cartelera/media/' ~ it.image ~ '/display' if it.image else '' }}" alt="">
+      {% if not layout_mode %}<span class="ct-ed ct-img-tools" contenteditable="false"><button type="button" class="btn sm" data-ct-act="image">{{ ic('image') }}Cambiar</button><button type="button" class="btn sm" data-ct-act="unimage">{{ ic('trash') }}Quitar</button></span>{% endif %}</figure>
     {{ ed_text('title', it.title, 'h3', 'Título') }}
     {{ ed_text('body', it.body, 'p', 'Texto del contenido', True) }}
     <a class="linkcard" data-ct-linkcard{% if not it.link %} hidden{% endif %}>{{ ic('out') }}{{ ed_text('link_label', it.link_label, 'span', it.link or 'Ver más') }}</a>
@@ -226,10 +230,13 @@
       </div>{% endif %}
     </div>
     {% if E and layout_mode %}<div class="arr-bar ct-ed" contenteditable="false">{{ ic('move') }}<span><b>Modo ordenar.</b> Arrastrá las secciones para cambiarlas de lugar y los contenidos para darles más o menos prioridad (también entre secciones). Con <b>Poner al costado</b> o <b>Ancho completo</b> decidís si una sección comparte fila con otra. Guardá o cancelá desde la barra superior.</span></div>{% endif %}
-    <section class="cart-banner"><div class="txt"><span class="eyebrow">{{ svc.month_label(edition.id) }}{{ ' · borrador' if preview and not E and not svc.is_visible(edition) else '' }}</span>
+    {#- Portada de la edición: MISMO servicio multimedia que los contenidos (carga, validación, persistencia y ruta autorizada); ocupa la
+        columna de imagen que el diseño original ya tenía en `.cart-banner`. -#}
+    <section class="cart-banner"{% if E %} data-ct-cover="{{ edition.cover_image or '' }}"{% endif %}><div class="txt"><span class="eyebrow">{{ svc.month_label(edition.id) }}{{ ' · borrador' if preview and not E and not svc.is_visible(edition) else '' }}</span>
       {% if E %}{{ ed_text('title', edition.title, 'h1', 'Título de portada') }}{{ ed_text('subtitle', edition.subtitle, 'p', 'Bajada (opcional)') }}
       {% else %}<h1>{{ edition.title or ('Novedades de ' ~ svc.month_label(edition.id)) }}</h1>{% if edition.subtitle %}<p>{{ edition.subtitle }}</p>{% endif %}{% endif %}</div>
-      {% if E and not layout_mode %}<div class="ct-ed ct-banner-tools" contenteditable="false"><button type="button" class="btn sm" disabled title="Disponible con la integración documental de SharePoint">{{ ic('image') }}Imagen de portada · pendiente</button></div>{% endif %}
+      {% if edition.cover_image or E %}<img class="cart-cover" data-ct-cover-img src="{{ '/cartelera/media/' ~ edition.cover_image ~ '/display' if edition.cover_image else '' }}" alt=""{% if not edition.cover_image %} hidden{% endif %}>{% endif %}
+      {% if E and not layout_mode %}<div class="ct-ed ct-banner-tools" contenteditable="false"><button type="button" class="btn sm" data-ct-act="cover">{{ ic('image') }}<span data-ct-cover-label>{{ 'Cambiar portada' if edition.cover_image else 'Imagen de portada' }}</span></button><button type="button" class="btn sm" data-ct-act="uncover"{% if not edition.cover_image %} hidden{% endif %}>{{ ic('trash') }}Quitar</button></div>{% endif %}
     </section>
     <nav class="cart-nav" aria-label="Secciones de Novedades"{% if E %} data-ct-nav{% endif %}>
       {% for sec in edition.sections %}{% set meta = svc.SECTION_BY_KEY[sec.key] %}{% if E or sec['items'] or meta.kind == 'birthdays' or (meta.kind == 'links' and links) %}<a class="chip" href="#sec-{{ sec.key }}" title="{{ meta.title }}"{% if E %} data-ct-chip="{{ sec.key }}"{% endif %}>{{ ic(SECTION_ICON.get(sec.key, 'star')) }}<span class="chip-t">{{ meta.title }}</span></a>{% endif %}{% endfor %}
@@ -344,6 +351,7 @@
     </div>
     {% if p.title %}<h3 style="font-size:17px">{{ p.title }}</h3>{% endif %}
     {% if p.body %}<div class="post-body">{{ social_render(p.body, social_names) }}</div>{% endif %}
+    {% if p.image and st != 'removed' %}<figure class="post-fig"><img src="/cartelera/media/{{ p.image }}/display" alt="{{ p.title or 'Imagen de la publicación' }}" loading="lazy"></figure>{% endif %}
     {% if p.link %}<a class="linkcard" href="{{ p.link }}" target="_blank" rel="noopener">{{ ic('link') }}<span>{{ p.link_label or p.link }}</span></a>{% endif %}
     {% set poll = social_poll(p) %}
     {% if poll %}
@@ -384,7 +392,9 @@
   <label class="f">Título<input type="text" id="cp-title" maxlength="140" placeholder="Ej.: ¡Felicitaciones al equipo de BI!"></label>
   <label class="f">Mensaje <span class="h">Escribí @ para mencionar a alguien de Danwor.</span><textarea id="cp-body" data-mention rows="5"></textarea></label>
   <div class="grid2">
-    <label class="f">Imagen o flyer <span class="h">Disponible cuando se habilite la integración documental con SharePoint.</span><input type="text" disabled placeholder="Pendiente de integración"></label>
+    <div class="f">Imagen o flyer <span class="h">JPG, PNG o WebP · hasta 10 MB. Se muestra con su proporción original.</span>
+      <figure class="cp-img" data-cp-img hidden><img alt=""><span class="row" style="gap:6px"><button type="button" class="btn sm" data-sx="cpimg">{{ ic('image') }}Cambiar</button><button type="button" class="btn sm" data-sx="cpimgdel">{{ ic('trash') }}Quitar</button></span></figure>
+      <button type="button" class="btn sm" data-sx="cpimg" data-cp-imgadd>{{ ic('image') }}<span>Agregar imagen o flyer</span></button></div>
     <label class="f">Enlace (opcional) <span class="h">Video, documento de SharePoint, artículo…</span><input type="url" id="cp-link" placeholder="https://…"></label>
   </div>
   <div id="cp-pollbox"></div>
@@ -439,7 +449,12 @@
   {% set photo_albums = (inst.albums or []) | selectattr('photos') | list %}
   <section class="stack" style="gap:12px">
     <div class="row" style="justify-content:space-between;margin-top:8px"><div><span class="eyebrow">Galería</span><h2 style="margin:4px 0 0">Nuestros momentos</h2></div></div>
-    {% if photo_albums %}<div class="gal-grid">{% for a in photo_albums %}<div class="gal-album"><span class="gal-cap"><b>{{ a.title or 'Álbum' }}</b><span>{{ a.date }}</span></span></div>{% endfor %}</div>
+    {#- Galería: MISMA experiencia que la app original (portada → miniaturas → visor con anterior/siguiente), sobre `.gal-*` y `.modal`.
+        Las imágenes pasan SIEMPRE por la ruta autorizada del Hub (`/cartelera/media/<id>/…`), nunca por URLs de almacenamiento. -#}
+    {% if photo_albums %}<div class="gal-grid">{% for a in photo_albums %}{% set cover = a.cover or a.photos[0].id %}<button type="button" class="gal-album" data-gal="{{ loop.index0 }}" aria-label="Ver el álbum {{ a.title }}"><img src="/cartelera/media/{{ cover }}/display" alt="" loading="lazy"><span class="gal-cap"><b>{{ a.title or 'Álbum' }}</b><span>{{ (a.date[8:10] ~ '/' ~ a.date[5:7] ~ '/' ~ a.date[:4]) if a.date else '' }}{{ ' · ' if a.date else '' }}{{ a.photos | length }} foto{{ '' if a.photos | length == 1 else 's' }}</span></span></button>{% endfor %}</div>
+      <script type="application/json" id="ct-gallery">{{ photo_albums | map(attribute='title') | list | tojson }}</script>
+      <script type="application/json" id="ct-gallery-photos">{{ photo_albums | map(attribute='photos') | list | tojson }}</script>
+      <script defer src="{{ url_for('static', path='cartelera_gallery.js') }}?v={{ static_version }}"></script>
     {% else %}<div class="card pad"><div class="empty">Todavía no hay álbumes.</div></div>{% endif %}
   </section>
 </div>

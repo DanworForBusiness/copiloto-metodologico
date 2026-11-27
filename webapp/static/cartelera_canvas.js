@@ -29,6 +29,7 @@
                thanks: field(item, "thanks"), link };
     }
     return { id: item.dataset.id, title: field(item, "title"), body: field(item, "body"), link, link_label: link ? field(item, "link_label") : "",
+             image: item.dataset.image || "",
              ...(besideFlags(item.closest("[data-ct-items]")).get(item) ? { beside: true } : {}) };
   }
   function sections() { return $$("[data-ct-sec]", canvas); }
@@ -58,6 +59,7 @@
     });
     return {
       title: text($('.cart-banner [data-ct-f="title"]')), subtitle: text($('.cart-banner [data-ct-f="subtitle"]')),
+      ...($(".cart-banner[data-ct-cover]") ? { cover: $(".cart-banner[data-ct-cover]").dataset.ctCover || "" } : {}),
       ...(homeEls.length ? { home } : {}),
       ...(aboutEls.length ? { about } : {}),
       sections: sections().map(sec => ({ key: sec.dataset.ctSec, wide: sec.dataset.ctKind === "general" && sec.classList.contains("wide"),
@@ -258,6 +260,50 @@
 
   async function act(btn) {
     const a = btn.dataset.ctAct, item = btn.closest("[data-ct-item]"), sec = btn.closest("[data-ct-sec]"), H = host();
+    if (a === "image") {                                                            // imagen del contenido: elegir → previsualizar → subir
+      const fig = $("[data-ct-img]", item), img = fig && $("img", fig), H2 = host();
+      if (!fig || !H2 || !H2.uploadImage) return;
+      const input = document.createElement("input");
+      input.type = "file"; input.accept = "image/jpeg,image/png,image/webp";
+      input.addEventListener("change", async () => {
+        const file = input.files && input.files[0]; if (!file) return;
+        const prev = { src: img.getAttribute("src"), hidden: fig.hidden }, local = URL.createObjectURL(file);
+        img.src = local; fig.hidden = false; fig.classList.add("is-uploading");
+        const res = await H2.uploadImage(file);
+        fig.classList.remove("is-uploading"); URL.revokeObjectURL(local);
+        if (!res || !res.id) { img.setAttribute("src", prev.src || ""); fig.hidden = prev.hidden; return; }      // nada confirmado
+        item.dataset.image = res.id; img.src = res.display; changed();
+      });
+      input.click(); return;
+    }
+    if (a === "cover" || a === "uncover") {                                        // portada de la edición: mismo servicio que los contenidos
+      const banner = $(".cart-banner[data-ct-cover]"), img = banner && $("[data-ct-cover-img]", banner), H3 = host();
+      if (!banner || !img) return;
+      const paint = id => {
+        banner.dataset.ctCover = id || ""; img.hidden = !id; if (id) img.src = "/cartelera/media/" + id + "/display"; else img.removeAttribute("src");
+        const lbl = $("[data-ct-cover-label]", banner), del = $('[data-ct-act="uncover"]', banner);
+        if (lbl) lbl.textContent = id ? "Cambiar portada" : "Imagen de portada"; if (del) del.hidden = !id;
+      };
+      if (a === "uncover") { paint(""); changed(); return; }
+      if (!H3 || !H3.uploadImage) return;
+      const input = document.createElement("input");
+      input.type = "file"; input.accept = "image/jpeg,image/png,image/webp";
+      input.addEventListener("change", async () => {
+        const file = input.files && input.files[0]; if (!file) return;
+        const prev = banner.dataset.ctCover || "", local = URL.createObjectURL(file);
+        img.src = local; img.hidden = false; img.classList.add("is-uploading");
+        const res = await H3.uploadImage(file);
+        img.classList.remove("is-uploading"); URL.revokeObjectURL(local);
+        if (!res || !res.id) { paint(prev); return; }                                 // nada confirmado
+        paint(res.id); changed();
+      });
+      input.click(); return;
+    }
+    if (a === "unimage") {
+      const fig = $("[data-ct-img]", item);
+      delete item.dataset.image; if (fig) { fig.hidden = true; $("img", fig).setAttribute("src", ""); }
+      changed(); return;
+    }
     if (a === "about-reset") {                                                      // Nosotros: vuelve al institucional (deja de personalizarse)
       const wrap = btn.closest("[data-ct-about-wrap]"), el = wrap && $("[data-ct-about]", wrap);
       if (el) { el.textContent = instText(el); aboutMark(el); changed(); }

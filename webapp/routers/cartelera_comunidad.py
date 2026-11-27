@@ -14,8 +14,8 @@ from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from webapp import same_origin_guard
-from webapp.routers.cartelera import BASE, _NO_STORE, _back, _reader, _render_portal, _shell, portal_audience_ok
-from webapp.services import auth_service, cartelera_repository as repo, cartelera_service as svc, cartelera_social as social
+from webapp.routers.cartelera import BASE, _NO_STORE, _back, _reader, _render_portal, _shell, portal_audience_ok, read_upload
+from webapp.services import auth_service, cartelera_media as media, cartelera_repository as repo, cartelera_service as svc, cartelera_social as social
 from webapp.templating import templates
 
 router = APIRouter()
@@ -41,6 +41,19 @@ async def _json(request: Request) -> dict:
     if not isinstance(data, dict):
         raise HTTPException(400, "Datos inválidos")
     return data
+
+
+@router.post("/cartelera/social/media", include_in_schema=False)
+async def social_media_upload(request: Request):
+    """Imagen o flyer de una publicación (cualquier colaborador admitido). Contenido nativo del Hub: el original queda en el almacenamiento
+    privado del Hub (Spaces), gobernado por la publicación; no se escribe en SharePoint ni se pide acceso a carpetas de Capital Humano."""
+    user = _participant(request)
+    try:
+        data, filename, _form = await read_upload(request)
+        record = media.ingest(data, scope="comunidad", actor=social.uname(user), owner=social.uid(user), filename=filename)
+    except media.MediaError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=422, headers=_NO_STORE)
+    return JSONResponse(media.public_view(record), headers=_NO_STORE)
 
 
 MOD = f"{BASE}/comunidad"                                                             # pestaña «Comunidad» de Gestión de cartelera
