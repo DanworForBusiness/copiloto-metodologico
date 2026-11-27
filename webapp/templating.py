@@ -142,7 +142,7 @@ templates.env.globals["lob_choices"] = _lob_choices
 
 def _connectivity_registry_can_read(request) -> bool:
     """«Tenants y ambientes» del Catálogo de conectividad (módulo 01, F2.2c.1): visibilidad de la opción (ver `connectivity_registry_view.published`:
-    despublicada para consultores, solo APP_OWNER)."""
+    retirada de la experiencia del Hub para todos, APP_OWNER incluido)."""
     from webapp.services import connectivity_registry_view as _crv
     return request is not None and _crv.published(request)
 

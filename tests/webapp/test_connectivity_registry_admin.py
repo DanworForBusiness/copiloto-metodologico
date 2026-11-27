@@ -76,6 +76,14 @@ def owner():
     return _client("owner@danwor.com")
 
 
+@pytest.fixture()
+def republished(monkeypatch):
+    """La vista está RETIRADA de la experiencia del Hub (``crv.PUBLISHED = False``); estas pruebas la reactivan para demostrar que la
+    implementación conservada sigue funcionando si se retoma."""
+    from webapp.services import connectivity_registry_view as crv
+    monkeypatch.setattr(crv, "PUBLISHED", True)
+
+
 _n = iter(range(10_000))
 
 
@@ -104,38 +112,52 @@ def test_write_requires_session_same_origin_and_owner(bucket, owner):
     assert _post(owner, "drop-everything").status_code == 404
 
 
-def test_read_policy_unpublished_for_consultants_owner_only(bucket, owner):
-    # «Tenants y ambientes» quedó DESPUBLICADA para consultores (sin datos ni consumidores): solo APP_OWNER la ve; se conserva para retomarla.
-    assert _client("consultor@danwor.com").get(VIEW, headers={"HX-Request": "true"}).status_code == 403
-    assert _client("lector@danwor.com").get(VIEW, headers={"HX-Request": "true"}).status_code == 403
-    assert owner.get(VIEW, headers={"HX-Request": "true"}).status_code == 200
+def test_view_is_retired_for_everyone_including_the_owner(bucket, owner):
+    # «Tenants y ambientes» RETIRADA de la experiencia del Hub: no se publica para nadie (tampoco APP_OWNER); se conserva para retomarla.
+    for c in (owner, _client("consultor@danwor.com"), _client("lector@danwor.com")):
+        assert c.get(VIEW, headers={"HX-Request": "true"}).status_code == 404
+        assert c.get(VIEW + "&client=Biogenesis", headers={"HX-Request": "true"}).status_code == 404
+    assert owner.get(VIEW).status_code == 404                                                     # tampoco por navegación directa
     r = TestClient(app).get(VIEW, headers={"HX-Request": "true"}, follow_redirects=False)
     assert r.status_code in (302, 303, 307)
 
 
-def test_owner_reads_with_forms_and_consultant_no_longer_reads(bucket, owner):
+def test_retired_view_keeps_store_and_write_services_intact(bucket, owner):
+    assert _post(owner, "register-tenant").json()["status"] == "APPLIED"                          # el registro y su escritura owner-only se conservan
+    assert "TNT-BIO-1" in str(_state()) and owner.get(VIEW, headers={"HX-Request": "true"}).status_code == 404
+
+
+def test_read_policy_when_republished_is_owner_only(bucket, owner, republished):
+    assert _client("consultor@danwor.com").get(VIEW, headers={"HX-Request": "true"}).status_code == 404
+    assert _client("lector@danwor.com").get(VIEW, headers={"HX-Request": "true"}).status_code == 404
+    assert owner.get(VIEW, headers={"HX-Request": "true"}).status_code == 200
+
+
+def test_owner_reads_with_forms_and_consultant_no_longer_reads(bucket, owner, republished):
     assert _post(owner, "register-tenant").json()["status"] == "APPLIED"
     mine = _hx(owner, VIEW + "&client=Biogenesis")
     assert "TNT-BIO-1" in mine and "data-cr-form" in mine
-    assert _client("consultor@danwor.com").get(VIEW + "&client=Biogenesis", headers={"HX-Request": "true"}).status_code == 403
+    assert _client("consultor@danwor.com").get(VIEW + "&client=Biogenesis", headers={"HX-Request": "true"}).status_code == 404
 
 
-def test_consultants_cannot_read_any_client_while_unpublished(bucket, owner, monkeypatch):
+def test_consultants_cannot_read_any_client_while_unpublished(bucket, owner, monkeypatch, republished):
     _post(owner, "register-tenant")
     _post(owner, "register-tenant", client="Loma", tenant_id="TNT-LOMA-1")
     monkeypatch.setenv("DANWOR_PUBLICATION_CONSULTANT_CLIENTS", "Loma")
     c = _client("consultor@danwor.com")
     for client in ("Biogenesis", "Loma"):
-        assert c.get(VIEW + "&client=" + client, headers={"HX-Request": "true"}).status_code == 403
+        assert c.get(VIEW + "&client=" + client, headers={"HX-Request": "true"}).status_code == 404
     html = _hx(owner, VIEW)                                                   # el registro y su persistencia siguen intactos para el owner
     assert '<option value="Loma"' in html and '<option value="Biogenesis"' in html
 
 
-def test_catalog_selector_offers_tenants_only_to_the_owner(bucket, owner):
+def test_catalog_selector_offers_tenants_to_nobody(bucket, owner, monkeypatch):
     from webapp.services import connectivity_registry_view as crv
     req = lambda email: SimpleNamespace(cookies={auth_service.COOKIE_NAME: auth_service.create_session(
         {"email": email, "name": email, "first_name": "T", "family_name": "U"})}, headers={})
-    assert crv.published(req("owner@danwor.com")) is True
+    assert crv.PUBLISHED is False and crv.published(req("owner@danwor.com")) is False              # retirada: tampoco APP_OWNER
+    monkeypatch.setattr(crv, "PUBLISHED", True)
+    assert crv.published(req("owner@danwor.com")) is True                                         # reactivable sin tocar la implementación
     assert crv.published(req("consultor@danwor.com")) is False
     assert crv.can_read(req("consultor@danwor.com")) is True                 # la captura conserva su criterio (sin cambios)
     tab = open("webapp/templates/partials/catalog_tab.html", encoding="utf-8").read()
@@ -143,7 +165,7 @@ def test_catalog_selector_offers_tenants_only_to_the_owner(bucket, owner):
     assert "_crv.published(request)" in open("webapp/templating.py", encoding="utf-8").read()
 
 # ═══════════════ flujo completo ═══════════════
-def test_full_lifecycle_register_bind_assign_reassign_revoke_unbind_deactivate(bucket, owner):
+def test_full_lifecycle_register_bind_assign_reassign_revoke_unbind_deactivate(bucket, owner, republished):
     assert _post(owner, "register-tenant", display_name="Biogénesis DEV/QA").json()["status"] == "APPLIED"
     assert _post(owner, "bind-host", host="BIO-DEVQA.eu10.hcs.cloud.sap.").json()["kind"] == "HOST_BOUND"
     assert _post(owner, "assign-space", space="DESARROLLO", environment="DEV").json()["status"] == "APPLIED"
@@ -201,7 +223,7 @@ def test_same_request_id_is_idempotent_and_reused_with_other_content_conflicts(b
     assert other.status_code == 409 and len(bucket.objects) == 1
 
 
-def test_concurrent_write_returns_explicit_status_and_is_not_applied(bucket, owner, monkeypatch):
+def test_concurrent_write_returns_explicit_status_and_is_not_applied(bucket, owner, monkeypatch, republished):
     _post(owner, "register-tenant")
     from datetime import timedelta
     after_registration = reg._utc(_state()["tenants"]["TNT-BIO-1"]["registered_at"]) + timedelta(microseconds=1)
@@ -222,7 +244,7 @@ def test_concurrent_write_returns_explicit_status_and_is_not_applied(bucket, own
     assert "data-registry-rejected" in html and body["event_id"][:11] in html          # visible para el dueño, no silenciado
 
 
-def test_view_isolates_clients_and_explains_it_does_not_homologate(bucket, owner):
+def test_view_isolates_clients_and_explains_it_does_not_homologate(bucket, owner, republished):
     _post(owner, "register-tenant")
     _post(owner, "register-tenant", client="Loma", tenant_id="TNT-LOMA-1")
     html = _hx(owner, VIEW + "&client=Loma")
@@ -231,7 +253,7 @@ def test_view_isolates_clients_and_explains_it_does_not_homologate(bucket, owner
     assert "logical_system" not in html and "homologation" not in html
 
 
-def test_unknown_client_is_not_selected_and_unavailable_store_fails_closed(bucket, owner, monkeypatch):
+def test_unknown_client_is_not_selected_and_unavailable_store_fails_closed(bucket, owner, monkeypatch, republished):
     html = _hx(owner, VIEW + "&client=Inexistente")
     assert "Elegí un cliente" in html and "data-cr-form" not in html
 
@@ -244,7 +266,7 @@ def test_unknown_client_is_not_selected_and_unavailable_store_fails_closed(bucke
     assert r.status_code == 503 and r.json()["status"] == "UNAVAILABLE"
 
 
-def test_direct_navigation_renders_full_page(bucket, owner):
+def test_direct_navigation_renders_full_page(bucket, owner, republished):
     r = owner.get(VIEW)
     assert r.status_code == 200 and "<title>" in r.text and "data-registry-view" in r.text and 'id="content"' in r.text
 
@@ -265,7 +287,16 @@ def _fake_request(email):
     return Request(scope)
 
 
-def test_dropdown_offers_tenants_and_environments_only_to_readers(bucket):
+def test_dropdown_no_longer_offers_tenants_and_environments_to_anyone(bucket):
+    for email in ("owner@danwor.com", "consultor@danwor.com", "lector@danwor.com"):
+        html = _render_tab(_fake_request(email))
+        sel = html[html.index('<select id="catalog-conn-kind"'):]
+        sel = sel[:sel.index("</select>")]
+        assert re.findall(r'<option value="([^"]+)">', sel) == ["connections", "clients", "sap_types"], email
+        assert 'data-catalog-kind="registry"' not in html and "Tenants y ambientes" not in html and "/catalog/connectivity-registry" not in html
+
+
+def test_dropdown_offers_tenants_and_environments_only_to_readers(bucket, republished):
     html = _render_tab(_fake_request("owner@danwor.com"))
     sel = html[html.index('<select id="catalog-conn-kind"'):]
     sel = sel[:sel.index("</select>")]
@@ -276,7 +307,7 @@ def test_dropdown_offers_tenants_and_environments_only_to_readers(bucket):
     assert 'value="registry"' not in reader and 'data-catalog-kind="registry"' not in reader
 
 
-def test_reload_restores_dropdown_and_central_view_together(bucket):
+def test_reload_restores_dropdown_and_central_view_together(bucket, republished):
     """Recargar no deja estados contradictorios: la vista central se abre SOLO por HTMX (sin URL propia ni historial), así que una recarga
     vuelve a mostrar el módulo; el dropdown 1 arranca siempre en «Conexiones» (Alpine) y no acepta el valor que el navegador restaura."""
     html = _render_tab(_fake_request("owner@danwor.com"))

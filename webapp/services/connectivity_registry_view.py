@@ -59,13 +59,18 @@ def can_read(request) -> bool:
     return asd.can_execute(request)
 
 
+# «Tenants y ambientes» RETIRADA de la experiencia del Hub (decisión del owner, 2026-11-27): no es una herramienta reservada a ciertos usuarios,
+# es una funcionalidad obsoleta, así que no se publica para NADIE (tampoco APP_OWNER). Implementación, almacén, servicios, rutas de escritura y
+# registro histórico se conservan intactos; poner `True` restituye la exposición anterior (solo APP_OWNER).
+PUBLISHED = False
+
+
 def published(request) -> bool:
-    """Exposición de «Tenants y ambientes» en el Catálogo de conectividad. DESPUBLICADA para consultores (2026-11-27): el registro no tiene
-    datos ni consumidores (la captura F2.2c se retiró de la extracción y la reconciliación F2.2d no se construyó), y la pantalla vacía confundía.
-    Queda visible SOLO para APP_OWNER; implementación, rutas, almacén y servicios se conservan para retomarla. `can_read` sigue siendo el
-    criterio de la captura (`options()`), que no cambia."""
+    """Exposición de «Tenants y ambientes» en el Catálogo de conectividad (selector y vista central). RETIRADA para todos (ver ``PUBLISHED``):
+    el registro no tiene datos ni consumidores (la captura F2.2c se retiró de la extracción y la reconciliación F2.2d no se construyó).
+    `can_read` sigue siendo el criterio de la captura (`options()`), que no cambia."""
     from webapp import access
-    return can_read(request) and access.is_owner(request)
+    return PUBLISHED and can_read(request) and access.is_owner(request)
 
 
 def client_readable(request, client: str) -> bool:

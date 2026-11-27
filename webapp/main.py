@@ -1665,8 +1665,8 @@ def catalog_connectivity_registry(request: Request, pack: str = Query(DEFAULT_PA
     if not user:
         return _login_redirect(request, _pack(pack))
     from webapp.services import connectivity_registry_view as crv
-    if not crv.published(request):                                     # despublicada para consultores: solo APP_OWNER (ver crv.published)
-        raise HTTPException(403, "No autorizado")
+    if not crv.published(request):                                     # RETIRADA de la experiencia del Hub para todos (ver crv.PUBLISHED)
+        raise HTTPException(404, "No disponible")
     if client and not crv.client_readable(request, client):
         raise HTTPException(403, "No autorizado para este cliente")
     selected = _pack(pack) if _diagnostic(request) else DEFAULT_PACK
