@@ -9,20 +9,44 @@
 .ct-rx-main .n { margin-left: 2px; padding-left: 6px; border-left: 1px solid var(--line); font-variant-numeric: tabular-nums; }
 .ct-rx-cmt span { white-space: nowrap; }
 
-/* Selector flotante: arriba del botón, sin empujar la publicación (absoluto) */
-.ct-rx-picker { position: absolute; left: 0; bottom: calc(100% + 6px); z-index: 40; display: flex; align-items: center; gap: 6px; padding: 6px 8px;
-  background: var(--surface); border: 1px solid var(--line); border-radius: 999px; box-shadow: 0 8px 28px rgba(0,0,0,.16);
-  opacity: 0; visibility: hidden; transform: translateY(6px) scale(.94); transform-origin: 24px 100%;
-  transition: opacity .14s ease, transform .14s ease, visibility 0s linear .14s; }
-.ct-rx.is-open .ct-rx-picker { opacity: 1; visibility: visible; transform: none; transition: opacity .14s ease, transform .14s ease; }
-.ct-rx-opt { position: relative; display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 50%;
-  background: transparent; color: var(--text); cursor: pointer; transition: transform .12s ease, background .12s ease; }
+/* Color propio de cada reacción (tokens ÚNICOS: selector, botón con la reacción propia, resumen y detalle). Tonos sobrios con contraste
+   ≥ 3:1 sobre la superficie clara del portal; nunca es la única señal: cada reacción tiene su ícono, su nombre (tooltip/aria-label) y la
+   propia se marca además con un anillo. */
+[data-r="like"], .ct-rx-ic--like { --rx-c: #2F6FD6; }
+[data-r="celebrate"], .ct-rx-ic--celebrate { --rx-c: #2E8B57; }
+[data-r="support"], .ct-rx-ic--support { --rx-c: #7A4FC4; }
+[data-r="thanks"], .ct-rx-ic--thanks { --rx-c: #D2691E; }
+[data-r="idea"], .ct-rx-ic--idea { --rx-c: #B7860B; }
+[data-r="funny"], .ct-rx-ic--funny { --rx-c: #1C8FB8; }
+
+/* Botón base: sobrio. Con una reacción propia solo su ícono toma el color (fondo y borde apenas teñidos), nunca el dorado genérico. */
+.ct-rx-main[aria-pressed="true"] { background: color-mix(in srgb, var(--rx-c) 7%, var(--surface)); border-color: color-mix(in srgb, var(--rx-c) 35%, var(--line)); color: var(--text); }
+.ct-rx-main[aria-pressed="true"] > svg { color: var(--rx-c); }
+
+/* Selector flotante: arriba del botón, sin empujar la publicación (absoluto). Apertura sobria: fade + subida corta, opciones escalonadas. */
+.ct-rx-picker { position: absolute; left: 0; bottom: calc(100% + 8px); z-index: 40; display: flex; align-items: center; gap: 6px; padding: 7px 9px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 999px; box-shadow: 0 10px 30px rgba(0,0,0,.14), 0 2px 6px rgba(0,0,0,.06);
+  opacity: 0; visibility: hidden; transform: translateY(8px); transform-origin: 24px 100%;
+  transition: opacity .18s ease, transform .18s cubic-bezier(.2, .7, .3, 1), visibility 0s linear .18s; }
+.ct-rx.is-open .ct-rx-picker { opacity: 1; visibility: visible; transform: none; transition: opacity .18s ease, transform .18s cubic-bezier(.2, .7, .3, 1); }
+.ct-rx-opt { position: relative; display: grid; place-items: center; width: 38px; height: 38px; padding: 0; border: 0; border-radius: 50%;
+  background: color-mix(in srgb, var(--rx-c) 12%, var(--surface)); color: var(--rx-c); cursor: pointer;
+  transition: transform .16s cubic-bezier(.2, .7, .3, 1), box-shadow .16s ease, background .16s ease; }
 .ct-rx-opt svg { width: 19px; height: 19px; }
-.ct-rx-opt:hover, .ct-rx-opt:focus-visible { transform: scale(1.08); background: var(--gold-soft); outline: none; }   /* sin salirse de la cápsula */
-.ct-rx-opt.is-mine { background: var(--gold-soft); box-shadow: inset 0 0 0 1px var(--gold); }
-.ct-rx-tip { position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); padding: 3px 8px; border-radius: 6px;
+.ct-rx-opt:hover, .ct-rx-opt:focus-visible { transform: translateY(-3px) scale(1.18); background: color-mix(in srgb, var(--rx-c) 18%, var(--surface));
+  box-shadow: 0 6px 14px color-mix(in srgb, var(--rx-c) 28%, transparent); outline: none; z-index: 1; }
+.ct-rx-opt:focus-visible { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--rx-c); }
+.ct-rx-opt.is-mine { box-shadow: 0 0 0 2px var(--surface), 0 0 0 3.5px var(--rx-c); }
+@keyframes ct-rx-in { from { opacity: 0; transform: translateY(6px); } }
+.ct-rx.is-open .ct-rx-opt { animation: ct-rx-in .18s cubic-bezier(.2, .7, .3, 1) backwards; }
+.ct-rx.is-open .ct-rx-opt:nth-child(2) { animation-delay: .02s; }
+.ct-rx.is-open .ct-rx-opt:nth-child(3) { animation-delay: .04s; }
+.ct-rx.is-open .ct-rx-opt:nth-child(4) { animation-delay: .06s; }
+.ct-rx.is-open .ct-rx-opt:nth-child(5) { animation-delay: .08s; }
+.ct-rx.is-open .ct-rx-opt:nth-child(6) { animation-delay: .1s; }
+.ct-rx-tip { position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%); padding: 3px 8px; border-radius: 6px;
   background: var(--ink, #1C1C1C); color: #F5F5F3; font-size: 11px; font-weight: 600; white-space: nowrap; opacity: 0; pointer-events: none;
-  transition: opacity .1s ease; }
+  transition: opacity .12s ease; }
 .ct-rx-opt:hover .ct-rx-tip, .ct-rx-opt:focus-visible .ct-rx-tip { opacity: 1; }
 
 /* Resumen a la derecha: tipos recibidos (íconos superpuestos) + total → abre el detalle */
@@ -30,13 +54,10 @@
   color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap; }
 .ct-rx-sum:hover .ct-rx-total, .ct-rx-sum:focus-visible .ct-rx-total { text-decoration: underline; }
 .ct-rx-icons { display: inline-flex; }
-.ct-rx-ic { display: grid; place-items: center; width: 20px; height: 20px; margin-left: -5px; border: 2px solid var(--surface); border-radius: 50%; color: #1C1C1C; }
+.ct-rx-ic { display: grid; place-items: center; width: 20px; height: 20px; margin-left: -5px; border: 2px solid var(--surface); border-radius: 50%;
+  background: var(--rx-c, var(--gold)); color: #fff; }
 .ct-rx-ic:first-child { margin-left: 0; }
 .ct-rx-ic svg { width: 11px; height: 11px; }
-.ct-rx-ic--like { background: var(--gold); }
-.ct-rx-ic--celebrate { background: #F2D24F; }
-.ct-rx-ic--support { background: #E59A6B; }
-.ct-rx-ic--thanks { background: #7FB77E; }
 
 /* Variante compacta (contenidos de Novedades): misma pieza, menos aire */
 .ct-rx-bar.mini .rbtn { padding: 4px 9px; }
@@ -61,7 +82,12 @@
   .ct-rx-opt { width: 34px; height: 34px; }
   .ct-rx-picker { gap: 4px; padding: 5px 7px; }
 }
-@media (prefers-reduced-motion: reduce) { .ct-rx-picker, .ct-rx-opt { transition: none; } }
+@media (prefers-reduced-motion: reduce) {                               /* sin desplazamientos ni escalas: solo color y opacidad */
+  .ct-rx-picker, .ct-rx.is-open .ct-rx-picker { transform: none; transition: opacity .12s linear, visibility 0s linear .12s; }
+  .ct-rx.is-open .ct-rx-picker { transition: opacity .12s linear; }
+  .ct-rx-opt, .ct-rx.is-open .ct-rx-opt { animation: none; transition: background .12s linear, box-shadow .12s linear; }
+  .ct-rx-opt:hover, .ct-rx-opt:focus-visible { transform: none; }
+}
 
 /* Saludo de cumpleaños: el campo para saludar va arriba y siempre a la vista; la acción no se parte en dos líneas */
 .ct-greet .cinput .btn { white-space: nowrap; }
