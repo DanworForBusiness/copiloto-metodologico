@@ -224,7 +224,12 @@ def test_deeplink_requests_the_catalog_publication_state(owner, monkeypatch, tmp
 def test_deeplink_does_not_let_the_browser_pick_the_extractor_mode(owner, monkeypatch, tmp_path):
     _demo_catalog(monkeypatch, tmp_path)
     try:
-        html = owner.get(CATALOG_PUBLISH_URL).text
+        page = owner.get(CATALOG_PUBLISH_URL).text
+        # Solo el CONTENIDO del módulo (pestaña Catálogo + formulario de publicación): el panel de gestión de plataforma que el owner ve
+        # siempre (sin «Modo diagnóstico») tiene sus propios formularios —p. ej. «Purgar runtime» con `name="mode"`— ajenos a este contrato.
+        assert 'id="catalog-publish-state"' in page
+        html = page.split('<details class="admin-tool"', 1)[0]
+        assert 'id="catalog-publish-state"' in html
         assert 'name="mode"' not in html and "name='mode'" not in html                             # ningún input de modo
         assert 'value="publish"' not in html                                                       # "publish" no es un campo del formulario
         # un valor desconocido del subestado se ignora (lista blanca)
