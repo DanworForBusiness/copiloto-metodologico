@@ -2049,8 +2049,14 @@ def catalog_flow_retire(request: Request, flow: str = Form(""), pack: str = Form
     actor = str(user.get("sub") or user.get("email") or "")
     want_files = (delete_files or "").strip().lower() in ("1", "true", "on", "yes")
     ctx = {"entry": entry, "pack": _pack(pack), "files": "kept"}
+    terminal_am = None
+    try:                                                                # D-LC-01: identidad del modelo retirado con el MISMO resolvedor que el Assessment
+        res = assessment_service.resolve_entries([entry]).get(entry.entry_id)
+        terminal_am = res.terminal_am if res is not None and res.kind == "OK" else None
+    except Exception:                                                   # noqa: BLE001 — sin identidad resoluble el retiro sigue siendo válido (se resuelve después por entry_id)
+        logging.getLogger("danwor.catalog").warning("retiro: no se pudo resolver el AM terminal del tile %s", entry_id)
     try:
-        catalog_governance.retire(entry, actor)
+        catalog_governance.retire(entry, actor, terminal_am=terminal_am)
     except catalog_governance.GovernanceStorageError:
         return templates.TemplateResponse(request=request, name="partials/catalog_retired_tile.html", context={**ctx, "ok": False})
     purged = None

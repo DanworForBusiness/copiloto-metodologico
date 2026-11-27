@@ -81,8 +81,8 @@
       <div class="catalog-note__ev">Trazabilidad: los Assessments consumidores no son sujetos aprobados.</div>
       {% if consumers %}
       <div class="matrix-scroll"><table>
-        <thead><tr><th>Assessment consumidor</th></tr></thead>
-        <tbody>{% for c in consumers %}<tr><td>{{ c }}</td></tr>{% endfor %}</tbody>
+        <thead><tr><th>Assessment consumidor</th><th>Estado en el Catálogo</th></tr></thead>
+        <tbody>{% for c in consumers %}<tr><td>{{ c }}</td><td>{% if retired_consumers is defined and c in retired_consumers %}<span class="catalog-card__verdict catalog-card__verdict--neutra" title="Retirado del Catálogo: su Assessment se conserva como evidencia histórica y no cuenta como activo">Retirado del Catálogo</span>{% else %}Activo{% endif %}</td></tr>{% endfor %}</tbody>
       </table></div>
       {% else %}
       {% with state_kind="empty", state_title="Sin consumidores", state_text="Sin Assessments consumidores observados." %}{% include "partials/catalog_state.html" %}{% endwith %}

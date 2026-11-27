@@ -8,6 +8,8 @@ cliente a la MISMA unidad, con el criterio del dueño:
   NO afectado, independencia demostrada (firma de dependencias igual antes y después) → conserva su vigencia; si su sobre no traía la firma, se le agrega (sin regenerar).
   Dependencias INCIERTAS → no se afirma independencia: queda STALE explícito (``UNCERTAIN``) y trazable en la bitácora.
   Sin AM en el pool (modelo retirado) → su sobre gobernado se retira: no quedan diagnósticos obsoletos en la versión activa.
+  RETIRADO del Catálogo (D-LC-01: registro de retiro vigente, ``model_lifecycle``) → ``RETIRED``: no se regenera, no se re-sella y JAMÁS se borra (ni siquiera si
+      su AM sale del pool): su sobre es evidencia histórica. Publicar el PROPIO modelo retirado lo regenera (reactivación; el retiro se levanta con constancia).
 
 Implementa el protocolo de ``tools/catalog/publication_txn.StageHooks``. Solo LOCAL: la confirmación durable en Spaces es de la unidad.
 """
@@ -25,6 +27,7 @@ from webapp.services import assessment_service as assess
 log = logging.getLogger("danwor.republication_stage")
 
 KEPT, REBASED, REGENERATED, UNCERTAIN, LEFT, REMOVED = "kept", "rebased", "regenerated", "uncertain", "left_as_is", "removed"
+RETIRED = "retired"                                              # D-LC-01: modelo retirado del Catálogo (sobre conservado, fuera del inventario activo)
 
 
 class StageError(RuntimeError):
@@ -106,7 +109,9 @@ class AssessmentStage:
         self._guard_pool(ctx)
         entries = self._entries(ctx)
         resolutions = assess.resolve_entries(entries)
-        summary: dict[str, list[str]] = {k: [] for k in (REGENERATED, REBASED, KEPT, UNCERTAIN, LEFT, REMOVED)}
+        summary: dict[str, list[str]] = {k: [] for k in (REGENERATED, REBASED, KEPT, UNCERTAIN, LEFT, REMOVED, RETIRED)}
+        from webapp.services import model_lifecycle
+        retired = model_lifecycle.retirements(ctx.client_dir)
         prepared: list[assess.PreparedAssessment] = []
         failures: list[dict] = []
         unhealthy = [r for r in resolutions.values() if r.kind in ("POOL_LOAD_ERROR", "POOL_AMBIGUOUS_DOMAIN", "POOL_UNAVAILABLE")]
@@ -122,8 +127,10 @@ class AssessmentStage:
             contains_root = ctx.root_object in {str(a) for a in (entry.artefactos or [])}
             pre = self._pre.get(am)
             new_sig = assess.closure_signature(res)
-            if contains_root:
-                action = REGENERATED
+            if retired.is_retired(am) and am != ctx.root_object:
+                action = RETIRED                                         # retirado del Catálogo: se conserva tal cual (ni regenera ni re-sella), aunque comparta el objeto publicado
+            elif contains_root:
+                action = REGENERATED                                     # incluye la REACTIVACIÓN del propio modelo retirado que se vuelve a publicar
             elif pre is None or not pre["has_env"]:
                 action = LEFT                                            # nunca evaluado y ajeno al modelo publicado: no se inventa un assessment
             elif pre["state"] != assess.CURRENT:
@@ -146,7 +153,10 @@ class AssessmentStage:
                 failures.append({"kind": "assessment", "object_type": "", "technical_name": exc.am or am, "code": exc.code})
         if failures:
             raise StageError("ASSESSMENT_FAILED", failures)
-        removed = self._obsolete(ctx, entries, resolutions)
+        for am in sorted(self._pre_envelopes):                           # retirados sin tile regenerado (LC-2): igual se informan como RETIRED
+            if retired.is_retired(am) and am not in by_am:
+                summary[RETIRED].append(am)
+        removed = [am for am in self._obsolete(ctx, entries, resolutions) if not retired.is_retired(am)]   # un retirado NUNCA se borra físicamente
         summary[REMOVED] = removed
         self._prepared, self._removed, self.summary = prepared, removed, summary
         self._entries_by_am = {am: pair[0] for am, pair in by_am.items()}

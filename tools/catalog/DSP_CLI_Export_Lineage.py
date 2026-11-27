@@ -1927,15 +1927,15 @@ def classify_error(message: str) -> str:
     return "EXTRACTION_FAILED"
 
 
-def regenerate_catalog_from_pool(csn_cache_root: Path, catalog_root: Path, only_clients: set[str] | None = None) -> str:
+def regenerate_catalog_from_pool(csn_cache_root: Path, catalog_root: Path, only_clients: set[str] | None = None, reactivate: set[str] | None = None) -> str:
     project_root = Path(__file__).resolve().parents[2]
     if str(project_root) not in sys.path:
         sys.path.insert(0, str(project_root))
     from tools.catalog.generate_catalog import generate_all
 
     if only_clients is not None:
-        return str(generate_all(csn_cache_root, catalog_root, only_clients=only_clients))
-    return str(generate_all(csn_cache_root, catalog_root))
+        return str(generate_all(csn_cache_root, catalog_root, only_clients=only_clients, reactivate=reactivate))
+    return str(generate_all(csn_cache_root, catalog_root, reactivate=reactivate))
 
 
 def format_runtime(seconds: float) -> str:
@@ -2447,7 +2447,8 @@ def _apply_unit(req, exporter, *, base, txn, op_id, stages, planned, planned_sha
             _say("\n==========================================")
             _say("REGENERANDO CATALOGO (acotado al cliente)")
             _say("==========================================")
-            _say(regenerate_catalog_from_pool(csn_cache_root, catalog_root, only_clients={client_dir_name}))
+            _say(regenerate_catalog_from_pool(csn_cache_root, catalog_root, only_clients={client_dir_name},      # D-LC-01: publicar el PROPIO modelo retirado lo reactiva
+                                              reactivate={exporter.root_object} if exporter.root_type == "analytic-model" else set()))
             catalog_generated = True
         txn.fault("after_catalog")
         if hooks is not None:

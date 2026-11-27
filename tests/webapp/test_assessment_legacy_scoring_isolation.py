@@ -64,6 +64,26 @@ def test_legacy_list_tile_template_and_scoring_modules_are_untouched_by_the_asse
         "+        _seed_legacy_manual(cli_dir / folder, folder, entities, *legacy)",
     }
 
+    # Sexta excepción admitida, ACOTADA (D-LC-01 · LC-2): un tile retirado CON borrado de archivos no se regenera al publicar otro modelo del cliente. La lógica vive en
+    # `catalog_retirement` (módulo nuevo, sin scoring); del generador se admiten solo el import y las líneas EXACTAS que saltean la escritura del flujo PROPIO del
+    # modelo retirado (`_write_flow`, `evaluate_compliance` y el veredicto no se tocan; `generate_all` ya es exento).
+    RETIRED_FIX_LINES = {
+        "+# D-LC-01 · LC-2: tiles retirados CON borrado de archivos (ver ``catalog_retirement``). Import defensivo, como portabilidad.",
+        "+    from catalog_retirement import RetiredSuppression, purged_retirements",
+        "+    from tools.catalog.catalog_retirement import RetiredSuppression, purged_retirements",
+        "-                   dominio: str | None = None, *, json_files=None, txt_files=None, governed_names: dict[str, tuple[str, str]] | None = None) -> str:",
+        "+                   dominio: str | None = None, *, json_files=None, txt_files=None, governed_names: dict[str, tuple[str, str]] | None = None,",
+        "+                   retired: RetiredSuppression | None = None, reactivate: frozenset = frozenset()) -> str:",
+        "-            used.add(folder)",
+        "+            used.add(folder)                         # un retirado conserva su carpeta si existe (no se borra nada): solo no se reescribe",
+        "+            if retired is not None and retired.applies(cli_dir.name, folder, cube.name, reactivate):",
+        '+                lines.append(f"  · [retirado] {cube.name}: retirado del Catálogo con borrado de archivos; no se regenera")',
+        "+                continue",
+        '+    if (retired is not None and dominio == "General" and len(cubes) == 1',
+        "+            and retired.applies(cli_dir.name, folder, cubes[0].name, reactivate)):  # flujo PROPIO de un único modelo retirado con borrado",
+        '+        return f"[retirado] {cubes[0].name}: retirado del Catálogo con borrado de archivos; no se regenera"',
+    }
+
     def without_exempt(src: str) -> list[str]:
         kept, skipping = [], False
         for line in src.splitlines():
@@ -82,7 +102,7 @@ def test_legacy_list_tile_template_and_scoring_modules_are_untouched_by_the_asse
     # evaluador y la matriz de portabilidad para que un cambio de scoring invalide el cache; la evaluación de cumplimiento/veredicto legacy sigue intacta.
     # Segunda excepción admitida: el LOADER lee los Data Flows del export CLI (`dataflows`: sources/targets) y los une al linaje de la tabla que producen
     # (`dataflow_lineage`); es entrada del catálogo, no scoring (el assessment la desactiva) y `evaluate_compliance` no se toca.
-    changed = [l for l in out.stdout.splitlines() if l[:1] in "+-" and not l.startswith(("+++", "---")) and l not in SINGLE_MODEL_FIX_LINES]
+    changed = [l for l in out.stdout.splitlines() if l[:1] in "+-" and not l.startswith(("+++", "---")) and l not in SINGLE_MODEL_FIX_LINES and l not in RETIRED_FIX_LINES]
     allowed = re.compile(r"signature|sha256|parts|portability_bdc|Firma del generador|reutilizamos salidas viejas|hashlib|invalid|scoring|persiste|here|extra|unknown|try:|except|return|\"\"\"|^[+-]\s*$|cache incremental|no reutilizamos|def load_folder|dataflow_lineage|export_df_membership|_dfname|_dfbody|_srcs|_tgts|_slot|slot\[|srcs|tname|Data Flow del export CLI|mixed-mode|MISMA regla")
     assert all(allowed.search(l) for l in changed), changed
     assert "catalog_service.py" not in out.stdout, out.stdout
