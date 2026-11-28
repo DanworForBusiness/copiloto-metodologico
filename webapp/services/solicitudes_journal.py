@@ -188,7 +188,6 @@ def history(html, item_id, description=None):
 # movement may exist that cannot be verified. `retryable` only when repeating the same read can improve it.
 COVERAGE = {
     # code: (level, retryable, message)
-    'single_version': ('info', False, 'La solicitud tiene una única versión en SharePoint: todavía no hay movimientos entre versiones.'),
     'retention_limited': ('info', False, 'Historial disponible desde la primera versión conservada por SharePoint.'),
     'version_limit': ('info', False, 'Se muestran los movimientos de las versiones más recientes; las anteriores exceden el límite de lectura.'),
     'version_gap': ('warning', False, 'Algunos movimientos no pueden verificarse porque faltan versiones intermedias.'),
@@ -197,6 +196,7 @@ COVERAGE = {
     'malformed_value': ('warning', False, 'Algunos valores de las versiones no tienen un formato verificable: esos cambios no se muestran.'),
     'missing_fields': ('warning', True, 'No se pudieron leer los datos de algunas versiones: sus movimientos no se muestran.'),
     'version_read_error': ('warning', True, 'No se pudieron leer algunas versiones en SharePoint: sus movimientos no se muestran.'),
+    'opening_mismatch': ('warning', False, 'La apertura se acredita con la metadata de la solicitud en SharePoint, que difiere de su versión 1.0: el detalle de la Apertura indica la diferencia.'),
     'tail_mismatch': ('warning', True, 'La solicitud tiene cambios posteriores a la última versión que informó SharePoint: los movimientos más recientes pueden faltar.'),
 }
 _LEVEL_ORDER = {'info': 1, 'warning': 2}
@@ -214,6 +214,75 @@ def coverage_summary(codes):
     level = COVERAGE[known[0]][0]
     return {'codes': known, 'level': level, 'messages': [COVERAGE[c][2] for c in known],
             'retryable': any(COVERAGE[c][1] for c in known), 'partial': level == 'warning'}
+
+
+def _actor(identity_set):
+    """WHO of a SharePoint identity set (`createdBy` / `lastModifiedBy`). An unattributed change only affects WHO, not whether it happened:
+    it is shown explicitly, never invented."""
+    identity_set = identity_set if isinstance(identity_set, dict) else {}
+    user = identity_set.get('user') if isinstance(identity_set.get('user'), dict) else {}
+    actor = user.get('displayName') or user.get('email') or user.get('id')
+    if isinstance(actor, str) and actor.strip():
+        return actor
+    app = identity_set.get('application') if isinstance(identity_set.get('application'), dict) else {}
+    name = app.get('displayName')
+    return f'Aplicación: {name}' if isinstance(name, str) and name.strip() else 'No identificado en SharePoint'
+
+
+def _stamp(value):
+    moment = datetime.fromisoformat(str(value).replace('Z', '+00:00'))
+    if moment.utcoffset() is None:
+        raise ValueError('Unverified time')
+    return moment
+
+
+def opening_row(item, item_id, versions=None):
+    """«Apertura»: the first verifiable event of every request, from SharePoint SYSTEM metadata of the item (`createdDateTime` +
+    `createdBy`) — the source of truth, which survives version retention, so it covers existing and new requests without writing anything.
+
+    Never invented: without a verifiable creation time there is no row. When version 1.0 is retained it is CROSS-CHECKED: a contradiction
+    (another instant, another author or an unverifiable version time) never hides the opening — the row states the exact difference and
+    carries the `opening_mismatch` coverage code so its cause can be identified. One row per item (`creation:<id>`)."""
+    item = item if isinstance(item, dict) else {}
+    try:
+        stamp = _stamp(item['createdDateTime'])
+    except (KeyError, ValueError, TypeError):
+        return None
+    actor = _actor(item.get('createdBy'))
+    local = lambda moment: moment.astimezone(ZONE).strftime('%d/%m/%Y %H:%M')
+    differences = []
+    first = next((v for v in versions or () if isinstance(v, dict) and v.get('id') == '1.0'), None)
+    if first is not None:
+        try:
+            first_stamp = _stamp(first['lastModifiedDateTime'])
+            if abs(first_stamp - stamp) > TAIL_TOLERANCE:
+                differences.append(f'fecha {local(first_stamp)}')
+        except (KeyError, ValueError, TypeError):
+            differences.append('fecha no verificable')
+        first_actor = _actor(first.get('lastModifiedBy'))
+        if first_actor != actor:
+            differences.append(f'autor {first_actor}')
+    row = {'id': f'creation:{item_id}', 'movement': 'Apertura', 'date': local(stamp), 'at': stamp.isoformat(), 'actor': actor,
+           'text': 'Apertura de la solicitud', 'source': 'SharePoint', 'issues': ()}
+    if differences:
+        row['text'] += ' · Metadata de la solicitud; la versión 1.0 de SharePoint difiere: ' + ', '.join(differences)
+        row['issues'] = ('opening_mismatch',)
+    return row
+
+
+def opening_issues(rows):
+    """Coverage codes contributed by the opening row (if any)."""
+    return {code for row in rows if row.get('id', '').startswith('creation:') for code in row.get('issues') or ()}
+
+
+def with_opening(rows, item, item_id, versions=None):
+    """Same history, plus its opening (if verifiable), newest first; unsigned legacy content stays at the end."""
+    opening = opening_row(item, item_id, versions)
+    if opening is None or any(r.get('id') == opening['id'] for r in rows):
+        return rows
+    dated = [r for r in rows if r.get('at')] + [opening]
+    dated.sort(key=lambda r: datetime.fromisoformat(r['at']), reverse=True)
+    return dated + [r for r in rows if not r.get('at')]
 
 
 def version_history_coverage(html, item_id, versions, *, issues=(), current_modified=None, description=None):
@@ -244,9 +313,8 @@ def version_history_coverage(html, item_id, versions, *, issues=(), current_modi
         except (ValueError, KeyError, TypeError, AttributeError):
             codes.add('ambiguous_version')
     ordered = sorted(indexed.items())
-    if len(ordered) == 1 and ordered[0][0] == (1, 0):
-        codes.add('single_version')                                             # created and never edited: nothing to reconstruct, nothing wrong
-    elif ordered and ordered[0][0] != (1, 0):
+    # A single version 1.0 (created, never edited) is COMPLETE coverage: its only movement is the opening (`opening_row`), nothing to report.
+    if ordered and ordered[0][0] != (1, 0):
         codes.add('retention_limited')                                          # retention before the first observed version is not evidence of creation
     if current_modified is not None and ordered:
         try:
@@ -289,15 +357,7 @@ def version_history_coverage(html, item_id, versions, *, issues=(), current_modi
         except (ValueError, KeyError, TypeError, AttributeError):
             codes.add('unverified_time')
             continue
-        modified_by = new.get('lastModifiedBy')
-        modified_by = modified_by if isinstance(modified_by, dict) else {}
-        identity = modified_by.get('user') if isinstance(modified_by.get('user'), dict) else {}
-        actor = identity.get('displayName') or identity.get('email') or identity.get('id')
-        if not (isinstance(actor, str) and actor.strip()):
-            app = modified_by.get('application') if isinstance(modified_by.get('application'), dict) else {}
-            name = app.get('displayName')
-            # An unattributed version only affects WHO, not whether the change happened: it is shown explicitly, never invented.
-            actor = f'Aplicación: {name}' if isinstance(name, str) and name.strip() else 'No identificado en SharePoint'
+        actor = _actor(new.get('lastModifiedBy'))
         common = {'date': stamp.astimezone(ZONE).strftime('%d/%m/%Y %H:%M'), 'at': stamp.isoformat(),
                   'actor': actor, 'version': new['id'], 'source': 'SharePoint'}
         if value(before, service.FUNNEL) == admission.REQUESTED and value(after, service.FUNNEL) == admission.APPROVED:

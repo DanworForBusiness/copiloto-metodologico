@@ -37,7 +37,7 @@ def test_no_delta_or_rejected_funnel_never_fabricates_transition():
         rows,_=journal.version_history('','1',[version(1,**{service.FUNNEL:prior}),version(2,**{service.FUNNEL:admission.APPROVED})])
         assert not any(r['movement']=='Reclasificación de Funnel' for r in rows)
     rows,coverage=journal.version_history_coverage('','1',[version(1,**{service.FUNNEL:admission.APPROVED})])
-    assert rows==[] and coverage['codes']==['single_version'] and coverage['level']=='info'  # a single state is not a transition, and not an error
+    assert rows==[] and coverage['codes']==[] and coverage['level']=='complete'  # a single state is not a transition, and not an error: no note
 
 
 def test_version_projection_lag_is_partial_and_can_be_retried_without_saving():
@@ -169,7 +169,7 @@ def test_retention_is_informative_scope_and_never_offers_a_retry():
 
 def test_a_single_version_is_neutral_and_shows_existing_observations():
     rows, coverage = journal.version_history_coverage('<p>Observación previa</p>', '1', [graph_version(1)])
-    assert coverage['codes'] == ['single_version'] and not coverage['partial'] and not coverage['retryable']
+    assert coverage['codes'] == [] and coverage['level'] == 'complete' and not coverage['partial'] and not coverage['retryable']
     assert [r['movement'] for r in rows] == ['Observación heredada']
 
 
@@ -247,3 +247,46 @@ def test_the_history_panel_presents_each_cause_with_its_own_tone(monkeypatch):
     assert 'data-history-coverage="version_gap"' in gap and 'callout--punch' in gap and 'Reintentar consulta' not in gap
     unreadable = panel([graph_version(1), graph_version(2)], issues=('version_read_error',))
     assert 'Reintentar consulta' in unreadable
+
+
+# ── «Apertura»: primer movimiento verificable, desde la metadata de sistema del ítem ─────────────────────────────────────────────
+from webapp.services import solicitudes_journal as _journal
+
+_CREATED = {"createdDateTime": "2026-11-28T13:05:00Z",
+            "createdBy": {"user": {"displayName": "Soledad Otero", "email": "sotero@danwor.com"}}}
+
+
+def test_opening_is_the_first_verifiable_movement_from_item_metadata():
+    row = _journal.opening_row(_CREATED, "12")
+    assert row["movement"] == "Apertura" and row["actor"] == "Soledad Otero" and row["text"] == "Apertura de la solicitud"
+    assert row["date"] == "28/11/2026 10:05" and row["id"] == "creation:12"                       # horario de Buenos Aires
+
+
+def test_opening_is_never_invented_without_verifiable_time():
+    assert _journal.opening_row({"createdBy": _CREATED["createdBy"]}, "12") is None
+    assert _journal.opening_row({**_CREATED, "createdDateTime": "2026-11-28T13:05:00"}, "12") is None   # sin zona: no verificable
+    unattributed = _journal.opening_row({"createdDateTime": "2026-11-28T13:05:00Z"}, "12")
+    assert unattributed["actor"] == "No identificado en SharePoint"                               # el QUIÉN se declara, no se inventa
+
+
+def test_opening_is_cross_checked_with_version_1_and_a_discrepancy_is_declared_not_hidden():
+    v1 = {"id": "1.0", "lastModifiedDateTime": "2026-11-28T13:05:00Z", "lastModifiedBy": _CREATED["createdBy"]}
+    agreed = _journal.opening_row(_CREATED, "12", [v1])
+    assert agreed["issues"] == () and agreed["text"] == "Apertura de la solicitud"
+    other = _journal.opening_row(_CREATED, "12", [{**v1, "lastModifiedBy": {"user": {"displayName": "Otra Persona"}}}])
+    assert other["actor"] == "Soledad Otero" and other["issues"] == ("opening_mismatch",)                 # la metadata es la fuente de verdad
+    assert "autor Otra Persona" in other["text"]                                                         # causa identificable
+    later = _journal.opening_row(_CREATED, "12", [{**v1, "lastModifiedDateTime": "2026-11-28T15:00:00Z"}])
+    assert "fecha 28/11/2026 12:00" in later["text"] and _journal.opening_issues([later]) == {"opening_mismatch"}
+    unverified = _journal.opening_row(_CREATED, "12", [{**v1, "lastModifiedDateTime": "ayer"}])
+    assert "fecha no verificable" in unverified["text"]
+    summary = _journal.coverage_summary({"opening_mismatch"})
+    assert summary["level"] == "warning" and not summary["retryable"] and "versión 1.0" in summary["messages"][0]
+
+
+def test_opening_is_added_once_and_preserves_later_movements():
+    later = {"id": "version:12:2.0:Arquitectura", "movement": "Cambio de Arquitectura", "at": "2026-11-29T10:00:00+00:00", "date": "29/11/2026 07:00"}
+    legacy = {"movement": "Observación heredada", "at": "", "date": "—"}
+    rows = _journal.with_opening([later, legacy], _CREATED, "12")
+    assert [r["movement"] for r in rows] == ["Cambio de Arquitectura", "Apertura", "Observación heredada"]
+    assert _journal.with_opening(rows, _CREATED, "12") == rows                                       # sin duplicados

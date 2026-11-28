@@ -307,11 +307,15 @@ def solicitudes_history(request: Request, item_id: str, graph_token: str = Form(
         try:
             item = repository.read_item(graph_token, item_id)
             rows = journal.history(item['fields'].get(service.COMMENTS), item_id, item['fields'].get(service.DESCRIPTION))   # las observaciones se conservan aunque fallen las versiones
+            rows = journal.with_opening(rows, item, item_id)                       # la apertura es metadata del ítem: no depende de las versiones
             result = repository.read_item_versions(graph_token, item_id)
             rows, coverage = journal.version_history_coverage(item['fields'].get(service.COMMENTS), item_id, result['versions'],
                                                               description=item['fields'].get(service.DESCRIPTION),
                                                               issues=result.get('issues') or (('version_read_error',) if result.get('partial') else ()),
                                                               current_modified=item.get('lastModifiedDateTime'))
+            rows = journal.with_opening(rows, item, item_id, result['versions'])   # contrastada con la versión 1.0 cuando se conserva
+            if journal.opening_issues(rows):                                       # una discrepancia se declara (causa en la fila), nunca se oculta
+                coverage = journal.coverage_summary(set(coverage['codes']) | journal.opening_issues(rows))
         except HTTPError as exc:
             failure = ({401: ("auth", True, "La autorización de Microsoft venció antes de leer las versiones. Las observaciones disponibles se conservan: reintentá la consulta."),
                         403: ("access", False, "Tu cuenta no tiene acceso a las versiones de esta solicitud en SharePoint. Las observaciones disponibles se conservan.")}
