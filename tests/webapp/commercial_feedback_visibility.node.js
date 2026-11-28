@@ -93,6 +93,11 @@ const sandbox = {
   console,
 };
 vm.createContext(sandbox);
+// Componente de Feedback del Hub: se carga el hub_reactions.js REAL (como en base.html) para que la vertical DECLARE su instancia
+// con `dwFeedback.html(cfg)`; el componente en sí (clonado de los <template>) no forma parte de lo que prueba este harness.
+sandbox.MutationObserver = class { observe() {} };
+sandbox.document.documentElement = {};
+vm.runInContext(fs.readFileSync(path.resolve(__dirname, "..", "..", "webapp", "static", "hub_reactions.js"), "utf-8"), sandbox, { filename: "hub_reactions.js" });
 vm.runInContext(src, sandbox, { filename: "commercial.js" });
 
 const { commercialSetCapability, commercialSetClientesSubTab } = sandbox;
@@ -104,9 +109,9 @@ function assertFalse(cond, label) { assertTrue(!cond, label); }
 const tick = () => new Promise(resolve => setImmediate(resolve));
 async function flush() { await tick(); await tick(); await tick(); }
 
-const MARK = "section-feedback";
-function feedbackCount() { return (root.innerHTML.match(/data-commercial-feedback="/g) || []).length; }
-function hasFeedbackFor(cap) { return root.innerHTML.includes(`data-commercial-feedback="${cap}"`); }
+const MARK = "data-dw-feedback-mount";   // declaración del componente de Feedback del Hub
+function feedbackCount() { return (root.innerHTML.match(/data-dw-feedback-mount="comercial:/g) || []).length; }
+function hasFeedbackFor(cap) { return root.innerHTML.includes(`data-dw-feedback-mount="comercial:${cap}:`); }
 
 // Fire un click REAL a través del delegado real de commercial.js —
 // MISMO patrón que los harnesses de Bucket 1/2 (`event.target.closest`
@@ -223,28 +228,16 @@ async function main() {
   assertTrue(root.innerHTML === beforeSearch, "J: Buscar en Leads NO toca el panel completo — el feedback ni se re-renderiza");
   assertTrue(feedbackCount() === 1, "J: sigue habiendo exactamente UNO tras buscar");
 
-  // ══ K) 👍 en una capability representativa: MISMO mecanismo/endpoint,
-  //       identidad correcta, sin fetch de datasets. ══
+  // ══ K) La instancia declarada lleva el MISMO contrato (endpoint + capability), sin fetch de datasets. El envío y sus
+  //       estados los resuelve el componente compartido (hub_reactions.js / partials/dw_feedback.html). ══
   fetchCalls.length = 0;
-  fireClick("[data-commercial-feedback-submit]",
-    { commercialFeedbackSubmit: "leads", commercialFeedbackRating: "up" });
-  await flush();
-  assertTrue(feedbackPosts.includes("leads:up"), "K: 👍 en Leads postea capability=leads,rating=up al endpoint compartido");
-  assertTrue(commercialState.feedback.leads === "up", "K: estado interno pasa a 'up'");
-  assertTrue(root.innerHTML.includes("¡Gracias!"), "K: la botonera se reemplaza por el agradecimiento");
-  assertTrue(!fetchCalls.some(u => u.startsWith("/comercial/data/")), "K: reaccionar NUNCA dispara un fetch de dataset");
+  assertTrue(root.innerHTML.includes('data-action="/comercial/feedback"') && root.innerHTML.includes('data-fields="capability=leads"'),
+    "K: Leads declara capability=leads y el endpoint compartido de siempre");
+  assertTrue(!fetchCalls.some(u => u.startsWith("/comercial/data/")), "K: declarar el feedback NUNCA dispara un fetch de dataset");
 
-  // ══ L) 👎 abre el formulario de comentario opcional (nunca persiste de
-  //       una) en OTRA capability — Dashboard, para probar que cada
-  //       capability tiene su PROPIO estado, sin pisarse entre sí. ══
+  // ══ L) Cada capability es una instancia PROPIA (clave distinta): sus estados no se pisan entre sí. ══
   commercialSetCapability("dashboard");
-  assertTrue(hasFeedbackFor("dashboard"), "L: setup — feedback de Dashboard visible");
-  fireClick("[data-commercial-feedback-open]", { commercialFeedbackOpen: "dashboard" });
-  assertTrue(commercialState.feedback.dashboard === "form", "L: 👎 abre el formulario, todavía no persiste");
-  assertTrue(root.innerHTML.includes("¿Qué esperabas o qué faltó acá?"), "L: formulario de comentario visible");
-  assertTrue(commercialState.feedback.leads === "up", "L: el 'up' de Leads (paso K) sigue intacto — estados independientes por capability");
-  fireClick("[data-commercial-feedback-cancel]", { commercialFeedbackCancel: "dashboard" });
-  assertTrue(commercialState.feedback.dashboard === undefined, "L: Cancelar vuelve al estado inicial (sin persistir nada)");
+  assertTrue(hasFeedbackFor("dashboard") && !hasFeedbackFor("leads"), "L: Dashboard declara SU instancia, distinta de la de Leads");
 
   // ══ M) Estado de ERROR de la capability activa -> feedback OCULTO ══
   commercialSetCapability("actividades"); // ya ready (paso D) -> feedback visible
@@ -256,12 +249,13 @@ async function main() {
   commercialState.activitiesStatus = "ready";
   commercialRenderCapability();
 
-  // ══ N) Cambio de Tipo invalida el feedback de TODAS las capabilities ══
-  commercialState.feedback.dashboard = "up";
-  commercialState.feedback.leads = "up";
+  // ══ N) Cambio de Tipo invalida el feedback de TODAS las capabilities: el universo integra la clave de la instancia. ══
+  assertTrue(root.innerHTML.includes(`data-dw-feedback-mount="comercial:actividades:${commercialState.tipo || ""}"`), "N: setup — clave con el Tipo vigente");
   const { commercialSetTipo } = sandbox;
   commercialSetTipo("nn");
-  assertTrue(Object.keys(commercialState.feedback).length === 0, "N: cambiar Tipo resetea el feedback de TODAS las capabilities");
+  commercialRenderCapability();
+  assertTrue(!root.innerHTML.includes(MARK) || root.innerHTML.includes('data-dw-feedback-mount="comercial:actividades:nn"'),
+    "N: con otro Tipo, la instancia es OTRA (no arrastra el estado registrado)");
   commercialSetTipo("todos");
 
   if (failures > 0) {

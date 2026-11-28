@@ -79,16 +79,19 @@
 .assistant-chat-form textarea { min-height: 86px; border-radius: 8px; line-height: 1.45; }
 .assistant-feedback { margin: -4px 0 4px; padding-left: 4px; }
 .assistant-exchange:not(:last-child) .assistant-route-actions { display: none; }
-.assistant-feedback form { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.assistant-feedback form > span, .assistant-feedback-thanks { color: var(--soft); font-size: .67rem; }
-.assistant-feedback form > div { display: flex; gap: 6px; }
-.assistant-feedback form > div > button { display: grid; place-items: center; width: 34px; height: 30px; padding: 0; border: 1px solid var(--line); border-radius: 7px; background: var(--card); cursor: pointer; }
-.assistant-feedback form > div > button:not(:disabled):hover { border-color: rgba(231,176,8,.55); background: rgba(231,176,8,.10); }
+/* Barra de reacción: reglas ACOTADAS a la barra (`[data-dw-feedback-bar]`). Antes eran `.assistant-feedback form …` y se filtraban a
+   cualquier formulario del widget (flex horizontal, botones de 34×30), lo que obligaba a variantes con !important. Así el formulario de
+   «Tengo una idea» usa el primitivo transversal `.section-feedback__form` sin ajustes. */
+.assistant-feedback [data-dw-feedback-bar] { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.assistant-feedback [data-dw-feedback-bar] > span, .assistant-feedback-thanks { color: var(--soft); font-size: .67rem; }
+.assistant-feedback [data-dw-feedback-bar] > div { display: flex; gap: 6px; }
+.assistant-feedback [data-dw-feedback-bar] > div > button { display: grid; place-items: center; width: 34px; height: 30px; padding: 0; border: 1px solid var(--line); border-radius: 7px; background: var(--card); cursor: pointer; }
+.assistant-feedback [data-dw-feedback-bar] > div > button:not(:disabled):hover { border-color: rgba(231,176,8,.55); background: rgba(231,176,8,.10); }
 .assistant-feedback button:disabled, .assistant-feedback textarea:disabled { opacity: .38; cursor: not-allowed; filter: grayscale(1); }
 .assistant-exchange:not(:last-child) .assistant-feedback button,
 .assistant-exchange:not(:last-child) .assistant-feedback textarea { opacity: .38; pointer-events: none; cursor: not-allowed; filter: grayscale(1); }
-.assistant-exchange:not(:last-child) .assistant-feedback form > span { display: none; }
-.assistant-exchange:not(:last-child) .assistant-feedback form { justify-content: flex-end; }
+.assistant-exchange:not(:last-child) .assistant-feedback [data-dw-feedback-bar] > span { display: none; }
+.assistant-exchange:not(:last-child) .assistant-feedback [data-dw-feedback-bar] { justify-content: flex-end; }
 .assistant-feedback-expanded { margin-top: 0; padding: 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--card); }
 .assistant-feedback .assistant-feedback-form { display: block; }
 .assistant-feedback-form label { display: block; margin-bottom: 7px; color: var(--ink); font-size: .72rem; font-weight: 700; }
@@ -96,8 +99,34 @@
 .assistant-feedback-form textarea:focus { outline: none; border-color: var(--gold); box-shadow: 0 0 0 3px rgba(231,176,8,.18); }
 .assistant-feedback-actions { display: grid !important; grid-template-columns: 1fr 1.4fr; gap: 8px !important; margin-top: 9px; }
 .assistant-feedback-actions button { width: auto !important; height: auto !important; min-height: 36px; padding: 7px !important; border-radius: 0 !important; }
-.assistant-feedback-thanks { padding: 5px 0 0 5px; }
-.assistant-route-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 7px; }
+.assistant-feedback-thanks { display: flex; justify-content: center; padding: 5px 0 0; }   /* confirmación (👍 o idea) centrada bajo la burbuja */
+/* Referencias inline sobre objetos mencionados (tratamiento gold de `.decision-detail a`, en app.css): ajustan línea como texto (un nombre
+   técnico largo puede partirse en el ancho del panel antes que desbordarlo) y el ícono de recurso externo acompaña al nombre. */
+.assistant-ref { overflow-wrap: anywhere; }
+/* Tema claro: el oro institucional sobre blanco no alcanza contraste de texto → mismo «gold de texto» que ya usa el link de Cartelera
+   (`--gold-ink` de cartelera_portal.css: #7A6000 en claro; en oscuro, el oro). */
+.content-theme-light .assistant-ref { color: #7A6000; }
+.assistant-ref:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; border-radius: 2px; }
+.assistant-ref .assistant-ref__ext { display: inline-block; width: .8em; height: .8em; margin-left: 2px; vertical-align: -.05em; }
+/* ── ACCIÓN CONTEXTUAL COMPACTA del Hub (`.dw-action`) — primitivo transversal por NATURALEZA de la acción, no por vertical ────────────
+   Patrón capitalizado de Comunidad (Cartelera Virtual: «Me gusta», «Comentar») y homologado en el Asistente y el Feedback: píldora baja,
+   borde visible, tipografía y padding compactos, SVG cuando aporta significado, hover/foco consistentes y ambos temas (tokens del Hub).
+   Para: acciones secundarias SOBRE el objeto en contexto (continuar, derivar, explicar, reintentar). NO para: el CTA principal (`.btn-primary`),
+   la navegación (links), herramientas iconográficas (`.table-action-btn`, `.panel-close`) ni la acción destructiva (`--danger`, con confirmación).
+   `--quiet`: ícono neutro que toma el oro en hover (acción secundaria dentro de un grupo). */
+.dw-action { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 4px 11px; border: 1px solid var(--dw-action-line); border-radius: 999px; background: transparent; color: var(--dw-action-ink); font: 600 .69rem/1.2 var(--sans); text-align: left; text-decoration: none; white-space: nowrap; cursor: pointer; transition: border-color .15s ease, background .15s ease; }
+.dw-action .dw-ic { color: var(--gold); }
+.dw-action:not(:disabled):hover, .dw-action:focus-visible { border-color: color-mix(in srgb, var(--gold) 55%, var(--dw-action-line)); background: color-mix(in srgb, var(--gold) 9%, transparent); outline: none; }
+.dw-action:focus-visible { box-shadow: 0 0 0 2px color-mix(in srgb, var(--gold) 45%, transparent); }
+.dw-action:disabled { opacity: .5; cursor: not-allowed; }
+.dw-action--quiet .dw-ic { color: var(--dw-action-soft); }
+.dw-action--quiet:not(:disabled):hover .dw-ic, .dw-action--quiet:focus-visible .dw-ic { color: var(--gold); }
+/* Asistente: solo su composición (fila / apilado); el tratamiento es `.dw-action`. */
+.assistant-route-actions { display: grid; gap: 8px; }
+.assistant-route-row, .assistant-choice { display: flex; flex-wrap: wrap; gap: 6px; }
+/* Elección entre varias opciones (aclaraciones): apilada, una por línea, con el texto completo y la flecha al final (elegir = continuar). */
+.assistant-choice--stacked { display: grid; gap: 4px; }
+.assistant-choice--stacked .dw-action { display: flex; width: 100%; justify-content: space-between; gap: 10px; min-height: 30px; padding: 6px 11px; border-radius: 8px; white-space: normal; }
 .assistant-route-explain, .assistant-route-ask { display: contents; }
 /* Entradas del Catálogo devueltas por el asistente: filas compactas clickeables (una columna, ancho real del sidebar; sin tabla ni botones grandes). */
 .assistant-results { display: grid; gap: 5px; margin: 9px 0 0; padding: 0; list-style: none; }
@@ -115,13 +144,6 @@
 .assistant-results-note { margin: 8px 0 0; padding-top: 7px; border-top: 1px solid var(--line); color: var(--soft); font: .67rem/1.45 var(--sans); }
 .content-theme-dark .assistant-result-row { border-left-color: rgba(231,176,8,.6); }
 .content-theme-dark .assistant-result-row:hover { border-color: rgba(231,176,8,.5); background: rgba(231,176,8,.12); }
-.assistant-route-action { display: grid; min-height: 38px; place-items: center; padding: 8px 10px; border: 1px solid rgba(194,145,0,.34); background: color-mix(in srgb, var(--card) 91%, var(--gold)); color: var(--ink); font: 700 .69rem var(--sans); text-align: center; text-decoration: none; cursor: pointer; }
-.assistant-route-action:hover { border-color: rgba(194,145,0,.55); background: color-mix(in srgb, var(--card) 84%, var(--gold)); }
-.assistant-route-action--secondary { width: 100%; border-color: var(--line); background: var(--card); color: var(--ink); }
-.content-theme-dark .assistant-route-action { border-color: rgba(231,176,8,.28); background: rgba(231,176,8,.08); }
-.content-theme-dark .assistant-route-action:hover { border-color: rgba(231,176,8,.5); background: rgba(231,176,8,.14); }
-.content-theme-dark .assistant-route-action--secondary { border-color: var(--line); background: var(--card); }
-.content-theme-dark .assistant-route-action--secondary:hover { border-color: rgba(231,176,8,.7); background: rgba(231,176,8,.12); }
 .section-analysis-output { padding: 0; border: 0; background: transparent; overflow-wrap: anywhere; }
 .section-analysis-output h1, .section-analysis-output h2, .section-analysis-output h3 { margin: 13px 0 7px; color: var(--ink); font-size: .88rem; line-height: 1.35; }
 .section-analysis-output p, .section-analysis-output li { font-size: .73rem; line-height: 1.55; }
@@ -177,11 +199,13 @@
 .wizard-back-only { display: grid; margin-top: 18px; }
 .wizard-back-only .btn-secondary { width: 100%; }
 .tree-feedback { margin-top: 16px; padding: 14px 16px; border: 1px solid var(--line); background: var(--card); }
-.tree-feedback form { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.tree-feedback form > span { color: var(--soft); font-size: .76rem; }
-.tree-feedback form div { display: flex; gap: 7px; }
-.tree-feedback button { width: 38px; height: 34px; border: 1px solid var(--line); background: var(--card); font-size: 1rem; cursor: pointer; }
-.tree-feedback button:hover { border-color: rgba(231,176,8,.55); background: rgba(231,176,8,.1); }
+/* Barra del componente de Feedback (`partials/dw_feedback.html`, layout inline): reglas ACOTADAS a `[data-dw-feedback-bar]`. Antes eran
+   `.tree-feedback form/button` y se filtraban al selector de reacciones y al registro estructurado del caso. */
+.tree-feedback [data-dw-feedback-bar] { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.tree-feedback [data-dw-feedback-bar] > span { color: var(--soft); font-size: .76rem; }
+.tree-feedback-thanks { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.tree-feedback-thanks small { color: var(--soft); font: .68rem var(--mono); }
+.feedback-form-header .dw-rxp-main--chosen { flex: none; }
 .feedback-thanks { display: flex; align-items: center; gap: 9px; }
 .feedback-thanks p { margin: 0; color: var(--soft); font-size: .76rem; }
 .copilot-panel .btn-secondary { background: var(--card); }
@@ -398,7 +422,7 @@
 .tree-feedback .tree-feedback-form { display: block; }
 .tree-feedback-expanded { padding: 18px; }
 .feedback-form-header { display: flex; align-items: flex-start; gap: 11px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
-.feedback-form-header > span { font-size: 1.2rem; line-height: 1.2; }
+.feedback-form-header > span:not(.dw-rxp-main) { font-size: 1.2rem; line-height: 1.2; }
 .feedback-form-header strong { display: block; font-size: .88rem; color: var(--ink); }
 .feedback-form-header p { margin: 3px 0 0; color: var(--soft); font-size: .74rem; line-height: 1.45; }
 .feedback-field { display: grid; gap: 6px; margin-top: 14px; }
@@ -2786,7 +2810,7 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
   content: none !important;
   margin: 0 !important;
 }
-.catalog-feedback { margin-top: 30px; }
+.catalog-feedback, #catalog-feedback { margin-top: 30px; }   /* por id también: el agradecimiento de «Tengo una idea» (/trees/suggest) reemplaza al widget */
 
 
 /* Bloques de codigo markdown con accion nativa de copia. Aplica al pipeline
@@ -3075,6 +3099,13 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
 }
 .chart-tooltip p { margin: 0 0 3px; white-space: normal; }
 .chart-tooltip p:last-child { margin-bottom: 0; }
+/* Opciones de composición del MISMO tooltip (no variantes por vertical):
+   `--label` → etiqueta breve de una acción, ajustada a su contenido (sin el ancho mínimo pensado para datos de gráficos);
+   `.is-tooltip-below` en el ancla → abre hacia abajo (acciones en cabeceras); `.is-tooltip-end` → alineado al borde final del ancla
+   (acciones sobre el margen derecho: no desborda ni genera scroll). */
+.chart-tooltip--label { min-width: 0; width: max-content; max-width: 240px; }
+.chart-tooltip-anchor.is-tooltip-below .chart-tooltip { bottom: auto; top: calc(100% + 7px); }
+.chart-tooltip-anchor.is-tooltip-end .chart-tooltip { left: auto; right: 0; transform: none; }
 /* (i) en el ENCABEZADO de una card (`.dashboard-section__head`): el tooltip abre HACIA ABAJO, porque `.dashboard-section` recorta (`overflow:hidden`) lo que salga por encima de su borde superior. */
 .dashboard-section__head .chart-tooltip { bottom: auto; top: calc(100% + 7px); }
 .dashboard-section__head .chart-tooltip-anchor { display: inline-flex; align-items: center; }

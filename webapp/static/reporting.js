@@ -1130,9 +1130,7 @@ const state = {
   // dentro de un tab YA hidratado nunca vuelva a mostrar el modo
   // "solo tabs + loader inicial".
   reportingTabHydrated: { cartera: false, rentabilidad: false, horasvendidas: false, comercial: false, calendario: false, capacidad: false },
-  // Feedback "¿Qué te pareció este reporte?" por MAIN TAB (ver
-  // reportingFeedbackHtml): undefined | "sending" | "up" | "down" | "error".
-  reportingFeedback: {},
+  // Feedback "¿Qué te pareció este reporte?": su estado lo gobierna el componente compartido (ver reportingFeedbackHtml).
 };
 // Año de Inicio default — se resuelve DESPUÉS del literal porque
 // carteraDefaultAnioInicio() lee `state` (carteraStatus/filters).
@@ -2277,85 +2275,23 @@ function reportingTelemetry(event, payload) {
 
 // --- Feedback "¿Qué te pareció este reporte?" (Shared Hub Feedback, ver
 // ticket §A) — UN control por MAIN TAB, SIEMPRE el último elemento del tab.
-// Reusa la capacidad compartida vía POST JSON a /feedback (mismo store +
-// mismo pipeline de Activity que Copilot); no es un almacenamiento propio de
-// Reporting. Estado por tab: undefined | "sending" | "up" | "down" | "error".
+// Persiste en el store compartido + pipeline de Activity (mismo contrato de siempre).
 const REPORT_TAB_TITLES = {
   cartera: "Cartera / Proyectos", rentabilidad: "Rentabilidad", horasvendidas: "Horas Vendidas",
   comercial: "Participación / Comercial", calendario: "Calendario", capacidad: "Horas Productivas",
 };
 function reportingFeedbackHtml(expId) {
-  // Reusa la MISMA botonera + formulario compartidos que el feedback de sección
-  // del Copiloto (clases `.section-feedback*` de tools.css): discreta, ALINEADA
-  // A LA DERECHA, sin línea divisoria, opacity .4→1 en hover del contenido,
-  // tipografía mono, react greyed/gold. Mismo flujo transversal: 👍 registra al
-  // toque; 👎 despliega la línea de comentario OPCIONAL (no un "Gracias" seco).
-  // Copy fijo del ticket §A1. Estado por tab: undefined|"form"|"sending"|"up"|"down".
-  const st = state.reportingFeedback[expId];
-  if (st === "up" || st === "down") {
-    return `<div class="section-feedback" data-report-tab="${esc(expId)}">
-      <p class="section-feedback__thanks" role="status">
-        <span class="section-feedback__emoji">${st === "up" ? "👍" : "👎"}</span> ¡Gracias!
-      </p>
-    </div>`;
-  }
-  if (st === "form") {
-    return `<div class="section-feedback" data-report-tab="${esc(expId)}">
-      <div class="section-feedback__form">
-        <label class="section-feedback__formlabel" for="rfc-${esc(expId)}">¿Qué esperabas o qué faltó acá? <span>(opcional)</span></label>
-        <textarea id="rfc-${esc(expId)}" rows="2" placeholder="Una línea alcanza…"></textarea>
-        <div class="section-feedback__formactions">
-          <button type="button" class="section-feedback__ghost" onclick="cancelReportingFeedback('${esc(expId)}')">Cancelar</button>
-          <button type="button" class="section-feedback__send" onclick="submitReportingFeedback('${esc(expId)}','down')">Enviar</button>
-        </div>
-      </div>
-    </div>`;
-  }
-  const disabled = st === "sending" ? "disabled" : "";
-  return `<div class="section-feedback" data-report-tab="${esc(expId)}">
-    <div class="section-feedback__bar">
-      <span class="section-feedback__prompt">¿Qué te pareció este reporte?</span>
-      <button type="button" class="section-feedback__react" ${disabled} aria-label="Útil" title="Útil"
-        onclick="submitReportingFeedback('${esc(expId)}','up')">👍</button>
-      <button type="button" class="section-feedback__react" ${disabled} aria-label="Puede mejorar" title="Puede mejorar"
-        onclick="openReportingFeedbackForm('${esc(expId)}')">👎</button>
-      ${st === "error" ? `<span class="section-feedback__prompt">reintentá</span>` : ""}
-    </div>
-  </div>`;
-}
-// El 👎 despliega la línea de comentario OPCIONAL (todavía no persiste — igual
-// que el section-feedback del Copiloto), Cancelar vuelve a la botonera.
-function openReportingFeedbackForm(expId) {
-  state.reportingFeedback[expId] = "form";
-  render();
-}
-function cancelReportingFeedback(expId) {
-  state.reportingFeedback[expId] = undefined;
-  render();
-}
-async function submitReportingFeedback(expId, rating) {
-  if (state.reportingFeedback[expId] === "sending") return;
-  // El comentario (opcional) del 👎 se lee del textarea ANTES de re-renderizar.
-  let comment = "";
-  if (rating === "down") {
-    const ta = document.getElementById("rfc-" + expId);
-    if (ta) comment = ta.value || "";
-  }
-  state.reportingFeedback[expId] = "sending";
-  render();
-  try {
-    const body = { report_tab: expId, rating };
-    if (comment.trim()) body.comment = comment.trim();
-    const resp = await fetch("/operaciones/reporting/integral/feedback", {
-      method: "POST",
-      body: new URLSearchParams(body),
-    });
-    const data = await resp.json();
-    state.reportingFeedback[expId] = data.state === "ok" ? rating : "error";
-  } catch (e) {
-    state.reportingFeedback[expId] = "error";
-  }
-  render();
+  // Componente de Feedback del Hub (`partials/dw_feedback.html`): Reporting solo DECLARA su contexto — pregunta, reporte evaluado,
+  // endpoint y contrato (`report_tab` + `rating=up`, JSON `{state}`) — y `hub_reactions.js` instancia el MISMO componente (picker,
+  // «Me resultó útil», «Tengo una idea», estados por clave que sobreviven a cada render()). Sin markup ni estado propios.
+  // La idea va a `/trees/suggest` con su contexto: nunca se registra como `down` ni altera `reporting.feedback`.
+  return window.dwFeedback ? window.dwFeedback.html({
+    key: "reporting:" + expId,
+    prompt: "¿Qué te pareció este reporte?",
+    action: "/operaciones/reporting/integral/feedback",
+    fields: { report_tab: expId },
+    idea: { module: "operaciones/reporting", context: "reporting:" + expId, prompt: "¿Qué idea tenés para mejorar este reporte?" },
+  }) : "";
 }
 
 // --- Backbone de secciones draggable/colapsables (Align with Hub backbone

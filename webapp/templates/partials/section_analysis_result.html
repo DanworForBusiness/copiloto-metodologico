@@ -18,8 +18,10 @@
     {% if llm_answer %}<p class="assistant-llm-disclaimer">Respuesta generada con IA. Validala antes de aplicarla: puede no estar 100% respaldada por el marco Danwor.</p>{% endif %}
     {% if diagnostic_mode and result %}<details class="analysis-prompt"><summary>Ver prompt de diagnóstico</summary><pre>{{ result.prompt }}</pre></details>{% endif %}
   </div>
+  {#- Orden ÚNICO para todos los patrones de respuesta: burbuja (con sus advertencias) → Feedback → acciones de continuidad. -#}
   {% include "partials/assistant_feedback.html" %}
-  {% if route or explain %}
+  {#- Sin acciones de continuidad ni alternativas (p. ej. todas las menciones quedaron resueltas inline) no se dibuja la botonera vacía. -#}
+  {% if (route and (route.actions or route.explain_module)) or (explain and (explain.actions or explain.explain_module)) %}
   {% include "partials/assistant_route_actions.html" %}
   {% endif %}
   {% endif %}

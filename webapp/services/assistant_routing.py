@@ -21,7 +21,7 @@ from core.routing_scorers import (
     _asset_platform_axes,
 )
 from core.utils import norm_text, slugify
-from webapp.services import assistant_navigation
+from webapp.services import assistant_navigation, assistant_refs
 from webapp.services.assistant_context import QueryContext, QueryDraft
 from webapp.services.assistant_capabilities import (
     CURATED_RESOURCE, MODE_EXTERNAL, MODE_LINK, ResultItem, ResultSet, is_external_url, valid_target,
@@ -77,6 +77,18 @@ class AssistantRoute:
     # (metodológica, recursos curados, Informe de Cliente, LLM) no deja contexto: el borde HTTP lo borra, así un seguimiento nunca hereda filtros de una consulta ajena.
     state: QueryDraft | None = None
     keep_state: bool = False
+    # Referencias INLINE: destinos ya resueltos de los objetos MENCIONADOS en `message` (cada mención lleva la marca de su índice, ver
+    # `assistant_refs`). Se dibujan como link sobre el propio nombre y NO se repiten como botones; `actions` queda para la continuidad
+    # conversacional y las alternativas de decisión.
+    references: tuple[AssistantRouteAction, ...] = ()
+    # Texto CON las marcas de referencia (lo arma el productor); `message` queda siempre como texto limpio (se persiste, va como historial
+    # al LLM y se lee en métricas). Lo completa `__post_init__`: el productor solo pasa su texto marcado como `message`.
+    markup: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.markup:
+            object.__setattr__(self, "markup", self.message)
+        object.__setattr__(self, "message", assistant_refs.plain(self.message))
 
 
 def _module_url(stem: str, pack_name: str, heading: str = "") -> str:
@@ -542,7 +554,8 @@ def _navigation_route(nav, question: str) -> "AssistantRoute":
     def _action(a: tuple) -> AssistantRouteAction:
         mode = a[2] if len(a) > 2 else "embed"
         return AssistantRouteAction(a[0], a[1], embed=mode == "embed", activate_tab=mode.split(":", 1)[1] if mode.startswith("tab:") else "", ask=mode.split(":", 1)[1] if mode.startswith("ask:") else "")
-    return AssistantRoute(nav.message, tuple(_action(a) for a in nav.actions), question, result=nav.result, state=nav.state, keep_state=nav.keep_state)
+    return AssistantRoute(nav.message, tuple(_action(a) for a in nav.actions), question, result=nav.result, state=nav.state, keep_state=nav.keep_state,
+                          references=tuple(_action(a) for a in nav.references))
 
 
 def _domains_catalog_action(pack_name: str) -> AssistantRouteAction | None:
@@ -734,11 +747,11 @@ class AssistantRoutingService:
         cds_name = _find_matching_cds(question)
         if cds_name:
             url = f"/catalog/cds?name={quote(cds_name)}&pack={quote(pack_name)}"
+            refs = assistant_refs.References()
             return AssistantRoute(
-                f"**{cds_name}** es una CDS view del catálogo de APIs corporativas de "
-                f"extracción. Acá está su definición y código.",
-                (AssistantRouteAction("Ver la CDS view", url, embed=True),),
-                question,
+                f"**{refs(cds_name, AssistantRouteAction('Ver la CDS view', url, embed=True))}** es una CDS view del "
+                f"catálogo de APIs corporativas de extracción. Desde su nombre abrís su definición y código.",
+                (), question, references=refs.tuple(),
             )
 
         # Inventario de CDS ("¿qué CDS tenemos armadas?"): la respuesta es el catálogo
@@ -753,28 +766,26 @@ class AssistantRoutingService:
                         if i != -1:
                             return name[i + len(mk):]
                     return name.rsplit("_", 1)[-1]
+                refs = assistant_refs.References()
+
+                def _linked(names: list[str]) -> str:
+                    return ", ".join(
+                        refs(_subj(n), AssistantRouteAction(_subj(n) if n in inv["other"] else f"{'FACT' if n in inv['fact'] else 'DIM'} · {_subj(n)}",
+                                                            f"/catalog/cds?name={quote(n)}&pack={quote(pack_name)}", embed=True))
+                        for n in names
+                    )
                 bullets = []
                 if inv["fact"]:
-                    bullets.append(f"- **FACT** ({len(inv['fact'])}): {', '.join(_subj(n) for n in inv['fact'])}")
+                    bullets.append(f"- **FACT** ({len(inv['fact'])}): {_linked(inv['fact'])}")
                 if inv["dim"]:
-                    bullets.append(f"- **DIM** ({len(inv['dim'])}): {', '.join(_subj(n) for n in inv['dim'])}")
+                    bullets.append(f"- **DIM** ({len(inv['dim'])}): {_linked(inv['dim'])}")
                 if inv["other"]:
-                    bullets.append(f"- **Otras** ({len(inv['other'])}): {', '.join(_subj(n) for n in inv['other'])}")
+                    bullets.append(f"- **Otras** ({len(inv['other'])}): {_linked(inv['other'])}")
                 message = (
                     f"En el catálogo de **APIs corporativas de extracción** tenemos "
                     f"{len(inv['names'])} CDS views ya armadas:\n\n" + "\n".join(bullets)
                 )
-                order = inv["fact"] + inv["dim"] + inv["other"]
-                actions = tuple(
-                    AssistantRouteAction(
-                        _subj(n) if n in inv["other"] else
-                        f"{'FACT' if n in inv['fact'] else 'DIM'} · {_subj(n)}",
-                        f"/catalog/cds?name={quote(n)}&pack={quote(pack_name)}",
-                        embed=True,
-                    )
-                    for n in order[:12]
-                )
-                return AssistantRoute(message, actions, question)
+                return AssistantRoute(message, (), question, references=refs.tuple())
 
         # Catálogo primero para consultas de DISPONIBILIDAD ("¿tenemos X?"): un flujo
         # REAL publicado es mejor respuesta —y evidencia— que ofrecer un template para
@@ -792,10 +803,11 @@ class AssistantRoutingService:
                        f"&pack={quote(pack_name)}")
                 # Una consulta de EXISTENCIA confirma e identifica el recurso; no le atribuye ninguna evaluación (el veredicto legado «mirada Danwor» y su ícono ya no se muestran acá,
                 # y tampoco se lo reemplaza por el Juicio vigente: eso es otra pregunta, que se resuelve con «ver assessment de …»).
+                refs = assistant_refs.References()
                 return AssistantRoute(
-                    f"Sí — ya tenemos esto implementado: **{label}**. Miralo en el catálogo.",
-                    (AssistantRouteAction("Ver en el catálogo", url, embed=True),),
-                    question,
+                    f"Sí — ya tenemos esto implementado: **{refs(label, AssistantRouteAction('Ver en el catálogo', url, embed=True))}**. "
+                    f"Miralo en el catálogo.",
+                    (), question, references=refs.tuple(),
                 )
 
         # Conexión como evidencia: para how-tos de configuración/conexión ("cómo
@@ -839,12 +851,13 @@ class AssistantRoutingService:
                 label = f"{conn.cliente} · {conn.type_label}".strip(" ··")
                 url = (f"/catalog/connections/detail?cliente={quote(conn.cliente)}"
                        f"&type_id={quote(conn.type_id)}&pack={quote(pack_name)}")
+                refs = assistant_refs.References()
+                linked = refs(conn.connection, AssistantRouteAction("Ver la conexión en el catálogo", url, embed=True))
                 return AssistantRoute(
                     f"Referencia: **{conn.cliente}** ya tiene una conexión "
-                    f"**{conn.connection}** ({conn.type_label}) resuelta en Datasphere. "
+                    f"**{linked}** ({conn.type_label}) resuelta en Datasphere. "
                     f"Mirá cómo está configurada en el catálogo.",
-                    (AssistantRouteAction("Ver la conexión en el catálogo", url, embed=True),),
-                    question,
+                    (), question, references=refs.tuple(),
                 )
 
         # Inventario de conectividad ("¿qué conexiones tenemos resueltas?"): no hay un
@@ -946,16 +959,16 @@ class AssistantRoutingService:
                        "buena": "reutilizable con nota de especificidad",
                        "parcial": "inspiración conceptual con reservas"}.get(v_verdict, v_verdict)
             if v_matches:
-                bullets = "\n".join(f"- {e.icon} **{e.cliente} · {e.dominio}**" for e in v_matches)
-                actions = tuple(
-                    AssistantRouteAction(
+                refs = assistant_refs.References()
+                bullets = "\n".join(
+                    f"- {e.icon} **" + refs(f"{e.cliente} · {e.dominio}", AssistantRouteAction(
                         f"{e.cliente} · {e.dominio}",
                         (f"/catalog/flow?cliente={quote(e.cliente)}"
                          f"&dominio={quote(e.dominio)}&flow={quote(e.entry_id)}"
                          f"&pack={quote(pack_name)}"),
                         embed=True,
-                    )
-                    for e in v_matches[:12]
+                    )) + "**"
+                    for e in v_matches
                 )
                 _tiene = "tiene" if len(v_matches) == 1 else "tienen"
                 _flujo = "flujo desarrollado" if len(v_matches) == 1 else "flujos desarrollados"
@@ -964,7 +977,7 @@ class AssistantRoutingService:
                     f"modelos de datos): {len(v_matches)} {_flujo} {_tiene} mirada Danwor "
                     f"**{v_verdict}** ({v_label}).\n\n{bullets}\n\n---\n\n"
                     f"Si en cambio querías una respuesta general, hacé click en «Explicame vos».",
-                    actions, question, stem, explain_prompt=_GENERAL_EXPLAIN,
+                    (), question, stem, explain_prompt=_GENERAL_EXPLAIN, references=refs.tuple(),
                 )
             return AssistantRoute(
                 f"Asumiendo que buscás **capital interno** (nuestro catálogo de dominios): "
@@ -1058,6 +1071,7 @@ class AssistantRoutingService:
                 suppressed = (_display_heading(str(section.get("heading") or "")), str(section.get("heading") or ""))
                 section = None
             actions: list[AssistantRouteAction] = []
+            refs = assistant_refs.References()
             # La sección lidera (y el asset pasa a "recurso relacionado") cuando:
             #  (a) es una pregunta comparativa cuyos ejes el asset no cubre, o
             #  (b) NO hay intención operativa (how-to) y sí hay sección que matchea.
@@ -1087,8 +1101,7 @@ class AssistantRoutingService:
                 if section:
                     section_module = str(section.get("module") or stem)
                     section_heading = str(section.get("heading") or "")
-                    section_label = _display_heading(section_heading)
-                    actions.append(AssistantRouteAction(
+                    section_label = refs(_display_heading(section_heading), AssistantRouteAction(
                         "Ir a la sección",
                         _module_url(section_module, pack_name, section_heading),
                     ))
@@ -1120,10 +1133,10 @@ class AssistantRoutingService:
                 # con la sección, ej. Template CDS ↔ "convención") no debe colgarse
                 # de una respuesta de sección: sería ruido sin relación real.
                 if asset.get("_score", 0) >= 18 and (related_action := _related_asset_action(asset, pack_name)):
-                    actions.append(related_action)
-                    message += f" También encontré un recurso relacionado: **{asset_label}**."
+                    linked = refs(asset_label, related_action)
+                    message += f" También encontré un recurso relacionado: **{linked}**."
                 return AssistantRoute(
-                    message, tuple(actions), question, explain_module, explain_heading,
+                    message, tuple(actions), question, explain_module, explain_heading, references=refs.tuple(),
                 )
             explain_module = asset_module
             explain_heading = ""
@@ -1136,15 +1149,16 @@ class AssistantRoutingService:
                 ))
                 explain_module = section_module
                 explain_heading = section_heading
-            if asset_action := _asset_action(asset, pack_name):
-                actions.append(asset_action)
+            asset_action = _asset_action(asset, pack_name)
+            linked = (refs(asset_label, asset_action)
+                      if asset_action else asset_label)
             source_label = str(asset.get("_module_label") or "").strip()
             location = f" en **{source_label}**" if source_label else ""
-            message = f"Encontré un recurso curado{location}: **{asset_label}**."
+            message = f"Encontré un recurso curado{location}: **{linked}**."
             if section:
                 message += " También hay una sección metodológica relacionada."
             return AssistantRoute(
-                message, tuple(actions), question, explain_module, explain_heading,
+                message, tuple(actions), question, explain_module, explain_heading, references=refs.tuple(),
             )
 
         if local_section:
@@ -1154,12 +1168,11 @@ class AssistantRoutingService:
                 suppressed = suppressed or (_display_heading(heading), heading)
             else:
                 label = _display_heading(heading)
+                refs = assistant_refs.References()
+                linked = refs(label, AssistantRouteAction("Ir a la sección", _module_url(stem, pack_name, heading)))
                 return AssistantRoute(
-                    f"Encontré una sección del módulo que puede ayudarte: **{label}**.",
-                    (AssistantRouteAction("Ir a la sección", _module_url(stem, pack_name, heading)),),
-                    question,
-                    stem,
-                    heading,
+                    f"Encontré una sección del módulo que puede ayudarte: **{linked}**.",
+                    (), question, stem, heading, references=refs.tuple(),
                 )
 
         cross_section = _find_cross_module_section(question, stem, pack_name)
@@ -1167,13 +1180,12 @@ class AssistantRoutingService:
             target = str(cross_section.get("module") or "")
             heading = str(cross_section.get("heading") or "")
             module_label = str(cross_section.get("module_label") or target)
+            refs = assistant_refs.References()
+            linked = refs(_display_heading(heading), AssistantRouteAction("Ir a la sección", _module_url(target, pack_name, heading)))
             return AssistantRoute(
                 f"Este tema está cubierto con más precisión en **{module_label}**, "
-                f"sección **{_display_heading(heading)}**.",
-                (AssistantRouteAction("Ir a la sección", _module_url(target, pack_name, heading)),),
-                question,
-                target,
-                heading,
+                f"sección **{linked}**.",
+                (), question, target, heading, references=refs.tuple(),
             )
 
         redirect = get_out_of_scope_redirect(question, stem, pack_name)

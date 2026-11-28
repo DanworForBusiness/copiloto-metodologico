@@ -1,0 +1,18 @@
+{#- Destino de una acción del Asistente: ÚNICA fuente de los atributos de navegación, compartida por la botonera de continuidad
+    (`assistant_route_actions.html`) y por las referencias inline sobre objetos mencionados (`webapp.services.assistant_refs`), para que
+    el link y el botón ejecuten exactamente la misma acción. Modos (fijados por el servidor, nunca texto del usuario):
+      · activate_tab → pestaña de «Herramientas de decisión» de esta página (Alpine `toolTab`); href de respaldo.
+      · embed        → detalle de catálogo por HTMX en #catalog-detail-slot (Volver y «Abrir CDS View» funcionan); href de respaldo.
+      · external     → recurso externo en otra pestaña.  · resto → navegación. -#}
+{%- from "partials/dw_icons.html" import dw_icon -%}
+{%- macro route_target_attrs(action) -%}
+{%- if action.activate_tab %} href="{{ action.url }}" @click.prevent="toolTab='{{ action.activate_tab }}'"
+{%- elif action.embed %} href="{{ action.url }}" hx-get="{{ action.url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML"
+{%- else %} href="{{ action.url }}"{% if action.external %} target="_blank" rel="noopener noreferrer"{% endif %}
+{%- endif -%}
+{%- endmacro -%}
+
+{#- Referencia inline: el propio nombre del objeto en la respuesta, con el tratamiento de link gold del panel (`.decision-detail a`). -#}
+{%- macro route_ref(action, inner) -%}
+<a class="assistant-ref"{{ route_target_attrs(action) }} title="{{ action.label }}">{{ inner }}{% if action.external %}{{ dw_icon('external', 'dw-ic assistant-ref__ext') }}{% endif %}</a>
+{%- endmacro -%}

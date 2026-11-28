@@ -34,13 +34,14 @@ import time
 
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse
+from markupsafe import Markup
 
 from core.content_registry import DEFAULT_PACK, resolve_pack
 from core.prompts import ALL_ACTIONS, MODULE_ACTIONS
 from core.utils import slugify
 from webapp import access
 from webapp.copilot_runtime import assistant_store
-from webapp.services import auth_service
+from webapp.services import assistant_refs, auth_service
 from webapp.services.activity_service import log_activity, log_verbose
 from webapp.services.activity_context import SCOPE_COPILOT, AREA_ASSISTANT
 from webapp.services.assistant_service import (
@@ -164,6 +165,17 @@ def analyze_section(
     )
 
 
+def _route_html(route) -> str:
+    """HTML de una respuesta del router con sus REFERENCIAS INLINE: cada objeto mencionado (marcado por índice al armar el texto) pasa a
+    ser un link sobre su propio nombre, con el MISMO destino que tendría su botón (`partials/assistant_route_link.html`)."""
+    link = templates.get_template("partials/assistant_route_link.html").module.route_ref
+    refs = route.references
+
+    def _one(i: int, inner: str) -> str:
+        return str(link(refs[i], Markup(inner))) if 0 <= i < len(refs) else inner
+    return assistant_refs.resolve(render_llm_html(route.markup), _one)
+
+
 @router.post("/modules/{stem}/assistant/chat", response_class=HTMLResponse)
 def assistant_chat(
     request: Request,
@@ -213,6 +225,8 @@ def assistant_chat(
                 answer_context = target_section.markdown if target_section else None
         ia_blocked = False
         if route:
+            # Texto y HTML PERSISTIDOS sin marcas ni links (historial del LLM, métricas, historia del dashboard); la respuesta en vivo
+            # resuelve las referencias inline sobre los objetos mencionados (`_route_html`).
             answer = route.message
             answer_html = render_llm_html(answer)
         elif readonly:
@@ -309,7 +323,7 @@ def assistant_chat(
             "result": None,
             "reply": reply,
             "user_message": question.strip(),
-            "answer_html": answer_html,
+            "answer_html": _route_html(route) if (route is not None and route.references and reply is not None) else answer_html,
             "error": error,
             "diagnostic_mode": access.is_diagnostic(request),
             "user_first_name": first_name,
@@ -371,7 +385,7 @@ def assistant_feedback(request: Request, reply_id: str, rating: str = Form("")):
         raise HTTPException(400, str(exc)) from exc
     _log_assistant_feedback_reaction(reply, "up", user)
     return _assistant_feedback_template(
-        request, "partials/assistant_feedback_thanks.html", reply,
+        request, "partials/assistant_feedback_thanks.html", reply, rating="up",            # solo presentación: el botón refleja la reacción
     )
 
 
@@ -395,7 +409,7 @@ def assistant_feedback_submit(
         )
     _log_assistant_feedback_reaction(reply, "down", user)
     return _assistant_feedback_template(
-        request, "partials/assistant_feedback_thanks.html", reply,
+        request, "partials/assistant_feedback_thanks.html", reply, rating="down",          # solo presentación: el botón refleja la reacción
     )
 
 

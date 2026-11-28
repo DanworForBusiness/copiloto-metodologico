@@ -74,7 +74,7 @@ def test_the_fixture_reproduces_the_contradiction_the_legacy_route_used_to_make(
 def test_questions_naming_a_line_of_business_list_only_entries_effectively_classified_there(world, question):
     r = _route(question)
     assert r is not None and "en la línea de negocio **Ventas** (clasificación efectiva)" in r.message
-    assert "ya tenemos esto implementado" not in r.message and not any(a.label == "Ver en el catálogo" for a in r.actions)      # no la ruta de disponibilidad legada
+    assert "ya tenemos esto implementado" not in r.message and not any(a.label == "Ver en el catálogo" for a in (r.actions + r.references))      # no la ruta de disponibilidad legada
     groups = _effective(world)
     listed = _listed(r)
     assert listed and all(groups[c] == "SALES" for c in listed)                          # TODO lo atribuido a Ventas pertenece efectivamente a Ventas
@@ -109,7 +109,7 @@ def test_the_broad_summary_is_unchanged(world):
     r = _route("¿Qué dominios hay disponibles?")
     groups = _effective(world)
     assert r.message.startswith(f"El Catálogo contiene **{len(groups)} entradas navegables**")
-    assert f"Ventas: {sum(1 for g in groups.values() if g == 'SALES')}" in r.message and "**Sin clasificar**: 2" in r.message and len(r.actions) == 1
+    assert f"Ventas: {sum(1 for g in groups.values() if g == 'SALES')}" in r.message and "**Sin clasificar**: 2" in r.message and len((r.actions + r.references)) == 1
 
 
 def test_an_ambiguous_line_of_business_question_cannot_fall_back_to_the_legacy_domain_match(world):
@@ -117,12 +117,12 @@ def test_an_ambiguous_line_of_business_question_cannot_fall_back_to_the_legacy_d
     for q in ("¿Qué catálogos de Ventas y Finanzas tenemos?", "¿Hay algo de Ventas o Finanzas?"):
         assert nav.names_line_of_business(q)
         r = _route(q)
-        assert r is None or ("ya tenemos esto implementado" not in r.message and not any(a.label == "Ver en el catálogo" for a in r.actions)), q
+        assert r is None or ("ya tenemos esto implementado" not in r.message and not any(a.label == "Ver en el catálogo" for a in (r.actions + r.references))), q
 
 
 def test_the_legacy_availability_route_still_serves_questions_that_do_not_name_a_line_of_business(world):
     r = _route("¿Tenemos algo de Despachos?")
-    assert r is not None and "ya tenemos esto implementado" in r.message and "Despachos" in r.message and any(a.label == "Ver en el catálogo" for a in r.actions)
+    assert r is not None and "ya tenemos esto implementado" in r.message and "Despachos" in r.message and any(a.label == "Ver en el catálogo" for a in (r.actions + r.references))
     assert not nav.names_line_of_business("¿Tenemos algo de Despachos?")
 
 
@@ -137,7 +137,7 @@ def test_conceptual_architecture_and_classification_questions_keep_working(world
 
 def test_client_report_navigation_and_other_catalogs_are_unchanged(world):
     r = _route("Ver informe de cliente para Alfa")
-    assert r.actions[0].label == "Ver informe" and r.actions[0].embed
+    assert (r.actions + r.references)[0].label == "Ver informe" and (r.actions + r.references)[0].embed
     for q in ("¿Qué catálogos de conexiones hay?", "ver el catálogo de APIs", "qué catálogos de seguridad hay"):
         assert nav._catalog_inventory(q, PACK, HOST) is None, q
     assert _route("¿Qué catálogos disponibles hay?").actions[0].label == "Abrir Catálogo"

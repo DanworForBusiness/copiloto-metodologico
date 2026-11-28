@@ -52,7 +52,7 @@ def test_the_informational_question_returns_a_short_summary_and_an_action_that_a
     assert r is not None and "Catálogo de datos" in r.message and "4 vistas" in r.message
     for view in ("**Modelos** (2)", "**Data Products** (1)", "**Líneas de negocio**", "**Clientes** (2)"):
         assert view in r.message
-    (a,) = r.actions
+    (a,) = (r.actions + r.references)
     assert a.label == "Abrir Catálogo" and a.activate_tab == "catalogo" and a.embed is False
     assert urlparse(a.url).path == f"/modules/{HOST}" and parse_qs(urlparse(a.url).query) == {"pack": [PACK], "tab": ["catalogo"]}
 
@@ -60,12 +60,12 @@ def test_the_informational_question_returns_a_short_summary_and_an_action_that_a
 @pytest.mark.parametrize("question", ["Abrí el Catálogo de datos", "abrir el catálogo", "Mostrame el catálogo de datos", "quiero ver el catálogo", "ir al catálogo del Hub"])
 def test_direct_requests_open_the_catalog(world, question):
     r = _route(question)
-    assert r is not None and "Catálogo de datos" in r.message and r.actions[0].label == "Abrir Catálogo" and r.actions[0].activate_tab == "catalogo"
+    assert r is not None and "Catálogo de datos" in r.message and (r.actions + r.references)[0].label == "Abrir Catálogo" and (r.actions + r.references)[0].activate_tab == "catalogo"
 
 
 def test_from_a_module_whose_catalog_tab_shows_something_else_it_navigates_to_a_module_that_has_the_data_catalog(world):
     r = _route("¿Qué catálogos disponibles hay?", stem=OTHER)
-    (a,) = r.actions
+    (a,) = (r.actions + r.references)
     assert a.activate_tab == "" and a.embed is False                                                        # no se activa una pestaña que muestra OTRO catálogo (conexiones)
     assert urlparse(a.url).path == f"/modules/{FIRST_HOST}" and parse_qs(urlparse(a.url).query)["tab"] == ["catalogo"]
 
@@ -76,14 +76,14 @@ def test_only_the_views_that_really_exist_are_listed(world):
     assert "Data Products" not in r.message and "3 vistas" in r.message
     world.patch.setattr(catalog_reads, "_catalog_entries", lambda: (cs, []))
     r = _route("¿Qué catálogos disponibles hay?")
-    assert "no tiene modelos ni Data Products" in r.message and r.actions == ()                             # catálogo vacío: explícito y sin acción
+    assert "no tiene modelos ni Data Products" in r.message and (r.actions + r.references) == ()                             # catálogo vacío: explícito y sin acción
 
 
 @pytest.mark.parametrize("question", ["¿Cómo diseñar un catálogo de datos?", "¿Qué es un catálogo de datos?", "para qué sirve un catálogo de datos", "explicame qué es un catálogo", "buenas prácticas de un catálogo de datos"])
 def test_methodological_and_conceptual_questions_are_not_navigation(world, question):
     assert nav._data_catalog(question, PACK, HOST) is None
     r = _route(question)
-    assert r is None or not any(a.activate_tab or "tab=catalogo" in a.url for a in r.actions)
+    assert r is None or not any(a.activate_tab or "tab=catalogo" in a.url for a in (r.actions + r.references))
 
 
 @pytest.mark.parametrize("question", ["catálogo", "abrí", "mostrame algo", "ver catálogo de conexiones", "qué catálogos de seguridad hay", "abrí el catálogo del cliente Pampa", "ver el catálogo de APIs"])
@@ -94,7 +94,7 @@ def test_ambiguous_or_other_catalogs_never_invent_a_destination(world, question)
 def test_the_client_report_flow_is_preserved(world):
     r = _route("Ver informe de cliente para Pampa")
     assert r is not None and "Informe de Cliente de Pampa" in r.message
-    assert r.actions[0].label == "Ver informe" and r.actions[0].embed is True and r.actions[0].activate_tab == ""
+    assert (r.actions + r.references)[0].label == "Ver informe" and (r.actions + r.references)[0].embed is True and (r.actions + r.references)[0].activate_tab == ""
     assert nav.resolve("ver informe de cliente", PACK, HOST).message.startswith("¿De qué cliente")          # y su registro sigue primero: «catálogo» no lo captura
 
 
@@ -125,7 +125,7 @@ def test_end_to_end_the_chat_renders_an_action_that_activates_the_tab_in_page(wo
     c = _client()
     conv = assistant_store.start(HOST, PACK).id
     page = _html.unescape(c.post(f"/modules/{HOST}/assistant/chat", data={"question": "¿Qué catálogos disponibles hay?", "conversation_id": conv, "pack": PACK}).text)
-    assert re.search(r'<a class="assistant-route-action" href="/modules/04_Modelado_y_Desarrollo\?pack=datasphere_core&tab=catalogo" @click.prevent="toolTab=\'catalogo\'">Abrir Catálogo</a>', page)
+    assert re.search(r'<a class="dw-action assistant-route-action" href="/modules/04_Modelado_y_Desarrollo\?pack=datasphere_core&tab=catalogo" @click.prevent="toolTab=\'catalogo\'"><svg class="dw-ic"[^>]*>(?:(?!</svg>).)*</svg><span>Abrir Catálogo</span></a>', page)
     other = _html.unescape(c.post(f"/modules/{OTHER}/assistant/chat", data={"question": "Abrí el Catálogo de datos", "conversation_id": assistant_store.start(OTHER, PACK).id, "pack": PACK}).text)
-    assert re.search(r'<a class="assistant-route-action" href="/modules/03_Integracion_y_Estrategia_de_Datos\?pack=datasphere_core&tab=catalogo">Abrir Catálogo</a>', other)   # navegación normal
+    assert re.search(r'<a class="dw-action assistant-route-action" href="/modules/03_Integracion_y_Estrategia_de_Datos\?pack=datasphere_core&tab=catalogo"><svg class="dw-ic"[^>]*>(?:(?!</svg>).)*</svg><span>Abrir Catálogo</span></a>', other)   # navegación normal
     assert "toolTab" not in other.split("assistant-route-actions")[1]

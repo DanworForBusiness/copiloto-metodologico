@@ -99,8 +99,8 @@ def test_the_world_has_models_whose_legacy_verdict_and_current_judgment_differ(w
 def test_viewing_the_assessment_navigates_to_it_and_never_states_the_legacy_verdict(world, judgment, legacy):
     e = _with(world, judgment, legacy)
     route = _route(f"ver assessment de {_name(e)}")
-    assert route is not None and len(route.actions) == 1
-    action = route.actions[0]
+    assert route is not None and route.actions == () and len(route.references) == 1                # el modelo NOMBRADO es la referencia inline (no se repite como botón)
+    action = route.references[0]
     assert action.url == presenter.assessment_url(e, PACK) and action.embed is True               # mismo contrato de identidad y de navegación que el Catálogo
     assert "Assessment" in route.message and e.dominio in route.message and e.cliente in route.message
     _assert_no_legacy(route.message, e)                                                          # ni el veredicto legado, ni íconos, ni «mirada Danwor», ni un nivel
@@ -109,7 +109,7 @@ def test_viewing_the_assessment_navigates_to_it_and_never_states_the_legacy_verd
 def test_it_resolves_every_model_of_the_catalog_without_a_per_model_rule(world):
     for e in world.entries:
         route = _route(f"ver assessment de {_name(e)}")
-        assert route is not None and [a.url for a in route.actions] == [presenter.assessment_url(e, PACK)], e.entry_id
+        assert route is not None and [a.url for a in route.references] == [presenter.assessment_url(e, PACK)], e.entry_id
 
 
 @pytest.mark.parametrize("template", ["ver assessment de {n}", "Mostrame el assessment de {n}", "¿tenemos assessment de {n}?", "assessment de {n}", "abrí el assessment del modelo {n}",
@@ -117,14 +117,14 @@ def test_it_resolves_every_model_of_the_catalog_without_a_per_model_rule(world):
 def test_natural_phrasings_resolve_to_the_same_assessment(world, template):
     e = _with(world, "ADECUADA", "plena")
     route = _route(template.format(n=_name(e)))
-    assert route is not None and [a.url for a in route.actions] == [presenter.assessment_url(e, PACK)]
+    assert route is not None and [a.url for a in route.references] == [presenter.assessment_url(e, PACK)]
     _assert_no_legacy(route.message)
 
 
 def test_a_partial_name_that_identifies_one_model_of_the_client_resolves(world):
     e = next(x for x in world.entries if world.index[x.entry_id] == 12)
     route = _route(f"ver assessment de 012 de {e.cliente}")                                       # solo un fragmento del nombre; único dentro del cliente
-    assert route is not None and [a.url for a in route.actions] == [presenter.assessment_url(e, PACK)]
+    assert route is not None and [a.url for a in route.references] == [presenter.assessment_url(e, PACK)]
 
 
 def test_a_name_shared_by_several_models_asks_which_and_never_picks_one(world):
@@ -163,16 +163,16 @@ def test_the_exact_name_wins_over_a_longer_name_that_contains_it(world, monkeypa
     monkeypatch.setattr(base, "dominio", "Delivery Document")
     monkeypatch.setattr(longer, "dominio", "Delivery Document Item")
     only = _route(f"ver assessment de delivery document de {base.cliente}")
-    assert [a.url for a in only.actions] == [presenter.assessment_url(base, PACK)]
+    assert [a.url for a in only.references] == [presenter.assessment_url(base, PACK)]
     both = _route(f"ver assessment de delivery document item de {base.cliente}")
-    assert [a.url for a in both.actions] == [presenter.assessment_url(longer, PACK)]
+    assert [a.url for a in both.references] == [presenter.assessment_url(longer, PACK)]
 
 
 def test_the_url_comes_from_the_real_entry_never_from_the_text(world):
     e = _with(world, "ADECUADA", "plena")
     route = _route(f"ver assessment de {_name(e)} </a><script>alert(1)</script> https://evil.example/x")
     assert route is not None
-    assert all(a.url.startswith("/catalog/flow/assessment?flow=") and "evil" not in a.url and "<" not in a.url for a in route.actions)
+    assert all(a.url.startswith("/catalog/flow/assessment?flow=") and "evil" not in a.url and "<" not in a.url for a in route.actions + route.references)
 
 
 @pytest.mark.parametrize("question", ["ver assessment de zzzz", "ver assessment de un modelo inexistente", "abrí el assessment", "¿cuántos assessments hay?"])
@@ -234,17 +234,17 @@ def test_an_availability_query_confirms_and_identifies_the_resource_without_any_
 def test_an_availability_query_keeps_its_destination_and_navigation_action(named_world):
     for e in named_world.entries:                                                                                                      # genérico: todas las entradas, sin reglas por modelo
         route = _route(f"¿Tenemos {_name(e)}?")
-        assert route is not None and len(route.actions) == 1, e.entry_id
-        action = route.actions[0]
+        assert route is not None and route.actions == () and len(route.references) == 1, e.entry_id      # el modelo nombrado es la referencia inline
+        action = route.references[0]
         path, params = _flow_params(action.url)
-        assert action.label == "Ver en el catálogo" and action.embed is True
+        assert action.label.endswith(" en el catálogo") and action.embed is True
         assert path == "/catalog/flow" and params == {"cliente": e.cliente, "dominio": e.dominio, "flow": e.entry_id, "pack": PACK}
 
 
 def test_an_availability_query_is_not_a_request_for_the_assessment_and_does_not_navigate_to_it(named_world):
     e = _with(named_world, "ADECUADA", "plena")
     route = _route(f"¿Tenemos {_name(e)}?")
-    assert not any("/catalog/flow/assessment" in a.url for a in route.actions)
+    assert not any("/catalog/flow/assessment" in a.url for a in route.actions + route.references)
     assert nav._entry_assessment(f"¿Tenemos {_name(e)}?", PACK, HOST) is None
 
 
@@ -252,8 +252,8 @@ def test_viewing_the_assessment_still_resolves_next_to_an_availability_query(nam
     e = _with(named_world, "ADECUADA", "plena")
     availability = _route(f"¿Tenemos {_name(e)}?")
     assessment = _route(f"ver assessment de {_name(e)}")
-    assert [a.label for a in availability.actions] == ["Ver en el catálogo"] and [a.label for a in assessment.actions] == ["Ver Assessment"]
-    assert [a.url for a in assessment.actions] == [presenter.assessment_url(e, PACK)]
+    assert availability.references[0].label.endswith(" en el catálogo") and assessment.references[0].label == "Ver Assessment"
+    assert [a.url for a in assessment.references] == [presenter.assessment_url(e, PACK)]
     assert "ya tenemos esto implementado" not in assessment.message
 
 

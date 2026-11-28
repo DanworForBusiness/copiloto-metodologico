@@ -1,0 +1,15 @@
+{#- Adaptador del CIERRE de un recorrido de Danwor Academy → componente único `partials/dw_feedback.html` (layout "closing").
+    Se renderiza desde `webapp/presentation/academy_feedback.py` y se inyecta en el iframe standalone del recorrido (/pack-assets), que
+    carga htmx + hub_reactions.js + feedback.css (mismo patrón que `catalog_guide_slides.html`). Persiste `/academy/<stem>/feedback*`.
+    Única diferencia de composición: `is-visible` en los estados posteriores (el reveal al llegar al final es propio de Academy). -#}
+{% from "partials/dw_feedback.html" import dw_feedback %}
+{% set _base = "/academy/" ~ (stem | urlencode) ~ "/feedback" %}
+{{ dw_feedback({
+  "id": "academy-feedback", "layout": "closing", "wrapper_class": "is-visible" if submitted or form else "",
+  "react_url": _base, "submit_url": _base ~ "/submit", "cancel_url": _base ~ "/cancel",
+  "fields": {"pack": pack},
+  "eyebrow": "Fin del recorrido", "prompt": "¿Qué te pareció este contenido?",
+  "idea": {"module": stem, "pack": pack, "context": "academy:" ~ stem},
+  "thanks": {"note": "Registramos tu opinión sobre este contenido."},
+  "submitted": submitted | default(false), "rating": rating | default(''), "form": form | default(false), "error": error | default(''),
+}) }}

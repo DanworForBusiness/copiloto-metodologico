@@ -136,12 +136,12 @@ def test_feedback_is_the_last_element_of_a_ready_tab():
     assert "isActiveReportReady(expId) ? reportingFeedbackHtml(expId) : \"\"" in render
 
 
-def test_feedback_widget_copy_and_one_per_tab():
-    fn = _REPORTING_JS[_REPORTING_JS.index("function reportingFeedbackHtml"):_REPORTING_JS.index("async function submitReportingFeedback")]
-    assert "¿Qué te pareció este reporte?" in fn
-    assert "data-report-tab" in fn  # keyeado por MAIN TAB (expId), no por perspectiva
-    submit = _REPORTING_JS[_REPORTING_JS.index("async function submitReportingFeedback"):_REPORTING_JS.index("async function submitReportingFeedback") + 700]
-    assert '"/operaciones/reporting/integral/feedback"' in submit
+def test_feedback_declares_the_shared_hub_component_once_per_tab():
+    fn = _REPORTING_JS[_REPORTING_JS.index("function reportingFeedbackHtml"):_REPORTING_JS.index("// --- Backbone de secciones")]
+    assert "window.dwFeedback.html(" in fn and "¿Qué te pareció este reporte?" in fn
+    assert 'key: "reporting:" + expId' in fn and "report_tab: expId" in fn                 # keyeado por MAIN TAB, no por perspectiva
+    assert '"/operaciones/reporting/integral/feedback"' in fn                               # mismo endpoint y contrato
+    assert "section-feedback" not in fn and "👍" not in fn and '"down"' not in fn            # sin botonera propia; la idea no es un down
 
 
 def test_semantic_activity_events_are_wired_client_side():
@@ -154,24 +154,6 @@ def test_semantic_activity_events_are_wired_client_side():
     # El beacon pega al endpoint scopeado de Reporting (no al de Copilot).
     beacon = _REPORTING_JS[_REPORTING_JS.index("function reportingTelemetry"):_REPORTING_JS.index("function reportingTelemetry") + 600]
     assert '"/operaciones/reporting/integral/telemetry"' in beacon
-
-
-# ── 👎 abre formulario de comentario (paridad transversal con Copilot) ──────
-
-def test_thumbs_down_opens_optional_comment_form_not_instant_thanks():
-    fn = _REPORTING_JS[_REPORTING_JS.index("function reportingFeedbackHtml"):_REPORTING_JS.index("function openReportingFeedbackForm")]
-    # El 👎 despliega el formulario (openReportingFeedbackForm), NUNCA persiste
-    # de una ni muestra "Gracias" seco. Reusa las clases del form de Copilot.
-    assert "openReportingFeedbackForm(" in fn
-    assert 'st === "form"' in fn
-    assert "section-feedback__form" in fn and "section-feedback__send" in fn and "section-feedback__ghost" in fn
-    assert "¿Qué esperabas o qué faltó acá?" in fn
-
-
-def test_feedback_comment_flows_to_endpoint():
-    fn = _REPORTING_JS[_REPORTING_JS.index("async function submitReportingFeedback"):_REPORTING_JS.index("async function submitReportingFeedback") + 900]
-    assert 'document.getElementById("rfc-" + expId)' in fn  # lee el textarea
-    assert "body.comment" in fn                              # y lo manda al endpoint
 
 
 def test_reporting_events_classify_as_usage_for_metrics():

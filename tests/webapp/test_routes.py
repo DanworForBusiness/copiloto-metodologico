@@ -294,8 +294,8 @@ def test_assistant_feedback_down_opens_form_then_submit_persists_comment(monkeyp
         f"/assistant/responses/{reply.id}/feedback", data={"rating": "down"}
     )
     assert down.status_code == 200
-    assert "assistant-feedback-expanded" in down.text
-    assert "¿Qué podríamos mejorar?" in down.text
+    assert 'class="section-feedback__form"' in down.text and 'name="comment"' in down.text   # comentario histórico: primitivo del componente
+    assert "¿Qué podríamos mejorar?" in down.text or "Qu&eacute; podr&iacute;amos mejorar?" in down.text
     assert not list(tmp_path.glob("feedback_*.yaml"))
 
     # Enviar el 👎 con comentario → guarda con el texto.
@@ -328,7 +328,7 @@ def test_assistant_feedback_submit_without_comment_reshows_form_with_error(monke
     response = client.post(f"/assistant/responses/{reply.id}/feedback/submit", data={})
 
     assert response.status_code == 200
-    assert "assistant-feedback-expanded" in response.text
+    assert 'class="section-feedback__form"' in response.text                          # mismo primitivo de comentario del componente
     assert "feedback-error" in response.text
     assert not list(tmp_path.glob("feedback_*.yaml"))
 
@@ -348,8 +348,9 @@ def test_assistant_feedback_cancel_returns_to_reaction_bar_without_persisting(mo
     response = client.post(f"/assistant/responses/{reply.id}/feedback/cancel")
 
     assert response.status_code == 200
-    assert "¿Te resultó útil esta respuesta?" in response.text
-    assert "assistant-feedback-expanded" not in response.text
+    assert "¿Te resultó útil la respuesta?" in response.text
+    assert 'name="comment"' not in response.text                                   # vuelve a la barra, sin el formulario de 👎
+    assert response.text.count("assistant-feedback-expanded") == response.text.count('assistant-feedback-expanded" data-dw-idea hidden')
     assert not list(tmp_path.glob("feedback_*.yaml"))
 
 
@@ -377,7 +378,7 @@ def test_assistant_chat_routes_to_curated_asset_without_calling_llm(monkeypatch)
     assert "Abrir recurso" in response.text
     assert "Explicame vos" in response.text
     assert "assistant-feedback" in response.text
-    assert "¿Te resultó útil esta respuesta?" in response.text
+    assert "¿Te resultó útil la respuesta?" in response.text
     assert "assistant-llm-disclaimer" not in response.text
 
 
@@ -1250,7 +1251,7 @@ def test_academy_feedback_reuses_module_feedback_classes_and_stylesheet():
     assert 'class="module-feedback"' in response.text
     assert 'class="module-feedback__inner"' in response.text
     assert 'module-feedback__reactions' in response.text
-    assert 'module-feedback__react' in response.text
+    assert 'data-dw-rxp' in response.text                                              # componente de Feedback del Hub (picker)
     assert "dw-af-" not in response.text
     assert "dw-academy-feedback" not in response.text
     # Shim de variables (feedback.css usa --card/--soft; dw-academy.css no los
@@ -1342,7 +1343,7 @@ def test_section_feedback_cancel_renders_bar_without_persisting(monkeypatch, tmp
         data={"pack": "datasphere_core"},
     )
     assert response.status_code == 200
-    assert "<textarea" not in response.text
+    assert 'name="comment"' not in response.text   # vuelve la barra, no el comentario del 👎 (la idea oculta no cuenta)
     assert not list(tmp_path.glob("section_feedback_*.yaml"))
 
 
@@ -1386,7 +1387,7 @@ def test_module_feedback_reaction_submit_and_cancel(monkeypatch, tmp_path):
     # Cancelar → vuelve a la barra de reacción, sin persistir nada nuevo.
     cancel = client.post(base + "/cancel", data={"pack": "datasphere_core"})
     assert cancel.status_code == 200
-    assert "<textarea" not in cancel.text
+    assert 'name="comment"' not in cancel.text   # vuelve la barra, no el comentario del 👎 (la idea oculta no cuenta)
     assert len(list(tmp_path.glob("module_feedback_*.yaml"))) == 2  # igual que antes del cancel
 
 
@@ -1423,7 +1424,7 @@ def test_catalog_feedback_reaction_submit_and_cancel(monkeypatch, tmp_path):
     # Cancelar → vuelve a la barra de reacción, sin persistir nada nuevo.
     cancel = client.post("/catalog/feedback/cancel", data=fields)
     assert cancel.status_code == 200
-    assert "<textarea" not in cancel.text
+    assert 'name="comment"' not in cancel.text   # vuelve la barra, no el comentario del 👎 (la idea oculta no cuenta)
     assert len(list(tmp_path.glob("catalog_feedback_*.yaml"))) == 2
 
 
@@ -1460,7 +1461,7 @@ def test_catalog_section_feedback_reaction_submit_and_cancel(monkeypatch, tmp_pa
     # Cancelar → vuelve a la barra de reacción, sin persistir nada nuevo.
     cancel = client.post("/catalog/section-feedback/cancel", data=fields)
     assert cancel.status_code == 200
-    assert "<textarea" not in cancel.text
+    assert 'name="comment"' not in cancel.text   # vuelve la barra, no el comentario del 👎 (la idea oculta no cuenta)
     assert len(list(tmp_path.glob("catalog_section_*.yaml"))) == 2
 
 

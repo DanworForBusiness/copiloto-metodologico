@@ -109,16 +109,21 @@ const sandbox = {
   console,
 };
 vm.createContext(sandbox);
+// Componente de Feedback del Hub: se carga el hub_reactions.js REAL (como en base.html) para que la vertical DECLARE su instancia
+// con `dwFeedback.html(cfg)`; el componente en sí (clonado de los <template>) no forma parte de lo que prueba este harness.
+sandbox.MutationObserver = class { observe() {} };
+sandbox.document.documentElement = {};
+vm.runInContext(fs.readFileSync(path.resolve(__dirname, "..", "..", "webapp", "static", "hub_reactions.js"), "utf-8"), sandbox, { filename: "hub_reactions.js" });
 vm.runInContext(src, sandbox, { filename: "reporting.js" });
 
-const { render, submitReportingFeedback } = sandbox;
+const { render } = sandbox;
 const state = vm.runInContext("state", sandbox);
 
 let failures = 0;
 function assertTrue(cond, label) { if (!cond) { failures++; console.log(`FAIL: ${label}`); } }
 function assertFalse(cond, label) { assertTrue(!cond, label); }
 
-const FEEDBACK_MARK = "section-feedback";
+const FEEDBACK_MARK = "data-dw-feedback-mount";   // declaración del componente de Feedback del Hub
 
 async function flush() {
   await new Promise(setImmediate);
@@ -211,14 +216,13 @@ async function main() {
   render();
 
   // ==========================================================================
-  // I) Con feedback visible, la acción 👍 sigue invocando el MISMO
-  //    handler/endpoint/payload que antes de este corrective (visibilidad
-  //    ÚNICAMENTE — nada de la acción en sí cambió).
+  // I) Con feedback visible, la instancia declarada lleva el MISMO contrato de siempre (endpoint + report_tab); el envío y
+  //    sus estados los resuelve el componente compartido (hub_reactions.js / partials/dw_feedback.html).
   // ==========================================================================
   assertTrue(mainEl.innerHTML.includes(FEEDBACK_MARK), "I: setup — feedback visible antes de reaccionar");
-  await submitReportingFeedback("rentabilidad", "up");
-  assertTrue(feedbackPosts.includes("rentabilidad:up"), "I: 👍 sigue posteando MISMO report_tab/rating al endpoint de feedback");
-  assertTrue(state.reportingFeedback.rentabilidad === "up", "I: MISMO estado interno de feedback tras reaccionar (sin cambios de esta corrective)");
+  assertTrue(mainEl.innerHTML.includes('data-dw-feedback-mount="reporting:rentabilidad"'), "I: una instancia por MAIN TAB con su identidad");
+  assertTrue(mainEl.innerHTML.includes('data-action="/operaciones/reporting/integral/feedback"') && mainEl.innerHTML.includes('data-fields="report_tab=rentabilidad"'),
+    "I: MISMO endpoint y report_tab del contrato de persistencia");
 
   if (failures > 0) {
     console.log(`${failures} feedback visibility invariant(s) FAILED`);

@@ -1,0 +1,84 @@
+{#- dw_reaction_picker.html — SELECTOR DE REACCIONES transversal del Hub (patrón capitalizado de Comunidad en Cartelera Virtual).
+
+    Mismo MECANISMO para todos los consumidores: un único botón compacto y neutro en reposo; al pasar el mouse, enfocarlo o tocarlo se
+    despliega el selector flotante con las reacciones habilitadas (paleta semántica `data-rx`, ampliación bajo el cursor, microanimación,
+    tooltips); la reacción elegida queda reflejada en el botón principal. Lo que cambia por contexto son las OPCIONES y su significado,
+    nunca la interacción. Apertura, cierre y teclado: `hub_reactions.js`. Estilos: `feedback.css` (`.dw-rxp*`, `.dw-rx-opt`).
+
+    Contrato de datos: el componente NO persiste nada. Cada opción es un `<button type="submit" name=… value=…>` dentro del `<form>` del
+    consumidor, así que el feedback metodológico sigue enviando EXACTAMENTE su `rating=up|down` a sus endpoints de siempre.
+
+      reaction_picker(options, label, name, align)   options: [{"value", "label", "icon"}]; align: "end" (default) | "center".
+      reaction_chosen(option, text)                  estado registrado: el botón principal muestra la reacción elegida (sin selector). -#}
+{%- from "partials/dw_icons.html" import dw_icon -%}
+
+{%- macro reaction_picker(options, label="Feedback", name="rating", align="end") -%}
+<div class="dw-rxp dw-rxp--{{ align }}" data-dw-rxp>
+  <button type="button" class="dw-rxp-main" aria-haspopup="menu" aria-expanded="false">{{ dw_icon('like') }}<span>{{ label }}</span></button>
+  <div class="dw-rxp-picker" role="menu" aria-label="Elegí una opción">
+    {%- for o in options %}
+    {%- if o.reveal %}
+    <button type="button" class="dw-rx-opt" data-rx="{{ o.value }}" data-dw-idea-open role="menuitem" aria-label="{{ o.label }}">{{ dw_icon(o.icon) }}<span class="dw-rx-tip" aria-hidden="true">{{ o.label }}</span></button>
+    {%- else %}
+    <button type="submit" name="{{ name }}" value="{{ o.value }}" class="dw-rx-opt" data-rx="{{ o.value }}" role="menuitem" aria-label="{{ o.label }}">{{ dw_icon(o.icon) }}<span class="dw-rx-tip" aria-hidden="true">{{ o.label }}</span></button>
+    {%- endif %}
+    {%- endfor %}
+  </div>
+</div>
+{%- endmacro -%}
+
+{%- macro reaction_chosen(option, text="") -%}
+<span class="dw-rxp-main dw-rxp-main--chosen" data-rx="{{ option.value }}" role="status">{{ dw_icon(option.icon) }}<span>{{ text or option.label }}</span></span>
+{%- endmacro -%}
+
+{#- Opciones del feedback METODOLÓGICO.
+    · FEEDBACK_UP   → `rating=up` (mismo valor y contrato de siempre).
+    · FEEDBACK_IDEA → NO es un voto: revela el formulario «Tengo una idea» del propio widget, que guarda una SUGERENCIA por `/trees/suggest`
+                      (`kind=idea` + contexto de origen). Nunca envía `rating=down`: las métricas de reacciones no cambian de significado.
+    · FEEDBACK_DOWN → se conserva solo para leer/mostrar el histórico (estado «¡Gracias!» de votos `down` previos); ya no se ofrece. -#}
+{%- set FEEDBACK_UP = {"value": "up", "label": "Me resultó útil", "icon": "like"} -%}
+{%- set FEEDBACK_IDEA = {"value": "idea", "label": "Tengo una idea", "icon": "idea", "reveal": True} -%}
+{%- set FEEDBACK_DOWN = {"value": "down", "label": "Puede mejorar", "icon": "dislike"} -%}
+
+{%- macro _idea_hidden(widget_id, module, pack, context, wrapper_class) -%}
+  <input type="hidden" name="pack" value="{{ pack }}">
+  <input type="hidden" name="module" value="{{ module }}">
+  <input type="hidden" name="kind" value="idea">
+  <input type="hidden" name="sg_id" value="{{ widget_id }}">
+  <input type="hidden" name="sg_class" value="{{ wrapper_class }}">
+  <input type="hidden" name="context" value="{{ context }}">
+{%- endmacro -%}
+
+{%- macro idea_form(widget_id, module, pack, context, prompt, wrapper_class) -%}
+{#- «Tengo una idea» → la interacción POSTERIOR la resuelve cada superficie con SU primitivo de comentario ya homologado (el picker es
+    compartido; la composición, la de cada espacio). Destino común: `/trees/suggest` (`kind=idea` + contexto), que reemplaza al widget por el
+    agradecimiento propio de la superficie (`sg_class`). Oculto hasta elegir la lamparita (`hub_reactions.js`).
+      · section-feedback y assistant-feedback → primitivo transversal `.section-feedback__form` (título, textarea, Cancelar secundario,
+        «Enviar idea» gold, mismos tokens en ambos temas). El Asistente lo usa TAL CUAL, sin tarjeta contenedora: su única adaptación es el
+        ancho del panel (el primitivo ya es vertical y ocupa el 100% hasta 420 px).
+      · module-feedback → bloque del cierre de módulo (`module-feedback__inner--form`), centrado. -#}
+{%- if wrapper_class == "module-feedback" -%}
+<section class="module-feedback__inner module-feedback__inner--form" data-dw-idea hidden>
+  <p class="module-feedback__eyebrow"><span></span>Tu idea</p>
+  <p class="module-feedback__prompt">{{ prompt }}</p>
+  <form hx-post="/trees/suggest" hx-target="#{{ widget_id }}" hx-swap="outerHTML">
+    {{ _idea_hidden(widget_id, module, pack, context, wrapper_class) }}
+    <textarea name="title" rows="3" required maxlength="600" placeholder="Ej.: sumar un ejemplo práctico, un caso de cliente, una comparación..."></textarea>
+    <div class="module-feedback__actions">
+      <button type="button" class="module-feedback__ghost" data-dw-idea-cancel>Cancelar</button>
+      <button type="submit" class="module-feedback__primary">Enviar idea</button>
+    </div>
+  </form>
+</section>
+{%- else -%}
+<form class="section-feedback__form" data-dw-idea hidden hx-post="/trees/suggest" hx-target="#{{ widget_id }}" hx-swap="outerHTML">
+  {{ _idea_hidden(widget_id, module, pack, context, wrapper_class) }}
+  <label class="section-feedback__formlabel" for="{{ widget_id }}-idea">{{ prompt }}</label>
+  <textarea id="{{ widget_id }}-idea" name="title" rows="2" required maxlength="600" placeholder="Una idea concreta alcanza&hellip;"></textarea>
+  <div class="section-feedback__formactions">
+    <button type="button" class="section-feedback__ghost" data-dw-idea-cancel>Cancelar</button>
+    <button type="submit" class="section-feedback__send">Enviar idea</button>
+  </div>
+</form>
+{%- endif -%}
+{%- endmacro -%}

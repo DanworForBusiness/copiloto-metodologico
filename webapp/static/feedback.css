@@ -212,3 +212,81 @@
     min-width: 0;
   }
 }
+
+/* ── Selector de reacciones transversal (patrón capitalizado de Comunidad en Cartelera Virtual) ─────────────────────────────────────
+   `partials/dw_reaction_picker.html` + `hub_reactions.js`. Un botón compacto y NEUTRO en reposo (como «Me gusta» de Comunidad); al pasar
+   el mouse o interactuar se despliega el selector flotante; la reacción elegida queda reflejada en el botón. Cada contexto define sus
+   opciones y su significado (feedback metodológico: rating up/down de siempre); el mecanismo es el mismo. */
+.dw-ic { width: 14px; height: 14px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+[data-rx="up"] { --rx-c: #2F6FD6; }
+[data-rx="down"] { --rx-c: #C2553D; }
+[data-rx="idea"] { --rx-c: #B7860B; }
+.content-theme-dark [data-rx="up"] { --rx-c: #7AA5F0; }
+.content-theme-dark [data-rx="down"] { --rx-c: #E8876F; }
+.content-theme-dark [data-rx="idea"] { --rx-c: #E3B83A; }
+/* Tokens de las ACCIONES COMPACTAS del Hub (píldora del selector de reacciones y `.dw-action`, tools.css): ÚNICA fuente por tema de página,
+   para que la píldora se lea igual en cualquier superficie (formularios, paneles, iframes) y no dependa de los tokens locales de un contenedor. */
+:root { --dw-action-line: #cfd6df; --dw-action-ink: #202124; --dw-action-soft: #4b5059; }
+html.content-theme-dark, :root[data-dw-theme="dark"] { --dw-action-line: rgba(226,232,245,.24); --dw-action-ink: #ececf1; --dw-action-soft: #c5c6ce; }
+.dw-rxp, .dw-rxp-main--chosen { --rxp-bg: #fff; --rxp-line: var(--dw-action-line); --rxp-ink: var(--dw-action-ink); --rxp-soft: var(--dw-action-soft); --rxp-shadow: 0 10px 26px rgba(16,24,40,.14); }
+/* Tokens POR TEMA DE LA SUPERFICIE: claro por defecto (contenido claro e iframes [data-dw-theme=light]); oscuro con .content-theme-dark o
+   [data-dw-theme=dark]. Cartelera Virtual no usa este componente: conserva su carácter exclusivamente claro. */
+.content-theme-dark .dw-rxp, .content-theme-dark .dw-rxp-main--chosen,
+:root[data-dw-theme="dark"] .dw-rxp, :root[data-dw-theme="dark"] .dw-rxp-main--chosen {
+  --rxp-bg: #1c1c1f; --rxp-shadow: 0 12px 28px rgba(0,0,0,.5);   /* línea y tinta: tokens --dw-action-* por tema (arriba) */
+}
+.dw-rxp { position: relative; display: inline-flex; vertical-align: middle; }
+/* Reposo: MISMA píldora que Me gusta / Comentar de Comunidad (borde visible, SVG y texto con contraste, claramente interactiva). */
+.dw-rxp-main {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 26px; padding: 4px 11px; border: 1px solid var(--rxp-line); border-radius: 999px;
+  background: var(--rxp-bg); color: var(--rxp-soft); font: 600 .68rem/1.2 var(--sans); cursor: pointer; transition: border-color .15s ease, background .15s ease, color .15s ease;
+}
+.dw-rxp-main:hover, .dw-rxp.is-open .dw-rxp-main, .dw-rxp-main:focus-visible { border-color: color-mix(in srgb, var(--rxp-ink) 38%, var(--rxp-line)); color: var(--rxp-ink); outline: none; }
+.dw-rxp-main:focus-visible { box-shadow: 0 0 0 2px color-mix(in srgb, var(--gold) 45%, transparent); }
+/* Reacción ya registrada: el botón principal la refleja (color semántico), sin selector. */
+.dw-rxp-main--chosen { cursor: default; color: var(--rxp-ink); background: color-mix(in srgb, var(--rx-c) 9%, var(--rxp-bg)); border-color: color-mix(in srgb, var(--rx-c) 42%, var(--rxp-line)); }
+.dw-rxp-main--chosen .dw-ic { color: var(--rx-c); }
+.dw-rxp-picker {
+  position: absolute; bottom: calc(100% + 8px); right: 0; z-index: 40; display: flex; align-items: center; gap: 6px; padding: 6px 8px;
+  border: 1px solid var(--rxp-line); border-radius: 999px; background: var(--rxp-bg); box-shadow: var(--rxp-shadow);
+  opacity: 0; visibility: hidden; transform: translateY(6px) scale(.96); transform-origin: bottom right;
+  transition: opacity .12s ease, transform .12s ease, visibility 0s linear .12s;
+}
+.dw-rxp--center .dw-rxp-picker { right: auto; left: 50%; transform: translate(-50%, 6px) scale(.96); transform-origin: bottom center; }
+.dw-rxp.is-open .dw-rxp-picker { opacity: 1; visibility: visible; transform: none; transition: opacity .18s ease, transform .18s cubic-bezier(.2, .7, .3, 1); }
+.dw-rxp--center.is-open .dw-rxp-picker { transform: translate(-50%, 0); }
+.dw-rx-opt {
+  position: relative; display: inline-grid; place-items: center; width: 34px; height: 34px; padding: 0;
+  border: 0; border-radius: 50%; background: color-mix(in srgb, var(--rx-c, var(--gold)) 13%, var(--rxp-bg, #fff)); color: var(--rx-c, var(--gold));
+  cursor: pointer; transition: transform .16s cubic-bezier(.2, .7, .3, 1), background .16s ease, box-shadow .16s ease;
+}
+.dw-rx-opt .dw-ic { width: 17px; height: 17px; }
+.dw-rx-opt:hover, .dw-rx-opt:focus-visible {
+  transform: translateY(-3px) scale(1.18); background: color-mix(in srgb, var(--rx-c, var(--gold)) 22%, var(--rxp-bg, #fff));
+  box-shadow: 0 6px 14px color-mix(in srgb, var(--rx-c, var(--gold)) 28%, transparent); outline: none; z-index: 1;
+}
+.dw-rx-opt:focus-visible { box-shadow: 0 0 0 2px var(--rxp-bg, #fff), 0 0 0 4px var(--rx-c, var(--gold)); }
+@keyframes dw-rx-in { from { opacity: 0; transform: translateY(6px); } }
+.dw-rxp.is-open .dw-rx-opt { animation: dw-rx-in .18s cubic-bezier(.2, .7, .3, 1) backwards; }
+.dw-rxp.is-open .dw-rx-opt:nth-child(2) { animation-delay: .03s; }
+.dw-rxp.is-open .dw-rx-opt:nth-child(3) { animation-delay: .06s; }
+.dw-rx-tip {
+  position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%); padding: 3px 8px; border-radius: 6px;
+  background: var(--rxp-ink, #202124); color: var(--rxp-bg, #fff); font: 600 .62rem/1.2 var(--sans); white-space: nowrap; pointer-events: none;
+  opacity: 0; transition: opacity .12s ease;
+}
+.dw-rx-opt:hover .dw-rx-tip, .dw-rx-opt:focus-visible .dw-rx-tip { opacity: 1; }
+/* La barra por sección deja de verse apagada en reposo: el botón de Feedback debe leerse como interactivo (sigue siendo discreta). */
+.section-feedback__bar:has(.dw-rxp) { opacity: .9; }
+/* El cierre del feedback de módulo conserva su centrado; la barra por sección y la de la respuesta, su alineación a la derecha. */
+.module-feedback__reactions .dw-rxp-main { min-height: 32px; padding: 5px 14px; font-size: .74rem; }
+@media (prefers-reduced-motion: reduce) {
+  .dw-rxp-picker, .dw-rxp.is-open .dw-rxp-picker, .dw-rxp--center.is-open .dw-rxp-picker { transition: opacity .12s linear, visibility 0s linear .12s; }
+  .dw-rxp.is-open .dw-rx-opt { animation: none; }
+  .dw-rx-opt:hover, .dw-rx-opt:focus-visible { transform: none; }
+}
+/* «Tengo una idea»: la barra y el formulario de idea se alternan aunque su clase declare display (flex/grid). */
+[data-dw-feedback-bar][hidden], [data-dw-idea][hidden] { display: none !important; }
+/* Picker alineado a la derecha (sección y respuesta del Asistente): el tooltip de la ÚLTIMA opción se ancla al borde derecho y crece hacia
+   adentro. Centrado sobresalía del contenedor e, invisible y todo, generaba scroll horizontal en el panel del Asistente. */
+.dw-rxp--end .dw-rx-opt:last-child .dw-rx-tip { left: auto; right: 0; transform: none; }

@@ -174,17 +174,17 @@ def _chat_raw(question, stem=HOST) -> str:
 def test_the_route_returns_rows_instead_of_repeated_open_resource_buttons(monkeypatch):
     monkeypatch.setattr(assistant_routing, "_find_matching_assets", lambda *a, **k: _assets())
     r = _route("¿Qué documentación tenemos de zorrinwax?")
-    assert r.message == "Encontré varios recursos curados que pueden ayudarte. Elegí cuál querés abrir." and r.actions == ()          # mismo encabezado; sin botones
+    assert r.message == "Encontré varios recursos curados que pueden ayudarte. Elegí cuál querés abrir." and (r.actions + r.references) == ()          # mismo encabezado; sin botones
     assert [it.title for it in r.result.items] == [a["description"] for a in _assets()]
 
 
 def test_real_pack_end_to_end_rows_open_only_validated_destinations_and_buttons_are_gone():
     q = "¿Qué documentación tenemos de CDS?"
     r = _route(q)
-    assert r is not None and r.result is not None and len(r.result.items) >= 2 and r.actions == ()
+    assert r is not None and r.result is not None and len(r.result.items) >= 2 and (r.actions + r.references) == ()
     page = _chat_raw(q)
     rows = _rows(page)
-    assert len(rows) == len(r.result.items) and page.count("Abrir recurso") == 0 and page.count('class="assistant-route-action"') == 0
+    assert len(rows) == len(r.result.items) and page.count("Abrir recurso") == 0 and page.count('class="dw-action assistant-route-action"') == 0
     for row in rows:
         assert row["data-kind"] == "curated_resource" and caps.valid_target("external", row["href"])
         assert row["target"] == "_blank" and row["rel"] == "noopener noreferrer"
@@ -202,9 +202,9 @@ def test_retrieval_and_relevance_order_are_unchanged_and_urls_never_come_from_th
 
 def test_single_resource_section_and_methodological_routes_are_unchanged():
     single = _route("template CDS")
-    assert single.result is None and single.message.startswith("Encontré un recurso curado") and [a.label for a in single.actions] == ["Abrir recurso"] and single.actions[0].external
+    assert single.result is None and single.message.startswith("Encontré un recurso curado") and [a.label for a in (single.actions + single.references)] == ["Abrir recurso"] and (single.actions + single.references)[0].external
     section = _route("¿Cómo se definen los dominios de negocio?")
-    assert section.result is None and [a.label for a in section.actions][0] == "Ir a la sección"
+    assert section.result is None and [a.label for a in (section.actions + section.references)][0] == "Ir a la sección"
 
 
 def test_catalog_rows_and_resource_rows_coexist_in_the_same_contract_without_mixing_identities(monkeypatch):

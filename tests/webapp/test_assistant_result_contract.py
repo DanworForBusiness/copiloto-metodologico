@@ -116,7 +116,7 @@ def test_at_most_ten_rows_and_a_bounded_response_even_with_120_entries(world):
         page = _chat(q)
         rows = _rows(page)
         assert len(rows) <= nav.MAX_LIST, q
-        assert page.count('class="assistant-route-action"') <= 2 and "<table" not in page, q                 # sin tabla ni botonera por modelo
+        assert page.count('class="dw-action assistant-route-action"') <= 2 and "<table" not in page, q                 # sin tabla ni botonera por modelo
         assert len(page) < 14_000, (q, len(page))
     assert len(_rows(_chat("Mostrame 500 modelos"))) == 10
 

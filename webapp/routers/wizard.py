@@ -60,7 +60,7 @@ templates.env.filters["leaf_markup"] = lambda raw: Markup(commercial_strategy_ma
 
 
 # ── "¿Falta un árbol?" — sugerencia de nuevo árbol de decisión (recuperada) ──
-def _save_tree_suggestion(request: Request, module: str, title: str, detail: str, pack: str, kind: str = "tree") -> None:
+def _save_tree_suggestion(request: Request, module: str, title: str, detail: str, pack: str, kind: str = "tree", context: str = "") -> None:
     user = auth_service.session_user(request) or {}
     now = datetime.now(timezone.utc)
     try:
@@ -72,6 +72,9 @@ def _save_tree_suggestion(request: Request, module: str, title: str, detail: str
         d = (detail or "").strip()
         if d:
             payload["detail"] = d
+        c = re.sub(r"[^\w:./ -]", "", (context or "").strip())[:200]        # «Tengo una idea»: desde dónde se originó (sección, respuesta, módulo)
+        if c:
+            payload["context"] = c
         path = FEEDBACK_LOG_DIR / f"tree_suggestion_{now.strftime('%Y%m%d_%H%M%S')}_{uuid4().hex[:8]}.yaml"
         remote_store.write_through(path, yaml.safe_dump(payload, allow_unicode=True, sort_keys=False))
     except Exception:  # noqa: BLE001
@@ -81,17 +84,19 @@ def _save_tree_suggestion(request: Request, module: str, title: str, detail: str
 @router.post("/trees/suggest", response_class=HTMLResponse, include_in_schema=False)
 def trees_suggest(request: Request, title: str = Form(""), detail: str = Form(""),
                   module: str = Form(""), pack: str = Form(DEFAULT_PACK),
-                  kind: str = Form("tree"), sg_id: str = Form("tree-suggest")):
+                  kind: str = Form("tree"), sg_id: str = Form("tree-suggest"),
+                  context: str = Form(""), sg_class: str = Form("")):
     selected = resolve_pack(pack)
     clean = (title or "").strip()
-    if kind not in {"tree", "option", "section"}:
+    if kind not in {"tree", "option", "section", "idea"}:                  # idea: «Tengo una idea» del feedback del Copiloto (NO es un voto)
         kind = "tree"
     if clean:
-        _save_tree_suggestion(request, module, clean, detail, selected, kind)
+        _save_tree_suggestion(request, module, clean, detail, selected, kind, context)
     return templates.TemplateResponse(
         request=request, name="partials/tree_suggest.html",
         context={"suggested": bool(clean), "pack": selected, "stem": module,
-                 "sg_kind": kind, "sg_id": sg_id})
+                 "sg_kind": kind, "sg_id": sg_id,
+                 "sg_class": sg_class if sg_class in {"section-feedback", "assistant-feedback", "module-feedback"} else ""})
 
 
 def _norm_tokens(text: str) -> list[str]:

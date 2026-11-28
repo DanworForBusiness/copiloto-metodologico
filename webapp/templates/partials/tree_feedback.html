@@ -1,10 +1,16 @@
-<div id="tree-feedback" class="tree-feedback">
-  {% if run.feedback_rating %}
-  <div class="feedback-thanks"><span>{{ "👍" if run.feedback_rating == "up" else "👎" }}</span><div><p>Gracias, registramos tu feedback para esta decisión.</p>{% if diagnostic_mode and run.case_id %}<small>Guardado en case_library/{{ run.case_id }}.yaml</small>{% endif %}</div></div>
-  {% else %}
-  <form hx-post="/wizards/{{ run.id }}/feedback" hx-target="#tree-feedback" hx-swap="outerHTML">
-    <span>¿Te resultó útil esta respuesta?</span>
-    <div><button type="submit" name="rating" value="up" aria-label="Fue útil" title="Fue útil">👍</button><button type="submit" name="rating" value="down" aria-label="No fue útil" title="No fue útil">👎</button></div>
-  </form>
-  {% endif %}
-</div>
+{#- Adaptador del feedback del RESULTADO de un Árbol de decisión → componente único `partials/dw_feedback.html` (layout "inline").
+
+    Semántica PROPIA (justifica su composición): acá «No fue útil» es información de aprendizaje, no un voto descartable. Ambas
+    reacciones abren el registro estructurado del caso (`tree_feedback_form.html`: resultado, contexto, lección → case_library), así que
+    sus opciones son útil / no útil y no lleva lamparita (los árboles ya tienen «¿Falta una opción?» por `/trees/suggest`). -#}
+{% from "partials/dw_feedback.html" import dw_feedback %}
+{% set TREE_UP = {"value": "up", "label": "Fue útil", "icon": "like"} %}
+{% set TREE_DOWN = {"value": "down", "label": "No fue útil", "icon": "dislike"} %}
+{{ dw_feedback({
+  "id": "tree-feedback", "layout": "inline", "wrapper_class": "tree-feedback",
+  "react_url": "/wizards/" ~ run.id ~ "/feedback", "prompt": "¿Te resultó útil esta respuesta?",
+  "options": [TREE_UP, TREE_DOWN],
+  "submitted": run.feedback_rating in ("up", "down"), "rating": run.feedback_rating,
+  "thanks": {"text": "Gracias, registramos tu feedback para esta decisión.",
+             "note": ("Guardado en case_library/" ~ run.case_id ~ ".yaml") if diagnostic_mode and run.case_id else ""},
+}) }}

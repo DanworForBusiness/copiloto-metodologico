@@ -87,10 +87,10 @@ def test_wording_fix_does_not_change_which_section_or_action_is_selected():
     assert route is not None
     assert route.explain_module == MOD_03
     assert route.explain_heading == "Streaming Read — Remote Tables vía DPA/ABAPAdapter"
-    assert any(a.label == "Ir a la sección" for a in route.actions)
+    assert any(a.label == "Ir a la sección" for a in (route.actions + route.references))
     assert any(
         "userapps.support.sap.com/sap/support/knowledge/en/3209242" in a.url
-        for a in route.actions
+        for a in (route.actions + route.references)
     )
 
 

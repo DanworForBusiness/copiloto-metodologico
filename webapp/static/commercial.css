@@ -149,7 +149,7 @@
    (commercial.js) agrega esta clase sobre CUALQUIER `.chart-tooltip-anchor`
    cuando mide que no hay lugar arriba dentro del boundary que corresponda
    (`.matrix-scroll` si existe, si no `.dashboard-section`). */
-.chart-tooltip-anchor.is-tooltip-below .chart-tooltip { bottom: auto; top: calc(100% + 7px); }
+/* `.is-tooltip-below`: opción del tooltip compartido (tools.css). */
 /* Ticks: `bottom` en % + `translateY(50%)` los centra sobre su linea de
    grilla, incluido el 0 apoyado en el eje. */
 .category-plot__axis { position: relative; }

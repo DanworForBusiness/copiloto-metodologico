@@ -64,7 +64,8 @@ def test_pampa_resolves_to_its_real_client_report_with_a_visible_action(world):
     r = _route("Ver informe de cliente para Pampa")
     assert r is not None and "Informe de Cliente de Pampa" in r.message and "2 modelos publicados" in r.message
     assert "CDS" not in r.message and "parcial" not in r.message.lower()                                      # no es una explicación de flujos
-    (a,) = r.actions
+    assert r.actions == ()                                                                                     # el Informe NOMBRADO es la referencia inline, no un botón
+    (a,) = r.references
     assert a.label == "Ver informe" and a.embed is True and urlparse(a.url).path == "/catalog/client/assessment"
     assert _flow_id(a.url) in {e.entry_id for e in world.by_client["Pampa"]} and parse_qs(urlparse(a.url).query)["pack"] == [PACK]
 
@@ -72,13 +73,13 @@ def test_pampa_resolves_to_its_real_client_report_with_a_visible_action(world):
 @pytest.mark.parametrize("question", ["ver informe de cliente para Pampa", "Mostrame el informe del cliente Pampa", "abrir reporte de cliente pampa", "informe de cliente Pampa", "quiero ver el informe de cliente de PAMPA"])
 def test_the_navigation_intent_is_recognized_in_common_phrasings(world, question):
     r = _route(question)
-    assert r is not None and r.actions and _flow_id(r.actions[0].url) in {e.entry_id for e in world.by_client["Pampa"]}
+    assert r is not None and r.references and _flow_id(r.references[0].url) in {e.entry_id for e in world.by_client["Pampa"]}
 
 
 def test_any_other_client_with_a_report_works_without_hardcoding(world):
     r = _route("ver informe de cliente para Loma")
     assert "Informe de Cliente de Loma" in r.message and "1 modelo publicado" in r.message
-    assert _flow_id(r.actions[0].url) == world.by_client["Loma"][0].entry_id
+    assert _flow_id(r.references[0].url) == world.by_client["Loma"][0].entry_id
 
 
 def test_a_nonexistent_client_is_explicit_and_offers_only_real_options(world):
@@ -104,14 +105,14 @@ def test_without_a_client_it_asks_which_one_and_with_two_it_offers_both(world):
 def test_informational_questions_keep_their_normal_flow(world, question):
     assert nav.resolve(question, PACK) is None
     r = _route(question)
-    assert r is None or not any(urlparse(a.url).path == "/catalog/client/assessment" for a in r.actions)
+    assert r is None or not any(urlparse(a.url).path == "/catalog/client/assessment" for a in r.actions + r.references)
 
 
 @pytest.mark.parametrize("question", ["ver informe de cliente para https://evil.example/x", "ver informe de cliente para <script>alert(1)</script>", "ver informe de cliente para ../../admin", "ver informe de cliente para javascript:alert(1)"])
 def test_invented_urls_and_markup_never_reach_the_actions_or_the_message(world, question):
     r = _route(question)
     assert r is not None
-    assert all(urlparse(a.url).path == "/catalog/client/assessment" and _flow_id(a.url) in world.ids for a in r.actions)
+    assert all(urlparse(a.url).path == "/catalog/client/assessment" and _flow_id(a.url) in world.ids for a in r.actions + r.references)
     assert "<" not in r.message and "http" not in r.message.lower() and "javascript" not in r.message.lower()
 
 
@@ -128,7 +129,7 @@ def test_end_to_end_the_chat_returns_the_action_and_the_existing_report_opens(wo
     conv = assistant_store.start(STEM, PACK).id
     resp = c.post(f"/modules/{STEM}/assistant/chat", data={"question": "Ver informe de cliente para Pampa", "conversation_id": conv, "pack": PACK})
     page = _html.unescape(resp.text)
-    m = re.search(r'<a class="assistant-route-action" href="([^"]+)"\s+hx-get="([^"]+)" hx-target="#catalog-detail-slot" hx-swap="innerHTML">Ver informe</a>', page)
+    m = re.search(r'<a class="assistant-ref" href="([^"]+)" hx-get="([^"]+)" hx-target="#catalog-detail-slot" hx-swap="innerHTML" title="[^"]*">Informe de Cliente de Pampa</a>', page)   # link inline sobre el nombre
     assert resp.status_code == 200 and m and m.group(1) == m.group(2) and "Informe de Cliente de Pampa" in page
     report = c.get(m.group(2), headers=HX)                                                                  # la acción abre la ruta EXISTENTE
     assert report.status_code == 200 and "Pampa" in _html.unescape(report.text)
@@ -146,9 +147,9 @@ def test_the_mechanism_is_extensible_by_target_and_the_registered_targets_are_th
 
 # ── el flujo de la URL es solo una REFERENCIA técnica; el informe cubre todo el cliente ─────────────────────────────────────────────────────────
 def test_the_reference_flow_is_deterministic_and_independent_of_load_order(world, monkeypatch):
-    first = _route("ver informe de cliente para Pampa").actions[0].url
+    first = _route("ver informe de cliente para Pampa").references[0].url
     monkeypatch.setattr(catalog_reads, "_catalog_entries", lambda: (cs, list(reversed(world.entries))))
-    assert _route("ver informe de cliente para Pampa").actions[0].url == first                              # mismo flujo de referencia con otro orden de carga
+    assert _route("ver informe de cliente para Pampa").references[0].url == first                              # mismo flujo de referencia con otro orden de carga
     assert _flow_id(first) == min(world.by_client["Pampa"], key=lambda e: (e.dominio.lower(), e.entry_id)).entry_id
 
 
@@ -164,7 +165,7 @@ def test_the_intro_count_is_the_universe_the_report_shows_and_the_report_covers_
 
 def test_back_closes_the_detail_when_opened_from_the_assistant_and_returns_to_the_flow_otherwise(world):
     c = _client()
-    url = _route("ver informe de cliente para Pampa").actions[0].url
+    url = _route("ver informe de cliente para Pampa").references[0].url
     from_assistant = _html.unescape(c.get(url, headers=HX).text)
     assert 'onclick="return dwCatalogBack();"' in from_assistant and "← Volver</a>" in from_assistant
     assert not re.search(r'<a class="catalog-back"[^>]*hx-get', from_assistant)                             # no vuelve al flujo de referencia que el usuario no pidió

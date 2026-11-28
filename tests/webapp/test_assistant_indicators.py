@@ -298,7 +298,7 @@ def test_filters_by_client_and_effective_line_of_business_apply_before_ordering(
     r = _route("¿Qué entradas de Pampa tienen mejor consistencia de tipos?")
     key = lambda s: (-s["score"],) if s["score"] is not None and s["version"] else None
     assert _refs(r) == _expected(world, key, "best_first", predicate=lambda s: s["client"] == "Pampa")[:10] and r.result.ranking.universe == sum(1 for i in range(N) if _spec(i)["client"] == "Pampa")
-    assert [a[0] for a in (r.actions and [(x.label,) for x in r.actions])] == ["Abrir Catálogo", "Informe de Cliente · Pampa"]
+    assert [a[0] for a in ((r.actions + r.references) and [(x.label,) for x in (r.actions + r.references)])] == ["Abrir Catálogo", "Informe de Cliente · Pampa"]
     r = _route("¿Qué entradas en Ventas tienen peor cobertura estricta?")
     key = lambda s: (-s["strict"],) if s["state"] == svc.CURRENT else None
     assert _refs(r) == _expected(world, key, "worst_first", predicate=lambda s: s["lob"] == "SALES")[:10]
@@ -322,7 +322,7 @@ def test_two_filters_of_the_same_kind_are_not_chosen_for_the_user(world):
 
 # ── 5. aclaración sin indicador y rechazo de agrupaciones ──────────────────────────────────────────────────────────────────────────────────────
 def _ask_questions(route) -> dict[str, str]:
-    return {a.label: a.ask for a in route.actions if a.ask}
+    return {a.label: a.ask for a in (route.actions + route.references) if a.ask}
 
 
 def test_scoring_without_a_metric_asks_which_one_and_assumes_none(world):
@@ -331,7 +331,7 @@ def test_scoring_without_a_metric_asks_which_one_and_assumes_none(world):
     asks = _ask_questions(r)
     assert {"Adopción metodológica", "Cobertura estricta", "Confianza de la evidencia", "Consistencia de tipos"} <= set(asks) and "Ver la distribución por línea de negocio" in asks
     assert "Casos a revisar" not in " ".join(asks)                                                       # «mejor» no aplica a un indicador de volumen
-    assert all(not a.url and not a.embed and not a.external for a in r.actions)
+    assert all(not a.url and not a.embed and not a.external for a in (r.actions + r.references))
 
 
 @pytest.mark.parametrize("question", ["¿Cuál es el dominio con mejor scoring?", "¿Qué línea de negocio tiene el mejor puntaje?", "¿Qué cliente tiene mejor cobertura estricta?", "¿Qué dominios tienen mejor adopción metodológica?",
@@ -433,11 +433,11 @@ def test_inventory_queries_still_resolve_as_inventory(world, question, expect):
 
 
 def test_curated_resources_client_report_catalog_navigation_and_sections_are_unchanged(world):
-    assert _route("Ver informe de cliente para Pampa").actions[0].label == "Ver informe"
+    assert _route("Ver informe de cliente para Pampa").references[0].label == "Ver informe"
     assert _route("Abrí el Catálogo").message.startswith("Acá tenés el **Catálogo de datos**")
     res = _route("¿Qué documentación tenemos de CDS?")
     assert res.result is not None and all(it.kind == caps.CURATED_RESOURCE for it in res.result.items)
-    assert _route("¿Cómo se definen los dominios de negocio?").actions[0].label == "Ir a la sección"
+    assert _route("¿Cómo se definen los dominios de negocio?").references[0].label == "Ir a la sección"
 
 
 def test_an_ordering_cue_with_no_catalog_subject_is_not_this_capability(world):

@@ -1,0 +1,152 @@
+{#- dw_feedback.html — COMPONENTE de Feedback del Hub: ÚNICA implementación del widget completo (estados, transporte y composición).
+
+    Por qué existe: antes cada consumidor re-componía a mano su widget (barra, comentario, agradecimiento) sobre los primitivos y solo
+    compartía clases CSS; cada evolución exigía migrar consumidor por consumidor y los que no se conocían (Academy, cierre de Catálogo,
+    Árboles) quedaron con los emojis 👍/👎. Ahora los consumidores solo declaran su CONTEXTO (`fb`): endpoints, campos, textos, opciones y
+    composición. La interacción, el lenguaje visual, «Tengo una idea» y los estados viven acá → una evolución se propaga a todos.
+
+    Capas:
+      · Primitivos   → `dw_reaction_picker.html` (selector, opción elegida, formulario de idea) + `dw_icons.html` + `hub_reactions.js` + feedback.css.
+      · Componente   → este macro `dw_feedback(fb)`.
+      · Adaptadores  → cada `partials/*_feedback.html` (o `academy_feedback.py`) arma su `fb`; su router persiste y mide como siempre.
+
+    `fb` (dict):
+      id            id del widget (destino del swap HTMX).                    layout   "section" | "closing" | "inline".
+      react_url     POST de la reacción (`rating`).                           fields   {nombre: valor} ocultos que viajan con cada POST.
+      submit_url / cancel_url   comentario del voto `down` HISTÓRICO (los endpoints lo siguen ofreciendo; el picker ya no lo pide).
+      prompt, eyebrow           textos de reposo (eyebrow solo en "closing").
+      options       reacciones (default: «Me resultó útil» + «Tengo una idea»). Un consumidor con otra semántica pasa las suyas.
+      idea          {module, pack, context, prompt} o ausente (sin lamparita). Destino común `/trees/suggest` (`kind=idea`): NO es un voto.
+      thanks        {eyebrow, note, text}: agradecimiento por consumidor.  wrapper_class   clase extra del contenedor (p. ej. "catalog-feedback").
+      submitted, rating, form, error   estado que devuelve el router del consumidor (rating "idea" = agradecimiento de la idea).
+      transport     "htmx" (default: el endpoint devuelve el HTML del estado) | "json" (instancias dinámicas: ver `dw_feedback_mount`).
+
+    Consumidores DINÁMICOS (render en JS o Alpine: Reporting, Comercial, Staffing): NO reconstruyen el markup. Declaran un marcador
+    (`dw_feedback_mount(cfg)` en Jinja o `dwFeedback.html(cfg)` en JS, mismos atributos) y `hub_reactions.js` lo instancia clonando los
+    `<template>` que `dw_feedback_templates()` renderiza UNA vez en `base.html` desde este mismo macro. El adaptador gobierna los estados
+    por clave (sobreviven a los re-render), ids únicos por instancia y un único juego de listeners delegados. Contrato de persistencia de
+    esos consumidores: POST `rating=up` + sus campos a SU endpoint (respuesta JSON `{state}`); la idea va a `/trees/suggest`. -#}
+{%- from "partials/dw_reaction_picker.html" import reaction_picker, reaction_chosen, idea_form, FEEDBACK_UP, FEEDBACK_IDEA, FEEDBACK_DOWN -%}
+
+{%- macro _hidden(fields) -%}
+{%- for k, v in (fields or {}).items() %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor -%}
+{%- endmacro -%}
+
+{#- Opción registrada: la del propio consumidor si la ofrece (sus etiquetas/íconos), si no la metodológica (histórico `down` incluido). -#}
+{%- macro _chosen(fb, text) -%}
+{%- set ns = namespace(o=None) -%}
+{%- for o in (fb.options or []) + [FEEDBACK_UP, FEEDBACK_IDEA, FEEDBACK_DOWN] %}{% if ns.o is none and o.value == fb.rating %}{% set ns.o = o %}{% endif %}{% endfor -%}
+{{ reaction_chosen(ns.o or FEEDBACK_UP, text) }}
+{%- endmacro -%}
+
+{%- macro dw_feedback(fb) -%}
+{%- set opts = fb.options or [FEEDBACK_UP, FEEDBACK_IDEA] -%}
+{%- set has_idea = fb.idea and (opts | selectattr("reveal") | list) -%}
+{%- set target = 'hx-target="#' ~ fb.id ~ '" hx-swap="outerHTML"' -%}
+{%- set th = fb.thanks or {} -%}
+{%- if fb.layout == "closing" -%}
+<div id="{{ fb.id }}" class="module-feedback{% if fb.wrapper_class %} {{ fb.wrapper_class }}{% endif %}" data-dw-feedback>
+  {% if fb.submitted %}
+  <section class="module-feedback__inner module-feedback__inner--thanks">
+    <p class="module-feedback__eyebrow"><span></span>{{ th.eyebrow or "Gracias por tu recorrido" }}</p>
+    <p class="module-feedback__prompt">{{ _chosen(fb, "¡Gracias!") }}</p>
+    <p class="module-feedback__note">{{ th.note or "Registramos tu opinión." }}</p>
+  </section>
+  {% elif fb.form %}
+  <section class="module-feedback__inner module-feedback__inner--form">
+    <p class="module-feedback__eyebrow"><span></span>Contanos un poco m&aacute;s</p>
+    <p class="module-feedback__prompt">&iquest;Qu&eacute; falt&oacute; o qu&eacute; mejorar&iacute;as?</p>
+    <form hx-post="{{ fb.submit_url }}" {{ target | safe }}>
+      {{ _hidden(fb.fields) }}<input type="hidden" name="rating" value="down">
+      {% if fb.error %}<p class="module-feedback__error">{{ fb.error }}</p>{% endif %}
+      <textarea name="comment" rows="3" placeholder="Ej.: falt&oacute; contexto, un ejemplo pr&aacute;ctico, m&aacute;s claridad o profundidad..." required></textarea>
+      <div class="module-feedback__actions">
+        <button type="button" class="module-feedback__ghost" hx-post="{{ fb.cancel_url }}" {{ target | safe }} hx-include="closest form">Cancelar</button>
+        <button type="submit" class="module-feedback__primary">Enviar</button>
+      </div>
+    </form>
+  </section>
+  {% else %}
+  <section class="module-feedback__inner" data-dw-feedback-bar>
+    <p class="module-feedback__eyebrow"><span></span>{{ fb.eyebrow or "Fin del módulo" }}</p>
+    <p class="module-feedback__prompt">{{ fb.prompt or "¿Qué te pareció este contenido?" }}</p>
+    <form hx-post="{{ fb.react_url }}" {{ target | safe }}>
+      {{ _hidden(fb.fields) }}
+      <div class="module-feedback__reactions">
+        {{ reaction_picker(opts, align="center") }}
+      </div>
+    </form>
+  </section>
+  {% if has_idea %}{{ idea_form(fb.id, fb.idea.module, fb.idea.pack, fb.idea.context, fb.idea.prompt or "¿Qué idea tenés para mejorar este contenido?", "module-feedback") }}{% endif %}
+  {% endif %}
+</div>
+{%- elif fb.layout == "inline" -%}
+{#- Barra compacta dentro de un panel (respuesta del Asistente, resultado de un Árbol): prompt a la izquierda, botón a la derecha. -#}
+<div id="{{ fb.id }}" class="{{ fb.wrapper_class }}{% if fb.submitted %} {{ fb.wrapper_class }}-thanks{% endif %}" data-dw-feedback>
+  {%- if fb.submitted %}{{ _chosen(fb, th.text or "Gracias, registramos tu feedback.") }}{% if th.note %}<small>{{ th.note }}</small>{% endif %}
+  {%- elif fb.form %}
+  {#- Comentario del voto `down` histórico: MISMO primitivo de comentario que la sección y la idea (`.section-feedback__form`). -#}
+  <form class="section-feedback__form" hx-post="{{ fb.submit_url }}" {{ target | safe }}>
+    {{ _hidden(fb.fields) }}
+    <label class="section-feedback__formlabel" for="{{ fb.id }}-comment">&iquest;Qu&eacute; podr&iacute;amos mejorar?</label>
+    {% if fb.error %}<p class="feedback-error">{{ fb.error }}</p>{% endif %}
+    <textarea id="{{ fb.id }}-comment" name="comment" rows="2" placeholder="Contanos qu&eacute; falt&oacute; o qu&eacute; deber&iacute;a cambiar&hellip;"></textarea>
+    <div class="section-feedback__formactions">
+      <button type="button" class="section-feedback__ghost" hx-post="{{ fb.cancel_url }}" {{ target | safe }}>Cancelar</button>
+      <button type="submit" class="section-feedback__send">Enviar</button>
+    </div>
+  </form>
+  {%- else %}
+  <form data-dw-feedback-bar hx-post="{{ fb.react_url }}" {{ target | safe }}>
+    {{ _hidden(fb.fields) }}<span>{{ fb.prompt or "¿Te resultó útil la respuesta?" }}</span>
+    <div>
+      {{ reaction_picker(opts) }}
+    </div>
+  </form>
+  {% if has_idea %}{{ idea_form(fb.id, fb.idea.module, fb.idea.pack, fb.idea.context, fb.idea.prompt or "¿Qué idea tenés para mejorar esta respuesta?", fb.wrapper_class) }}{% endif %}
+  {%- endif %}
+</div>
+{%- else -%}
+{#- "section": micro-feedback discreto al pie de una sección (Copiloto, Catálogo, Estrategia Comercial…). -#}
+<div id="{{ fb.id }}" class="section-feedback{% if fb.wrapper_class %} {{ fb.wrapper_class }}{% endif %}" data-dw-feedback>
+  {% if fb.submitted %}
+  <p class="section-feedback__thanks" role="status">
+    {{ _chosen(fb, th.text or "¡Gracias!") }}
+  </p>
+  {% elif fb.form %}
+  <form class="section-feedback__form" hx-post="{{ fb.submit_url }}" {{ target | safe }}>
+    {{ _hidden(fb.fields) }}<input type="hidden" name="rating" value="down">
+    <label class="section-feedback__formlabel" for="{{ fb.id }}-comment">&iquest;Qu&eacute; esperabas o qu&eacute; falt&oacute; ac&aacute;? <span>(opcional)</span></label>
+    <textarea id="{{ fb.id }}-comment" name="comment" rows="2" placeholder="Una l&iacute;nea alcanza&hellip;"></textarea>
+    <div class="section-feedback__formactions">
+      <button type="button" class="section-feedback__ghost" hx-post="{{ fb.cancel_url }}" {{ target | safe }} hx-include="closest form">Cancelar</button>
+      <button type="submit" class="section-feedback__send">Enviar</button>
+    </div>
+  </form>
+  {% else %}
+  <form class="section-feedback__bar" data-dw-feedback-bar {% if fb.transport == "json" %}data-dw-action="{{ fb.react_url }}"{% else %}hx-post="{{ fb.react_url }}" {{ target | safe }}{% endif %}>
+    {{ _hidden(fb.fields) }}
+    <span class="section-feedback__prompt">{{ fb.prompt or "¿Qué te pareció esta sección?" }}</span>
+    {{ reaction_picker(opts) }}
+  </form>
+  {% if has_idea %}{{ idea_form(fb.id, fb.idea.module, fb.idea.pack, fb.idea.context, fb.idea.prompt or "¿Qué idea tenés para mejorar esta sección?", "section-feedback") }}{% endif %}
+  {% endif %}
+</div>
+{%- endif -%}
+{%- endmacro -%}
+
+{#- Plantillas de las instancias dinámicas: MISMO componente, sin datos del consumidor (los completa el adaptador al clonar). -#}
+{%- macro dw_feedback_templates(pack="") -%}
+<template data-dw-feedback-tpl="bar">{{ dw_feedback({"id": "dw-feedback-tpl", "layout": "section", "transport": "json", "react_url": "",
+  "prompt": "¿Qué te pareció este contenido?", "idea": {"module": "", "pack": pack, "context": "", "prompt": "¿Qué idea tenés para mejorar este contenido?"}}) }}</template>
+<template data-dw-feedback-tpl="up">{{ dw_feedback({"id": "dw-feedback-tpl", "layout": "section", "submitted": true, "rating": "up"}) }}</template>
+<template data-dw-feedback-tpl="idea">{{ dw_feedback({"id": "dw-feedback-tpl", "layout": "section", "submitted": true, "rating": "idea",
+  "thanks": {"text": "¡Gracias! Registramos tu idea."}}) }}</template>
+{%- endmacro -%}
+
+{#- Marcador declarativo de una instancia dinámica desde Jinja (equivale a `dwFeedback.html(cfg)` en JS). cfg: key (identidad única del
+    objeto evaluado), prompt, action (endpoint), fields ({campo: valor} del contrato), idea {module, context, prompt}. -#}
+{%- macro dw_feedback_mount(cfg) -%}
+<div data-dw-feedback-mount="{{ cfg.key }}" data-prompt="{{ cfg.prompt }}" data-action="{{ cfg.action }}" data-fields="{{ (cfg.fields or {}) | urlencode }}"
+     data-idea-module="{{ cfg.idea.module if cfg.idea else '' }}" data-idea-context="{{ cfg.idea.context if cfg.idea else '' }}" data-idea-prompt="{{ cfg.idea.prompt if cfg.idea else '' }}"></div>
+{%- endmacro -%}

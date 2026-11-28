@@ -1,9 +1,10 @@
+{% from "partials/dw_reaction_picker.html" import reaction_chosen %}{#- reacción elegida: MISMO primitivo que el resto del feedback del Hub -#}
 <div id="tree-feedback" class="tree-feedback tree-feedback-expanded">
   <form class="tree-feedback-form" hx-post="/wizards/{{ run.id }}/feedback/submit" hx-target="#tree-feedback" hx-swap="outerHTML">
     <input type="hidden" name="rating" value="{{ rating }}">
     <header class="feedback-form-header">
-      <span aria-hidden="true">{{ "👍" if rating == "up" else "👎" }}</span>
-      <div><strong>{{ "Fue útil" if rating == "up" else "No fue útil" }}</strong><p>Tu experiencia ayuda a mejorar esta recomendación.</p></div>
+      {{ reaction_chosen({"value": rating, "label": "", "icon": "like" if rating == "up" else "dislike"}, "Fue útil" if rating == "up" else "No fue útil") }}
+      <p>Tu experiencia ayuda a mejorar esta recomendación.</p>
     </header>
     {% if error %}<p class="feedback-error">{{ error }}</p>{% endif %}
 

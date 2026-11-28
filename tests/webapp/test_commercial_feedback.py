@@ -126,34 +126,18 @@ def test_feedback_is_the_last_element_of_a_ready_capability():
     assert "return body +" in fn
 
 
-def test_feedback_widget_copy_and_shared_classes():
-    fn = _COMMERCIAL_JS[_COMMERCIAL_JS.index("function commercialFeedbackHtml"):
-                        _COMMERCIAL_JS.index("function commercialOpenFeedbackForm")]
-    assert "¿Qué te pareció este reporte?" in fn
-    assert "section-feedback" in fn and "section-feedback__bar" in fn
-    assert "data-commercial-feedback" in fn  # keyeado por CAPABILITY
+_FB = _COMMERCIAL_JS[_COMMERCIAL_JS.index("function commercialFeedbackHtml"):_COMMERCIAL_JS.index("function commercialCapabilityHtml")]
 
 
-def test_feedback_posts_to_the_dedicated_commercial_endpoint():
-    fn = _COMMERCIAL_JS[_COMMERCIAL_JS.index("async function commercialSubmitFeedback"):
-                        _COMMERCIAL_JS.index("async function commercialSubmitFeedback") + 800]
-    assert '"/comercial/feedback"' in fn
+def test_feedback_declares_the_shared_hub_component_with_its_own_contract():
+    # Componente de Feedback del Hub (partials/dw_feedback.html): Comercial solo DECLARA su contexto; no arma markup ni estado.
+    assert "window.dwFeedback.html(" in _FB and "¿Qué te pareció este reporte?" in _FB
+    assert '"/comercial/feedback"' in _FB and "capability: cap" in _FB                  # mismo endpoint y campo del contrato
+    assert "section-feedback" not in _FB and "👍" not in _FB and "👎" not in _FB          # sin botonera propia
 
 
-def test_thumbs_down_opens_optional_comment_form_not_instant_thanks():
-    fn = _COMMERCIAL_JS[_COMMERCIAL_JS.index("function commercialFeedbackHtml"):
-                        _COMMERCIAL_JS.index("function commercialOpenFeedbackForm")]
-    assert "data-commercial-feedback-open" in fn
-    assert 'st === "form"' in fn
-    assert "section-feedback__form" in fn and "section-feedback__send" in fn and "section-feedback__ghost" in fn
-    assert "¿Qué esperabas o qué faltó acá?" in fn
-
-
-def test_feedback_comment_flows_to_endpoint():
-    fn = _COMMERCIAL_JS[_COMMERCIAL_JS.index("async function commercialSubmitFeedback"):
-                        _COMMERCIAL_JS.index("async function commercialSubmitFeedback") + 900]
-    assert 'document.getElementById("cfc-" + cap)' in fn  # lee el textarea
-    assert "body.comment" in fn                             # y lo manda al endpoint
+def test_idea_is_a_suggestion_never_a_down_vote():
+    assert 'context: "comercial:" + cap' in _FB and '"down"' not in _FB                   # la idea va a /trees/suggest, no al endpoint
 
 
 def test_feedback_ready_covers_all_seven_capabilities_and_clientes_reads_active_subtab():
@@ -178,10 +162,7 @@ def test_feedback_ready_covers_all_seven_capabilities_and_clientes_reads_active_
     assert "exClientsStatus" in fn and "clientsStatus" in fn
 
 
-def test_feedback_state_resets_on_tipo_change():
-    # Un cambio de Todos/NN/BI invalida "este reporte" para TODAS las
-    # capabilities — MISMO criterio que el resto del estado local por tab
-    # que ya se resetea en commercialSetTipo (búsqueda/orden/expansión).
-    fn = _COMMERCIAL_JS[_COMMERCIAL_JS.index("function commercialSetTipo"):
-                        _COMMERCIAL_JS.index("function commercialSetTipo") + 5500]
-    assert "commercialState.feedback = {};" in fn
+def test_feedback_instance_resets_on_tipo_change():
+    # Un cambio de Todos/NN/BI invalida "este reporte" para TODAS las capabilities: el universo forma parte de la clave de la
+    # instancia del componente, así que el estado registrado no se arrastra al nuevo universo (criterio de siempre).
+    assert 'key: "comercial:" + cap + ":" + (commercialState.tipo || "")' in _FB

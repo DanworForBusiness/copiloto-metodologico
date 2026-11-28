@@ -1,4 +1,4 @@
-{% from "partials/solicitudes_lookup_picker.html" import lookup_picker %}
+{% from "partials/dw_icons.html" import dw_icon %}{% from "partials/solicitudes_lookup_picker.html" import lookup_picker %}
 {% if refresh_hero %}{% include "partials/solicitudes_detail_hero.html" %}{% endif %}
 {% if error %}
 {% if auth_recovery %}{% from "partials/graph_auth_recovery.html" import graph_auth_recovery %}{{ graph_auth_recovery(auth_recovery.post_url, auth_recovery.target) }}
@@ -108,7 +108,9 @@
     <button type="submit" class="btn-primary" :disabled="saved || review"{% if not is_new and not etag %} disabled{% endif %}>{{ 'Crear solicitud' if is_new else 'Guardar' }}</button>
     {% if not is_new %}
     {% if funnel == 'Solicitado' and can_edit_architecture %}
-    <button type="button" class="btn-secondary" data-solicitudes-reject-open :disabled="saved || review"{% if not etag %} disabled{% endif %}>Rechazar / Derivar a Operaciones</button>
+    {#- Acción secundaria sobre la solicitud (no navegación ni CTA): primitivo del Hub `.dw-action` + ícono de derivación. Abre su diálogo de
+        confirmación de siempre; «Guardar» conserva la jerarquía gold y «Eliminar» su herramienta destructiva. -#}
+    <button type="button" class="dw-action dw-action--quiet" data-solicitudes-reject-open :disabled="saved || review"{% if not etag %} disabled{% endif %}>{{ dw_icon('derive') }}<span>Rechazar / Derivar a Operaciones</span></button>
     {% endif %}
     <button type="button" class="table-action-btn table-action-btn--danger chart-tooltip-anchor"
             aria-label="Eliminar solicitud" :disabled="saved || review"{% if not etag %} disabled{% endif %}

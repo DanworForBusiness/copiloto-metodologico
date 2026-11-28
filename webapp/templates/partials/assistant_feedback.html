@@ -1,9 +1,8 @@
-<div id="assistant-feedback-{{ reply.id }}" class="assistant-feedback">
-  <form hx-post="/assistant/responses/{{ reply.id }}/feedback" hx-target="#assistant-feedback-{{ reply.id }}" hx-swap="outerHTML">
-    <span>¿Te resultó útil esta respuesta?</span>
-    <div>
-      <button type="submit" name="rating" value="up" aria-label="Fue útil" title="Fue útil">👍</button>
-      <button type="submit" name="rating" value="down" aria-label="No fue útil" title="No fue útil">👎</button>
-    </div>
-  </form>
-</div>
+{#- Adaptador del feedback de cada RESPUESTA del Asistente → componente único `partials/dw_feedback.html` (layout "inline"). -#}
+{% from "partials/dw_feedback.html" import dw_feedback %}
+{{ dw_feedback({
+  "id": "assistant-feedback-" ~ reply.id, "layout": "inline", "wrapper_class": "assistant-feedback",
+  "react_url": "/assistant/responses/" ~ reply.id ~ "/feedback",
+  "prompt": "¿Te resultó útil la respuesta?",
+  "idea": {"module": stem | default(''), "pack": pack | default('datasphere_core'), "context": "assistant:" ~ reply.id},
+}) }}

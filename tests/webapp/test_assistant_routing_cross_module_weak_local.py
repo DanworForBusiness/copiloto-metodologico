@@ -62,7 +62,7 @@ def test_reported_query_from_module_01_does_not_route_to_configuracion_de_espaci
     route = _route(MOD_01, Q1)
     assert route is not None
     assert "Configuración de Espacios" not in (route.message or "")
-    assert "configuracion-de-espacios" not in "".join(a.url for a in route.actions)
+    assert "configuracion-de-espacios" not in "".join(a.url for a in (route.actions + route.references))
 
 
 def test_reported_query_from_module_01_lands_on_streaming_read_or_its_parent():
@@ -75,8 +75,8 @@ def test_reported_query_from_module_01_lands_on_streaming_read_or_its_parent():
         "{dw-black}Tablas {dw-gold}Remotas",
     )
     assert route.explain_module == MOD_03
-    assert any(a.label == "Ir a la sección" for a in route.actions)
-    landing = next(a.url for a in route.actions if a.label == "Ir a la sección")
+    assert any(a.label == "Ir a la sección" for a in (route.actions + route.references))
+    landing = next(a.url for a in (route.actions + route.references) if a.label == "Ir a la sección")
     assert landing.startswith(f"/modules/{MOD_03}")
 
 
@@ -85,7 +85,7 @@ def test_reported_query_keeps_the_kba_as_related_resource():
     assert route is not None
     assert any(
         "userapps.support.sap.com/sap/support/knowledge/en/3209242" in a.url
-        for a in route.actions
+        for a in (route.actions + route.references)
     )
     assert "KBA 3209242" in route.message
 
@@ -135,7 +135,7 @@ def test_ora_error_case_now_resolves_to_tablas_remotas_instead_of_no_section():
     route = _route(MOD_01, Q_ORA)
     assert route is not None
     assert route.explain_heading == "{dw-black}Tablas {dw-gold}Remotas"
-    assert any(a.label == "Ir a la sección" for a in route.actions)
+    assert any(a.label == "Ir a la sección" for a in (route.actions + route.references))
 
 
 # --- E: guardrail — NO comparar siempre por score (evita la regresión real) -

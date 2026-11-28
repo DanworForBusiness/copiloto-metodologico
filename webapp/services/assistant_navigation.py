@@ -19,6 +19,7 @@ from core.utils import norm_text
 from webapp.services import assessment_presenter as presenter
 from webapp.services import assistant_capabilities as caps
 from webapp.services import assistant_context as qctx
+from webapp.services import assistant_refs
 from webapp.services import assistant_entry_answers as answers
 from webapp.services import assistant_entry_facts as facts
 from webapp.services import assistant_entry_resolver as resolver
@@ -39,6 +40,15 @@ class NavigationResult:
     result: caps.ResultSet | None = None          # resultado estructurado de una consulta sobre el Catálogo (filas navegables); ``message`` queda como su encabezado
     state: qctx.QueryDraft | None = None          # contexto de la consulta para los seguimientos (el borde HTTP lo asocia a usuario e instante); None = esta respuesta no deja contexto
     keep_state: bool = False                      # sin `state`: conservar el contexto vigente (p. ej. «abrí el segundo» no cambia la lista); por defecto una respuesta que no es una consulta lo borra
+    references: tuple[tuple, ...] = ()            # destinos (mismo formato que `actions`) de los objetos MENCIONADOS en `message`, marcados por índice (`assistant_refs`): link inline, no botón
+
+
+def _assessment_ref(label: str, url: str, **kw) -> NavigationResult:
+    """«Acá está el Assessment de X»: el modelo nombrado es la referencia inline al Assessment (no se repite como botón)."""
+    refs = assistant_refs.References()
+    linked = refs(label, ("Ver Assessment", url))
+    return NavigationResult(f"Acá está el **Assessment** de **{linked}**: se abre el informe tal como figura hoy en el Catálogo (o su estado, si todavía no se evaluó).",
+                            (), references=refs.tuple(), **kw)
 
 
 @dataclass(frozen=True)
@@ -98,9 +108,11 @@ def _client_report(question: str, pack: str, stem: str = "", ctx: qctx.QueryCont
     if len(hits) == 1:
         client = hits[0]
         n = len(portfolio.client_entries(client))                       # el MISMO universo que muestra el informe (``catalog_assets``)
+        refs = assistant_refs.References()
+        linked = refs(f"Informe de Cliente de {client}", ("Ver informe", _report_url(_reference_flow(mod, entries, client), pack)))
         return NavigationResult(
-            f"Acá está el **Informe de Cliente de {client}**: consolida el estado de sus {n} modelo{'s' if n != 1 else ''} publicado{'s' if n != 1 else ''} en el Catálogo.",
-            (("Ver informe", _report_url(_reference_flow(mod, entries, client), pack)),))
+            f"Acá está el **{linked}**: consolida el estado de sus {n} modelo{'s' if n != 1 else ''} publicado{'s' if n != 1 else ''} en el Catálogo.",
+            (), references=refs.tuple())
     if len(hits) > 1:
         acts = tuple(a for a in (action(c) for c in hits[:MAX_OPTIONS]) if a)
         return NavigationResult("Mencionaste más de un cliente. ¿De cuál querés ver el informe?", acts)
@@ -288,8 +300,7 @@ def _entry_assessment(question: str, pack: str, stem: str = "", ctx: qctx.QueryC
         e = next(x for x in flows if x.entry_id == res.matches[0].entry_id)
         title = caps.build_items([e], governed, pack)[0].title
         label = f"{e.cliente} · {e.dominio if title == presenter.NO_TERMINAL_TITLE else title}".strip(" ·")          # sin modelo terminal: el único nombre que existe es el dominio, como antes
-        return NavigationResult(f"Acá está el **Assessment** de **{label}**: se abre el informe tal como figura hoy en el Catálogo (o su estado, si todavía no se evaluó).",
-                                (("Ver Assessment", presenter.assessment_url(e, pack)),), state=_focus_draft(e.entry_id))
+        return _assessment_ref(label, presenter.assessment_url(e, pack), state=_focus_draft(e.entry_id))
     if res.status in (resolver.AMBIGUOUS, resolver.MULTIPLE):
         more = f" Muestro los primeros {MAX_OPTIONS}: sumá el cliente o el nombre completo para acotar." if len(res.matches) > MAX_OPTIONS else ""
         lead = "Nombraste más de un modelo." if res.status == resolver.MULTIPLE else "Hay más de un modelo que coincide con tu consulta."
@@ -301,8 +312,7 @@ def _entry_assessment(question: str, pack: str, stem: str = "", ctx: qctx.QueryC
     if len(ordered) == 1:
         e = ordered[0]
         label = f"{e.cliente} · {e.dominio}".strip(" ·")
-        return NavigationResult(f"Acá está el **Assessment** de **{label}**: se abre el informe tal como figura hoy en el Catálogo (o su estado, si todavía no se evaluó).",
-                                (("Ver Assessment", presenter.assessment_url(e, pack)),))
+        return _assessment_ref(label, presenter.assessment_url(e, pack))
     shown = ordered[:MAX_OPTIONS]
     more = f" Muestro los primeros {MAX_OPTIONS}: sumá el cliente o el nombre completo para acotar." if len(ordered) > MAX_OPTIONS else ""
     titles = caps.build_items(shown, caps.governed_read(shown), pack)          # el MISMO título que muestran las filas del Catálogo: varios modelos pueden compartir dominio y cliente
@@ -1477,8 +1487,7 @@ def _focus_followup(question: str, pack: str, stem: str, ctx: qctx.QueryContext)
         if open_own:
             item = caps.build_items([entry], governed, pack)[0]
             label = f"{entry.cliente} · {item.title}".strip(" ·")
-            out = NavigationResult(f"Acá está el **Assessment** de **{label}**: se abre el informe tal como figura hoy en el Catálogo (o su estado, si todavía no se evaluó).",
-                                   (("Ver Assessment", presenter.assessment_url(entry, pack)),), state=_focus_draft(entry.entry_id))
+            out = _assessment_ref(label, presenter.assessment_url(entry, pack), state=_focus_draft(entry.entry_id))
         else:
             out = _entry_answer(intent, entry, governed, pack)
         if entity_list:                                                      # el foco vino de una lista: la lista sigue valiendo («abrí el tercero») y el modelo consultado queda en foco

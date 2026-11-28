@@ -1,30 +1,41 @@
 {# route: match curado (asset/sección/catálogo). explain: affordance de
    "Explicame vos" sobre una respuesta grounded sin match local (ver
    AssistantRoutingService.no_local_evidence_explain) -- no tiene actions
-   propias, sólo el form de abajo. Nunca coexisten (ver assistant.py). #}
+   propias, sólo el form de abajo. Nunca coexisten (ver assistant.py).
+
+   Acciones contextuales COMPACTAS (patrón capitalizado de las acciones de Comunidad en Cartelera; ver tools.css `.assistant-route-action`):
+   la DISPOSICIÓN responde a la naturaleza de cada interacción, sin tocar qué acciones genera el router.
+     · Aclaraciones (`ask`: «elegí una de estas opciones») → grupo de ELECCIÓN. Apilado (una opción por línea, texto completo legible) cuando
+       hay más de dos opciones o alguna es larga; en fila cuando son dos opciones cortas (p. ej. «Más …» / «Menos …»).
+     · Continuidad (Catálogo, otro módulo, catálogo de conectividad, sección no nombrada) + «Explicame vos» → fila de pastillas compactas.
+     · Las REFERENCIAS a objetos mencionados en la respuesta no llegan acá: el router las resuelve como links inline sobre el propio nombre
+       (`route.references`, ver `webapp/services/assistant_refs.py`), así no se duplican como botones. #}
+{% from "partials/dw_icons.html" import dw_icon %}
+{% from "partials/assistant_route_link.html" import route_target_attrs %}
 {% set r = route or explain %}
+{% set asks = r.actions | selectattr('ask') | list %}
+{% set navs = r.actions | rejectattr('ask') | list %}
+{% set stacked = asks | length > 2 or (asks | map(attribute='label') | map('length') | max if asks else 0) > 22 %}
 <div class="assistant-route-actions" aria-label="Opciones sugeridas">
-  {% for action in r.actions %}
-  {% if action.ask %}
-  {# Aclaración de una consulta analítica: reenvía al MISMO chat una pregunta canónica fijada por el servidor (nunca texto del usuario); el router la resuelve como cualquier otra. #}
-  <form class="assistant-route-ask" hx-post="/modules/{{ stem }}/assistant/chat" hx-target="#assistant-conversation" hx-swap="beforeend" hx-indicator="#assistant-chat-loading" hx-disabled-elt="button"
-        data-dw-request-error-target="#assistant-conversation" data-dw-request-error-message="No pudimos completar la solicitud por un problema de conectividad. Intentá nuevamente en unos minutos.">
-    <input type="hidden" name="pack" value="{{ pack }}">
-    <input type="hidden" name="conversation_id" value="{{ reply.conversation_id }}">
-    <input type="hidden" name="question" value="{{ action.ask }}">
-    <button type="submit" class="assistant-route-action">{{ action.label }}</button>
-  </form>
-  {% elif action.activate_tab %}
-  {# Pestaña de «Herramientas de decisión» de ESTA página (p. ej. Catálogo): se activa por el estado Alpine `toolTab` (mismo mecanismo que el clic en la pestaña); href de respaldo. #}
-  <a class="assistant-route-action" href="{{ action.url }}" @click.prevent="toolTab='{{ action.activate_tab }}'">{{ action.label }}</a>
-  {% elif action.embed %}
-  {# Detalle de catálogo: cargar en el slot por HTMX (como un card manual) para que
-     Volver y "Abrir CDS View" funcionen. href queda de fallback (abrir en pestaña). #}
-  <a class="assistant-route-action" href="{{ action.url }}"
-     hx-get="{{ action.url }}" hx-target="#catalog-detail-slot" hx-swap="innerHTML">{{ action.label }}</a>
-  {% else %}
-  <a class="assistant-route-action" href="{{ action.url }}"{% if action.external %} target="_blank" rel="noopener noreferrer"{% endif %}>{{ action.label }}</a>
+  {% if asks %}
+  <div class="assistant-choice{{ ' assistant-choice--stacked' if stacked else '' }}" role="group" aria-label="Elegí una opción">
+    {% for action in asks %}
+    {# Aclaración de una consulta analítica: reenvía al MISMO chat una pregunta canónica fijada por el servidor (nunca texto del usuario); el router la resuelve como cualquier otra. #}
+    <form class="assistant-route-ask" hx-post="/modules/{{ stem }}/assistant/chat" hx-target="#assistant-conversation" hx-swap="beforeend" hx-indicator="#assistant-chat-loading" hx-disabled-elt="button"
+          data-dw-request-error-target="#assistant-conversation" data-dw-request-error-message="No pudimos completar la solicitud por un problema de conectividad. Intentá nuevamente en unos minutos.">
+      <input type="hidden" name="pack" value="{{ pack }}">
+      <input type="hidden" name="conversation_id" value="{{ reply.conversation_id }}">
+      <input type="hidden" name="question" value="{{ action.ask }}">
+      <button type="submit" class="dw-action dw-action--quiet assistant-route-action assistant-route-action--choice"><span>{{ action.label }}</span>{{ dw_icon('arrow') }}</button>
+    </form>
+    {% endfor %}
+  </div>
   {% endif %}
+  {% if navs or r.explain_module %}
+  <div class="assistant-route-row">
+  {% for action in navs %}
+  {#- Destino compartido con las referencias inline (`assistant_route_link.html`): tab Alpine, detalle embebido por HTMX, externo o navegación. -#}
+  <a class="dw-action assistant-route-action"{{ route_target_attrs(action) }}>{{ dw_icon('external' if action.external else 'arrow') }}<span>{{ action.label }}</span></a>
   {% endfor %}
   {% if r.explain_module %}
   <form
@@ -45,7 +56,9 @@
     <input type="hidden" name="route_heading" value="{{ r.explain_heading }}">
     <input type="hidden" name="explain_prompt" value="{{ r.explain_prompt }}">
     <input type="hidden" name="route_general" value="{{ 'true' if r.explain_general else '' }}">
-    <button type="submit" class="assistant-route-action assistant-route-action--secondary">Explicame vos</button>
+    <button type="submit" class="dw-action dw-action--quiet assistant-route-action assistant-route-action--secondary">{{ dw_icon('spark') }}<span>Explicame vos</span></button>
   </form>
+  {% endif %}
+  </div>
   {% endif %}
 </div>

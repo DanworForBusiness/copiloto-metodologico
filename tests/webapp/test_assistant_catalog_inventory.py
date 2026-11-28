@@ -87,7 +87,7 @@ def test_broad_questions_return_a_short_aggregate_summary_with_the_real_counts(s
         assert "Ventas: " in r.message and "**Sin clasificar**: " in r.message                       # lo no clasificado se expresa como tal
         assert "**2 Data Products**" in r.message and "otra vista del Catálogo" in r.message         # Data Products no se mezcla con los modelos
         assert _bullets(r) == []                                                                       # sin enumeración de modelos
-        (a,) = r.actions
+        (a,) = (r.actions + r.references)
         assert a.label == "Abrir Catálogo" and a.activate_tab == "catalogo" and not a.embed             # una sola acción principal; NO una botonera por modelo
 
 
@@ -106,7 +106,7 @@ def test_with_120_models_response_size_and_actions_stay_bounded(big):
     for q in queries:
         r = _route(q)
         assert r is not None, q
-        assert len(r.actions) <= 2 and not any(a.embed and a.label.startswith(tuple(CLIENTS[1:])) for a in r.actions), q
+        assert len((r.actions + r.references)) <= 2 and not any(a.embed and a.label.startswith(tuple(CLIENTS[1:])) for a in (r.actions + r.references)), q
         assert len(_bullets(r)) <= nav.MAX_LIST, q
         sizes[q] = len(r.message)
     assert sizes["¿Qué dominios hay disponibles?"] < 800 and max(sizes.values()) < 1800                # el tamaño no crece con el catálogo
@@ -158,7 +158,7 @@ def test_a_client_filter_is_applied_first_and_offers_the_client_report(big):
     pampa = _count(lambda s: s["cliente"] == "Pampa")
     assert f"Hay **{pampa} entradas navegables** de **Pampa**" in r.message
     assert all(it.catalog.client == "Pampa" for it in _bullets(r)) and len(_bullets(r)) == min(pampa, nav.MAX_LIST)
-    assert [a.label for a in r.actions] == ["Abrir Catálogo", "Informe de Cliente · Pampa"] and r.actions[1].embed
+    assert [a.label for a in (r.actions + r.references)] == ["Abrir Catálogo", "Informe de Cliente · Pampa"] and (r.actions + r.references)[1].embed
     both = _route("Modelos de Ventas de Pampa")
     n = _count(lambda s: s["cliente"] == "Pampa" and s["lob"] == "SALES")
     assert f"Hay **{n} entradas navegables** de **Pampa** en la línea de negocio **Ventas**" in both.message     # cliente primero, después la línea de negocio
@@ -166,13 +166,13 @@ def test_a_client_filter_is_applied_first_and_offers_the_client_report(big):
 
 def test_the_client_report_flow_and_the_data_catalog_navigation_are_unchanged(big):
     r = _route("Ver informe de cliente para Pampa")
-    assert r.actions[0].label == "Ver informe" and r.actions[0].embed and "Informe de Cliente de Pampa" in r.message
+    assert (r.actions + r.references)[0].label == "Ver informe" and (r.actions + r.references)[0].embed and "Informe de Cliente de Pampa" in r.message
     r = _route("¿Qué catálogos disponibles hay?")
-    assert "vistas" in r.message and r.actions[0].label == "Abrir Catálogo"
+    assert "vistas" in r.message and (r.actions + r.references)[0].label == "Abrir Catálogo"
     r = _route("Abrí el Catálogo")
     assert r.message.startswith("Acá tenés el **Catálogo de datos**")
     r = _route("Abrí el catálogo de modelos")
-    assert r.message.startswith("Acá tenés el **Catálogo de datos**") and len(r.actions) == 1       # abrir el catálogo ≠ listar modelos
+    assert r.message.startswith("Acá tenés el **Catálogo de datos**") and len((r.actions + r.references)) == 1       # abrir el catálogo ≠ listar modelos
 
 
 @pytest.mark.parametrize("question", [
@@ -182,7 +182,7 @@ def test_the_client_report_flow_and_the_data_catalog_navigation_are_unchanged(bi
 def test_methodological_questions_are_not_catalog_inventory(big, question):
     assert nav._catalog_inventory(question, PACK, HOST) is None
     r = _route(question)
-    assert r is None or "El Catálogo contiene" not in r.message and not any(a.label.startswith(("Informe de Cliente", "Abrir Catálogo")) for a in r.actions)
+    assert r is None or "El Catálogo contiene" not in r.message and not any(a.label.startswith(("Informe de Cliente", "Abrir Catálogo")) for a in (r.actions + r.references))
 
 
 @pytest.mark.parametrize("question", [
@@ -196,7 +196,7 @@ def test_when_the_classification_cannot_be_read_it_says_so_instead_of_guessing(b
     r = _route("¿Qué modelos tenemos?")
     assert "**120 entradas navegables**" in r.message and "no está disponible en este momento" in r.message and "Ventas: " not in r.message and "Sin clasificar" not in r.message
     r = _route("Modelos de Ventas")
-    assert "no filtro por línea de negocio" in r.message and _bullets(r) == [] and len(r.actions) == 1
+    assert "no filtro por línea de negocio" in r.message and _bullets(r) == [] and len((r.actions + r.references)) == 1
     r = _route("¿Qué tiene Pampa?")                                                                    # sin pedir línea de negocio, el filtro por cliente no depende de la clasificación
     assert "de **Pampa**" in r.message and _bullets(r) and all(it.catalog.lob_label == "" and it.catalog.lob_source == "" for it in _bullets(r))     # sin clasificación legible, las filas no muestran línea de negocio (ni una supuesta)
     assert all(it.title for it in _bullets(r))                                                                                      # y los títulos salen del resolver del Catálogo por artefacto de consumo
@@ -221,7 +221,7 @@ def test_one_unreadable_entry_is_reported_as_unavailable_not_as_unclassified(sma
 def test_an_empty_catalog_is_explicit(tmp_path, monkeypatch):
     monkeypatch.setattr(catalog_reads, "_catalog_entries", lambda: (cs, []))
     r = _route("¿Qué dominios hay disponibles?")
-    assert r is not None and "todavía no tiene entradas navegables" in r.message and r.actions == ()
+    assert r is not None and "todavía no tiene entradas navegables" in r.message and (r.actions + r.references) == ()
 
 
 def test_the_older_inventory_classifier_now_gets_the_same_bounded_summary(big):
@@ -229,7 +229,7 @@ def test_the_older_inventory_classifier_now_gets_the_same_bounded_summary(big):
     q = "cuales flujos hay implementados?"
     assert _is_domain_inventory_query(q) and nav._catalog_inventory(q, PACK, HOST) is None            # lo reconoce solo el clasificador anterior…
     r = _route(q)
-    assert r is not None and r.message.startswith("El Catálogo contiene **120 entradas navegables**") and len(r.actions) == 1 and not r.actions[0].embed      # …y ya no vuelca nada
+    assert r is not None and r.message.startswith("El Catálogo contiene **120 entradas navegables**") and len((r.actions + r.references)) == 1 and not (r.actions + r.references)[0].embed      # …y ya no vuelca nada
 
 
 def test_registry_order_keeps_client_report_first():

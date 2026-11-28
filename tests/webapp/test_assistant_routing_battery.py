@@ -81,14 +81,14 @@ def test_task_chains_naming_has_no_cds_noise():
         _doc("04_Modelado_y_Desarrollo"), "cual es la convencion para task chains?", PACK
     )
     assert route is not None
-    assert "convencion-de-nombres" in " ".join(a.url for a in (route.actions or ()))
+    assert "convencion-de-nombres" in " ".join(a.url for a in ((route.actions + route.references) or ()))
     assert "Template CDS" not in route.message
 
 
 @pytest.mark.parametrize("stem,question,expect,bad", CASES)
 def test_routing_battery(stem, question, expect, bad):
     route = AssistantRoutingService().route(_doc(stem), question, PACK)
-    urls = " ".join(a.url for a in (route.actions or ())) if route else ""
+    urls = " ".join(a.url for a in ((route.actions + route.references) or ())) if route else ""
     msg = route.message if route else ""
     haystack = msg + " " + urls
 

@@ -70,7 +70,7 @@ def test_case_a_no_local_evidence_explain_offers_general_explain():
     )
     assert explain.explain_module == MOD_01
     assert explain.explain_general is True
-    assert explain.actions == ()  # sin recurso concreto que ofrecer, sólo el affordance
+    assert (explain.actions + explain.references) == ()  # sin recurso concreto que ofrecer, sólo el affordance
     assert explain.explain_prompt  # hay una directiva -- no es un fallback silencioso
 
 
@@ -114,7 +114,7 @@ def test_control_strong_exact_section_title_match_is_preserved():
     assert route is not None
     assert route.explain_module == "03_Integracion_y_Estrategia_de_Datos"
     assert "Federación vs. Persistencia" in (route.message or route.explain_heading)
-    assert any(a.label == "Ir a la sección" for a in route.actions)
+    assert any(a.label == "Ir a la sección" for a in (route.actions + route.references))
 
 
 # --- CASE 3 (aceptación, contenido nuevo del owner en A04) ------------------
@@ -131,7 +131,7 @@ def test_case_3_memory_alert_howto_resolves_to_the_concrete_asset():
     assert any(
         a.label == "Abrir recurso"
         and a.url == "https://danwor.sharepoint.com/:w:/s/PrcticaAnalytics/IQBeg98nVm1FR6k73lLVFdTEASMcDTe0NjkzmUiqEHStHaI?e=uEZUA0"
-        for a in route.actions
+        for a in (route.actions + route.references)
     )
     # NO debe quedarse en la referencia genérica a la colección.
     assert "Colección How-To" not in route.message

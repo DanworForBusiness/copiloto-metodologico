@@ -12,8 +12,8 @@ def test_routes_template_question_to_curated_asset_before_llm():
     assert route is not None
     assert "Template CDS" in route.message
     assert route.explain_module == "03_Integracion_y_Estrategia_de_Datos"
-    assert any(action.label == "Abrir recurso" for action in route.actions)
-    assert any("sharepoint.com" in action.url for action in route.actions)
+    assert any(action.label == "Abrir recurso" for action in (route.actions + route.references))
+    assert any("sharepoint.com" in action.url for action in (route.actions + route.references))
 
 
 def test_routes_cross_module_topic_to_exact_section_anchor():
@@ -25,8 +25,8 @@ def test_routes_cross_module_topic_to_exact_section_anchor():
 
     assert route is not None
     assert route.explain_module == "03_Integracion_y_Estrategia_de_Datos"
-    assert route.actions[0].label == "Ir a la sección"
-    assert route.actions[0].url.endswith("#federacion-vs-persistencia")
+    assert (route.actions + route.references)[0].label == "Ir a la sección"
+    assert (route.actions + route.references)[0].url.endswith("#federacion-vs-persistencia")
 
 
 def test_routes_active_module_asset_without_importing_streamlit_content():
@@ -38,7 +38,7 @@ def test_routes_active_module_asset_without_importing_streamlit_content():
 
     assert route is not None
     assert route.explain_module == document.summary.stem
-    assert route.actions[0].url == (
+    assert (route.actions + route.references)[0].url == (
         "/pack-resources/datasphere_core/templates/cds_extractor_template.abap"
     )
 
@@ -58,8 +58,8 @@ def test_conceptual_power_bi_protocol_question_keeps_asset_as_related_support():
     assert "How-to Danwor: Conectar Power BI" in route.message
     assert route.explain_module == "05_Reporting_y_Consumo"
     assert route.explain_heading == "Conexión de Herramientas Externas"
-    assert route.actions[0].label == "Ir a la sección"
-    assert route.actions[1].label == "Abrir recurso relacionado"
+    assert (route.actions + route.references)[0].label == "Ir a la sección"
+    assert (route.actions + route.references)[1].label == "Abrir recurso relacionado"
 
 
 def test_direct_power_bi_odbc_how_to_still_routes_to_asset():
@@ -71,7 +71,7 @@ def test_direct_power_bi_odbc_how_to_still_routes_to_asset():
 
     assert route is not None
     assert "recurso curado" in route.message
-    assert any(action.label == "Abrir recurso" for action in route.actions)
+    assert any(action.label == "Abrir recurso" for action in (route.actions + route.references))
 
 
 def _seed_apis(tmp_path):
@@ -151,8 +151,8 @@ def test_route_lidera_con_inventario_de_cds(tmp_path, monkeypatch):
     assert route is not None
     assert "3 CDS views" in route.message
     # una acción embed por CDS, apuntando a /catalog/cds
-    assert len(route.actions) == 3
-    assert all(a.embed and a.url.startswith("/catalog/cds?name=") for a in route.actions)
+    assert len((route.actions + route.references)) == 3
+    assert all(a.embed and a.url.startswith("/catalog/cds?name=") for a in (route.actions + route.references))
 
 
 def test_route_lidera_con_cds_view_por_nombre(tmp_path, monkeypatch):
@@ -165,8 +165,8 @@ def test_route_lidera_con_cds_view_por_nombre(tmp_path, monkeypatch):
 
     assert route is not None
     assert "ZCDS_DSP_FACT_LIPS" in route.message
-    assert route.actions[0].label == "Ver la CDS view"
-    assert route.actions[0].url == "/catalog/cds?name=ZCDS_DSP_FACT_LIPS&pack=datasphere_core"
+    assert (route.actions + route.references)[0].label == "Ver la CDS view"
+    assert (route.actions + route.references)[0].url == "/catalog/cds?name=ZCDS_DSP_FACT_LIPS&pack=datasphere_core"
 
 
 def test_clasificador_inventario_de_conectividad():
@@ -217,7 +217,7 @@ def test_howto_external_consumer_does_not_route_to_source_connection(monkeypatch
 
     assert route is not None
     assert "GDA" not in route.message
-    assert not any("/catalog/connections/detail" in a.url for a in route.actions)
+    assert not any("/catalog/connections/detail" in a.url for a in (route.actions + route.references))
 
 def test_explicit_connection_instance_still_routes_to_catalog(monkeypatch):
     """Una consulta sobre una conexión concreta conserva la evidencia del catálogo."""
@@ -251,7 +251,7 @@ def test_explicit_connection_instance_still_routes_to_catalog(monkeypatch):
     assert "GDA" in route.message
     assert any(
         "/catalog/connections/detail" in action.url
-        for action in route.actions
+        for action in (route.actions + route.references)
     )
 
 def test_specific_postgresql_howto_keeps_published_connection(monkeypatch):
@@ -285,7 +285,7 @@ def test_specific_postgresql_howto_keeps_published_connection(monkeypatch):
     assert "postgresql" in route.message.lower()
     assert any(
         "/catalog/connections/detail" in action.url
-        for action in route.actions
+        for action in (route.actions + route.references)
     )
 
 def test_protocol_only_match_does_not_claim_published_connection(monkeypatch):
@@ -317,7 +317,7 @@ def test_protocol_only_match_does_not_claim_published_connection(monkeypatch):
 
     assert route is None or not any(
         "/catalog/connections/detail" in action.url
-        for action in route.actions
+        for action in (route.actions + route.references)
     )
 
 def test_generic_power_bi_howto_offers_both_protocols():
@@ -550,7 +550,7 @@ def test_inventario_postgresql_filtrado_y_generico_preservado(monkeypatch):
     assert generic.result is None
     assert "ODATA" in generic.message.upper()
     assert "POSTGRESQL" in generic.message.upper()
-    assert any("tab=catalogo" in action.url for action in generic.actions)
+    assert any("tab=catalogo" in action.url for action in (generic.actions + generic.references))
 
 def test_inventario_tipo_compuesto_s4hana(monkeypatch):
     from tools.catalog.catalog_service import (
@@ -628,7 +628,7 @@ def test_inventario_filtrado_no_pierde_contexto_ante_error(monkeypatch):
     assert "ODATA" in route.message.upper()
     assert "no pudimos consultar" in route.message.lower()
     assert route.result is None
-    assert not route.actions
+    assert not (route.actions + route.references)
 
 def test_inventario_tipo_no_registrado_no_devuelve_generico(monkeypatch):
     from tools.catalog.catalog_service import CatalogConnectionEntry

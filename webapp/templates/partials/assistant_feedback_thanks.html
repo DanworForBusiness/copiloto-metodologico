@@ -1,3 +1,4 @@
-<div id="assistant-feedback-{{ reply.id }}" class="assistant-feedback assistant-feedback-thanks">
-  <span>Gracias, registramos tu feedback.</span>
-</div>
+{#- Agradecimiento del feedback de una respuesta del Asistente: estado `submitted` del MISMO componente (`partials/dw_feedback.html`). -#}
+{% from "partials/dw_feedback.html" import dw_feedback %}
+{{ dw_feedback({"id": "assistant-feedback-" ~ reply.id, "layout": "inline", "wrapper_class": "assistant-feedback",
+                "submitted": true, "rating": rating | default('up'), "thanks": {"text": "Gracias, registramos tu feedback."}}) }}

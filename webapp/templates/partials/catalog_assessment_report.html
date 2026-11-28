@@ -544,7 +544,7 @@
   {% endif %}
 </section>
 </article>
-{# Cierre del assessment: MISMO partial de cierre del Catálogo (`catalog_feedback.html`, botonera 👍/👎 del copiloto de fin de módulo) con su eyebrow propio. FUERA del `<article class="methodology">` (como en los demás detalles del Catálogo) para no heredar la tipografía del informe. #}
+{# Cierre del assessment: MISMO partial de cierre del Catálogo (`catalog_feedback.html`, componente de Feedback del Hub, `partials/dw_feedback.html`) con su eyebrow propio. FUERA del `<article class="methodology">` (como en los demás detalles del Catálogo) para no heredar la tipografía del informe. #}
 {% with catalog_kind="assessment", catalog_ref=v.entry_id, fb_eyebrow="Fin del assessment", fb_prompt="¿Qué te pareció este contenido?" %}{% include "partials/catalog_feedback.html" %}{% endwith %}
 {% endif %}
 {% if v.is_owner and v.resolutions_enabled %}

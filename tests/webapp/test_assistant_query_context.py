@@ -86,7 +86,7 @@ class Reply:
         self.text = re.sub(r"\s+", " ", self.text).strip()
         self.rows = [{k: _html.unescape(v) for k, v in re.findall(r'([\w-]+)="([^"]*)"', tag)} for tag in re.findall(r'<a class="assistant-result-row"([^>]*)>', raw)]
         self.refs = [r["data-ref"] for r in self.rows]
-        self.asks = [(_html.unescape(re.search(r'name="question" value="([^"]*)"', b).group(1)), re.search(r"<button[^>]*>(.*?)</button>", b, re.S).group(1).strip())
+        self.asks = [(_html.unescape(re.search(r'name="question" value="([^"]*)"', b).group(1)), re.sub(r"<svg.*?</svg>|<[^>]+>", "", re.search(r"<button[^>]*>(.*?)</button>", b, re.S).group(1)).strip())   # la opción lleva su ícono SVG: se lee el texto
                      for b in re.findall(r'<form class="assistant-route-ask".*?</form>', raw, re.S)]
         self.note = _html.unescape(re.sub(r"<[^>]+>", "", (re.search(r'assistant-results-note">(.*?)</p>', raw, re.S) or [None, ""])[1]))
         self.llm = "Respuesta generada con IA" in raw

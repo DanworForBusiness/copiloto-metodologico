@@ -179,7 +179,7 @@ def pack_asset(request: Request, pack_name: str, asset_path: str):
             academy_feedback = feedback_assets(academy_feedback_stem, selected)
         if academy_feedback:
             if re.search(r"</body>", source, re.I):
-                source = re.sub(r"</body>", academy_feedback + "\n</body>", source, count=1, flags=re.I)
+                source = re.sub(r"</body>", lambda _m: academy_feedback + "\n</body>", source, count=1, flags=re.I)  # literal: el cierre es markup del componente
             else:
                 source = source + "\n" + academy_feedback
         if re.search(r"</head>", source, re.I):

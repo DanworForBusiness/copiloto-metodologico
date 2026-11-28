@@ -609,7 +609,7 @@ def test_governed_vocabulary_with_the_word_assessment_is_a_state_filter_not_an_a
     for text, wanted in (("Mostrame los modelos con assessment vigente", {S_CURRENT}), ("Ver los modelos con assessment desactualizado", {S_STALE})):
         out = nav.resolve(text, PACK, HOST)
         assert out is not None and out.result is not None and out.result.capability == "list", text
-        assert not any("/catalog/flow/assessment" in a[1] for a in out.actions)
+        assert not any("/catalog/flow/assessment" in a[1] for a in (out.actions + out.references))
         chat = Chat()
         assert walk(chat, chat.ask(text)) == states_oracle(world, wanted).ids
 
@@ -617,7 +617,7 @@ def test_governed_vocabulary_with_the_word_assessment_is_a_state_filter_not_an_a
 def test_viewing_the_assessment_of_a_model_still_navigates_after_the_merge(world):
     e = next(x for x in world.entries if world.index[x.entry_id] == 12)
     out = nav.resolve(f"ver assessment de {e.dominio} de {e.cliente}", PACK, HOST)
-    assert out is not None and out.result is None and [a[0] for a in out.actions] == ["Ver Assessment"]
+    assert out is not None and out.result is None and [a[0] for a in (out.actions + out.references)] == ["Ver Assessment"]
 
 
 def test_the_registry_has_governed_vocabulary_before_the_assessment_navigation():

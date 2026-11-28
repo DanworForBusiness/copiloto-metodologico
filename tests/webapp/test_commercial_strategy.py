@@ -1266,7 +1266,7 @@ def test_section_feedback_follows_the_existing_hub_htmx_form_contract(monkeypatc
     )
     assert response.status_code == 200
     assert 'id="section-feedback-objectives"' in response.text
-    assert "&#128077;" in response.text or "👍" in response.text  # ¡Gracias! con el emoji correspondiente
+    assert 'data-rx="up"' in response.text and ("¡Gracias!" in response.text or "&iexcl;Gracias!" in response.text)  # ¡Gracias! con la reacción registrada (SVG compacto, ex 👍)
 
 
 def test_section_feedback_down_shows_optional_comment_form():
@@ -1310,21 +1310,21 @@ def test_shared_primitive_without_subject_keeps_the_generic_default():
     # A: un caller que no pasa `subject` (el comportamiento de SIEMPRE,
     # Copilot/Catalog/etc) no debe notar ningún cambio.
     html = _render_section_feedback_partial()
-    assert "&iquest;Qu&eacute; te pareci&oacute; esta secci&oacute;n?" in html
+    assert "¿Qué te pareció esta sección?" in html
 
 
 def test_shared_primitive_with_pillar_subject():
     # B
     html = _render_section_feedback_partial(subject="este pilar")
-    assert "&iquest;Qu&eacute; te pareci&oacute; este pilar?" in html
-    assert "esta secci&oacute;n" not in html
+    assert "¿Qué te pareció este pilar?" in html
+    assert "esta sección" not in html
 
 
 def test_shared_primitive_with_annex_subject():
     # C
     html = _render_section_feedback_partial(subject="este anexo")
-    assert "&iquest;Qu&eacute; te pareci&oacute; este anexo?" in html
-    assert "esta secci&oacute;n" not in html
+    assert "¿Qué te pareció este anexo?" in html
+    assert "esta sección" not in html
 
 
 def test_shared_primitive_subject_renders_as_plain_text_never_html():
@@ -1382,7 +1382,7 @@ def test_activation_sections_keep_the_generic_fallback(monkeypatch):
     _with_owner(monkeypatch)
     for section_id in ("exclusions", "next_steps"):
         fragment = _feedback_prompt_for_section(section_id)
-        assert "esta secci&oacute;n?" in fragment, section_id
+        assert "esta sección?" in fragment, section_id
         assert "este pilar" not in fragment
         assert "este anexo" not in fragment
 

@@ -55,6 +55,11 @@ const sandbox = {
   console,
 };
 vm.createContext(sandbox);
+// Componente de Feedback del Hub: se carga el hub_reactions.js REAL (como en base.html) para que la vertical DECLARE su instancia
+// con `dwFeedback.html(cfg)`; el componente en sí (clonado de los <template>) no forma parte de lo que prueba este harness.
+sandbox.MutationObserver = class { observe() {} };
+sandbox.document.documentElement = {};
+vm.runInContext(fs.readFileSync(path.resolve(__dirname, "..", "..", "webapp", "static", "hub_reactions.js"), "utf-8"), sandbox, { filename: "hub_reactions.js" });
 vm.runInContext(src, sandbox, { filename: "reporting.js" });
 
 const { render, capacidadPanelAnioKey } = sandbox;
@@ -212,7 +217,7 @@ assertFalse(state.reportingTabHydrated.horasvendidas, "ERROR (primera hidrataci�
 //    smoke: batch-a (Salud/Calendario) ready revelaba filtros+feedback con
 //    Participación (perspectiva por defecto) todavía en "Cargando…".
 // ============================================================================
-const FEEDBACK_MARK = "section-feedback";
+const FEEDBACK_MARK = "data-dw-feedback-mount";   // declaración del componente de Feedback del Hub
 
 // Case A — PRIMERA visita: Participación loading, batch-a (Salud) YA ready.
 // Repro exacta del bug: antes `combine(...)` devolvía "ready" y hidrataba el tab.

@@ -11,6 +11,20 @@
   'section': {'summary': '¿Falta una sección?', 'cta': 'Sugerí una →', 'label': '¿Qué tema o contenido debería cubrir?', 'ph': 'Ej.: falta un apartado sobre… / profundizar en…', 'thanks': 'la revisamos para sumar la sección.'},
 } %}
 {% set c = _copy.get(sg_kind, _copy['tree']) %}
+{% if sg_kind == 'idea' and suggested %}
+{#- «Tengo una idea»: el agradecimiento es el estado `idea` del MISMO componente de Feedback (`partials/dw_feedback.html`), en la
+    composición de la superficie que la originó. -#}
+{% from "partials/dw_feedback.html" import dw_feedback %}
+{% if sg_class == 'assistant-feedback' %}
+{{ dw_feedback({"id": sg_id, "layout": "inline", "wrapper_class": "assistant-feedback", "submitted": true, "rating": "idea", "thanks": {"text": "Gracias, registramos tu idea."}}) }}
+{% elif sg_class == 'module-feedback' %}
+{{ dw_feedback({"id": sg_id, "layout": "closing", "submitted": true, "rating": "idea", "thanks": {"eyebrow": "Gracias por tu idea", "note": "La revisamos para mejorar este contenido."}}) }}
+{% elif sg_class == 'section-feedback' %}
+{{ dw_feedback({"id": sg_id, "layout": "section", "submitted": true, "rating": "idea", "thanks": {"text": "¡Gracias! Registramos tu idea."}}) }}
+{% else %}
+<div id="{{ sg_id }}" class="tool-suggest"><p class="section-feedback__thanks" role="status">¡Gracias! Registramos tu idea.</p></div>
+{% endif %}
+{% else %}
 <div id="{{ sg_id }}" class="tool-suggest">
   {% if suggested %}
   <p class="tool-suggest__thanks" role="status">🌱 ¡Gracias! Registramos tu sugerencia — {{ c.thanks }}</p>
@@ -32,3 +46,4 @@
   </details>
   {% endif %}
 </div>
+{% endif %}
