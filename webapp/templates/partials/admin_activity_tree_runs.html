@@ -1,3 +1,4 @@
+{% from "partials/tree_run_timeline.html" import tree_run_timeline %}
 {% set _ns = namespace(qs="date_from=" ~ (date_from|urlencode) ~ "&date_to=" ~ (date_to|urlencode) ~ "&user=" ~ (summary.selected_user|urlencode) ~ "&module=" ~ (summary.selected_module|urlencode)) %}
 {% for f in summary.scope_facets if f.checked %}{% set _ns.qs = _ns.qs ~ "&scope=" ~ (f.key|urlencode) %}{% endfor %}
 {% for f in summary.area_facets if f.checked %}{% set _ns.qs = _ns.qs ~ "&area=" ~ (f.key|urlencode) %}{% endfor %}
@@ -22,30 +23,7 @@
           </span>
         </summary>
         <div class="assistant-story__detail">
-          <ol class="story-timeline">
-            <li class="story-timeline__step story-timeline__step--ask">
-              <span class="story-timeline__dot" aria-hidden="true">🌳</span>
-              <div class="story-timeline__body">
-                <p class="story-timeline__lead">Inició el árbol <strong>{{ run.title }}</strong></p>
-              </div>
-            </li>
-            {% for step in run.steps %}
-            <li class="story-timeline__step">
-              <span class="story-timeline__dot" aria-hidden="true">➜</span>
-              <div class="story-timeline__body">
-                <p class="story-timeline__lead">Respondió <strong>{{ step }}</strong></p>
-              </div>
-            </li>
-            {% endfor %}
-            {% if run.outcome %}
-            <li class="story-timeline__step">
-              <span class="story-timeline__dot" aria-hidden="true">🏁</span>
-              <div class="story-timeline__body">
-                <p class="story-timeline__lead">Resultado: <strong>{{ run.outcome.leaf or '—' }}</strong>{% if run.outcome.score %} · score <strong>{{ run.outcome.score }}</strong>{% endif %}</p>
-              </div>
-            </li>
-            {% endif %}
-          </ol>
+          {{ tree_run_timeline(run.title, run.steps, run.outcome) }}
         </div>
       </details>
     </li>

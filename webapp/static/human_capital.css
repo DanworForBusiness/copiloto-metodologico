@@ -170,6 +170,9 @@
    los botones a una segunda línea en vez de desbordar. Inocuo para consumidores
    con menos acciones (Candidatos ya entraba holgado). */
 .hc-profiles-hero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; flex: 0 0 auto; max-width: 100%; }
+/* Acciones a la altura del TÍTULO (arriba a la derecha) en vez de alineadas a la base del hero; el texto conserva su flex y un título largo
+   se reacomoda (o la acción baja de línea) sin superponerse. */
+.hc-profiles-hero-actions--top { align-self: flex-start; }
 /* "Actualizar catálogos" promovido al topbar (owner corrective: "mover el
    refresh al margen superior derecho... que aparezca en todas las
    secciones") -- vive DENTRO de `.header-tools` (platform_topbar.html,

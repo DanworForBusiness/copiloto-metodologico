@@ -1912,6 +1912,66 @@ document.body.addEventListener("click", function (ev) {
     else el.dispatchEvent(new CustomEvent("confirmed"));
   });
 }, true);
+// (a') ACTUALIZACIÓN OPTIMISTA de una eliminación (primitivo Hub-wide, opt-in en el elemento htmx que elimina):
+//   data-dw-optimistic-remove="<selector>"  → `closest(selector)` se retira de la vista apenas sale el request (tras el diálogo de confirmación);
+//   data-dw-optimistic-count="<selector>"   → contador «N cosa(s)» que se descuenta (`data-dw-count-one/many` en el contador para el plural);
+//   data-dw-optimistic-error="<texto>"      → aviso transversal `.dw-feedback-toast` + `.callout--feedback` si falla.
+// Éxito: el elemento se elimina (sin preloader ni confirmación extra). Falla (HTTP o conexión): vuelve a su lugar tal cual (incluido su estado
+// Alpine, porque solo se ocultó), el contador se re-incrementa (no se restaura un snapshot: convive con otras eliminaciones en vuelo) y el
+// control queda habilitado para reintentar. Respuestas tardías: cada request resuelve SOLO su propio elemento. La semántica la decide el servidor.
+(function () {
+  function counter(el) { const sel = el.getAttribute("data-dw-optimistic-count"); return sel ? document.querySelector(sel) : null; }
+  function bump(el, delta) {
+    const c = counter(el); if (!c) return;
+    const n = Math.max(0, (parseInt(c.textContent, 10) || 0) + delta);
+    c.textContent = n + " " + (n === 1 ? (c.dataset.dwCountOne || "") : (c.dataset.dwCountMany || "")).trim();
+  }
+  function notify(text) {
+    let host = document.querySelector(".dw-feedback-toast[data-dw-optimistic-toast]");
+    if (!host) {
+      host = document.createElement("div");
+      host.className = "dw-feedback-toast"; host.setAttribute("data-dw-auto-dismiss", ""); host.setAttribute("data-dw-auto-dismiss-fade", "");
+      host.setAttribute("data-dw-optimistic-toast", ""); host.setAttribute("aria-live", "polite");
+      document.body.appendChild(host);
+    }
+    const box = document.createElement("div"); box.className = "callout callout--feedback callout--warn"; box.setAttribute("role", "alert");
+    const body = document.createElement("div"); body.className = "callout__body"; const p = document.createElement("p"); p.textContent = text;
+    body.appendChild(p); box.appendChild(body); host.classList.remove("is-dismissing"); host.replaceChildren(box);
+    delete host.dataset.dwAutoDismissWired; if (typeof initAutoDismissFeedback === "function") initAutoDismissFeedback(document);
+  }
+  function restore(el, message) {
+    delete el.dataset.dwOptimisticPending; delete el.dataset.dwOptimisticSent;
+    const target = el.closest(el.getAttribute("data-dw-optimistic-remove"));
+    if (target) target.hidden = false;
+    bump(el, +1);
+    notify(message || el.getAttribute("data-dw-optimistic-error") || "No se pudo completar la eliminación. Podés reintentar.");
+  }
+  // Se retira AL CONFIRMAR (evento `confirmed` del diálogo compartido), sin esperar el token ni el request. Si el request no llega a salir
+  // (p. ej. no se obtuvo autorización), una salvaguarda restaura el elemento con el aviso.
+  document.body.addEventListener("confirmed", function (ev) {
+    const el = ev.target;
+    if (!el || !el.hasAttribute || !el.hasAttribute("data-dw-optimistic-remove") || el.dataset.dwOptimisticPending) return;
+    const target = el.closest(el.getAttribute("data-dw-optimistic-remove"));
+    if (!target) return;
+    el.dataset.dwOptimisticPending = "1"; target.hidden = true; bump(el, -1);
+    setTimeout(function () { if (el.dataset.dwOptimisticPending && !el.dataset.dwOptimisticSent && document.body.contains(el)) restore(el); }, 15000);
+  });
+  document.body.addEventListener("htmx:beforeRequest", function (ev) {
+    const el = ev.detail && ev.detail.elt;
+    if (el && el.dataset && el.dataset.dwOptimisticPending) el.dataset.dwOptimisticSent = "1";
+  });
+  document.body.addEventListener("htmx:afterRequest", function (ev) {
+    const el = ev.detail && ev.detail.elt;
+    if (!el || !el.dataset || !el.dataset.dwOptimisticPending) return;
+    if (ev.detail.successful) {
+      delete el.dataset.dwOptimisticPending;
+      const target = el.closest(el.getAttribute("data-dw-optimistic-remove"));
+      if (target) target.remove();
+      return;
+    }
+    restore(el);
+  });
+})();
 // (b) Forms NO-htmx con [data-dw-confirm-form]: se intercepta el submit, se
 // confirma y recién ahí se re-envía. Cubre el borrado full-page desde Editar.
 function initConfirmForms(scope) {

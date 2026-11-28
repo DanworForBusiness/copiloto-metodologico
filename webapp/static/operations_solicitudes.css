@@ -116,3 +116,17 @@ table.solicitudes-history-table td:last-child { white-space: normal; overflow-wr
 .solicitudes-kpis { margin-top: 0; }
 /* Filtros + barra contextual de seleccionadas: dos `.filter-toolbar-card` hermanos. Misma separación que el Hub usa entre cards apiladas
    (`.filter-toolbar-card + .filter-toolbar-card`, tools.css); sin márgenes negativos ni cambios de borde/radio/altura. */
+
+/* Funnel de Arquitectura e Innovación: árbol del Hub (motor y wizard del Copiloto) en el panel derecho COMPARTIDO (`.copilot-panel`, temas
+   en tools.css). Acá solo el panel oculto por defecto (la grilla `no-copilot` tiene 3 columnas). */
+.app-shell [data-funnel-panel][hidden] { display: none; }
+.solicitudes-funnel__note { margin-top: 12px; }
+
+/* Evaluación del Funnel en el historial: el recorrido (timeline compartido `tree_run_timeline`) se despliega DEBAJO del resultado, ocupando el
+   ancho del detalle: la fila crece en alto (mismo «+ ver más»), sin diálogo ni scroll horizontal. */
+.solicitudes-history-detail:has(.solicitudes-history-run) { flex-wrap: wrap; }
+.solicitudes-history-run { flex: 1 0 100%; min-width: 0; margin-top: 8px; }
+.solicitudes-history-run:not(.is-expanded) { display: none; }   /* mismo estado `expanded` que el texto de la fila (`.is-expanded`) */
+/* Con el panel derecho abierto (Funnel) el contenido se angosta: la tabla del historial usa el ancho disponible (columnas en % y texto que
+   ajusta) en vez de su ancho mínimo de lectura, para no generar scroll horizontal. */
+.app-shell:not(.no-copilot) table.solicitudes-history-table { min-width: 0; }

@@ -4,7 +4,7 @@ import hashlib
 import logging
 
 from fastapi import APIRouter, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from starlette.concurrency import run_in_threadpool
 
 from core.content_registry import DEFAULT_PACK
@@ -242,6 +242,8 @@ def _edit_panel(request, item_id, *, item=None, options=None, error="", auth_rec
     return templates.TemplateResponse(request=request, name=template, context={
         "item_id": item_id, "values": values, "current": values,
         "can_edit_architecture": can_edit_architecture, "can_correct_description": can_correct_description,
+        # «Funnel» en el hero: EXACTAMENTE la condición del textarea «Nueva observación de Arquitectura» (formulario de edición, no alta).
+        "funnel_action": bool(item) and template == "partials/solicitudes_edit.html" and can_edit_architecture,
         "description_mode": description_mode, "can_add_clarification": can_add_clarification,
         "description_consolidated": consolidated, "description_clarifications": clarifications,
         "clarification_ticket": journal.issue(item_id, user.get("sub")) if can_add_clarification else "",
@@ -293,12 +295,77 @@ def solicitudes_detail(request: Request, item_id: str, graph_token: str = Form("
     return _edit_panel(request, item_id, item=item, options=options, permissions=permissions)
 
 
+FUNNEL_CONTEXT, FUNNEL_TREE = "operaciones", "funnel_arquitectura_innovacion"
+
+
+def _record_funnel(request, run):
+    """Manejador de finalización del motor para el contexto «operaciones»: registra la evaluación completada en el historial de SU solicitud
+    (idempotente, snapshot del recorrido). Nunca asigna, cambia estados, deriva ni notifica."""
+    from webapp.services import solicitudes_funnel as funnel
+
+    user = auth_service.session_user(request) or {}
+    item_id = str((run.subject or {}).get("item_id") or "")
+    if not item_id or not user:
+        return False
+    return funnel.record(run, item_id=item_id, actor=user)
+
+
+def _register_funnel():
+    from webapp.services import wizard_service
+    wizard_service.on_completion(FUNNEL_CONTEXT, _record_funnel)
+
+
+_register_funnel()
+
+
+@router.post(PATH + "/{item_id}/funnel", response_class=HTMLResponse, include_in_schema=False)
+def solicitudes_funnel(request: Request, item_id: str, graph_token: str = Form("")):
+    """«Funnel»: el árbol de decisión del Funnel de Arquitectura e Innovación con el MOTOR ÚNICO de árboles del Hub (`wizard_service`,
+    `partials/wizard.html`, rutas `/wizards/*`). Misma autorización que la observación de Arquitectura (del servidor, por ítem). Solo
+    asiste la decisión: no cambia responsable ni estado, no notifica y no registra nada (run de contexto «operaciones», sin case_library)."""
+    from webapp.copilot_runtime import store
+    from webapp.services import wizard_service
+
+    user = _user(request)
+    if not user:
+        raise HTTPException(401)
+    if not item_id.isascii() or not item_id.isdecimal():
+        raise HTTPException(404)
+    context = {"item_id": item_id, "run": None, "error": ""}
+    if not graph_token:
+        context["error"] = "No pudimos obtener tu token de Microsoft para verificar tu acceso a la solicitud."
+    else:
+        try:
+            item = repository.read_item(graph_token, item_id)
+            _, architecture = repository.edit_permissions(graph_token, item, user)
+        except (HTTPError, URLError, TimeoutError, ValueError, KeyError) as exc:
+            context["error"] = _edit_error(exc)
+        else:
+            if not architecture:
+                raise HTTPException(403)
+            tree = wizard_service.hub_tree(FUNNEL_CONTEXT, FUNNEL_TREE)
+            if tree is None:
+                raise HTTPException(404)
+            run = store.start(tree, context=FUNNEL_CONTEXT, subject={"item_id": item_id},   # composición del renderer compartido
+                              presentation={"eyebrow": "Funnel Operativo", "title": "Arquitectura e Innovación", "close_event": "dw-funnel-close"})
+            context.update(run=run, node=run.node, leaf=run.leaf)
+    return templates.TemplateResponse(request=request, name="partials/solicitudes_funnel.html", context=context)
+
+
 @router.post(PATH + "/{item_id}/historial", response_class=HTMLResponse, include_in_schema=False)
 def solicitudes_history(request: Request, item_id: str, graph_token: str = Form("")):
     if not _user(request):
         raise HTTPException(401)
     if not item_id.isascii() or not item_id.isdecimal():
         raise HTTPException(404)
+    return _history_response(request, item_id, graph_token)
+
+
+def _history_response(request, item_id, graph_token):
+    """Historial único de la solicitud: observaciones firmadas, apertura y movimientos de SharePoint + evaluaciones del Funnel (registros
+    del Hub, independientes de que SharePoint responda)."""
+    from webapp.services import solicitudes_funnel as funnel
+
     rows, coverage, failure = [], journal.coverage_summary(()), None
     if not graph_token:
         failure = ("auth", True, "No se obtuvo la autorización de Microsoft para consultar las versiones. Reintentá sin volver a guardar.")
@@ -327,10 +394,43 @@ def solicitudes_history(request: Request, item_id: str, graph_token: str = Form(
     # Diagnóstico sin datos: solo los códigos de cobertura (nunca contenido, actores ni tokens).
     logging.getLogger("danwor.solicitudes.history").info("solicitudes.history coverage=%s failure=%s",
                                                          ",".join(coverage["codes"]) or "complete", failure[0] if failure else "none")
+    rows = journal.merge_rows(rows, funnel.history_rows(item_id))
     return templates.TemplateResponse(request=request, name="partials/solicitudes_history.html", context={
         'item_id': item_id, 'history_rows': rows, 'history_loaded': True, 'history_coverage': coverage,
         'history_failure': {"kind": failure[0], "retryable": failure[1], "message": failure[2]} if failure else None,
     })
+
+
+@router.post(PATH + "/{item_id}/funnel/{evaluation_id}/eliminar", response_class=HTMLResponse, include_in_schema=False)
+def solicitudes_funnel_discard(request: Request, item_id: str, evaluation_id: str, graph_token: str = Form("")):
+    """Descarta UNA simulación del Funnel (registro del Hub). Autorización del servidor: el mismo criterio de edición de Arquitectura.
+    Nunca alcanza movimientos verificables de SharePoint. Responde 204 SIN reconstruir el historial (que volvería a consultar el ítem y sus
+    versiones en SharePoint): la página ya retiró la fila de forma optimista (`data-dw-optimistic-remove`, app.js) y la restaura si falla."""
+    from webapp import same_origin_guard
+    from webapp.services import solicitudes_funnel as funnel
+
+    user = _user(request)
+    if not user:
+        raise HTTPException(401)
+    if not same_origin_guard.is_same_origin_write(request):
+        raise HTTPException(403)
+    if not item_id.isascii() or not item_id.isdecimal():
+        raise HTTPException(404)
+    if not graph_token:
+        raise HTTPException(401)
+    try:
+        item = repository.read_item(graph_token, item_id)
+        _, architecture = repository.edit_permissions(graph_token, item, user)
+    except (HTTPError, URLError, TimeoutError, ValueError, KeyError) as exc:
+        raise HTTPException(502, _edit_error(exc)) from exc
+    if not architecture:
+        raise HTTPException(403)
+    try:
+        if funnel.discard(item_id, evaluation_id, user) is None:            # «already» (otra pestaña/usuario ya la descartó) también es éxito
+            raise HTTPException(404)
+    except ValueError as exc:
+        raise HTTPException(404) from exc
+    return Response(status_code=204)
 
 
 @router.post(PATH + "/{item_id}/guardar", response_class=HTMLResponse, include_in_schema=False)
@@ -464,7 +564,7 @@ async def solicitudes_save(request: Request, item_id: str, graph_token: str = Fo
             admission.audit_approval(user['sub'], item_id, correlation)
         return _feedback(request, item_id, "saved", "Guardado confirmado en SharePoint.",
                          history_rows=journal.history(updated["fields"].get(service.COMMENTS), item_id, updated["fields"].get(service.DESCRIPTION)),
-                         refresh_history=True, **_detail_context(updated),
+                         refresh_history=True, funnel_action=can_architecture, **_detail_context(updated),   # el hero conserva «Funnel» (formulario de edición)
                          **({"refresh_clarifications": True,
                              "description_clarifications": journal.description_view(updated["fields"].get(service.DESCRIPTION), item_id)[1]}
                             if clarification_id else {}))
@@ -569,7 +669,7 @@ async def solicitudes_reject(request: Request, item_id: str, graph_token: str = 
         return feedback("saved", "Rechazo confirmado en SharePoint.",
                         notification_state=notification_state, notification_message=notification_message,
                         history_rows=journal.history(updated["fields"].get(service.COMMENTS), item_id, updated["fields"].get(service.DESCRIPTION)),
-                        refresh_history=True, **_detail_context(updated))
+                        refresh_history=True, funnel_action=True, **_detail_context(updated))   # rechazar exige Arquitectura (arriba), desde el formulario de edición
     except (HTTPError, URLError, TimeoutError, ValueError, KeyError) as exc:
         outcome = "invalid" if isinstance(exc, ValueError) else "read_error"
         return feedback("invalid" if isinstance(exc, ValueError) else "error", str(exc) if isinstance(exc, ValueError) else _edit_error(exc))

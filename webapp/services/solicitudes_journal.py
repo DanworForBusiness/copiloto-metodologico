@@ -275,6 +275,14 @@ def opening_issues(rows):
     return {code for row in rows if row.get('id', '').startswith('creation:') for code in row.get('issues') or ()}
 
 
+def merge_rows(rows, extra):
+    """Same history plus other dated movements (e.g. Hub records), newest first; unsigned legacy content stays at the end."""
+    known = {r.get('id') for r in rows if r.get('id')}
+    dated = [r for r in rows if r.get('at')] + [r for r in extra if r.get('id') not in known]
+    dated.sort(key=lambda r: datetime.fromisoformat(r['at']), reverse=True)
+    return dated + [r for r in rows if not r.get('at')]
+
+
 def with_opening(rows, item, item_id, versions=None):
     """Same history, plus its opening (if verifiable), newest first; unsigned legacy content stays at the end."""
     opening = opening_row(item, item_id, versions)

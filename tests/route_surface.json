@@ -358,6 +358,8 @@
   "POST /operaciones/solicitudes/nueva/datos",
   "POST /operaciones/solicitudes/{item_id}/detalle",
   "POST /operaciones/solicitudes/{item_id}/eliminar",
+  "POST /operaciones/solicitudes/{item_id}/funnel",
+  "POST /operaciones/solicitudes/{item_id}/funnel/{evaluation_id}/eliminar",
   "POST /operaciones/solicitudes/{item_id}/guardar",
   "POST /operaciones/solicitudes/{item_id}/historial",
   "POST /operaciones/solicitudes/{item_id}/rechazar",

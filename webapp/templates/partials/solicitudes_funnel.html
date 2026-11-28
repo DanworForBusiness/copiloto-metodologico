@@ -1,0 +1,10 @@
+{#- Contenido del panel «Funnel» (Operaciones → Solicitudes): el MISMO wizard de árboles del Copiloto (`partials/wizard.html`), en el mismo
+    envoltorio que la pestaña Árbol (`.tree-tab-panel`), para heredar sus estilos, estados y navegación (Volver / Nueva evaluación). -#}
+{% if error %}
+<div class="callout callout--warn callout--feedback"><div class="callout__body field-hint"><p>{{ error }}</p></div></div>
+{% else %}
+<div class="tree-tab-panel" id="tree-tab-panel">{% include "partials/wizard.html" %}</div>
+{#- Mientras el Funnel está abierto: una evaluación completada (motor → HX-Trigger «dw-tree-recorded») refresca el historial (filas y contador). -#}
+<div hidden hx-post="/operaciones/solicitudes/{{ item_id }}/historial" hx-trigger="dw-tree-recorded from:body" hx-target="#solicitudes-history" hx-swap="outerHTML" data-dw-graph-token></div>
+<p class="field-hint solicitudes-funnel__note">Asiste la decisión: al completar la evaluación, su resultado se registra en el historial de la solicitud. No cambia el responsable ni el estado.</p>
+{% endif %}

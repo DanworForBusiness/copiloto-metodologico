@@ -13,4 +13,13 @@
     </div>
     {% endif %}
   </div>
+  {#- «Funnel»: MISMA condición que «Nueva observación de Arquitectura» (`funnel_action`, resuelta en el servidor por el router de la
+      solicitud). El hero llega sin acciones y la recibe en su refresco OOB desde el detalle; el slot de acciones del hero reserva su espacio. -#}
+  {% if item_id and funnel_action is defined and funnel_action %}
+  <div class="hc-profiles-hero-actions hc-profiles-hero-actions--top">
+    <button type="button" class="btn-primary chart-tooltip-anchor is-tooltip-below is-tooltip-end solicitudes-funnel-btn" aria-label="Pasar por el Funnel"
+            data-dw-graph-token hx-post="/operaciones/solicitudes/{{ item_id }}/funnel" hx-target="#solicitudes-funnel" hx-swap="innerHTML"
+            @click="$dispatch('dw-funnel-open')">Funnel<span class="chart-tooltip chart-tooltip--label" aria-hidden="true"><p>Pasar por el Funnel</p></span></button>
+  </div>
+  {% endif %}
 </section>

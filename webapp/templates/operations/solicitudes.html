@@ -4,7 +4,9 @@
 {% block title %}Solicitudes · Operaciones · Danwor{% endblock %}
 {% block head_styles %}<link rel="stylesheet" href="{{ url_for('static', path='human_capital.css') }}?v={{ static_version }}"><link rel="stylesheet" href="{{ url_for('static', path='operations_busquedas.css') }}?v={{ static_version }}"><link rel="stylesheet" href="{{ url_for('static', path='operations_solicitudes.css') }}?v={{ static_version }}">{% endblock %}
 {% block body %}
-<div x-data="copilotLayout('solicitudes')" x-init="init()" class="app-shell no-copilot">
+<div x-data="copilotLayout('solicitudes')" x-init="init()" class="app-shell no-copilot"
+     @dw-funnel-open.window="$el.classList.remove('no-copilot'); $el.querySelectorAll('[data-funnel-panel]').forEach(n => n.hidden = false)"
+     @dw-funnel-close.window="$el.classList.add('no-copilot'); $el.querySelectorAll('[data-funnel-panel]').forEach(n => n.hidden = true); document.getElementById('solicitudes-funnel').innerHTML = ''">
   {% set identity %}<iframe src="/brand/dancing/{{ pack }}?title={{ config.OPERATIONS_APP_TITLE | urlencode }}&subtitle={{ config.OPERATIONS_APP_SUBTITLE | urlencode }}" title="Danwor" tabindex="-1" aria-hidden="true"></iframe>{% endset %}
   {% call platform_topbar(current_workspace, available_workspaces, current_workspace.home_url, identity, "Menú") %}{% endcall %}
   {% include "partials/operations_nav.html" %}
@@ -47,6 +49,13 @@
     </div>
     {% if not item_id and not is_new %}<div id="solicitudes-list-result" role="status"></div>{% endif %}
   </main>
+  {% if item_id and not is_new %}
+  {#- Panel derecho del layout compartido (`copilot-panel` del Copiloto): oculto por defecto; lo abre «Funnel». -#}
+  <div class="resize-handle resize-right" data-resize="right" title="Arrastrar para redimensionar" aria-hidden="true" data-funnel-panel hidden></div>
+  <aside class="copilot-panel solicitudes-funnel-panel" aria-label="Funnel de Arquitectura e Innovación" data-funnel-panel hidden>
+    <section class="tool-tab-panel" id="solicitudes-funnel" aria-live="polite"></section>
+  </aside>
+  {% endif %}
 </div>
 {% if not item_id and not is_new %}
 <dialog class="dw-confirm busqueda-dialog busqueda-contact-dialog hc-share-dialog" id="solicitudes-bulk-dialog" aria-labelledby="solicitudes-bulk-title"><div id="solicitudes-bulk-content"></div></dialog>

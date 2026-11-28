@@ -1,0 +1,88 @@
+# Funnel Operativo de Arquitectura e Innovación — «Soporte Funnel + Formación de nueva línea técnica» (Canal Competitivo).
+# Árbol de decisión del Hub en el contrato YAML NATIVO de los árboles del Copiloto (mismo motor: webapp/services/wizard_service.py).
+# Contexto: Operaciones → Solicitudes (botón «Funnel»). Asiste la decisión: NO asigna, no cambia estados ni notifica. Cada evaluación completada
+# se registra en el historial de la solicitud con un SNAPSHOT del recorrido (preguntas, respuestas y resultado de ESTA versión del árbol).
+id: funnel_arquitectura_innovacion
+title: Funnel de Arquitectura e Innovación
+version: "0.1"
+links:
+  context: operaciones
+  surface: solicitudes
+tags: ["funnel", "arquitectura e innovación", "solicitudes", "canal competitivo"]
+
+start: q_conocimiento
+nodes:
+  q_conocimiento:
+    type: single_choice
+    question: "¿La demanda es estratégica desde el conocimiento como activo Danwor?"
+    help: "La intervención de Arquitectura traerá conocimiento del que no disponemos, con la oportunidad de ser ordenado y capitalizado como activo y uso futuro."
+    options: ["Sí", "No"]
+    next:
+      "Sí": q_capacidades
+      "No": q_posicionamiento
+
+  q_capacidades:
+    type: single_choice
+    question: "¿Requiere capacidades técnicas por fuera de la línea consultoría?"
+    help: "El alcance, conocimiento o abordaje de la solicitud excede los conocimientos y/o experiencia de nuestra línea de consultoría."
+    options: ["Sí", "No"]
+    next:
+      "Sí": q_area
+      "No": leaf_asignar_colaborador
+
+  q_area:
+    type: single_choice
+    question: "¿En qué área?"
+    options: ["Metodología", "Arquitectura", "Compatibilidad/Roadmap", "Configuración/Integración", "Innovación y Estrategia", "Otra área"]
+    next:
+      "Metodología": leaf_asignar_arquitectura_innovacion
+      "Arquitectura": leaf_asignar_arquitectura_innovacion
+      "Compatibilidad/Roadmap": leaf_asignar_arquitectura_innovacion
+      "Configuración/Integración": leaf_asignar_arquitectura_innovacion
+      "Innovación y Estrategia": leaf_asignar_arquitectura_innovacion
+      "Otra área": leaf_validar_operaciones
+
+  q_posicionamiento:
+    type: single_choice
+    question: "¿La demanda es estratégica desde el posicionamiento Danwor?"
+    help: "La intervención de Arquitectura traerá un posicionamiento diferente en la manera en la que abordamos la cuenta."
+    options: ["Sí", "No"]
+    next:
+      "Sí": q_tipo_cliente
+      "No": leaf_validar_operaciones
+
+  q_tipo_cliente:
+    type: single_choice
+    question: "¿Qué tipo de cliente?"
+    help: "Si se trata de un cliente de base instalada, o por el contrario una nueva cuenta (New Name) con nuevos interlocutores."
+    options: ["Base Instalada", "New Name"]
+    next:
+      "Base Instalada": leaf_asignar_colaborador
+      "New Name": leaf_validar_operaciones
+
+leaves:
+  leaf_asignar_colaborador:
+    decision: "Asignar colaborador"
+    detail: "Disponible desde Operaciones siguiendo el marco técnico definido."
+    post_actions:
+      mode: resolved
+
+  leaf_asignar_arquitectura_innovacion:
+    decision: "Asignar a Arquitectura & Innovación"
+    detail: "José hace una primera revisión y validación y reasigna conforme sea oportuno."
+    notes:
+      - "Conforme avancemos en la formación de la nueva línea técnica, esta asignación podrá alocarse a n colaboradores."
+    post_actions:
+      mode: resolved
+
+  # Guardrail operativo: instancia HUMANA, no una regla automática. Su validación puede derivar después a Arquitectura & Innovación o a
+  # un colaborador (flechas punteadas de la referencia): esas derivaciones NO son transiciones del árbol.
+  leaf_validar_operaciones:
+    decision: "Validar con Operaciones"
+    detail: "Previo a cualquier contacto, esta necesidad debe ser validada por Operaciones."
+    notes:
+      - "Guardrail operativo: la validación de Operaciones puede derivar luego a Arquitectura & Innovación o a la asignación de un colaborador."
+      - "Por ejemplo, pudiera ser una instancia muy prematura de venta para involucrar directamente a Arquitectura & Innovación."
+    post_actions:
+      mode: needs_human_review
+      reason: "Guardrail operativo"

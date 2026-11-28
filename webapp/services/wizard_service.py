@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from functools import lru_cache
+from pathlib import Path
 from threading import RLock
 from uuid import uuid4
 import yaml
@@ -25,6 +26,37 @@ def _yaml_load(text: str):
 
 
 ROUTING_ONLY_TREE_IDS = frozenset({"m03_clean_core_guardrails", "framework_assessment"})
+
+# Árboles del HUB fuera de los content packs del Copiloto (p. ej. el Funnel de Operaciones → Solicitudes): MISMO contrato YAML y MISMO motor,
+# agrupados por contexto (`hub_trees/<contexto>/*.yaml`). No son un pack (no aparecen en el selector de marcos ni en los módulos).
+HUB_TREES_DIR = Path(__file__).resolve().parents[2] / "hub_trees"
+COPILOT_CONTEXT = "copilot"
+
+
+@lru_cache(maxsize=8)
+def _hub_trees(context: str) -> tuple[dict, ...]:
+    folder = HUB_TREES_DIR / context
+    if not context.isidentifier() or not folder.is_dir():
+        return ()
+    return tuple(_yaml_load(path.read_text(encoding="utf-8")) or {} for path in sorted(folder.glob("*.yaml")))
+
+
+# Al completar un recorrido (llegar a una hoja), un contexto del Hub puede registrar el resultado con SU persistencia (p. ej. Operaciones →
+# historial de la solicitud). El motor no conoce a los consumidores: solo invoca el manejador registrado para el contexto del run.
+_COMPLETION_HANDLERS: dict = {}
+
+
+def on_completion(context: str, handler) -> None:
+    _COMPLETION_HANDLERS[context] = handler
+
+
+def completion_handler(context: str):
+    return _COMPLETION_HANDLERS.get(context)
+
+
+def hub_tree(context: str, tree_id: str) -> dict | None:
+    """Árbol de un contexto del Hub por id exacto (el motor, el renderer y el recorrido son los del Copiloto)."""
+    return next((t for t in _hub_trees(context) if str(t.get("id") or "") == tree_id), None)
 
 
 @lru_cache(maxsize=8)
@@ -96,6 +128,15 @@ class WizardRun:
     feedback_lesson: str = ""
     case_id: str = ""
     pack_name: str = "datasphere_core"
+    # Contexto del consumidor del motor: "copilot" (módulos; persiste casos en case_library al llegar a una hoja) u otro contexto del Hub
+    # (p. ej. "operaciones": solo asiste la decisión, sin persistir ni registrar conclusiones).
+    context: str = COPILOT_CONTEXT
+    # Opciones de COMPOSICIÓN del renderer compartido (`partials/wizard.html`) que fija el consumidor al iniciar y valen en cada paso:
+    # `eyebrow` (encabezado contextual en lugar de «Árbol YAML»), `title` (título contextual en lugar del del YAML) y `close_event` (cruz en la
+    # cabecera que despacha ese evento). Vacío = Copiloto.
+    presentation: dict = field(default_factory=dict)
+    # Objeto que evalúa el recorrido en su contexto (p. ej. {"item_id": "12"}): lo usa el manejador de finalización del consumidor.
+    subject: dict = field(default_factory=dict)
     orchestration_sequence: list[str] = field(default_factory=list)
     orchestration_index: int = 0
     orchestration_scores: list[dict] = field(default_factory=list)
@@ -287,6 +328,9 @@ class WizardStore:
         orchestration_sequence: list[str] | None = None,
         orchestration_index: int = 0,
         orchestration_scores: list[dict] | None = None,
+        context: str = COPILOT_CONTEXT,
+        presentation: dict | None = None,
+        subject: dict | None = None,
     ) -> WizardRun:
         run = WizardRun(
             uuid4().hex,
@@ -296,6 +340,9 @@ class WizardStore:
             orchestration_sequence=list(orchestration_sequence or []),
             orchestration_index=orchestration_index,
             orchestration_scores=list(orchestration_scores or []),
+            context=context,
+            presentation=dict(presentation or {}),
+            subject=dict(subject or {}),
         )
         with self._lock: self._runs[run.id] = run
         return run
@@ -315,7 +362,7 @@ class WizardStore:
             if not target: run.error = "El YAML no define una transición para esa respuesta."; return run
             if target == run.current: run.error = "El YAML contiene un ciclo sobre el mismo nodo; la transición fue bloqueada."; return run
             run.history.append((run.current, answer)); run.current = str(target)
-            if run.leaf is not None and self._case_repository is not None:
+            if run.leaf is not None and self._case_repository is not None and run.context == COPILOT_CONTEXT:
                 self._case_repository.create_for_run(run)
             return run
 

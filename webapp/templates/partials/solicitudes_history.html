@@ -1,7 +1,7 @@
-{% from "partials/solicitudes_badge.html" import request_badge %}
+{% from "partials/solicitudes_badge.html" import request_badge %}{% from "partials/tree_run_timeline.html" import tree_run_timeline %}{% from "partials/table_action_macros.html" import table_action_icon %}
 <details class="dashboard-section" id="solicitudes-history" data-section-id="historial" data-persist-collapse open{% if refresh_history %} hx-swap-oob="outerHTML"{% endif %}>
   <summary class="dashboard-section__head"><span class="dashboard-section__caret"></span><span class="dashboard-section__title">Historial</span>
-    <span class="dashboard-section__count">{{ history_rows | length }} movimiento{{ '' if history_rows | length == 1 else 's' }}</span>
+    <span class="dashboard-section__count" data-dw-count data-dw-count-one="movimiento" data-dw-count-many="movimientos">{{ history_rows | length }} movimiento{{ '' if history_rows | length == 1 else 's' }}</span>
   </summary>
   <div class="dashboard-section__body">
     <p class="field-hint">Observaciones y movimientos verificables de SharePoint · Horario de Buenos Aires. La cobertura depende de las versiones conservadas.</p>
@@ -30,10 +30,23 @@
                         init(){this.$nextTick(()=>{this.measure();this.observer=new ResizeObserver(()=>this.measure());this.observer.observe(this.$el)})},
                         destroy(){this.observer?.disconnect()}}">
             {# «+ver más» solo si el detalle se CORTA en una línea o si el texto de la observación tiene saltos de línea propios (nunca por el espaciado del HTML de los badges). #}
-            <span id="sol-history-detail-{{ loop.index }}" class="solicitudes-history-preview" x-ref="text" data-multiline="{{ 'true' if '\n' in (entry.text or '') else 'false' }}" :class="{'is-expanded':expanded}">{% if entry.before is defined %}{% if entry.badge_kind %}{{ request_badge(entry.badge_kind, entry.before) }} → {{ request_badge(entry.badge_kind, entry.after) }}{% else %}{{ entry.before or '—' }} → {{ entry.after or '—' }}{% endif %}{% if entry.text %} · {% endif %}{% endif %}{{ entry.text }}</span>
+            <span id="sol-history-detail-{{ loop.index }}" class="solicitudes-history-preview" x-ref="text" data-multiline="{{ 'true' if entry.funnel or '\n' in (entry.text or '') else 'false' }}" :class="{'is-expanded':expanded}">{% if entry.before is defined %}{% if entry.badge_kind %}{{ request_badge(entry.badge_kind, entry.before) }} → {{ request_badge(entry.badge_kind, entry.after) }}{% else %}{{ entry.before or '—' }} → {{ entry.after or '—' }}{% endif %}{% if entry.text %} · {% endif %}{% endif %}{{ entry.text }}</span>
             <button type="button" class="whatsnew-filter__clear solicitudes-history-toggle" x-cloak
                     x-show="overflowing || expanded" :aria-expanded="expanded" aria-controls="sol-history-detail-{{ loop.index }}"
-                    @click="expanded=!expanded;$nextTick(()=>measure())" x-text="expanded ? '+ver menos' : '+ver más'">+ver más</button>
+                    @click="expanded=!expanded;$nextTick(()=>measure())" x-text="expanded ? '− ver menos' : '+ ver más'">+ ver más</button>
+            {%- if entry.funnel %}
+            {#- Simulación del Funnel (registro del Hub, nunca un movimiento de SharePoint): herramienta iconográfica de eliminación + confirmación
+                del Hub; el servidor exige el criterio de edición de Arquitectura y devuelve el historial actualizado. #}
+            <button type="button" class="table-action-btn table-action-btn--danger" aria-label="Eliminar esta simulación del Funnel"
+                    hx-post="/operaciones/solicitudes/{{ item_id }}/funnel/{{ entry.funnel.id }}/eliminar" hx-trigger="confirmed"
+                    hx-swap="none" data-dw-graph-token
+                    data-dw-optimistic-remove="tr" data-dw-optimistic-count="#solicitudes-history [data-dw-count]"
+                    data-dw-optimistic-error="No se pudo eliminar la simulación. Se restauró en el historial: podés reintentar."
+                    data-dw-confirm data-dw-confirm-title="Eliminar simulación" data-dw-confirm-ok="Eliminar"
+                    data-dw-confirm-message="Se eliminará del historial esta evaluación del Funnel. Las demás evaluaciones y los movimientos de SharePoint se conservan. ¿Querés continuar?">
+              {{ table_action_icon('delete') }}</button>{# sin tooltip: el contenedor del historial recorta lo que abre hacia afuera; nombre accesible por aria-label #}
+            <div class="solicitudes-history-run" :class="{'is-expanded':expanded}">{{ tree_run_timeline('Funnel Operativo · ' ~ entry.funnel.started, entry.funnel.steps, {'leaf': entry.funnel.result}, 'Inició la evaluación') }}</div>
+            {%- endif %}
           </div>
         </td>
       </tr>{% endfor %}</tbody>

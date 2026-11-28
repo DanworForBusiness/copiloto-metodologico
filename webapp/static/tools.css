@@ -3103,6 +3103,8 @@ button.dashboard-table-toggle:focus-visible { outline: 2px solid var(--gold); ou
    `--label` → etiqueta breve de una acción, ajustada a su contenido (sin el ancho mínimo pensado para datos de gráficos);
    `.is-tooltip-below` en el ancla → abre hacia abajo (acciones en cabeceras); `.is-tooltip-end` → alineado al borde final del ancla
    (acciones sobre el margen derecho: no desborda ni genera scroll). */
+/* Wizard de árboles: cabecera con herramientas (progreso + cierre) cuando el consumidor pide `close_event` (ver wizard.html). */
+.wizard-heading__tools { display: flex; align-items: flex-start; gap: 6px; flex: none; }
 .chart-tooltip--label { min-width: 0; width: max-content; max-width: 240px; }
 .chart-tooltip-anchor.is-tooltip-below .chart-tooltip { bottom: auto; top: calc(100% + 7px); }
 .chart-tooltip-anchor.is-tooltip-end .chart-tooltip { left: auto; right: 0; transform: none; }

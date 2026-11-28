@@ -1,0 +1,36 @@
+{#- Recorrido CRONOLÓGICO de un árbol de decisión: ÚNICA implementación (`.story-timeline`, tools.css). La promovió Métricas de Uso
+    (`admin_activity_tree_runs.html`) a capacidad compartida; también la consume el historial de Solicitudes (evaluaciones del Funnel).
+      tree_run_timeline(title, steps, outcome, start_lead)
+        steps    lista de respuestas (texto) o de {question, answer}: la pregunta acompaña a la respuesta cuando se conoce.
+        outcome  {leaf, score?} — resultado alcanzado (omitido si el recorrido no cerró). -#}
+{%- macro tree_run_timeline(title, steps, outcome=none, start_lead="Inició el árbol") -%}
+<ol class="story-timeline">
+  <li class="story-timeline__step story-timeline__step--ask">
+    <span class="story-timeline__dot" aria-hidden="true">🌳</span>
+    <div class="story-timeline__body">
+      <p class="story-timeline__lead">{{ start_lead }} <strong>{{ title }}</strong></p>
+    </div>
+  </li>
+  {%- for step in steps %}
+  <li class="story-timeline__step">
+    <span class="story-timeline__dot" aria-hidden="true">➜</span>
+    <div class="story-timeline__body">
+      {%- if step is mapping %}
+      <p class="story-timeline__lead">{{ step.question }}</p>
+      <p class="story-timeline__lead">Respondió <strong>{{ step.answer }}</strong></p>
+      {%- else %}
+      <p class="story-timeline__lead">Respondió <strong>{{ step }}</strong></p>
+      {%- endif %}
+    </div>
+  </li>
+  {%- endfor %}
+  {%- if outcome %}
+  <li class="story-timeline__step">
+    <span class="story-timeline__dot" aria-hidden="true">🏁</span>
+    <div class="story-timeline__body">
+      <p class="story-timeline__lead">Resultado: <strong>{{ outcome.leaf or '—' }}</strong>{% if outcome.score %} · score <strong>{{ outcome.score }}</strong>{% endif %}</p>
+    </div>
+  </li>
+  {%- endif %}
+</ol>
+{%- endmacro -%}

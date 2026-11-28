@@ -44,6 +44,7 @@ from webapp.services import auth_service, commercial_strategy_markup
 from webapp.services.activity_service import log_activity, log_verbose
 from webapp.services.activity_context import SCOPE_COPILOT, AREA_METHODOLOGY
 from webapp.services.content_service import load_module
+from webapp.services.wizard_service import COPILOT_CONTEXT, completion_handler
 from webapp.templating import templates
 
 router = APIRouter()
@@ -239,6 +240,26 @@ def _follow_wizard_redirect(run):
     return run
 
 
+def _authorized_run(request, run_id: str):
+    """Run del motor ÚNICO de árboles. Los runs de otro contexto del Hub (p. ej. Operaciones → Solicitudes) exigen la autorización de
+    ese espacio en cada paso; los del Copiloto conservan el comportamiento de siempre."""
+    try:
+        run = store.get(run_id)
+    except KeyError as exc:
+        raise HTTPException(410, str(exc)) from exc
+    if run.context != COPILOT_CONTEXT:
+        from webapp import operations_access
+        if not auth_service.session_user(request) or not operations_access.is_operations_authorized(request):
+            raise HTTPException(403)
+    return run
+
+
+def _copilot_only(request, run_id: str):
+    """El feedback de árboles alimenta case_library (aprendizaje del Copiloto): no aplica a otros contextos del Hub."""
+    if _authorized_run(request, run_id).context != COPILOT_CONTEXT:
+        raise HTTPException(404)
+
+
 def _fragment(request, run):
     return templates.TemplateResponse(
         request=request,
@@ -249,24 +270,30 @@ def _fragment(request, run):
 
 @router.post("/wizards/{run_id}/answer", response_class=HTMLResponse)
 def answer(request: Request, run_id: str, answer: str = Form(""), panel: str = Form("")):
+    _authorized_run(request, run_id)
     try:
         run = store.answer(run_id, answer)
         leaf = run.leaf or {}
-        log_verbose(
-            "tree_outcome" if leaf else "tree_step",
-            user=(auth_service.session_user(request) or {}),
-            scope=SCOPE_COPILOT, area=AREA_METHODOLOGY,
-            run_id=run_id, answer=answer,
-            tree_id=str(run.tree.get("id") or "") if getattr(run, "tree", None) else "",
-            reached_leaf=bool(leaf),
-            # El resultado del árbol vive en `leaf.decision` (el <h3> "Decisión
-            # recomendada" en wizard.html), NO en id/title — las hojas no tienen
-            # esos campos, por eso el dashboard mostraba "Resultado: —". Fallback
-            # a title/id por si alguna hoja vieja los usara. (Los árboles de
-            # assessment no tienen `decision`: su resultado es el `score`.)
-            leaf=str(leaf.get("decision") or leaf.get("title") or leaf.get("id") or "") if leaf else "",
-            score=(getattr(run, "assessment_score", None) if leaf else None),
-        )
+        if run.context == COPILOT_CONTEXT:                                      # telemetría del Copiloto/metodología solo para sus runs
+            log_verbose(
+                "tree_outcome" if leaf else "tree_step",
+                user=(auth_service.session_user(request) or {}),
+                scope=SCOPE_COPILOT, area=AREA_METHODOLOGY,
+                run_id=run_id, answer=answer,
+                tree_id=str(run.tree.get("id") or "") if getattr(run, "tree", None) else "",
+                reached_leaf=bool(leaf),
+                # El resultado del árbol vive en `leaf.decision` (el <h3> "Decisión
+                # recomendada" en wizard.html), NO en id/title — las hojas no tienen
+                # esos campos, por eso el dashboard mostraba "Resultado: —". Fallback
+                # a title/id por si alguna hoja vieja los usara. (Los árboles de
+                # assessment no tienen `decision`: su resultado es el `score`.)
+                leaf=str(leaf.get("decision") or leaf.get("title") or leaf.get("id") or "") if leaf else "",
+                score=(getattr(run, "assessment_score", None) if leaf else None),
+            )
+        recorded = False
+        if run.leaf is not None and run.context != COPILOT_CONTEXT and completion_handler(run.context):
+            # Recorrido COMPLETO de otro contexto del Hub: su consumidor registra el resultado (idempotente) con su propia persistencia.
+            recorded = bool(completion_handler(run.context)(request, run))
         active = _follow_wizard_redirect(run)
         if panel == "tree" and active.tree.get("id") != run.tree.get("id") and not active.is_assessment:
             # Same container as manual selection: one swap updates both picker
@@ -283,13 +310,17 @@ def answer(request: Request, run_id: str, answer: str = Form(""), panel: str = F
                 },
                 headers={"HX-Retarget": "#tree-tab-panel", "HX-Reswap": "outerHTML"},
             )
-        return _fragment(request, active)
+        response = _fragment(request, active)
+        if recorded:
+            response.headers["HX-Trigger"] = "dw-tree-recorded"                    # la página del consumidor refresca lo que corresponda
+        return response
     except KeyError as exc:
         raise HTTPException(410, str(exc)) from exc
 
 
 @router.post("/wizards/{run_id}/back", response_class=HTMLResponse)
 def back(request: Request, run_id: str):
+    _authorized_run(request, run_id)
     try:
         return _fragment(request, store.back(run_id))
     except KeyError as exc:
@@ -298,6 +329,7 @@ def back(request: Request, run_id: str):
 
 @router.post("/wizards/{run_id}/restart", response_class=HTMLResponse)
 def restart(request: Request, run_id: str):
+    _authorized_run(request, run_id)
     try:
         return _fragment(request, store.restart(run_id))
     except KeyError as exc:
@@ -355,6 +387,7 @@ def _log_tree_feedback_reaction(request: Request, run, rating: str) -> None:
 
 @router.post("/wizards/{run_id}/feedback", response_class=HTMLResponse)
 def tree_feedback(request: Request, run_id: str, rating: str = Form("")):
+    _copilot_only(request, run_id)
     try:
         run = store.get(run_id)
     except KeyError as exc:
@@ -375,6 +408,7 @@ def tree_feedback_submit(
     rating: str = Form("down"), outcome: str = Form(""), context: str = Form(""),
     detail: str = Form(""), lesson: str = Form(""),
 ):
+    _copilot_only(request, run_id)
     try:
         run = store.submit_feedback(
             run_id, rating=rating, outcome=outcome, context=context, detail=detail, lesson=lesson,
@@ -389,6 +423,7 @@ def tree_feedback_submit(
 
 @router.post("/wizards/{run_id}/feedback/cancel", response_class=HTMLResponse)
 def tree_feedback_cancel(request: Request, run_id: str):
+    _copilot_only(request, run_id)
     try:
         run = store.get(run_id)
     except KeyError as exc:

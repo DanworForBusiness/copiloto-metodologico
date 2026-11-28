@@ -1,5 +1,8 @@
 <div id="wizard-shell" class="wizard" aria-live="polite" tabindex="-1">
-  <div class="wizard-heading"><div><span class="eyebrow">{% if run.is_assessment %}Diagn&oacute;stico YAML{% else %}&Aacute;rbol YAML{% endif %}</span><h2>{{ run.display_title }}</h2></div><span class="step-count">{{ run.history|length + 1 }}</span></div>
+  {%- set _view = run.presentation or {} %}
+  <div class="wizard-heading"><div><span class="eyebrow">{% if _view.eyebrow %}{{ _view.eyebrow }}{% elif run.is_assessment %}Diagn&oacute;stico YAML{% else %}&Aacute;rbol YAML{% endif %}</span><h2>{{ _view.title or run.display_title }}</h2></div>
+    {%- if _view.close_event %}<div class="wizard-heading__tools"><span class="step-count">{{ run.history|length + 1 }}</span><button type="button" class="panel-close" aria-label="Cerrar" title="Cerrar" @click="$dispatch('{{ _view.close_event }}')">&times;</button></div>
+    {%- else %}<span class="step-count">{{ run.history|length + 1 }}</span>{% endif %}</div>
   <div class="progress" role="progressbar" aria-valuenow="{{ run.progress }}"><span style="width:{{ run.progress }}%"></span></div>
   {% if run.error %}<div class="wizard-error">{{ run.error }}</div>{% endif %}
 
@@ -42,7 +45,7 @@
     {% endif %}
     {% if leaf.post_actions and leaf.post_actions.next_steps %}<div class="next-actions"><strong>Pr&oacute;ximos pasos</strong><ol>{% for step in leaf.post_actions.next_steps %}<li>{{ step }}</li>{% endfor %}</ol></div>{% endif %}
   </div>
-  {% include "partials/tree_feedback.html" %}
+  {% if run.context == "copilot" %}{% include "partials/tree_feedback.html" %}{% endif %}{# feedback de árboles → case_library: solo Copiloto #}
   <div class="wizard-actions"><button class="btn-secondary" hx-post="/wizards/{{ run.id }}/back" hx-target="#wizard-shell" hx-swap="outerHTML">Volver</button><button class="btn-primary" hx-post="/wizards/{{ run.id }}/restart" hx-target="#wizard-shell" hx-swap="outerHTML">Nueva evaluaci&oacute;n</button></div>
   {% else %}
   <form hx-post="/wizards/{{ run.id }}/answer" hx-trigger="change" hx-target="#wizard-shell" hx-swap="outerHTML" hx-disabled-elt="input">
